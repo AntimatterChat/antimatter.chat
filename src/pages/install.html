@@ -1,0 +1,58 @@
+title: Self-host Antimatter
+description: Run Antimatter on your own server in about ten minutes, with one compose file: the server, PostgreSQL, S3 storage and the GIF service.
+plain: yes
+---
+<div class="page-head"><div class="wrap"><span class="eyebrow">Get started</span><h1>Run Antimatter on your own server</h1>
+<p>One file, three commands, about ten minutes: Antimatter with its database, its file storage and its GIF service, on any Linux server with Docker.</p></div></div>
+<section><div class="wrap prose">
+<h2 id="docker">Up and running in ten minutes</h2>
+<p>You need a Linux server with <a href="https://docs.docker.com/engine/install/">Docker</a> and its Compose plugin, 2 CPU cores and 4 GB of memory or more.</p>
+
+<h3>1. Download the compose file</h3>
+<div class="terminal"><span class="p">$ </span>mkdir antimatter &amp;&amp; cd antimatter<br><span class="p">$ </span>curl -fsSLO https://antimatter.chat/compose.yaml</div>
+
+<h3>2. Create its settings, with random passwords</h3>
+<div class="terminal"><span class="p">$ </span>cat &gt; .env &lt;&lt;EOF<br>SITE_URL=http://localhost:8065<br>POSTGRES_PASSWORD=$(openssl rand -hex 24)<br>S3_SECRET_KEY=$(openssl rand -hex 24)<br>GIFS_API_KEY=$(openssl rand -hex 24)<br>EOF</div>
+<p>Set <code>SITE_URL</code> to the address people will use, such as <code>http://192.168.1.20:8065</code> on a local network.</p>
+
+<h3>3. Start it</h3>
+<div class="terminal"><span class="p">$ </span>docker compose up -d</div>
+<p>The first start takes a minute or two while the database is created. Then open <code>SITE_URL</code> in your browser and create your account: the first account becomes the system administrator, and the setup guides you through creating your first team.</p>
+
+<h3>With your own domain and HTTPS</h3>
+<p>Point a DNS record of your domain at the server, open ports 80 and 443, and add the domain to <code>.env</code>:</p>
+<div class="terminal"><span class="p">$ </span>cat &gt;&gt; .env &lt;&lt;EOF<br>DOMAIN=chat.example.com<br>EOF<br><span class="p">$ </span>sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env<br><span class="p">$ </span>docker compose --profile https up -d</div>
+<p style="margin-top:1em">Caddy gets a certificate from Let's Encrypt and renews it by itself.</p>
+
+<h3>What runs</h3>
+<ul>
+<li><b>antimatter</b>: the server, with its apps (notes, whiteboards, voice channels, calls, polls and the others). It keeps nothing on disk: its settings are in the database and its files in the storage service, so the container can be replaced at any time.</li>
+<li><b>postgres</b>: the database.</li>
+<li><b>files</b>: <a href="https://rustfs.com">RustFS</a>, S3-compatible storage for uploaded files.</li>
+<li><b>gifs</b>: Antimatter's GIF and sticker service, with a starter sticker pack.</li>
+<li><b>https</b>: <a href="https://caddyserver.com">Caddy</a>, only with the <code>https</code> profile.</li>
+</ul>
+<p>The database, the storage and the GIF service sit on a private network that only Antimatter reaches.</p>
+<div class="callout">If the GIF picker stays empty, open <b>System Console › Plugins › GIFs</b> and set the service URL to <code>http://gifs:8080/v2</code> and the API key to the <code>GIFS_API_KEY</code> of your <code>.env</code>.</div>
+
+<h3>Upgrades and backups</h3>
+<div class="terminal"><span class="c"># upgrade to the latest images</span><br><span class="p">$ </span>docker compose pull &amp;&amp; docker compose up -d<br><span class="c"># back up the database</span><br><span class="p">$ </span>docker compose exec postgres pg_dump -U antimatter antimatter &gt; antimatter.sql</div>
+<p style="margin-top:1em">Back up the <code>files</code> volume as well, or replicate the storage with any S3 tool. For a setup with nginx and your own certificates, see the production files in <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">antimatter-docker</a>.</p>
+
+<h2>With a release archive</h2>
+<ol>
+<li>Set up a PostgreSQL database and user.</li>
+<li>Unpack the archive (<code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>), for example into <code>/opt/antimatter</code>, and point <code>SqlSettings.DataSource</code> in <code>config/config.json</code> (or the <code>MM_SQLSETTINGS_DATASOURCE</code> environment variable) at the database.</li>
+<li>Start the server with <code>bin/antimatter</code>, as an unprivileged user, and open <code>http://localhost:8065</code>. The first account created becomes the system administrator.</li>
+</ol>
+<p><code>bin/amctl</code> manages a running server from the command line (<code>bin/amctl --local</code> on the server itself, with <code>ServiceSettings.EnableLocalMode</code>).</p>
+
+<h2>Next steps</h2>
+<ul>
+<li><b>Calls</b>: open the calls port (UDP and TCP 8443 by default) so voice and video reach the server.</li>
+<li><b>Email</b>: configure SMTP for invitations and notifications.</li>
+<li><b>AI</b>: add a model in the Agents settings; any OpenAI-compatible API works, including a server you run yourself.</li>
+<li><b>Speech and translation</b>: point call transcription, read-aloud and automatic translation at speech-to-text, text-to-speech and translation models you run yourself.</li>
+</ul>
+
+</div></section>

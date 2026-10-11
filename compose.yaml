@@ -1,0 +1,197 @@
+# Antimatter, ready to run: https://antimatter.chat/install.html
+#
+# Antimatter, its database (PostgreSQL), its file storage (RustFS, S3-compatible) and its GIF and
+# sticker service. Antimatter itself keeps nothing on disk: its settings live in the database and
+# its files in the storage service, so the container can be replaced at any time.
+#
+#   1. Put this file in an empty directory, with a .env file next to it (see install.html):
+#        SITE_URL=http://localhost:8065
+#        POSTGRES_PASSWORD=<random>
+#        S3_SECRET_KEY=<random>
+#        GIFS_API_KEY=<random>
+#   2. docker compose up -d
+#   3. Open SITE_URL and create the first account: it becomes the system administrator.
+#
+# With a domain name pointing to this server, set DOMAIN=chat.example.com and
+# SITE_URL=https://chat.example.com in .env, and start with `docker compose --profile https up -d`:
+# Caddy gets a certificate from Let's Encrypt and serves Antimatter on ports 80 and 443.
+
+name: antimatter
+
+x-secrets: &database-url postgres://antimatter:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/antimatter?sslmode=disable&connect_timeout=10
+
+services:
+  antimatter:
+    image: ${ANTIMATTER_IMAGE:-ghcr.io/antimatterchat/antimatter-next:latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      bucket:
+        condition: service_completed_successfully
+      gifs:
+        condition: service_started
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    environment:
+      TZ: ${TZ:-UTC}
+      # Settings are stored in the database; the System Console edits them there.
+      MM_CONFIG: *database-url
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: *database-url
+      MM_SERVICESETTINGS_SITEURL: ${SITE_URL:?set SITE_URL in .env}
+      # Uploaded files, images and installed plugins go to the storage service.
+      MM_FILESETTINGS_DRIVERNAME: amazons3
+      MM_FILESETTINGS_AMAZONS3ENDPOINT: files:9000
+      MM_FILESETTINGS_AMAZONS3SSL: "false"
+      MM_FILESETTINGS_AMAZONS3BUCKET: antimatter
+      MM_FILESETTINGS_AMAZONS3REGION: us-east-1
+      MM_FILESETTINGS_AMAZONS3ACCESSKEYID: antimatter
+      MM_FILESETTINGS_AMAZONS3SECRETACCESSKEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
+      # Logs go to the container's output (docker compose logs), not to files.
+      MM_LOGSETTINGS_ENABLEFILE: "false"
+      MM_NOTIFICATIONLOGSETTINGS_ENABLEFILE: "false"
+      # The GIF and sticker service, which only Antimatter reaches.
+      MM_SERVICESETTINGS_ALLOWEDUNTRUSTEDINTERNALCONNECTIONS: gifs
+      AM_GIFS_SERVICE_URL: http://gifs:8080/v2
+      AM_GIFS_API_KEY: ${GIFS_API_KEY:?set GIFS_API_KEY in .env}
+      AM_GIFS_UPLOAD_KEY: ${GIFS_UPLOAD_KEY:-}
+      # Calls: voice and video go straight to this port, UDP and TCP. Open it in the firewall.
+      MM_CALLS_UDP_SERVER_PORT: ${CALLS_PORT:-8443}
+      MM_CALLS_TCP_SERVER_PORT: ${CALLS_PORT:-8443}
+    ports:
+      - "${HTTP_PORT:-8065}:8065"
+      - "${CALLS_PORT:-8443}:${CALLS_PORT:-8443}/udp"
+      - "${CALLS_PORT:-8443}:${CALLS_PORT:-8443}/tcp"
+    networks:
+      - default
+      - private
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      POSTGRES_USER: antimatter
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: antimatter
+      TZ: ${TZ:-UTC}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    networks:
+      - private
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U antimatter -d antimatter"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # S3-compatible storage for uploaded files.
+  files:
+    image: rustfs/rustfs:latest
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ENABLE: "false"
+      RUSTFS_ACCESS_KEY: antimatter
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY}
+    volumes:
+      - files:/data
+    networks:
+      - private
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:9000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Creates Antimatter's bucket before Antimatter starts, then exits.
+  bucket:
+    image: amazon/aws-cli:latest
+    restart: "no"
+    depends_on:
+      files:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: antimatter
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "aws --endpoint-url http://files:9000 s3api head-bucket --bucket antimatter 2>/dev/null || aws --endpoint-url http://files:9000 s3api create-bucket --bucket antimatter"
+    networks:
+      - private
+
+  # GIFs and stickers for the GIF picker, with a starter sticker pack.
+  gifs:
+    image: ghcr.io/antimatterchat/antimatter-gifs:latest
+    restart: unless-stopped
+    depends_on:
+      gifs-stickers:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      AM_GIFS_API_KEYS: ${GIFS_API_KEY}
+      AM_GIFS_UPLOAD_KEYS: ${GIFS_UPLOAD_KEY:-}
+      # All of Antimatter's requests share one key and address: no per-client limit.
+      AM_GIFS_RATE_LIMIT: "0"
+      TZ: ${TZ:-UTC}
+    volumes:
+      - gifs:/data
+    networks:
+      - private
+
+  # Imports the sticker pack the first time, then exits.
+  gifs-stickers:
+    image: ghcr.io/antimatterchat/antimatter-gifs:latest
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "[ -e /data/.stickers-imported ] || { antimatter-gifs stickers && touch /data/.stickers-imported; }"
+    volumes:
+      - gifs:/data
+
+  # HTTPS with an automatic Let's Encrypt certificate (profile "https"); needs DOMAIN in .env.
+  https:
+    image: caddy:2-alpine
+    profiles: [https]
+    restart: unless-stopped
+    depends_on:
+      - antimatter
+    command: ["caddy", "reverse-proxy", "--from", "${DOMAIN:-}", "--to", "antimatter:8065"]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - https:/data
+    networks:
+      - default
+
+networks:
+  default:
+  # PostgreSQL, the storage and the GIF service: reachable by Antimatter only, no Internet access.
+  private:
+    internal: true
+
+volumes:
+  postgres:
+  files:
+  gifs:
+  https:

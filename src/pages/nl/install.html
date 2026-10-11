@@ -1,0 +1,59 @@
+title: Antimatter zelf hosten
+description: Draai Antimatter in ongeveer tien minuten op je eigen server, met één compose-bestand: de server, PostgreSQL, S3-opslag en de GIF-service.
+plain: yes
+source: dd628e5e3c33
+---
+<div class="page-head"><div class="wrap"><span class="eyebrow">Aan de slag</span><h1>Draai Antimatter op je eigen server</h1>
+<p>Eén bestand, drie opdrachten, ongeveer tien minuten: Antimatter met de database, de bestandsopslag en de GIF-service, op elke Linux-server met Docker.</p></div></div>
+<section><div class="wrap prose">
+<h2 id="docker">Binnen tien minuten in de lucht</h2>
+<p>Je hebt een Linux-server nodig met <a href="https://docs.docker.com/engine/install/">Docker</a> en de Compose-plugin, 2 CPU-kernen en minstens 4 GB geheugen.</p>
+
+<h3>1. Download het compose-bestand</h3>
+<div class="terminal"><span class="p">$ </span>mkdir antimatter &amp;&amp; cd antimatter<br><span class="p">$ </span>curl -fsSLO https://antimatter.chat/compose.yaml</div>
+
+<h3>2. Maak de instellingen aan, met willekeurige wachtwoorden</h3>
+<div class="terminal"><span class="p">$ </span>cat &gt; .env &lt;&lt;EOF<br>SITE_URL=http://localhost:8065<br>POSTGRES_PASSWORD=$(openssl rand -hex 24)<br>S3_SECRET_KEY=$(openssl rand -hex 24)<br>GIFS_API_KEY=$(openssl rand -hex 24)<br>EOF</div>
+<p>Zet <code>SITE_URL</code> op het adres dat mensen gaan gebruiken, bijvoorbeeld <code>http://192.168.1.20:8065</code> op een lokaal netwerk.</p>
+
+<h3>3. Start Antimatter</h3>
+<div class="terminal"><span class="p">$ </span>docker compose up -d</div>
+<p>De eerste keer opstarten duurt een minuut of twee, terwijl de database wordt aangemaakt. Open daarna <code>SITE_URL</code> in je browser en maak je account aan: het eerste account wordt de systeembeheerder, en de installatiewizard helpt je je eerste team aan te maken.</p>
+
+<h3>Met je eigen domein en HTTPS</h3>
+<p>Laat een DNS-record van je domein naar de server wijzen, open de poorten 80 en 443, en voeg het domein toe aan <code>.env</code>:</p>
+<div class="terminal"><span class="p">$ </span>cat &gt;&gt; .env &lt;&lt;EOF<br>DOMAIN=chat.example.com<br>EOF<br><span class="p">$ </span>sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env<br><span class="p">$ </span>docker compose --profile https up -d</div>
+<p style="margin-top:1em">Caddy haalt een certificaat op bij Let's Encrypt en vernieuwt het automatisch.</p>
+
+<h3>Wat er draait</h3>
+<ul>
+<li><b>antimatter</b>: de server, met zijn apps (notities, whiteboards, spraakkanalen, gesprekken, peilingen en de rest). Hij slaat niets op schijf op: de instellingen staan in de database en de bestanden in de opslagdienst, dus de container kan op elk moment worden vervangen.</li>
+<li><b>postgres</b>: de database.</li>
+<li><b>files</b>: <a href="https://rustfs.com">RustFS</a>, S3-compatibele opslag voor geüploade bestanden.</li>
+<li><b>gifs</b>: de GIF- en stickerservice van Antimatter, met een startpakket stickers.</li>
+<li><b>https</b>: <a href="https://caddyserver.com">Caddy</a>, alleen met het profiel <code>https</code>.</li>
+</ul>
+<p>De database, de opslag en de GIF-service zitten op een privénetwerk dat alleen Antimatter kan bereiken.</p>
+<div class="callout">Blijft de GIF-kiezer leeg? Open dan <b>Systeemconsole › Plugins › GIFs</b>, zet de service-URL op <code>http://gifs:8080/v2</code> en de API-sleutel op de <code>GIFS_API_KEY</code> uit je <code>.env</code>.</div>
+
+<h3>Updates en back-ups</h3>
+<div class="terminal"><span class="c"># bijwerken naar de nieuwste images</span><br><span class="p">$ </span>docker compose pull &amp;&amp; docker compose up -d<br><span class="c"># back-up van de database maken</span><br><span class="p">$ </span>docker compose exec postgres pg_dump -U antimatter antimatter &gt; antimatter.sql</div>
+<p style="margin-top:1em">Maak ook een back-up van het volume <code>files</code>, of repliceer de opslag met een willekeurige S3-tool. Voor een opstelling met nginx en je eigen certificaten, zie de productiebestanden in <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">antimatter-docker</a>.</p>
+
+<h2>Met een release-archief</h2>
+<ol>
+<li>Maak een PostgreSQL-database en -gebruiker aan.</li>
+<li>Pak het archief (<code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>) uit, bijvoorbeeld in <code>/opt/antimatter</code>, en laat <code>SqlSettings.DataSource</code> in <code>config/config.json</code> (of de omgevingsvariabele <code>MM_SQLSETTINGS_DATASOURCE</code>) naar de database wijzen.</li>
+<li>Start de server met <code>bin/antimatter</code>, als gebruiker zonder extra rechten, en open <code>http://localhost:8065</code>. Het eerste account dat je aanmaakt, wordt de systeembeheerder.</li>
+</ol>
+<p>Met <code>bin/amctl</code> beheer je een draaiende server vanaf de opdrachtregel (<code>bin/amctl --local</code> op de server zelf, met <code>ServiceSettings.EnableLocalMode</code>).</p>
+
+<h2>Volgende stappen</h2>
+<ul>
+<li><b>Gesprekken</b>: open de poort voor gesprekken (standaard UDP en TCP 8443), zodat spraak en video de server bereiken.</li>
+<li><b>E-mail</b>: stel SMTP in voor uitnodigingen en meldingen.</li>
+<li><b>AI</b>: voeg een model toe in de instellingen van Agents; elke OpenAI-compatibele API werkt, ook een server die je zelf draait.</li>
+<li><b>Spraak en vertaling</b>: laat de transcriptie van gesprekken, het voorlezen en de automatische vertaling verwijzen naar spraak-naar-tekst-, tekst-naar-spraak- en vertaalmodellen die je zelf draait.</li>
+</ul>
+
+</div></section>

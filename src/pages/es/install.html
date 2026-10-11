@@ -1,0 +1,59 @@
+title: Aloja Antimatter en tu servidor
+description: Pon en marcha Antimatter en tu propio servidor en unos diez minutos con un solo archivo compose: el servidor, PostgreSQL, almacenamiento S3 y el servicio de GIFs.
+plain: yes
+source: dd628e5e3c33
+---
+<div class="page-head"><div class="wrap"><span class="eyebrow">Empezar</span><h1>Instala Antimatter en tu propio servidor</h1>
+<p>Un archivo, tres comandos y unos diez minutos: Antimatter con su base de datos, su almacenamiento de archivos y su servicio de GIFs, en cualquier servidor Linux con Docker.</p></div></div>
+<section><div class="wrap prose">
+<h2 id="docker">En marcha en diez minutos</h2>
+<p>Necesitas un servidor Linux con <a href="https://docs.docker.com/engine/install/">Docker</a> y su plugin Compose, 2 núcleos de CPU y al menos 4 GB de memoria.</p>
+
+<h3>1. Descarga el archivo compose</h3>
+<div class="terminal"><span class="p">$ </span>mkdir antimatter &amp;&amp; cd antimatter<br><span class="p">$ </span>curl -fsSLO https://antimatter.chat/compose.yaml</div>
+
+<h3>2. Crea su configuración, con contraseñas aleatorias</h3>
+<div class="terminal"><span class="p">$ </span>cat &gt; .env &lt;&lt;EOF<br>SITE_URL=http://localhost:8065<br>POSTGRES_PASSWORD=$(openssl rand -hex 24)<br>S3_SECRET_KEY=$(openssl rand -hex 24)<br>GIFS_API_KEY=$(openssl rand -hex 24)<br>EOF</div>
+<p>Asigna a <code>SITE_URL</code> la dirección con la que accederán los usuarios, por ejemplo <code>http://192.168.1.20:8065</code> en una red local.</p>
+
+<h3>3. Inícialo</h3>
+<div class="terminal"><span class="p">$ </span>docker compose up -d</div>
+<p>El primer arranque tarda uno o dos minutos mientras se crea la base de datos. Después, abre <code>SITE_URL</code> en el navegador y crea tu cuenta: la primera cuenta pasa a ser la del administrador del sistema, y el asistente de configuración te guía para crear tu primer equipo.</p>
+
+<h3>Con tu propio dominio y HTTPS</h3>
+<p>Apunta un registro DNS de tu dominio al servidor, abre los puertos 80 y 443, y agrega el dominio a <code>.env</code>:</p>
+<div class="terminal"><span class="p">$ </span>cat &gt;&gt; .env &lt;&lt;EOF<br>DOMAIN=chat.example.com<br>EOF<br><span class="p">$ </span>sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env<br><span class="p">$ </span>docker compose --profile https up -d</div>
+<p style="margin-top:1em">Caddy obtiene un certificado de Let's Encrypt y lo renueva automáticamente.</p>
+
+<h3>Qué se ejecuta</h3>
+<ul>
+<li><b>antimatter</b>: el servidor, con sus apps (notas, pizarras, canales de voz, llamadas, encuestas y las demás). No guarda nada en disco: su configuración está en la base de datos y sus archivos en el servicio de almacenamiento, así que el contenedor se puede reemplazar en cualquier momento.</li>
+<li><b>postgres</b>: la base de datos.</li>
+<li><b>files</b>: <a href="https://rustfs.com">RustFS</a>, almacenamiento compatible con S3 para los archivos subidos.</li>
+<li><b>gifs</b>: el servicio de GIFs y stickers de Antimatter, con un paquete de stickers inicial.</li>
+<li><b>https</b>: <a href="https://caddyserver.com">Caddy</a>, solo con el perfil <code>https</code>.</li>
+</ul>
+<p>La base de datos, el almacenamiento y el servicio de GIFs están en una red privada a la que solo accede Antimatter.</p>
+<div class="callout">Si el selector de GIFs aparece vacío, abre <b>Consola de sistema › Plugins › GIFs</b> y establece la URL del servicio en <code>http://gifs:8080/v2</code> y la clave de API en el valor de <code>GIFS_API_KEY</code> de tu archivo <code>.env</code>.</div>
+
+<h3>Actualizaciones y copias de seguridad</h3>
+<div class="terminal"><span class="c"># actualizar a las imágenes más recientes</span><br><span class="p">$ </span>docker compose pull &amp;&amp; docker compose up -d<br><span class="c"># hacer una copia de seguridad de la base de datos</span><br><span class="p">$ </span>docker compose exec postgres pg_dump -U antimatter antimatter &gt; antimatter.sql</div>
+<p style="margin-top:1em">Haz también una copia de seguridad del volumen <code>files</code>, o replica el almacenamiento con cualquier herramienta de S3. Para una instalación con nginx y tus propios certificados, consulta los archivos de producción en <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">antimatter-docker</a>.</p>
+
+<h2>Con un paquete de versión</h2>
+<ol>
+<li>Prepara una base de datos y un usuario de PostgreSQL.</li>
+<li>Descomprime el paquete (<code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>), por ejemplo en <code>/opt/antimatter</code>, y apunta <code>SqlSettings.DataSource</code> en <code>config/config.json</code> (o la variable de entorno <code>MM_SQLSETTINGS_DATASOURCE</code>) a la base de datos.</li>
+<li>Inicia el servidor con <code>bin/antimatter</code>, con un usuario sin privilegios, y abre <code>http://localhost:8065</code>. La primera cuenta que se cree será la del administrador del sistema.</li>
+</ol>
+<p><code>bin/amctl</code> administra un servidor en ejecución desde la línea de comandos (<code>bin/amctl --local</code> en el propio servidor, con <code>ServiceSettings.EnableLocalMode</code>).</p>
+
+<h2>Próximos pasos</h2>
+<ul>
+<li><b>Llamadas</b>: abre el puerto de llamadas (8443 UDP y TCP de forma predeterminada) para que la voz y el video lleguen al servidor.</li>
+<li><b>Correo electrónico</b>: configura SMTP para las invitaciones y las notificaciones.</li>
+<li><b>IA</b>: agrega un modelo en la configuración de los agentes; funciona cualquier API compatible con OpenAI, incluido un servidor que gestiones tú mismo.</li>
+<li><b>Voz y traducción</b>: conecta la transcripción de llamadas, la lectura en voz alta y la traducción automática a modelos de reconocimiento de voz, de síntesis de voz y de traducción que gestiones tú mismo.</li>
+</ul>
+
+</div></section>

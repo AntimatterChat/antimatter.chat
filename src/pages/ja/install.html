@@ -1,0 +1,59 @@
+title: Antimatterをセルフホストする
+description: composeファイルひとつで、Antimatterを約10分で自分のサーバーに導入できます。サーバー、PostgreSQL、S3ストレージ、GIFサービスがそろいます。
+plain: yes
+source: dd628e5e3c33
+---
+<div class="page-head"><div class="wrap"><span class="eyebrow">はじめる</span><h1>Antimatterを自分のサーバーで動かす</h1>
+<p>ファイルひとつ、コマンド3つ、所要時間は約10分。Dockerが動くLinuxサーバーなら、どこでもAntimatterをデータベース、ファイルストレージ、GIFサービスと一緒に立ち上げられます。</p></div></div>
+<section><div class="wrap prose">
+<h2 id="docker">10分で使い始める</h2>
+<p>必要なのは、<a href="https://docs.docker.com/engine/install/">Docker</a>とそのComposeプラグインをインストールしたLinuxサーバーです。CPUは2コア以上、メモリは4 GB以上を用意してください。</p>
+
+<h3>1. composeファイルをダウンロードする</h3>
+<div class="terminal"><span class="p">$ </span>mkdir antimatter &amp;&amp; cd antimatter<br><span class="p">$ </span>curl -fsSLO https://antimatter.chat/compose.yaml</div>
+
+<h3>2. ランダムなパスワードで設定ファイルを作成する</h3>
+<div class="terminal"><span class="p">$ </span>cat &gt; .env &lt;&lt;EOF<br>SITE_URL=http://localhost:8065<br>POSTGRES_PASSWORD=$(openssl rand -hex 24)<br>S3_SECRET_KEY=$(openssl rand -hex 24)<br>GIFS_API_KEY=$(openssl rand -hex 24)<br>EOF</div>
+<p><code>SITE_URL</code>には、利用者がアクセスするアドレスを設定します。ローカルネットワークなら、たとえば<code>http://192.168.1.20:8065</code>のようになります。</p>
+
+<h3>3. 起動する</h3>
+<div class="terminal"><span class="p">$ </span>docker compose up -d</div>
+<p>初回はデータベースの作成のため、起動に1〜2分かかります。その後、ブラウザーで<code>SITE_URL</code>を開いてアカウントを作成してください。最初のアカウントがシステム管理者になり、セットアップ画面の案内に沿って最初のチームを作成できます。</p>
+
+<h3>独自ドメインとHTTPSで運用する</h3>
+<p>ドメインのDNSレコードをサーバーに向け、ポート80と443を開放してから、ドメインを<code>.env</code>に追加します。</p>
+<div class="terminal"><span class="p">$ </span>cat &gt;&gt; .env &lt;&lt;EOF<br>DOMAIN=chat.example.com<br>EOF<br><span class="p">$ </span>sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env<br><span class="p">$ </span>docker compose --profile https up -d</div>
+<p style="margin-top:1em">CaddyがLet's Encryptから証明書を取得し、自動で更新します。</p>
+
+<h3>起動するサービス</h3>
+<ul>
+<li><b>antimatter</b>：アプリ（メモ、ホワイトボード、音声チャンネル、通話、投票など）を含むサーバー本体。ディスクには何も保存せず、設定はデータベースに、ファイルはストレージサービスに置くため、コンテナはいつでも入れ替えられます。</li>
+<li><b>postgres</b>：データベース。</li>
+<li><b>files</b>：<a href="https://rustfs.com">RustFS</a>。アップロードされたファイル用のS3互換ストレージです。</li>
+<li><b>gifs</b>：AntimatterのGIF・スタンプサービス。スターター用のスタンプパックが付属します。</li>
+<li><b>https</b>：<a href="https://caddyserver.com">Caddy</a>。<code>https</code>プロファイルを指定したときのみ起動します。</li>
+</ul>
+<p>データベース、ストレージ、GIFサービスは、Antimatterからしかアクセスできないプライベートネットワーク上に置かれます。</p>
+<div class="callout">GIFピッカーに何も表示されない場合は、<b>システムコンソール › プラグイン › GIF</b>を開き、サービスURLに<code>http://gifs:8080/v2</code>を、APIキーに<code>.env</code>の<code>GIFS_API_KEY</code>の値を設定してください。</div>
+
+<h3>アップグレードとバックアップ</h3>
+<div class="terminal"><span class="c"># 最新のイメージにアップグレード</span><br><span class="p">$ </span>docker compose pull &amp;&amp; docker compose up -d<br><span class="c"># データベースをバックアップ</span><br><span class="p">$ </span>docker compose exec postgres pg_dump -U antimatter antimatter &gt; antimatter.sql</div>
+<p style="margin-top:1em"><code>files</code>ボリュームもバックアップするか、S3対応のツールでストレージを複製してください。nginxと独自の証明書を使う構成については、<a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">antimatter-docker</a>の本番環境用ファイルをご覧ください。</p>
+
+<h2>リリースアーカイブを使う</h2>
+<ol>
+<li>PostgreSQLのデータベースとユーザーを用意します。</li>
+<li>アーカイブ（<code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>）を<code>/opt/antimatter</code>などに展開し、<code>config/config.json</code>の<code>SqlSettings.DataSource</code>（または環境変数<code>MM_SQLSETTINGS_DATASOURCE</code>）にデータベースを指定します。</li>
+<li>特権を持たないユーザーで<code>bin/antimatter</code>を実行してサーバーを起動し、<code>http://localhost:8065</code>を開きます。最初に作成したアカウントがシステム管理者になります。</li>
+</ol>
+<p>稼働中のサーバーは、<code>bin/amctl</code>でコマンドラインから管理できます（サーバー上で直接操作する場合は、<code>ServiceSettings.EnableLocalMode</code>を有効にして<code>bin/amctl --local</code>を使います）。</p>
+
+<h2>次のステップ</h2>
+<ul>
+<li><b>通話</b>：音声とビデオがサーバーに届くよう、通話用のポート（デフォルトはUDPとTCPの8443）を開放します。</li>
+<li><b>メール</b>：招待や通知のためにSMTPを設定します。</li>
+<li><b>AI</b>：Agentsの設定でモデルを追加します。自前で運用するサーバーも含め、OpenAI互換のAPIであれば利用できます。</li>
+<li><b>音声と翻訳</b>：通話の文字起こし、読み上げ、自動翻訳に、自前で運用する音声認識（音声からテキスト）・音声合成（テキストから音声）・翻訳モデルを指定します。</li>
+</ul>
+
+</div></section>
