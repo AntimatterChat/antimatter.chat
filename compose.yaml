@@ -38,29 +38,33 @@ services:
     environment:
       TZ: ${TZ:-UTC}
       # Settings are stored in the database; the System Console edits them there.
-      MM_CONFIG: *database-url
-      MM_SQLSETTINGS_DRIVERNAME: postgres
-      MM_SQLSETTINGS_DATASOURCE: *database-url
-      MM_SERVICESETTINGS_SITEURL: ${SITE_URL:?set SITE_URL in .env}
+      AM_CONFIG: *database-url
+      AM_SQLSETTINGS_DRIVERNAME: postgres
+      AM_SQLSETTINGS_DATASOURCE: *database-url
+      AM_SERVICESETTINGS_SITEURL: ${SITE_URL:?set SITE_URL in .env}
       # Uploaded files, images and installed plugins go to the storage service.
-      MM_FILESETTINGS_DRIVERNAME: amazons3
-      MM_FILESETTINGS_AMAZONS3ENDPOINT: files:9000
-      MM_FILESETTINGS_AMAZONS3SSL: "false"
-      MM_FILESETTINGS_AMAZONS3BUCKET: antimatter
-      MM_FILESETTINGS_AMAZONS3REGION: us-east-1
-      MM_FILESETTINGS_AMAZONS3ACCESSKEYID: antimatter
-      MM_FILESETTINGS_AMAZONS3SECRETACCESSKEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
+      AM_FILESETTINGS_DRIVERNAME: amazons3
+      AM_FILESETTINGS_AMAZONS3ENDPOINT: files:9000
+      AM_FILESETTINGS_AMAZONS3SSL: "false"
+      AM_FILESETTINGS_AMAZONS3BUCKET: antimatter
+      AM_FILESETTINGS_AMAZONS3REGION: us-east-1
+      AM_FILESETTINGS_AMAZONS3ACCESSKEYID: antimatter
+      AM_FILESETTINGS_AMAZONS3SECRETACCESSKEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
       # Logs go to the container's output (docker compose logs), not to files.
-      MM_LOGSETTINGS_ENABLEFILE: "false"
-      MM_NOTIFICATIONLOGSETTINGS_ENABLEFILE: "false"
+      AM_LOGSETTINGS_ENABLEFILE: "false"
+      AM_NOTIFICATIONLOGSETTINGS_ENABLEFILE: "false"
       # The GIF and sticker service, which only Antimatter reaches.
-      MM_SERVICESETTINGS_ALLOWEDUNTRUSTEDINTERNALCONNECTIONS: gifs
+      AM_SERVICESETTINGS_ALLOWEDUNTRUSTEDINTERNALCONNECTIONS: gifs
       AM_GIFS_SERVICE_URL: http://gifs:8080/v2
       AM_GIFS_API_KEY: ${GIFS_API_KEY:?set GIFS_API_KEY in .env}
       AM_GIFS_UPLOAD_KEY: ${GIFS_UPLOAD_KEY:-}
+      # Client addresses (for rate limits, audit logs and IP filtering) come from Caddy, and only from
+      # it: the header counts for requests from the edge network alone, so clients can't fake theirs.
+      AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER: X-Forwarded-For
+      AM_SERVICESETTINGS_TRUSTEDPROXYIPS: ${EDGE_SUBNET:-172.29.71.0/28}
       # Calls: voice and video go straight to this port, UDP and TCP. Open it in the firewall.
-      MM_CALLS_UDP_SERVER_PORT: ${CALLS_PORT:-8443}
-      MM_CALLS_TCP_SERVER_PORT: ${CALLS_PORT:-8443}
+      AM_CALLS_UDP_SERVER_PORT: ${CALLS_PORT:-8443}
+      AM_CALLS_TCP_SERVER_PORT: ${CALLS_PORT:-8443}
     ports:
       - "${HTTP_PORT:-8065}:8065"
       - "${CALLS_PORT:-8443}:${CALLS_PORT:-8443}/udp"
@@ -68,6 +72,7 @@ services:
     networks:
       - default
       - private
+      - edge
 
   postgres:
     image: postgres:17-alpine
@@ -182,10 +187,16 @@ services:
     volumes:
       - https:/data
     networks:
-      - default
+      - edge
 
 networks:
   default:
+  # Caddy and Antimatter: Antimatter trusts the client addresses that come from this network. Change
+  # EDGE_SUBNET in .env if it overlaps a network of yours.
+  edge:
+    ipam:
+      config:
+        - subnet: ${EDGE_SUBNET:-172.29.71.0/28}
   # PostgreSQL, the storage and the GIF service: reachable by Antimatter only, no Internet access.
   private:
     internal: true
