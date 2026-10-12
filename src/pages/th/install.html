@@ -1,0 +1,59 @@
+title: โฮสต์ Antimatter เอง
+description: รัน Antimatter บนเซิร์ฟเวอร์ของคุณเองได้ในราวสิบนาที ด้วยไฟล์ compose ไฟล์เดียว ประกอบด้วยเซิร์ฟเวอร์ PostgreSQL ที่เก็บข้อมูล S3 และบริการ GIF
+plain: yes
+source: dd628e5e3c33
+---
+<div class="page-head"><div class="wrap"><span class="eyebrow">เริ่มต้นใช้งาน</span><h1>รัน Antimatter บนเซิร์ฟเวอร์ของคุณเอง</h1>
+<p>ไฟล์เดียว สามคำสั่ง ราวสิบนาที: Antimatter พร้อมฐานข้อมูล ที่เก็บไฟล์ และบริการ GIF บนเซิร์ฟเวอร์ Linux เครื่องใดก็ได้ที่มี Docker</p></div></div>
+<section><div class="wrap prose">
+<h2 id="docker">พร้อมใช้งานในสิบนาที</h2>
+<p>คุณต้องมีเซิร์ฟเวอร์ Linux ที่ติดตั้ง <a href="https://docs.docker.com/engine/install/">Docker</a> และปลั๊กอิน Compose แล้ว พร้อม CPU อย่างน้อย 2 คอร์ และหน่วยความจำอย่างน้อย 4 GB</p>
+
+<h3>1. ดาวน์โหลดไฟล์ compose</h3>
+<div class="terminal"><span class="p">$ </span>mkdir antimatter &amp;&amp; cd antimatter<br><span class="p">$ </span>curl -fsSLO https://antimatter.chat/compose.yaml</div>
+
+<h3>2. สร้างไฟล์การตั้งค่าพร้อมรหัสผ่านแบบสุ่ม</h3>
+<div class="terminal"><span class="p">$ </span>cat &gt; .env &lt;&lt;EOF<br>SITE_URL=http://localhost:8065<br>POSTGRES_PASSWORD=$(openssl rand -hex 24)<br>S3_SECRET_KEY=$(openssl rand -hex 24)<br>GIFS_API_KEY=$(openssl rand -hex 24)<br>EOF</div>
+<p>ตั้งค่า <code>SITE_URL</code> เป็นที่อยู่ที่ผู้ใช้จะใช้เข้าถึง เช่น <code>http://192.168.1.20:8065</code> ในเครือข่ายภายใน</p>
+
+<h3>3. เริ่มการทำงาน</h3>
+<div class="terminal"><span class="p">$ </span>docker compose up -d</div>
+<p>การเริ่มครั้งแรกจะใช้เวลาหนึ่งถึงสองนาทีระหว่างที่สร้างฐานข้อมูล จากนั้นเปิด <code>SITE_URL</code> ในเบราว์เซอร์แล้วสร้างบัญชีของคุณ บัญชีแรกจะเป็นผู้ดูแลระบบ และขั้นตอนการตั้งค่าจะพาคุณสร้างทีมแรก</p>
+
+<h3>ใช้โดเมนของคุณเองและ HTTPS</h3>
+<p>ชี้ระเบียน DNS ของโดเมนไปที่เซิร์ฟเวอร์ เปิดพอร์ต 80 และ 443 แล้วเพิ่มโดเมนลงใน <code>.env</code>:</p>
+<div class="terminal"><span class="p">$ </span>cat &gt;&gt; .env &lt;&lt;EOF<br>DOMAIN=chat.example.com<br>EOF<br><span class="p">$ </span>sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env<br><span class="p">$ </span>docker compose --profile https up -d</div>
+<p style="margin-top:1em">Caddy จะขอใบรับรองจาก Let's Encrypt และต่ออายุให้เองโดยอัตโนมัติ</p>
+
+<h3>บริการที่ทำงานอยู่</h3>
+<ul>
+<li><b>antimatter</b>: ตัวเซิร์ฟเวอร์พร้อมแอปต่างๆ (โน้ต ไวท์บอร์ด ช่องเสียง การโทร โพล และอื่นๆ) โดยไม่เก็บอะไรไว้บนดิสก์ การตั้งค่าอยู่ในฐานข้อมูลและไฟล์อยู่ในบริการจัดเก็บ จึงเปลี่ยนคอนเทนเนอร์ได้ทุกเมื่อ</li>
+<li><b>postgres</b>: ฐานข้อมูล</li>
+<li><b>files</b>: <a href="https://rustfs.com">RustFS</a> ที่เก็บข้อมูลที่เข้ากันได้กับ S3 สำหรับไฟล์ที่อัปโหลด</li>
+<li><b>gifs</b>: บริการ GIF และสติกเกอร์ของ Antimatter พร้อมชุดสติกเกอร์เริ่มต้น</li>
+<li><b>https</b>: <a href="https://caddyserver.com">Caddy</a> ทำงานเฉพาะเมื่อใช้โปรไฟล์ <code>https</code></li>
+</ul>
+<p>ฐานข้อมูล ที่เก็บข้อมูล และบริการ GIF อยู่ในเครือข่ายส่วนตัวที่มีเพียง Antimatter เท่านั้นที่เข้าถึงได้</p>
+<div class="callout">หากตัวเลือก GIF ว่างเปล่า ให้เปิด <b>คอนโซลระบบ › ปลั๊กอิน › GIFs</b> แล้วตั้ง URL ของบริการเป็น <code>http://gifs:8080/v2</code> และตั้งคีย์ API เป็นค่า <code>GIFS_API_KEY</code> ในไฟล์ <code>.env</code> ของคุณ</div>
+
+<h3>การอัปเกรดและการสำรองข้อมูล</h3>
+<div class="terminal"><span class="c"># อัปเกรดเป็นอิมเมจล่าสุด</span><br><span class="p">$ </span>docker compose pull &amp;&amp; docker compose up -d<br><span class="c"># สำรองฐานข้อมูล</span><br><span class="p">$ </span>docker compose exec postgres pg_dump -U antimatter antimatter &gt; antimatter.sql</div>
+<p style="margin-top:1em">สำรองวอลุ่ม <code>files</code> ด้วย หรือทำสำเนาที่เก็บข้อมูลด้วยเครื่องมือ S3 ใดก็ได้ หากต้องการติดตั้งร่วมกับ nginx และใบรับรองของคุณเอง ดูไฟล์สำหรับใช้งานจริงได้ใน <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">antimatter-docker</a></p>
+
+<h2>ติดตั้งด้วยไฟล์รีลีส</h2>
+<ol>
+<li>เตรียมฐานข้อมูลและผู้ใช้ PostgreSQL</li>
+<li>แตกไฟล์ (<code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>) เช่น ไว้ที่ <code>/opt/antimatter</code> แล้วตั้งค่า <code>SqlSettings.DataSource</code> ใน <code>config/config.json</code> (หรือตัวแปรสภาพแวดล้อม <code>MM_SQLSETTINGS_DATASOURCE</code>) ให้ชี้ไปที่ฐานข้อมูล</li>
+<li>เริ่มเซิร์ฟเวอร์ด้วย <code>bin/antimatter</code> โดยใช้ผู้ใช้ที่ไม่มีสิทธิ์พิเศษ แล้วเปิด <code>http://localhost:8065</code> บัญชีแรกที่สร้างจะเป็นผู้ดูแลระบบ</li>
+</ol>
+<p><code>bin/amctl</code> ใช้จัดการเซิร์ฟเวอร์ที่ทำงานอยู่ผ่านบรรทัดคำสั่ง (ใช้ <code>bin/amctl --local</code> บนตัวเซิร์ฟเวอร์เอง โดยเปิด <code>ServiceSettings.EnableLocalMode</code>)</p>
+
+<h2>ขั้นตอนถัดไป</h2>
+<ul>
+<li><b>การโทร</b>: เปิดพอร์ตสำหรับการโทร (ค่าเริ่มต้นคือ UDP และ TCP 8443) เพื่อให้เสียงและวิดีโอเข้าถึงเซิร์ฟเวอร์ได้</li>
+<li><b>อีเมล</b>: ตั้งค่า SMTP สำหรับคำเชิญและการแจ้งเตือน</li>
+<li><b>AI</b>: เพิ่มโมเดลในการตั้งค่าเอเจนต์ ใช้ API ใดก็ได้ที่เข้ากันได้กับ OpenAI รวมถึงเซิร์ฟเวอร์ที่คุณรันเอง</li>
+<li><b>เสียงพูดและการแปล</b>: ตั้งค่าการถอดเสียงการโทร การอ่านออกเสียง และการแปลอัตโนมัติ ให้ใช้โมเดลแปลงเสียงพูดเป็นข้อความ แปลงข้อความเป็นเสียงพูด และโมเดลแปลภาษาที่คุณรันเอง</li>
+</ul>
+
+</div></section>

@@ -1,0 +1,59 @@
+title: I-self-host ang Antimatter
+description: Patakbuhin ang Antimatter sa sarili mong server sa loob ng mga sampung minuto, gamit ang iisang compose file: ang server, PostgreSQL, S3 storage at ang GIF service.
+plain: yes
+source: dd628e5e3c33
+---
+<div class="page-head"><div class="wrap"><span class="eyebrow">Magsimula</span><h1>Patakbuhin ang Antimatter sa sarili mong server</h1>
+<p>Isang file, tatlong command, mga sampung minuto: ang Antimatter kasama ang database, file storage at GIF service nito, sa kahit anong Linux server na may Docker.</p></div></div>
+<section><div class="wrap prose">
+<h2 id="docker">Gumagana na sa loob ng sampung minuto</h2>
+<p>Kailangan mo ng Linux server na may <a href="https://docs.docker.com/engine/install/">Docker</a> at ang Compose plugin nito, 2 CPU core at 4 GB na memory o higit pa.</p>
+
+<h3>1. I-download ang compose file</h3>
+<div class="terminal"><span class="p">$ </span>mkdir antimatter &amp;&amp; cd antimatter<br><span class="p">$ </span>curl -fsSLO https://antimatter.chat/compose.yaml</div>
+
+<h3>2. Gawin ang mga setting nito, na may mga random na password</h3>
+<div class="terminal"><span class="p">$ </span>cat &gt; .env &lt;&lt;EOF<br>SITE_URL=http://localhost:8065<br>POSTGRES_PASSWORD=$(openssl rand -hex 24)<br>S3_SECRET_KEY=$(openssl rand -hex 24)<br>GIFS_API_KEY=$(openssl rand -hex 24)<br>EOF</div>
+<p>Itakda ang <code>SITE_URL</code> sa address na gagamitin ng mga tao, gaya ng <code>http://192.168.1.20:8065</code> sa isang local network.</p>
+
+<h3>3. Paandarin ito</h3>
+<div class="terminal"><span class="p">$ </span>docker compose up -d</div>
+<p>Inaabot ng isa o dalawang minuto ang unang pagpapaandar habang ginagawa ang database. Pagkatapos, buksan ang <code>SITE_URL</code> sa iyong browser at gawin ang account mo: ang unang account ang magiging system administrator, at gagabayan ka ng setup sa paggawa ng una mong team.</p>
+
+<h3>Gamit ang sarili mong domain at HTTPS</h3>
+<p>Ituro sa server ang isang DNS record ng iyong domain, buksan ang mga port 80 at 443, at idagdag ang domain sa <code>.env</code>:</p>
+<div class="terminal"><span class="p">$ </span>cat &gt;&gt; .env &lt;&lt;EOF<br>DOMAIN=chat.example.com<br>EOF<br><span class="p">$ </span>sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env<br><span class="p">$ </span>docker compose --profile https up -d</div>
+<p style="margin-top:1em">Kumukuha ang Caddy ng certificate mula sa Let's Encrypt at kusa itong nire-renew.</p>
+
+<h3>Ano ang tumatakbo</h3>
+<ul>
+<li><b>antimatter</b>: ang server, kasama ang mga app nito (mga tala, whiteboard, voice channel, tawag, poll at iba pa). Wala itong iniimbak sa disk: nasa database ang mga setting nito at nasa storage service ang mga file nito, kaya puwedeng palitan ang container anumang oras.</li>
+<li><b>postgres</b>: ang database.</li>
+<li><b>files</b>: <a href="https://rustfs.com">RustFS</a>, storage na compatible sa S3 para sa mga na-upload na file.</li>
+<li><b>gifs</b>: ang GIF at sticker service ng Antimatter, na may panimulang sticker pack.</li>
+<li><b>https</b>: <a href="https://caddyserver.com">Caddy</a>, kapag ginamit lang ang profile na <code>https</code>.</li>
+</ul>
+<p>Nasa isang pribadong network ang database, ang storage at ang GIF service, na Antimatter lang ang nakakaabot.</p>
+<div class="callout">Kung walang lumalabas sa GIF picker, buksan ang <b>System Console › Mga Plugin › GIFs</b> at itakda ang service URL sa <code>http://gifs:8080/v2</code> at ang API key sa <code>GIFS_API_KEY</code> ng iyong <code>.env</code>.</div>
+
+<h3>Mga upgrade at backup</h3>
+<div class="terminal"><span class="c"># i-upgrade sa pinakabagong mga image</span><br><span class="p">$ </span>docker compose pull &amp;&amp; docker compose up -d<br><span class="c"># i-back up ang database</span><br><span class="p">$ </span>docker compose exec postgres pg_dump -U antimatter antimatter &gt; antimatter.sql</div>
+<p style="margin-top:1em">I-back up din ang volume na <code>files</code>, o i-replicate ang storage gamit ang kahit anong S3 tool. Para sa setup na may nginx at sarili mong mga certificate, tingnan ang mga production file sa <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">antimatter-docker</a>.</p>
+
+<h2>Gamit ang release archive</h2>
+<ol>
+<li>Mag-set up ng PostgreSQL database at user.</li>
+<li>I-unpack ang archive (<code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>), halimbawa sa <code>/opt/antimatter</code>, at ituro sa database ang <code>SqlSettings.DataSource</code> sa <code>config/config.json</code> (o ang environment variable na <code>MM_SQLSETTINGS_DATASOURCE</code>).</li>
+<li>Paandarin ang server gamit ang <code>bin/antimatter</code>, bilang user na walang espesyal na pribilehiyo, at buksan ang <code>http://localhost:8065</code>. Ang unang account na gagawin ang magiging system administrator.</li>
+</ol>
+<p>Pinamamahalaan ng <code>bin/amctl</code> ang tumatakbong server mula sa command line (<code>bin/amctl --local</code> sa mismong server, kapag naka-on ang <code>ServiceSettings.EnableLocalMode</code>).</p>
+
+<h2>Mga susunod na hakbang</h2>
+<ul>
+<li><b>Mga tawag</b>: buksan ang port para sa mga tawag (UDP at TCP 8443 bilang default) para makarating sa server ang voice at video.</li>
+<li><b>Email</b>: i-configure ang SMTP para sa mga imbitasyon at notisikasyon.</li>
+<li><b>AI</b>: magdagdag ng model sa mga setting ng Agents; gumagana ang kahit anong API na compatible sa OpenAI, kasama ang server na ikaw mismo ang nagpapatakbo.</li>
+<li><b>Boses at pagsasalin</b>: ituro ang call transcription, read-aloud at awtomatikong pagsasalin sa mga speech-to-text, text-to-speech at translation model na ikaw mismo ang nagpapatakbo.</li>
+</ul>
+
+</div></section>

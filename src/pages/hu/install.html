@@ -1,0 +1,59 @@
+title: Az Antimatter saját üzemeltetése
+description: Futtassa az Antimattert a saját szerverén nagyjából tíz perc alatt, egyetlen compose-fájllal: a szerver, a PostgreSQL, az S3-tároló és a GIF-szolgáltatás.
+plain: yes
+source: dd628e5e3c33
+---
+<div class="page-head"><div class="wrap"><span class="eyebrow">Első lépések</span><h1>Futtassa az Antimattert a saját szerverén</h1>
+<p>Egy fájl, három parancs, nagyjából tíz perc: az Antimatter az adatbázisával, a fájltárolójával és a GIF-szolgáltatásával együtt, bármilyen Linux-szerveren, amelyen van Docker.</p></div></div>
+<section><div class="wrap prose">
+<h2 id="docker">Üzemkész tíz perc alatt</h2>
+<p>Szüksége lesz egy Linux-szerverre <a href="https://docs.docker.com/engine/install/">Dockerrel</a> és a Compose bővítményével, legalább 2 processzormaggal és 4 GB memóriával.</p>
+
+<h3>1. Töltse le a compose-fájlt</h3>
+<div class="terminal"><span class="p">$ </span>mkdir antimatter &amp;&amp; cd antimatter<br><span class="p">$ </span>curl -fsSLO https://antimatter.chat/compose.yaml</div>
+
+<h3>2. Hozza létre a beállításokat, véletlenszerű jelszavakkal</h3>
+<div class="terminal"><span class="p">$ </span>cat &gt; .env &lt;&lt;EOF<br>SITE_URL=http://localhost:8065<br>POSTGRES_PASSWORD=$(openssl rand -hex 24)<br>S3_SECRET_KEY=$(openssl rand -hex 24)<br>GIFS_API_KEY=$(openssl rand -hex 24)<br>EOF</div>
+<p>A <code>SITE_URL</code> értéke az a cím legyen, amelyen a felhasználók elérik a szervert, helyi hálózaton például <code>http://192.168.1.20:8065</code>.</p>
+
+<h3>3. Indítsa el</h3>
+<div class="terminal"><span class="p">$ </span>docker compose up -d</div>
+<p>Az első indítás egy-két percig tart, amíg létrejön az adatbázis. Ezután nyissa meg a <code>SITE_URL</code> címet a böngészőjében, és hozza létre a fiókját: az első fiók lesz a rendszergazda, a beállítási folyamat pedig végigvezeti az első csapat létrehozásán.</p>
+
+<h3>Saját domainnel és HTTPS-sel</h3>
+<p>Irányítsa a domainje egyik DNS-rekordját a szerverre, nyissa meg a 80-as és a 443-as portot, és adja hozzá a domaint a <code>.env</code> fájlhoz:</p>
+<div class="terminal"><span class="p">$ </span>cat &gt;&gt; .env &lt;&lt;EOF<br>DOMAIN=chat.example.com<br>EOF<br><span class="p">$ </span>sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env<br><span class="p">$ </span>docker compose --profile https up -d</div>
+<p style="margin-top:1em">A Caddy tanúsítványt kér a Let's Encrypttől, és magától meg is újítja.</p>
+
+<h3>Mi fut?</h3>
+<ul>
+<li><b>antimatter</b>: a szerver az alkalmazásaival (jegyzetek, fehértáblák, hangcsatornák, hívások, szavazások és a többi). Semmit sem tárol lemezen: a beállításai az adatbázisban, a fájljai a tárolószolgáltatásban vannak, így a konténer bármikor lecserélhető.</li>
+<li><b>postgres</b>: az adatbázis.</li>
+<li><b>files</b>: <a href="https://rustfs.com">RustFS</a>, S3-kompatibilis tároló a feltöltött fájlokhoz.</li>
+<li><b>gifs</b>: az Antimatter GIF- és matricaszolgáltatása, egy kezdő matricacsomaggal.</li>
+<li><b>https</b>: <a href="https://caddyserver.com">Caddy</a>, csak a <code>https</code> profillal.</li>
+</ul>
+<p>Az adatbázis, a tároló és a GIF-szolgáltatás egy privát hálózaton van, amelyet csak az Antimatter ér el.</p>
+<div class="callout">Ha a GIF-választó üres marad, nyissa meg a <b>Rendszerkonzol › Bővítmények › GIFs</b> oldalt, és állítsa a szolgáltatás URL-jét <code>http://gifs:8080/v2</code> értékre, az API-kulcsot pedig a <code>.env</code> fájlban szereplő <code>GIFS_API_KEY</code> értékére.</div>
+
+<h3>Frissítés és biztonsági mentés</h3>
+<div class="terminal"><span class="c"># frissítés a legújabb image-ekre</span><br><span class="p">$ </span>docker compose pull &amp;&amp; docker compose up -d<br><span class="c"># az adatbázis mentése</span><br><span class="p">$ </span>docker compose exec postgres pg_dump -U antimatter antimatter &gt; antimatter.sql</div>
+<p style="margin-top:1em">A <code>files</code> kötetet is mentse, vagy replikálja a tárolót bármilyen S3-eszközzel. Ha nginx-szel és saját tanúsítványokkal szeretné üzemeltetni, nézze meg az <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">antimatter-docker</a> éles üzemre szánt fájljait.</p>
+
+<h2>Kiadási archívumból</h2>
+<ol>
+<li>Hozzon létre egy PostgreSQL-adatbázist és -felhasználót.</li>
+<li>Csomagolja ki az archívumot (<code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>), például a <code>/opt/antimatter</code> könyvtárba, és a <code>config/config.json</code> fájlban az <code>SqlSettings.DataSource</code> beállítással (vagy az <code>MM_SQLSETTINGS_DATASOURCE</code> környezeti változóval) adja meg az adatbázist.</li>
+<li>Indítsa el a szervert a <code>bin/antimatter</code> paranccsal, nem privilegizált felhasználóként, majd nyissa meg a <code>http://localhost:8065</code> címet. Az elsőként létrehozott fiók lesz a rendszergazda.</li>
+</ol>
+<p>A <code>bin/amctl</code> paranccsal parancssorból kezelheti a futó szervert (magán a szerveren a <code>bin/amctl --local</code> paranccsal, ha a <code>ServiceSettings.EnableLocalMode</code> be van kapcsolva).</p>
+
+<h2>Következő lépések</h2>
+<ul>
+<li><b>Hívások</b>: nyissa meg a hívások portját (alapértelmezés szerint UDP és TCP 8443), hogy a hang és a videó elérje a szervert.</li>
+<li><b>E-mail</b>: állítsa be az SMTP-t a meghívókhoz és az értesítésekhez.</li>
+<li><b>MI</b>: adjon hozzá egy modellt az Agents bővítmény beállításaiban; bármilyen OpenAI-kompatibilis API működik, egy saját üzemeltetésű szerver is.</li>
+<li><b>Beszéd és fordítás</b>: a hívások átírásához, a felolvasáshoz és az automatikus fordításhoz adja meg a saját üzemeltetésű beszédfelismerő, szövegfelolvasó és fordító modelljeit.</li>
+</ul>
+
+</div></section>

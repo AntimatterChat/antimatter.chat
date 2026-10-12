@@ -1,0 +1,59 @@
+title: Allotja Antimatter tu mateix
+description: Posa Antimatter en marxa al teu propi servidor en uns deu minuts, amb un sol fitxer compose: el servidor, PostgreSQL, l’emmagatzematge S3 i el servei de GIF.
+plain: yes
+source: dd628e5e3c33
+---
+<div class="page-head"><div class="wrap"><span class="eyebrow">Comença</span><h1>Instal·la Antimatter al teu propi servidor</h1>
+<p>Un fitxer, tres ordres i uns deu minuts: Antimatter amb la seva base de dades, l’emmagatzematge de fitxers i el servei de GIF, en qualsevol servidor Linux amb Docker.</p></div></div>
+<section><div class="wrap prose">
+<h2 id="docker">En marxa en deu minuts</h2>
+<p>Necessites un servidor Linux amb <a href="https://docs.docker.com/engine/install/">Docker</a> i el seu connector Compose, 2 nuclis de CPU i 4 GB de memòria o més.</p>
+
+<h3>1. Baixa el fitxer compose</h3>
+<div class="terminal"><span class="p">$ </span>mkdir antimatter &amp;&amp; cd antimatter<br><span class="p">$ </span>curl -fsSLO https://antimatter.chat/compose.yaml</div>
+
+<h3>2. Crea’n la configuració, amb contrasenyes aleatòries</h3>
+<div class="terminal"><span class="p">$ </span>cat &gt; .env &lt;&lt;EOF<br>SITE_URL=http://localhost:8065<br>POSTGRES_PASSWORD=$(openssl rand -hex 24)<br>S3_SECRET_KEY=$(openssl rand -hex 24)<br>GIFS_API_KEY=$(openssl rand -hex 24)<br>EOF</div>
+<p>Defineix <code>SITE_URL</code> amb l’adreça que farà servir la gent, com ara <code>http://192.168.1.20:8065</code> en una xarxa local.</p>
+
+<h3>3. Engega’l</h3>
+<div class="terminal"><span class="p">$ </span>docker compose up -d</div>
+<p>La primera arrencada triga un o dos minuts mentre es crea la base de dades. Després, obre <code>SITE_URL</code> al navegador i crea el teu compte: el primer compte passa a ser el d’administrador del sistema, i l’assistent de configuració et guia per crear el teu primer equip.</p>
+
+<h3>Amb el teu propi domini i HTTPS</h3>
+<p>Apunta un registre DNS del teu domini al servidor, obre els ports 80 i 443 i afegeix el domini al fitxer <code>.env</code>:</p>
+<div class="terminal"><span class="p">$ </span>cat &gt;&gt; .env &lt;&lt;EOF<br>DOMAIN=chat.example.com<br>EOF<br><span class="p">$ </span>sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env<br><span class="p">$ </span>docker compose --profile https up -d</div>
+<p style="margin-top:1em">Caddy obté un certificat de Let's Encrypt i el renova automàticament.</p>
+
+<h3>Què s’executa</h3>
+<ul>
+<li><b>antimatter</b>: el servidor, amb les seves aplicacions (notes, pissarres, canals de veu, trucades, enquestes i la resta). No desa res al disc: la configuració és a la base de dades i els fitxers, al servei d’emmagatzematge, de manera que pots substituir el contenidor en qualsevol moment.</li>
+<li><b>postgres</b>: la base de dades.</li>
+<li><b>files</b>: <a href="https://rustfs.com">RustFS</a>, emmagatzematge compatible amb S3 per als fitxers que es pugen.</li>
+<li><b>gifs</b>: el servei de GIF i adhesius d’Antimatter, amb un paquet d’adhesius inicial.</li>
+<li><b>https</b>: <a href="https://caddyserver.com">Caddy</a>, només amb el perfil <code>https</code>.</li>
+</ul>
+<p>La base de dades, l’emmagatzematge i el servei de GIF són en una xarxa privada a la qual només té accés Antimatter.</p>
+<div class="callout">Si el selector de GIF es queda buit, obre <b>Consola del sistema › Plugins › GIFs</b> i defineix l’URL del servei com a <code>http://gifs:8080/v2</code> i la clau de l’API amb el valor de <code>GIFS_API_KEY</code> del teu <code>.env</code>.</div>
+
+<h3>Actualitzacions i còpies de seguretat</h3>
+<div class="terminal"><span class="c"># actualitza a les imatges més recents</span><br><span class="p">$ </span>docker compose pull &amp;&amp; docker compose up -d<br><span class="c"># fes una còpia de seguretat de la base de dades</span><br><span class="p">$ </span>docker compose exec postgres pg_dump -U antimatter antimatter &gt; antimatter.sql</div>
+<p style="margin-top:1em">Fes també una còpia de seguretat del volum <code>files</code>, o replica l’emmagatzematge amb qualsevol eina S3. Si vols una configuració amb nginx i els teus propis certificats, consulta els fitxers de producció a <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">antimatter-docker</a>.</p>
+
+<h2>Amb un arxiu de versió</h2>
+<ol>
+<li>Prepara una base de dades i un usuari de PostgreSQL.</li>
+<li>Descomprimeix l’arxiu (<code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>), per exemple a <code>/opt/antimatter</code>, i fes que <code>SqlSettings.DataSource</code> de <code>config/config.json</code> (o la variable d’entorn <code>MM_SQLSETTINGS_DATASOURCE</code>) apunti a la base de dades.</li>
+<li>Engega el servidor amb <code>bin/antimatter</code>, com a usuari sense privilegis, i obre <code>http://localhost:8065</code>. El primer compte que es creï passa a ser el d’administrador del sistema.</li>
+</ol>
+<p><code>bin/amctl</code> gestiona un servidor en funcionament des de la línia d’ordres (<code>bin/amctl --local</code> al mateix servidor, amb <code>ServiceSettings.EnableLocalMode</code>).</p>
+
+<h2>Passos següents</h2>
+<ul>
+<li><b>Trucades</b>: obre el port de les trucades (UDP i TCP 8443 per defecte) perquè la veu i el vídeo arribin al servidor.</li>
+<li><b>Correu electrònic</b>: configura l’SMTP per a les invitacions i les notificacions.</li>
+<li><b>IA</b>: afegeix un model a la configuració d’Agents; hi funciona qualsevol API compatible amb OpenAI, inclòs un servidor que allotgis tu mateix.</li>
+<li><b>Veu i traducció</b>: fes que la transcripció de les trucades, la lectura en veu alta i la traducció automàtica apuntin a models de veu a text, de text a veu i de traducció que allotgis tu mateix.</li>
+</ul>
+
+</div></section>

@@ -1,0 +1,59 @@
+title: אירוח עצמי של Antimatter
+description: הפעילו את Antimatter על השרת שלכם בתוך כעשר דקות, עם קובץ compose אחד: השרת, PostgreSQL, אחסון S3 ושירות ה-GIF.
+plain: yes
+source: dd628e5e3c33
+---
+<div class="page-head"><div class="wrap"><span class="eyebrow">להתחלה</span><h1>הפעילו את Antimatter על השרת שלכם</h1>
+<p>קובץ אחד, שלוש פקודות, כעשר דקות: Antimatter עם מסד הנתונים, אחסון הקבצים ושירות ה-GIF שלו, על כל שרת Linux עם Docker.</p></div></div>
+<section><div class="wrap prose">
+<h2 id="docker">עולה ורץ תוך עשר דקות</h2>
+<p>תצטרכו שרת Linux עם <a href="https://docs.docker.com/engine/install/">Docker</a> ותוסף ה-Compose שלו, 2 ליבות מעבד ולפחות 4 GB זיכרון.</p>
+
+<h3>1. הורידו את קובץ ה-compose</h3>
+<div class="terminal"><span class="p">$ </span>mkdir antimatter &amp;&amp; cd antimatter<br><span class="p">$ </span>curl -fsSLO https://antimatter.chat/compose.yaml</div>
+
+<h3>2. צרו את קובץ ההגדרות, עם סיסמאות אקראיות</h3>
+<div class="terminal"><span class="p">$ </span>cat &gt; .env &lt;&lt;EOF<br>SITE_URL=http://localhost:8065<br>POSTGRES_PASSWORD=$(openssl rand -hex 24)<br>S3_SECRET_KEY=$(openssl rand -hex 24)<br>GIFS_API_KEY=$(openssl rand -hex 24)<br>EOF</div>
+<p>הגדירו את <code>SITE_URL</code> לכתובת שבה המשתמשים ייכנסו, למשל <code>http://192.168.1.20:8065</code> ברשת מקומית.</p>
+
+<h3>3. הפעילו</h3>
+<div class="terminal"><span class="p">$ </span>docker compose up -d</div>
+<p>ההפעלה הראשונה נמשכת דקה או שתיים, בזמן שמסד הנתונים נוצר. אחר כך פתחו את <code>SITE_URL</code> בדפדפן וצרו חשבון: החשבון הראשון הופך למנהל המערכת, ותהליך ההגדרה ילווה אתכם ביצירת הצוות הראשון.</p>
+
+<h3>עם דומיין משלכם ו-HTTPS</h3>
+<p>הפנו רשומת DNS של הדומיין שלכם לשרת, פתחו את הפורטים 80 ו-443, והוסיפו את הדומיין ל-<code>.env</code>:</p>
+<div class="terminal"><span class="p">$ </span>cat &gt;&gt; .env &lt;&lt;EOF<br>DOMAIN=chat.example.com<br>EOF<br><span class="p">$ </span>sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env<br><span class="p">$ </span>docker compose --profile https up -d</div>
+<p style="margin-top:1em">Caddy משיג תעודה מ-Let's Encrypt ומחדש אותה בעצמו.</p>
+
+<h3>מה רץ</h3>
+<ul>
+<li><b>antimatter</b>: השרת, עם האפליקציות שלו (פתקים, לוחות לבנים, ערוצי קול, שיחות, סקרים ועוד). הוא לא שומר דבר על הדיסק: ההגדרות שלו נמצאות במסד הנתונים והקבצים בשירות האחסון, כך שאפשר להחליף את הקונטיינר בכל רגע.</li>
+<li><b>postgres</b>: מסד הנתונים.</li>
+<li><b>files</b>: <a href="https://rustfs.com">RustFS</a>, אחסון תואם S3 לקבצים שמועלים.</li>
+<li><b>gifs</b>: שירות ה-GIF והמדבקות של Antimatter, עם חבילת מדבקות ראשונית.</li>
+<li><b>https</b>: <a href="https://caddyserver.com">Caddy</a>, רק עם הפרופיל <code>https</code>.</li>
+</ul>
+<p>מסד הנתונים, האחסון ושירות ה-GIF יושבים ברשת פרטית שרק Antimatter מגיע אליה.</p>
+<div class="callout">אם בוחר ה-GIF נשאר ריק, פתחו את <b>קונסולת מערכת › פלאגינים › GIFs</b>, הגדירו את כתובת השירות ל-<code>http://gifs:8080/v2</code> ואת מפתח ה-API ל-<code>GIFS_API_KEY</code> שבקובץ <code>.env</code> שלכם.</div>
+
+<h3>שדרוגים וגיבויים</h3>
+<div class="terminal"><span class="c"># שדרוג לאימג'ים העדכניים</span><br><span class="p">$ </span>docker compose pull &amp;&amp; docker compose up -d<br><span class="c"># גיבוי מסד הנתונים</span><br><span class="p">$ </span>docker compose exec postgres pg_dump -U antimatter antimatter &gt; antimatter.sql</div>
+<p style="margin-top:1em">גבו גם את ה-volume בשם <code>files</code>, או שכפלו את האחסון עם כל כלי S3. להתקנה עם nginx ותעודות משלכם, ראו את קובצי סביבת הייצור ב-<a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">antimatter-docker</a>.</p>
+
+<h2>עם ארכיון גרסה</h2>
+<ol>
+<li>הקימו מסד נתונים ומשתמש ב-PostgreSQL.</li>
+<li>חלצו את הארכיון (<code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>), למשל לתוך <code>/opt/antimatter</code>, והפנו את <code>SqlSettings.DataSource</code> בקובץ <code>config/config.json</code> (או את משתנה הסביבה <code>MM_SQLSETTINGS_DATASOURCE</code>) אל מסד הנתונים.</li>
+<li>הפעילו את השרת עם <code>bin/antimatter</code>, כמשתמש ללא הרשאות מיוחדות, ופתחו את <code>http://localhost:8065</code>. החשבון הראשון שנוצר הופך למנהל המערכת.</li>
+</ol>
+<p><code>bin/amctl</code> מנהל שרת פועל משורת הפקודה (<code>bin/amctl --local</code> על השרת עצמו, עם <code>ServiceSettings.EnableLocalMode</code>).</p>
+
+<h2>השלבים הבאים</h2>
+<ul>
+<li><b>שיחות</b>: פתחו את פורט השיחות (UDP ו-TCP 8443 כברירת מחדל) כדי שהקול והווידאו יגיעו לשרת.</li>
+<li><b>דואר אלקטרוני</b>: הגדירו SMTP להזמנות ולהתראות.</li>
+<li><b>AI</b>: הוסיפו מודל בהגדרות הסוכנים; כל API תואם OpenAI עובד, כולל שרת שאתם מריצים בעצמכם.</li>
+<li><b>דיבור ותרגום</b>: הפנו את תמלול השיחות, ההקראה בקול והתרגום האוטומטי למודלים של המרת דיבור לטקסט, המרת טקסט לדיבור ותרגום שאתם מריצים בעצמכם.</li>
+</ul>
+
+</div></section>

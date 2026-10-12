@@ -1,0 +1,59 @@
+title: Asenna Antimatter omalle palvelimellesi
+description: Antimatter toimimaan omalla palvelimellasi noin kymmenessä minuutissa yhdellä compose-tiedostolla: palvelin, PostgreSQL, S3-tallennustila ja GIF-palvelu.
+plain: yes
+source: dd628e5e3c33
+---
+<div class="page-head"><div class="wrap"><span class="eyebrow">Aloita</span><h1>Antimatter omalle palvelimellesi</h1>
+<p>Yksi tiedosto, kolme komentoa ja noin kymmenen minuuttia: Antimatter sekä sen tietokanta, tiedostotallennus ja GIF-palvelu millä tahansa Linux-palvelimella, jolla on Docker.</p></div></div>
+<section><div class="wrap prose">
+<h2 id="docker">Käynnissä kymmenessä minuutissa</h2>
+<p>Tarvitset Linux-palvelimen, jossa on <a href="https://docs.docker.com/engine/install/">Docker</a> ja sen Compose-lisäosa, vähintään 2 suoritinydintä ja 4 Gt muistia.</p>
+
+<h3>1. Lataa compose-tiedosto</h3>
+<div class="terminal"><span class="p">$ </span>mkdir antimatter &amp;&amp; cd antimatter<br><span class="p">$ </span>curl -fsSLO https://antimatter.chat/compose.yaml</div>
+
+<h3>2. Luo asetukset satunnaisine salasanoineen</h3>
+<div class="terminal"><span class="p">$ </span>cat &gt; .env &lt;&lt;EOF<br>SITE_URL=http://localhost:8065<br>POSTGRES_PASSWORD=$(openssl rand -hex 24)<br>S3_SECRET_KEY=$(openssl rand -hex 24)<br>GIFS_API_KEY=$(openssl rand -hex 24)<br>EOF</div>
+<p>Aseta <code>SITE_URL</code>-arvoksi osoite, jota käyttäjät käyttävät, esimerkiksi lähiverkossa <code>http://192.168.1.20:8065</code>.</p>
+
+<h3>3. Käynnistä</h3>
+<div class="terminal"><span class="p">$ </span>docker compose up -d</div>
+<p>Ensimmäinen käynnistys kestää minuutin tai kaksi, kun tietokantaa luodaan. Avaa sitten <code>SITE_URL</code> selaimessa ja luo tilisi: ensimmäisestä tilistä tulee järjestelmän ylläpitäjä, ja käyttöönotto opastaa sinut luomaan ensimmäisen tiimisi.</p>
+
+<h3>Oma verkkotunnus ja HTTPS</h3>
+<p>Osoita verkkotunnuksesi DNS-tietue palvelimeen, avaa portit 80 ja 443 ja lisää verkkotunnus <code>.env</code>-tiedostoon:</p>
+<div class="terminal"><span class="p">$ </span>cat &gt;&gt; .env &lt;&lt;EOF<br>DOMAIN=chat.example.com<br>EOF<br><span class="p">$ </span>sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env<br><span class="p">$ </span>docker compose --profile https up -d</div>
+<p style="margin-top:1em">Caddy hakee varmenteen Let's Encryptiltä ja uusii sen itsestään.</p>
+
+<h3>Mitä käynnistyy</h3>
+<ul>
+<li><b>antimatter</b>: palvelin sovelluksineen (muistiinpanot, valkotaulut, äänikanavat, puhelut, kyselyt ja muut). Se ei tallenna mitään levylle: sen asetukset ovat tietokannassa ja tiedostot tallennuspalvelussa, joten kontin voi vaihtaa milloin tahansa.</li>
+<li><b>postgres</b>: tietokanta.</li>
+<li><b>files</b>: <a href="https://rustfs.com">RustFS</a>, S3-yhteensopiva tallennustila ladatuille tiedostoille.</li>
+<li><b>gifs</b>: Antimatterin GIF- ja tarrapalvelu sekä aloitustarrapaketti.</li>
+<li><b>https</b>: <a href="https://caddyserver.com">Caddy</a>, vain <code>https</code>-profiilin kanssa.</li>
+</ul>
+<p>Tietokanta, tallennustila ja GIF-palvelu ovat yksityisessä verkossa, johon vain Antimatterilla on pääsy.</p>
+<div class="callout">Jos GIF-valitsin pysyy tyhjänä, avaa <b>Järjestelmäkonsoli › Lisäosat › GIFs</b> ja aseta palvelun URL-osoitteeksi <code>http://gifs:8080/v2</code> ja API-avaimeksi <code>.env</code>-tiedostosi <code>GIFS_API_KEY</code>.</div>
+
+<h3>Päivitykset ja varmuuskopiot</h3>
+<div class="terminal"><span class="c"># päivitä uusimpiin levykuviin</span><br><span class="p">$ </span>docker compose pull &amp;&amp; docker compose up -d<br><span class="c"># varmuuskopioi tietokanta</span><br><span class="p">$ </span>docker compose exec postgres pg_dump -U antimatter antimatter &gt; antimatter.sql</div>
+<p style="margin-top:1em">Varmuuskopioi myös <code>files</code>-taltio tai replikoi tallennustila millä tahansa S3-työkalulla. Jos haluat käyttää nginxiä ja omia varmenteitasi, katso tuotantoympäristön tiedostot <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">antimatter-docker</a>-varastosta.</p>
+
+<h2>Julkaisupaketista</h2>
+<ol>
+<li>Luo PostgreSQL-tietokanta ja -käyttäjä.</li>
+<li>Pura paketti (<code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>) esimerkiksi hakemistoon <code>/opt/antimatter</code> ja osoita tiedoston <code>config/config.json</code> asetus <code>SqlSettings.DataSource</code> (tai ympäristömuuttuja <code>MM_SQLSETTINGS_DATASOURCE</code>) tietokantaan.</li>
+<li>Käynnistä palvelin komennolla <code>bin/antimatter</code> tavallisena käyttäjänä ilman pääkäyttäjän oikeuksia ja avaa <code>http://localhost:8065</code>. Ensimmäisestä luodusta tilistä tulee järjestelmän ylläpitäjä.</li>
+</ol>
+<p><code>bin/amctl</code> hallitsee käynnissä olevaa palvelinta komentoriviltä (palvelimella itsellään <code>bin/amctl --local</code>, kun <code>ServiceSettings.EnableLocalMode</code> on käytössä).</p>
+
+<h2>Seuraavat vaiheet</h2>
+<ul>
+<li><b>Puhelut</b>: avaa puheluportti (oletuksena UDP ja TCP 8443), jotta ääni ja video pääsevät palvelimelle.</li>
+<li><b>Sähköposti</b>: määritä SMTP kutsuja ja ilmoituksia varten.</li>
+<li><b>Tekoäly</b>: lisää malli agenttien asetuksissa; mikä tahansa OpenAI-yhteensopiva API käy, myös itse ylläpitämäsi palvelin.</li>
+<li><b>Puhe ja käännökset</b>: ohjaa puheluiden transkriptio, ääneen luku ja automaattinen kääntäminen itse ylläpitämillesi puheentunnistus-, puhesynteesi- ja käännösmalleille.</li>
+</ul>
+
+</div></section>

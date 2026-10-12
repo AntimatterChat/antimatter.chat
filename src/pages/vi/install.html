@@ -1,0 +1,59 @@
+title: Tự lưu trữ Antimatter
+description: Chạy Antimatter trên máy chủ của riêng bạn trong khoảng mười phút, chỉ với một tệp compose: máy chủ, PostgreSQL, kho lưu trữ S3 và dịch vụ GIF.
+plain: yes
+source: dd628e5e3c33
+---
+<div class="page-head"><div class="wrap"><span class="eyebrow">Bắt đầu</span><h1>Chạy Antimatter trên máy chủ của riêng bạn</h1>
+<p>Một tệp, ba lệnh, khoảng mười phút: Antimatter cùng cơ sở dữ liệu, kho lưu trữ tệp và dịch vụ GIF của nó, trên bất kỳ máy chủ Linux nào có Docker.</p></div></div>
+<section><div class="wrap prose">
+<h2 id="docker">Sẵn sàng hoạt động trong mười phút</h2>
+<p>Bạn cần một máy chủ Linux có <a href="https://docs.docker.com/engine/install/">Docker</a> cùng plugin Compose, tối thiểu 2 nhân CPU và 4 GB bộ nhớ.</p>
+
+<h3>1. Tải tệp compose</h3>
+<div class="terminal"><span class="p">$ </span>mkdir antimatter &amp;&amp; cd antimatter<br><span class="p">$ </span>curl -fsSLO https://antimatter.chat/compose.yaml</div>
+
+<h3>2. Tạo tệp cấu hình, với mật khẩu ngẫu nhiên</h3>
+<div class="terminal"><span class="p">$ </span>cat &gt; .env &lt;&lt;EOF<br>SITE_URL=http://localhost:8065<br>POSTGRES_PASSWORD=$(openssl rand -hex 24)<br>S3_SECRET_KEY=$(openssl rand -hex 24)<br>GIFS_API_KEY=$(openssl rand -hex 24)<br>EOF</div>
+<p>Đặt <code>SITE_URL</code> thành địa chỉ mà mọi người sẽ dùng để truy cập, ví dụ <code>http://192.168.1.20:8065</code> trong mạng nội bộ.</p>
+
+<h3>3. Khởi động</h3>
+<div class="terminal"><span class="p">$ </span>docker compose up -d</div>
+<p>Lần khởi động đầu tiên mất một hai phút để tạo cơ sở dữ liệu. Sau đó, mở <code>SITE_URL</code> trong trình duyệt và tạo tài khoản: tài khoản đầu tiên sẽ trở thành quản trị viên hệ thống, và trình thiết lập sẽ hướng dẫn bạn tạo nhóm đầu tiên.</p>
+
+<h3>Với tên miền riêng và HTTPS</h3>
+<p>Trỏ một bản ghi DNS của tên miền về máy chủ, mở cổng 80 và 443, rồi thêm tên miền vào <code>.env</code>:</p>
+<div class="terminal"><span class="p">$ </span>cat &gt;&gt; .env &lt;&lt;EOF<br>DOMAIN=chat.example.com<br>EOF<br><span class="p">$ </span>sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env<br><span class="p">$ </span>docker compose --profile https up -d</div>
+<p style="margin-top:1em">Caddy sẽ lấy chứng chỉ từ Let's Encrypt và tự động gia hạn.</p>
+
+<h3>Những gì sẽ chạy</h3>
+<ul>
+<li><b>antimatter</b>: máy chủ, cùng các ứng dụng của nó (ghi chú, bảng trắng, kênh thoại, cuộc gọi, bình chọn và các ứng dụng khác). Nó không lưu gì trên đĩa: cài đặt nằm trong cơ sở dữ liệu và tệp nằm trong dịch vụ lưu trữ, nên có thể thay container bất cứ lúc nào.</li>
+<li><b>postgres</b>: cơ sở dữ liệu.</li>
+<li><b>files</b>: <a href="https://rustfs.com">RustFS</a>, kho lưu trữ tương thích S3 cho các tệp được tải lên.</li>
+<li><b>gifs</b>: dịch vụ GIF và nhãn dán của Antimatter, kèm một bộ nhãn dán khởi đầu.</li>
+<li><b>https</b>: <a href="https://caddyserver.com">Caddy</a>, chỉ chạy với profile <code>https</code>.</li>
+</ul>
+<p>Cơ sở dữ liệu, kho lưu trữ và dịch vụ GIF nằm trong một mạng riêng mà chỉ Antimatter truy cập được.</p>
+<div class="callout">Nếu bộ chọn GIF vẫn trống, hãy mở <b>Bảng điều khiển Hệ thống › Plugin › GIFs</b>, đặt URL dịch vụ thành <code>http://gifs:8080/v2</code> và khóa API thành giá trị <code>GIFS_API_KEY</code> trong tệp <code>.env</code> của bạn.</div>
+
+<h3>Nâng cấp và sao lưu</h3>
+<div class="terminal"><span class="c"># nâng cấp lên image mới nhất</span><br><span class="p">$ </span>docker compose pull &amp;&amp; docker compose up -d<br><span class="c"># sao lưu cơ sở dữ liệu</span><br><span class="p">$ </span>docker compose exec postgres pg_dump -U antimatter antimatter &gt; antimatter.sql</div>
+<p style="margin-top:1em">Hãy sao lưu cả volume <code>files</code>, hoặc sao chép dữ liệu lưu trữ bằng bất kỳ công cụ S3 nào. Để thiết lập với nginx và chứng chỉ riêng, xem các tệp dùng cho môi trường production trong <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">antimatter-docker</a>.</p>
+
+<h2>Với gói phát hành</h2>
+<ol>
+<li>Tạo một cơ sở dữ liệu và người dùng PostgreSQL.</li>
+<li>Giải nén gói (<code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>), ví dụ vào <code>/opt/antimatter</code>, rồi trỏ <code>SqlSettings.DataSource</code> trong <code>config/config.json</code> (hoặc biến môi trường <code>MM_SQLSETTINGS_DATASOURCE</code>) đến cơ sở dữ liệu đó.</li>
+<li>Khởi động máy chủ bằng <code>bin/antimatter</code> dưới một người dùng không có đặc quyền, rồi mở <code>http://localhost:8065</code>. Tài khoản đầu tiên được tạo sẽ trở thành quản trị viên hệ thống.</li>
+</ol>
+<p><code>bin/amctl</code> quản lý máy chủ đang chạy từ dòng lệnh (<code>bin/amctl --local</code> trên chính máy chủ đó, khi bật <code>ServiceSettings.EnableLocalMode</code>).</p>
+
+<h2>Các bước tiếp theo</h2>
+<ul>
+<li><b>Cuộc gọi</b>: mở cổng cuộc gọi (mặc định là UDP và TCP 8443) để âm thanh và video đến được máy chủ.</li>
+<li><b>Email</b>: cấu hình SMTP để gửi lời mời và thông báo.</li>
+<li><b>AI</b>: thêm một mô hình trong phần cài đặt Agents; mọi API tương thích OpenAI đều dùng được, kể cả máy chủ do bạn tự vận hành.</li>
+<li><b>Giọng nói và dịch</b>: trỏ tính năng chép lời cuộc gọi, đọc to và dịch tự động đến các mô hình chuyển giọng nói thành văn bản, chuyển văn bản thành giọng nói và dịch thuật do bạn tự vận hành.</li>
+</ul>
+
+</div></section>

@@ -1,0 +1,59 @@
+title: Hosting Antimatter sendiri
+description: Jalankan Antimatter di server Anda sendiri dalam sekitar sepuluh menit, dengan satu file compose: server, PostgreSQL, penyimpanan S3, dan layanan GIF.
+plain: yes
+source: dd628e5e3c33
+---
+<div class="page-head"><div class="wrap"><span class="eyebrow">Mulai sekarang</span><h1>Jalankan Antimatter di server Anda sendiri</h1>
+<p>Satu file, tiga perintah, sekitar sepuluh menit: Antimatter beserta basis data, penyimpanan file, dan layanan GIF-nya, di server Linux mana pun yang memiliki Docker.</p></div></div>
+<section><div class="wrap prose">
+<h2 id="docker">Siap digunakan dalam sepuluh menit</h2>
+<p>Anda memerlukan server Linux dengan <a href="https://docs.docker.com/engine/install/">Docker</a> dan plugin Compose-nya, 2 inti CPU, dan memori 4 GB atau lebih.</p>
+
+<h3>1. Unduh file compose</h3>
+<div class="terminal"><span class="p">$ </span>mkdir antimatter &amp;&amp; cd antimatter<br><span class="p">$ </span>curl -fsSLO https://antimatter.chat/compose.yaml</div>
+
+<h3>2. Buat pengaturannya, dengan kata sandi acak</h3>
+<div class="terminal"><span class="p">$ </span>cat &gt; .env &lt;&lt;EOF<br>SITE_URL=http://localhost:8065<br>POSTGRES_PASSWORD=$(openssl rand -hex 24)<br>S3_SECRET_KEY=$(openssl rand -hex 24)<br>GIFS_API_KEY=$(openssl rand -hex 24)<br>EOF</div>
+<p>Atur <code>SITE_URL</code> ke alamat yang akan digunakan orang-orang, misalnya <code>http://192.168.1.20:8065</code> di jaringan lokal.</p>
+
+<h3>3. Jalankan</h3>
+<div class="terminal"><span class="p">$ </span>docker compose up -d</div>
+<p>Saat pertama kali dijalankan, prosesnya memakan waktu satu atau dua menit selama basis data dibuat. Setelah itu, buka <code>SITE_URL</code> di browser dan buat akun Anda: akun pertama akan menjadi administrator sistem, dan proses penyiapan akan memandu Anda membuat tim pertama.</p>
+
+<h3>Dengan domain dan HTTPS Anda sendiri</h3>
+<p>Arahkan data DNS domain Anda ke server, buka port 80 dan 443, lalu tambahkan domain tersebut ke <code>.env</code>:</p>
+<div class="terminal"><span class="p">$ </span>cat &gt;&gt; .env &lt;&lt;EOF<br>DOMAIN=chat.example.com<br>EOF<br><span class="p">$ </span>sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env<br><span class="p">$ </span>docker compose --profile https up -d</div>
+<p style="margin-top:1em">Caddy akan mendapatkan sertifikat dari Let's Encrypt dan memperbaruinya secara otomatis.</p>
+
+<h3>Apa saja yang berjalan</h3>
+<ul>
+<li><b>antimatter</b>: server, beserta aplikasinya (catatan, papan putih, kanal suara, panggilan, jajak pendapat, dan lainnya). Server ini tidak menyimpan apa pun di disk: pengaturannya ada di basis data dan file-filenya ada di layanan penyimpanan, sehingga kontainernya bisa diganti kapan saja.</li>
+<li><b>postgres</b>: basis data.</li>
+<li><b>files</b>: <a href="https://rustfs.com">RustFS</a>, penyimpanan yang kompatibel dengan S3 untuk file yang diunggah.</li>
+<li><b>gifs</b>: layanan GIF dan stiker Antimatter, dengan paket stiker awal.</li>
+<li><b>https</b>: <a href="https://caddyserver.com">Caddy</a>, hanya dengan profil <code>https</code>.</li>
+</ul>
+<p>Basis data, penyimpanan, dan layanan GIF berada di jaringan privat yang hanya bisa dijangkau oleh Antimatter.</p>
+<div class="callout">Jika pemilih GIF tetap kosong, buka <b>Konsol Sistem › Plugins › GIFs</b>, lalu atur URL layanan ke <code>http://gifs:8080/v2</code> dan kunci API ke nilai <code>GIFS_API_KEY</code> di <code>.env</code> Anda.</div>
+
+<h3>Pembaruan dan pencadangan</h3>
+<div class="terminal"><span class="c"># perbarui ke image terbaru</span><br><span class="p">$ </span>docker compose pull &amp;&amp; docker compose up -d<br><span class="c"># cadangkan basis data</span><br><span class="p">$ </span>docker compose exec postgres pg_dump -U antimatter antimatter &gt; antimatter.sql</div>
+<p style="margin-top:1em">Cadangkan juga volume <code>files</code>, atau replikasikan penyimpanannya dengan alat S3 apa pun. Untuk penyiapan dengan nginx dan sertifikat Anda sendiri, lihat file produksi di <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">antimatter-docker</a>.</p>
+
+<h2>Dengan arsip rilis</h2>
+<ol>
+<li>Siapkan basis data dan pengguna PostgreSQL.</li>
+<li>Ekstrak arsipnya (<code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>), misalnya ke <code>/opt/antimatter</code>, lalu arahkan <code>SqlSettings.DataSource</code> di <code>config/config.json</code> (atau variabel lingkungan <code>MM_SQLSETTINGS_DATASOURCE</code>) ke basis data tersebut.</li>
+<li>Jalankan server dengan <code>bin/antimatter</code> sebagai pengguna tanpa hak istimewa, lalu buka <code>http://localhost:8065</code>. Akun pertama yang dibuat akan menjadi administrator sistem.</li>
+</ol>
+<p><code>bin/amctl</code> mengelola server yang sedang berjalan dari baris perintah (<code>bin/amctl --local</code> di server itu sendiri, dengan <code>ServiceSettings.EnableLocalMode</code>).</p>
+
+<h2>Langkah berikutnya</h2>
+<ul>
+<li><b>Panggilan</b>: buka port panggilan (UDP dan TCP 8443 secara default) agar suara dan video bisa mencapai server.</li>
+<li><b>Email</b>: konfigurasikan SMTP untuk undangan dan notifikasi.</li>
+<li><b>AI</b>: tambahkan model di pengaturan Agents; API apa pun yang kompatibel dengan OpenAI bisa digunakan, termasuk server yang Anda jalankan sendiri.</li>
+<li><b>Ucapan dan terjemahan</b>: arahkan transkripsi panggilan, fitur baca dengan suara, dan terjemahan otomatis ke model ucapan-ke-teks, teks-ke-ucapan, dan terjemahan yang Anda jalankan sendiri.</li>
+</ul>
+
+</div></section>

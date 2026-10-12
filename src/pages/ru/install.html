@@ -1,0 +1,59 @@
+title: Установка Antimatter на свой сервер
+description: Запустите Antimatter на собственном сервере примерно за десять минут с помощью одного compose-файла: сервер, PostgreSQL, хранилище S3 и сервис GIF.
+plain: yes
+source: dd628e5e3c33
+---
+<div class="page-head"><div class="wrap"><span class="eyebrow">Начало работы</span><h1>Запустите Antimatter на своём сервере</h1>
+<p>Один файл, три команды, около десяти минут: Antimatter с базой данных, файловым хранилищем и сервисом GIF на любом Linux-сервере с Docker.</p></div></div>
+<section><div class="wrap prose">
+<h2 id="docker">Запуск за десять минут</h2>
+<p>Вам понадобится Linux-сервер с <a href="https://docs.docker.com/engine/install/">Docker</a> и плагином Compose, не менее 2 ядер процессора и 4 ГБ памяти.</p>
+
+<h3>1. Скачайте compose-файл</h3>
+<div class="terminal"><span class="p">$ </span>mkdir antimatter &amp;&amp; cd antimatter<br><span class="p">$ </span>curl -fsSLO https://antimatter.chat/compose.yaml</div>
+
+<h3>2. Создайте файл настроек со случайными паролями</h3>
+<div class="terminal"><span class="p">$ </span>cat &gt; .env &lt;&lt;EOF<br>SITE_URL=http://localhost:8065<br>POSTGRES_PASSWORD=$(openssl rand -hex 24)<br>S3_SECRET_KEY=$(openssl rand -hex 24)<br>GIFS_API_KEY=$(openssl rand -hex 24)<br>EOF</div>
+<p>Укажите в <code>SITE_URL</code> адрес, по которому пользователи будут открывать чат, например <code>http://192.168.1.20:8065</code> в локальной сети.</p>
+
+<h3>3. Запустите</h3>
+<div class="terminal"><span class="p">$ </span>docker compose up -d</div>
+<p>Первый запуск занимает минуту-другую, пока создаётся база данных. Затем откройте <code>SITE_URL</code> в браузере и создайте учётную запись: первая учётная запись становится системным администратором, а мастер настройки поможет создать первую команду.</p>
+
+<h3>Со своим доменом и HTTPS</h3>
+<p>Направьте DNS-запись своего домена на сервер, откройте порты 80 и 443 и добавьте домен в <code>.env</code>:</p>
+<div class="terminal"><span class="p">$ </span>cat &gt;&gt; .env &lt;&lt;EOF<br>DOMAIN=chat.example.com<br>EOF<br><span class="p">$ </span>sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env<br><span class="p">$ </span>docker compose --profile https up -d</div>
+<p style="margin-top:1em">Caddy получит сертификат от Let's Encrypt и будет сам его продлевать.</p>
+
+<h3>Что запускается</h3>
+<ul>
+<li><b>antimatter</b>: сервер со всеми приложениями (заметки, доски для рисования, голосовые каналы, звонки, опросы и другие). Он ничего не хранит на диске: настройки находятся в базе данных, а файлы — в хранилище, поэтому контейнер можно заменить в любой момент.</li>
+<li><b>postgres</b>: база данных.</li>
+<li><b>files</b>: <a href="https://rustfs.com">RustFS</a>, совместимое с S3 хранилище для загруженных файлов.</li>
+<li><b>gifs</b>: сервис GIF и стикеров Antimatter со стартовым набором стикеров.</li>
+<li><b>https</b>: <a href="https://caddyserver.com">Caddy</a>, только с профилем <code>https</code>.</li>
+</ul>
+<p>База данных, хранилище и сервис GIF находятся в закрытой сети, доступ к которой есть только у Antimatter.</p>
+<div class="callout">Если окно выбора GIF остаётся пустым, откройте <b>Системная консоль › Плагины › GIFs</b>, укажите URL сервиса <code>http://gifs:8080/v2</code>, а в качестве ключа API — значение <code>GIFS_API_KEY</code> из вашего <code>.env</code>.</div>
+
+<h3>Обновление и резервное копирование</h3>
+<div class="terminal"><span class="c"># обновление до последних образов</span><br><span class="p">$ </span>docker compose pull &amp;&amp; docker compose up -d<br><span class="c"># резервная копия базы данных</span><br><span class="p">$ </span>docker compose exec postgres pg_dump -U antimatter antimatter &gt; antimatter.sql</div>
+<p style="margin-top:1em">Не забудьте также делать резервную копию тома <code>files</code> или реплицировать хранилище любым инструментом для S3. Конфигурацию с nginx и собственными сертификатами смотрите в файлах для production-развёртывания в <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">antimatter-docker</a>.</p>
+
+<h2>Из архива релиза</h2>
+<ol>
+<li>Создайте базу данных PostgreSQL и пользователя.</li>
+<li>Распакуйте архив (<code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>), например в <code>/opt/antimatter</code>, и укажите базу данных в параметре <code>SqlSettings.DataSource</code> файла <code>config/config.json</code> (или в переменной окружения <code>MM_SQLSETTINGS_DATASOURCE</code>).</li>
+<li>Запустите сервер командой <code>bin/antimatter</code> от имени непривилегированного пользователя и откройте <code>http://localhost:8065</code>. Первая созданная учётная запись становится системным администратором.</li>
+</ol>
+<p><code>bin/amctl</code> управляет работающим сервером из командной строки (<code>bin/amctl --local</code> на самом сервере, при включённом <code>ServiceSettings.EnableLocalMode</code>).</p>
+
+<h2>Что дальше</h2>
+<ul>
+<li><b>Звонки</b>: откройте порт для звонков (по умолчанию UDP и TCP 8443), чтобы голос и видео доходили до сервера.</li>
+<li><b>Электронная почта</b>: настройте SMTP для приглашений и уведомлений.</li>
+<li><b>ИИ</b>: добавьте модель в настройках агентов; подойдёт любой API, совместимый с OpenAI, в том числе на вашем собственном сервере.</li>
+<li><b>Речь и перевод</b>: подключите транскрипцию звонков, озвучивание и автоматический перевод к моделям распознавания речи, синтеза речи и перевода, которые вы запускаете сами.</li>
+</ul>
+
+</div></section>

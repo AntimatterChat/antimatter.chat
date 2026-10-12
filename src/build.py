@@ -43,7 +43,36 @@ LANGS = {
     'ja': ('ja', '日本語'),
     'ko': ('ko', '한국어'),
     'zh-cn': ('zh-CN', '简体中文'),
+    'zh-tw': ('zh-TW', '繁體中文'),
+    'bg': ('bg', 'Български'),
+    'ca': ('ca', 'Català'),
+    'cs': ('cs', 'Čeština'),
+    'da': ('da', 'Dansk'),
+    'el': ('el', 'Ελληνικά'),
+    'fi': ('fi', 'Suomi'),
+    'fil': ('fil', 'Filipino'),
+    'hu': ('hu', 'Magyar'),
+    'id': ('id', 'Bahasa Indonesia'),
+    'ms': ('ms', 'Bahasa Melayu'),
+    'nb': ('nb', 'Norsk bokmål'),
+    'pt': ('pt-PT', 'Português (Portugal)'),
+    'ro': ('ro', 'Română'),
+    'ru': ('ru', 'Русский'),
+    'sv': ('sv', 'Svenska'),
+    'tr': ('tr', 'Türkçe'),
+    'uk': ('uk', 'Українська'),
+    'vi': ('vi', 'Tiếng Việt'),
+    'hi': ('hi', 'हिन्दी'),
+    'bn': ('bn', 'বাংলা'),
+    'ta': ('ta', 'தமிழ்'),
+    'th': ('th', 'ไทย'),
+    'ar': ('ar', 'العربية'),
+    'fa': ('fa', 'فارسی'),
+    'he': ('he', 'עברית'),
+    'ur': ('ur', 'اردو'),
 }
+# The languages written right to left.
+RTL = {'ar', 'fa', 'he', 'ur'}
 CATALOGS = {}
 
 
@@ -173,7 +202,7 @@ def layout(path, meta, body, lang):
     description = html.escape(meta.get('description', ''), quote=True)
     body_class = ' class="plain"' if meta.get('plain') == 'yes' else ''
     return f'''<!doctype html>
-<html lang="{tag}">
+<html lang="{tag}"{" dir=\"rtl\"" if lang in RTL else ""}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -245,7 +274,7 @@ def compare_table(apps, lang):
     for g, feature, values in cd.ROWS:
         if g != group:
             group = g
-            rows.append(f'<tr class="group"><td colspan="{len(apps) + 2}">{t(lang, g)}</td></tr>')
+            rows.append(f'<tr class="group"><td colspan="{len(apps) + 2}"><span>{t(lang, g)}</span></td></tr>')
         rows.append(f'<tr><td>{t(lang, feature)}</td><td class="us">{cell(values["antimatter"], lang)}</td>'
                     + ''.join(f'<td>{cell(values[a], lang)}</td>' for a in apps) + '</tr>')
     return (f'<div class="table-wrap"><table class="compare"><thead><tr>{head}</tr></thead><tbody>'

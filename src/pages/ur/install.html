@@ -1,0 +1,59 @@
+title: Antimatter کو خود ہوسٹ کریں
+description: صرف ایک compose فائل کے ساتھ تقریباً دس منٹ میں Antimatter کو اپنے سرور پر چلائیں: سرور، PostgreSQL، S3 اسٹوریج اور GIF سروس۔
+plain: yes
+source: dd628e5e3c33
+---
+<div class="page-head"><div class="wrap"><span class="eyebrow">شروع کریں</span><h1>Antimatter کو اپنے سرور پر چلائیں</h1>
+<p>ایک فائل، تین کمانڈز، تقریباً دس منٹ: Antimatter اپنے ڈیٹا بیس، فائل اسٹوریج اور GIF سروس کے ساتھ، Docker والے کسی بھی Linux سرور پر۔</p></div></div>
+<section><div class="wrap prose">
+<h2 id="docker">دس منٹ میں تیار</h2>
+<p>آپ کو <a href="https://docs.docker.com/engine/install/">Docker</a> اور اس کے Compose پلگ ان والا ایک Linux سرور چاہیے، جس میں کم از کم 2 CPU کورز اور 4 GB میموری ہو۔</p>
+
+<h3>1. compose فائل ڈاؤن لوڈ کریں</h3>
+<div class="terminal"><span class="p">$ </span>mkdir antimatter &amp;&amp; cd antimatter<br><span class="p">$ </span>curl -fsSLO https://antimatter.chat/compose.yaml</div>
+
+<h3>2. رینڈم پاس ورڈز کے ساتھ اس کی ترتیبات بنائیں</h3>
+<div class="terminal"><span class="p">$ </span>cat &gt; .env &lt;&lt;EOF<br>SITE_URL=http://localhost:8065<br>POSTGRES_PASSWORD=$(openssl rand -hex 24)<br>S3_SECRET_KEY=$(openssl rand -hex 24)<br>GIFS_API_KEY=$(openssl rand -hex 24)<br>EOF</div>
+<p><code>SITE_URL</code> کو اس ایڈریس پر سیٹ کریں جو لوگ استعمال کریں گے، جیسے لوکل نیٹ ورک پر <code>http://192.168.1.20:8065</code>۔</p>
+
+<h3>3. اسے چلائیں</h3>
+<div class="terminal"><span class="p">$ </span>docker compose up -d</div>
+<p>پہلی بار چلنے میں ایک دو منٹ لگتے ہیں جب تک ڈیٹا بیس بنتا ہے۔ پھر اپنے براؤزر میں <code>SITE_URL</code> کھولیں اور اپنا اکاؤنٹ بنائیں: پہلا اکاؤنٹ سسٹم ایڈمن بن جاتا ہے، اور سیٹ اپ آپ کی پہلی ٹیم بنانے میں رہنمائی کرتا ہے۔</p>
+
+<h3>اپنے ڈومین اور HTTPS کے ساتھ</h3>
+<p>اپنے ڈومین کا ایک DNS ریکارڈ سرور کی طرف پوائنٹ کریں، پورٹس 80 اور 443 کھولیں، اور ڈومین کو <code>.env</code> میں شامل کریں:</p>
+<div class="terminal"><span class="p">$ </span>cat &gt;&gt; .env &lt;&lt;EOF<br>DOMAIN=chat.example.com<br>EOF<br><span class="p">$ </span>sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env<br><span class="p">$ </span>docker compose --profile https up -d</div>
+<p style="margin-top:1em">Caddy، Let's Encrypt سے سرٹیفکیٹ حاصل کرتا ہے اور خود ہی اس کی تجدید کرتا رہتا ہے۔</p>
+
+<h3>کیا کیا چلتا ہے</h3>
+<ul>
+<li><b>antimatter</b>: سرور، اپنی ایپس کے ساتھ (نوٹس، وائٹ بورڈز، وائس چینلز، کالز، پولز اور دیگر)۔ یہ ڈسک پر کچھ نہیں رکھتا: اس کی ترتیبات ڈیٹا بیس میں اور فائلیں اسٹوریج سروس میں ہوتی ہیں، اس لیے کنٹینر کو کسی بھی وقت بدلا جا سکتا ہے۔</li>
+<li><b>postgres</b>: ڈیٹا بیس۔</li>
+<li><b>files</b>: <a href="https://rustfs.com">RustFS</a>، اپ لوڈ کی گئی فائلوں کے لیے S3 سے مطابقت رکھنے والا اسٹوریج۔</li>
+<li><b>gifs</b>: Antimatter کی GIF اور اسٹیکر سروس، ایک ابتدائی اسٹیکر پیک کے ساتھ۔</li>
+<li><b>https</b>: <a href="https://caddyserver.com">Caddy</a>، صرف <code>https</code> پروفائل کے ساتھ۔</li>
+</ul>
+<p>ڈیٹا بیس، اسٹوریج اور GIF سروس ایک نجی نیٹ ورک پر ہوتے ہیں جس تک صرف Antimatter کی رسائی ہے۔</p>
+<div class="callout">اگر GIF پکر خالی رہے تو <b>سسٹم کنسول › پلگ انز › GIFs</b> کھولیں، سروس URL کو <code>http://gifs:8080/v2</code> پر اور API کی کو اپنی <code>.env</code> فائل کی <code>GIFS_API_KEY</code> پر سیٹ کریں۔</div>
+
+<h3>اپ گریڈ اور بیک اپ</h3>
+<div class="terminal"><span class="c"># تازہ ترین امیجز پر اپ گریڈ کریں</span><br><span class="p">$ </span>docker compose pull &amp;&amp; docker compose up -d<br><span class="c"># ڈیٹا بیس کا بیک اپ لیں</span><br><span class="p">$ </span>docker compose exec postgres pg_dump -U antimatter antimatter &gt; antimatter.sql</div>
+<p style="margin-top:1em"><code>files</code> والیوم کا بھی بیک اپ لیں، یا کسی بھی S3 ٹول سے اسٹوریج کو ریپلیکیٹ کریں۔ nginx اور اپنے سرٹیفکیٹس والے سیٹ اپ کے لیے <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">antimatter-docker</a> میں پروڈکشن فائلیں دیکھیں۔</p>
+
+<h2>ریلیز آرکائیو کے ساتھ</h2>
+<ol>
+<li>PostgreSQL ڈیٹا بیس اور اس کا یوزر تیار کریں۔</li>
+<li>آرکائیو (<code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>) کو، مثال کے طور پر <code>/opt/antimatter</code> میں، ان پیک کریں اور <code>config/config.json</code> میں <code>SqlSettings.DataSource</code> (یا <code>MM_SQLSETTINGS_DATASOURCE</code> انوائرنمنٹ ویری ایبل) کو ڈیٹا بیس کی طرف پوائنٹ کریں۔</li>
+<li>سرور کو <code>bin/antimatter</code> سے، بغیر خصوصی اختیارات والے یوزر کے طور پر، شروع کریں اور <code>http://localhost:8065</code> کھولیں۔ بنایا جانے والا پہلا اکاؤنٹ سسٹم ایڈمن بن جاتا ہے۔</li>
+</ol>
+<p><code>bin/amctl</code> چلتے ہوئے سرور کو کمانڈ لائن سے منظم کرتا ہے (خود سرور پر <code>bin/amctl --local</code>، <code>ServiceSettings.EnableLocalMode</code> کے ساتھ)۔</p>
+
+<h2>اگلے مراحل</h2>
+<ul>
+<li><b>کالز</b>: کالز کا پورٹ کھولیں (ڈیفالٹ طور پر UDP اور TCP 8443) تاکہ آواز اور ویڈیو سرور تک پہنچ سکیں۔</li>
+<li><b>ای میل</b>: دعوت ناموں اور اطلاعات کے لیے SMTP کنفیگر کریں۔</li>
+<li><b>AI</b>: Agents کی ترتیبات میں ایک ماڈل شامل کریں؛ کوئی بھی OpenAI سے مطابقت رکھنے والی API کام کرتی ہے، بشمول وہ سرور جو آپ خود چلاتے ہیں۔</li>
+<li><b>آواز اور ترجمہ</b>: کال ٹرانسکرپشن، بلند آواز میں پڑھنے اور خودکار ترجمے کو ان اسپیچ ٹو ٹیکسٹ، ٹیکسٹ ٹو اسپیچ اور ترجمے کے ماڈلز سے جوڑیں جو آپ خود چلاتے ہیں۔</li>
+</ul>
+
+</div></section>

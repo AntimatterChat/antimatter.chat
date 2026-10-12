@@ -1,0 +1,59 @@
+title: استضف Antimatter بنفسك
+description: شغّل Antimatter على خادمك الخاص في نحو عشر دقائق، بملف compose واحد: الخادم وPostgreSQL وتخزين S3 وخدمة GIF.
+plain: yes
+source: dd628e5e3c33
+---
+<div class="page-head"><div class="wrap"><span class="eyebrow">ابدأ الآن</span><h1>شغّل Antimatter على خادمك الخاص</h1>
+<p>ملف واحد، وثلاثة أوامر، ونحو عشر دقائق: Antimatter مع قاعدة بياناته ومساحة تخزين ملفاته وخدمة GIF الخاصة به، على أي خادم Linux مثبّت عليه Docker.</p></div></div>
+<section><div class="wrap prose">
+<h2 id="docker">جاهز للعمل في عشر دقائق</h2>
+<p>تحتاج إلى خادم Linux مثبّت عليه <a href="https://docs.docker.com/engine/install/">Docker</a> مع إضافة Compose، وإلى معالج بنواتين و4 GB من الذاكرة على الأقل.</p>
+
+<h3>1. نزّل ملف compose</h3>
+<div class="terminal"><span class="p">$ </span>mkdir antimatter &amp;&amp; cd antimatter<br><span class="p">$ </span>curl -fsSLO https://antimatter.chat/compose.yaml</div>
+
+<h3>2. أنشئ ملف الإعدادات، مع كلمات مرور عشوائية</h3>
+<div class="terminal"><span class="p">$ </span>cat &gt; .env &lt;&lt;EOF<br>SITE_URL=http://localhost:8065<br>POSTGRES_PASSWORD=$(openssl rand -hex 24)<br>S3_SECRET_KEY=$(openssl rand -hex 24)<br>GIFS_API_KEY=$(openssl rand -hex 24)<br>EOF</div>
+<p>اضبط <code>SITE_URL</code> على العنوان الذي سيستخدمه الناس، مثل <code>http://192.168.1.20:8065</code> على شبكة محلية.</p>
+
+<h3>3. شغّله</h3>
+<div class="terminal"><span class="p">$ </span>docker compose up -d</div>
+<p>يستغرق التشغيل الأول دقيقة أو دقيقتين ريثما تُنشأ قاعدة البيانات. بعد ذلك افتح <code>SITE_URL</code> في متصفحك وأنشئ حسابك: يصبح الحساب الأول حساب مدير النظام، ويرشدك الإعداد إلى إنشاء فريقك الأول.</p>
+
+<h3>مع نطاقك الخاص وHTTPS</h3>
+<p>وجّه سجل DNS لنطاقك إلى الخادم، وافتح المنفذين 80 و443، ثم أضف النطاق إلى <code>.env</code>:</p>
+<div class="terminal"><span class="p">$ </span>cat &gt;&gt; .env &lt;&lt;EOF<br>DOMAIN=chat.example.com<br>EOF<br><span class="p">$ </span>sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env<br><span class="p">$ </span>docker compose --profile https up -d</div>
+<p style="margin-top:1em">يحصل Caddy على شهادة من Let's Encrypt ويجدّدها تلقائيًا.</p>
+
+<h3>ما الذي يعمل</h3>
+<ul>
+<li><b>antimatter</b>: الخادم مع تطبيقاته (الملاحظات والسبورات البيضاء والقنوات الصوتية والمكالمات والاستطلاعات وغيرها). لا يحفظ شيئًا على القرص: إعداداته في قاعدة البيانات وملفاته في خدمة التخزين، لذا يمكن استبدال الحاوية في أي وقت.</li>
+<li><b>postgres</b>: قاعدة البيانات.</li>
+<li><b>files</b>: <a href="https://rustfs.com">RustFS</a>، تخزين متوافق مع S3 للملفات المرفوعة.</li>
+<li><b>gifs</b>: خدمة صور GIF والملصقات في Antimatter، مع حزمة ملصقات أولية.</li>
+<li><b>https</b>: <a href="https://caddyserver.com">Caddy</a>، مع ملف التعريف <code>https</code> فقط.</li>
+</ul>
+<p>تقع قاعدة البيانات وخدمة التخزين وخدمة GIF على شبكة خاصة لا يصل إليها سوى Antimatter.</p>
+<div class="callout">إذا بقي منتقي صور GIF فارغًا، فافتح <b>وحدة التحكم بالنظام › الإضافات › GIFs</b> واضبط عنوان URL للخدمة على <code>http://gifs:8080/v2</code> ومفتاح API على قيمة <code>GIFS_API_KEY</code> في ملف <code>.env</code> لديك.</div>
+
+<h3>الترقيات والنسخ الاحتياطي</h3>
+<div class="terminal"><span class="c"># الترقية إلى أحدث الصور</span><br><span class="p">$ </span>docker compose pull &amp;&amp; docker compose up -d<br><span class="c"># نسخ احتياطي لقاعدة البيانات</span><br><span class="p">$ </span>docker compose exec postgres pg_dump -U antimatter antimatter &gt; antimatter.sql</div>
+<p style="margin-top:1em">انسخ وحدة التخزين <code>files</code> احتياطيًا أيضًا، أو كرّر محتوى التخزين بأي أداة S3. ولإعداد يعتمد على nginx وشهاداتك الخاصة، راجع ملفات بيئة الإنتاج في <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">antimatter-docker</a>.</p>
+
+<h2>باستخدام أرشيف إصدار</h2>
+<ol>
+<li>جهّز قاعدة بيانات PostgreSQL ومستخدمًا لها.</li>
+<li>فكّ ضغط الأرشيف (<code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>)، في <code>/opt/antimatter</code> مثلًا، ووجّه <code>SqlSettings.DataSource</code> في <code>config/config.json</code> (أو متغير البيئة <code>MM_SQLSETTINGS_DATASOURCE</code>) إلى قاعدة البيانات.</li>
+<li>شغّل الخادم بالأمر <code>bin/antimatter</code> باستخدام مستخدم غير ذي صلاحيات مرتفعة، ثم افتح <code>http://localhost:8065</code>. يصبح أول حساب يُنشأ حساب مدير النظام.</li>
+</ol>
+<p>تتيح الأداة <code>bin/amctl</code> إدارة خادم قيد التشغيل من سطر الأوامر (<code>bin/amctl --local</code> على الخادم نفسه، مع تفعيل <code>ServiceSettings.EnableLocalMode</code>).</p>
+
+<h2>الخطوات التالية</h2>
+<ul>
+<li><b>المكالمات</b>: افتح منفذ المكالمات (UDP وTCP على المنفذ 8443 افتراضيًا) ليصل الصوت والفيديو إلى الخادم.</li>
+<li><b>البريد الإلكتروني</b>: اضبط SMTP لإرسال الدعوات والإشعارات.</li>
+<li><b>الذكاء الاصطناعي</b>: أضف نموذجًا في إعدادات Agents؛ تعمل أي واجهة API متوافقة مع OpenAI، بما في ذلك خادم تشغّله بنفسك.</li>
+<li><b>الكلام والترجمة</b>: اربط نسخ المكالمات نصيًا والقراءة بصوت عالٍ والترجمة التلقائية بنماذج تحويل الكلام إلى نص وتحويل النص إلى كلام والترجمة التي تشغّلها بنفسك.</li>
+</ul>
+
+</div></section>

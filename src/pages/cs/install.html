@@ -1,0 +1,59 @@
+title: Provozujte Antimatter na vlastním serveru
+description: Spusťte Antimatter na vlastním serveru zhruba za deset minut, s jediným compose souborem: server, PostgreSQL, úložiště S3 a služba pro GIFy.
+plain: yes
+source: dd628e5e3c33
+---
+<div class="page-head"><div class="wrap"><span class="eyebrow">Začínáme</span><h1>Spusťte Antimatter na vlastním serveru</h1>
+<p>Jeden soubor, tři příkazy, zhruba deset minut: Antimatter s databází, úložištěm souborů a službou pro GIFy na jakémkoli linuxovém serveru s Dockerem.</p></div></div>
+<section><div class="wrap prose">
+<h2 id="docker">Zprovozněno za deset minut</h2>
+<p>Potřebujete linuxový server s <a href="https://docs.docker.com/engine/install/">Dockerem</a> a jeho pluginem Compose, alespoň 2 jádry CPU a 4 GB paměti.</p>
+
+<h3>1. Stáhněte compose soubor</h3>
+<div class="terminal"><span class="p">$ </span>mkdir antimatter &amp;&amp; cd antimatter<br><span class="p">$ </span>curl -fsSLO https://antimatter.chat/compose.yaml</div>
+
+<h3>2. Vytvořte nastavení s náhodnými hesly</h3>
+<div class="terminal"><span class="p">$ </span>cat &gt; .env &lt;&lt;EOF<br>SITE_URL=http://localhost:8065<br>POSTGRES_PASSWORD=$(openssl rand -hex 24)<br>S3_SECRET_KEY=$(openssl rand -hex 24)<br>GIFS_API_KEY=$(openssl rand -hex 24)<br>EOF</div>
+<p>Do <code>SITE_URL</code> zadejte adresu, kterou budou lidé používat, například <code>http://192.168.1.20:8065</code> v místní síti.</p>
+
+<h3>3. Spusťte ho</h3>
+<div class="terminal"><span class="p">$ </span>docker compose up -d</div>
+<p>První spuštění trvá minutu nebo dvě, než se vytvoří databáze. Potom v prohlížeči otevřete <code>SITE_URL</code> a vytvořte si účet: první účet se stane systémovým administrátorem a průvodce nastavením vás provede vytvořením prvního týmu.</p>
+
+<h3>S vlastní doménou a HTTPS</h3>
+<p>Nasměrujte DNS záznam své domény na server, otevřete porty 80 a 443 a přidejte doménu do <code>.env</code>:</p>
+<div class="terminal"><span class="p">$ </span>cat &gt;&gt; .env &lt;&lt;EOF<br>DOMAIN=chat.example.com<br>EOF<br><span class="p">$ </span>sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env<br><span class="p">$ </span>docker compose --profile https up -d</div>
+<p style="margin-top:1em">Caddy získá certifikát od Let's Encrypt a sám ho obnovuje.</p>
+
+<h3>Co poběží</h3>
+<ul>
+<li><b>antimatter</b>: server s aplikacemi (poznámky, tabule, hlasové kanály, hovory, hlasování a další). Na disku nic neukládá: nastavení má v databázi a soubory v úložné službě, takže kontejner můžete kdykoli nahradit.</li>
+<li><b>postgres</b>: databáze.</li>
+<li><b>files</b>: <a href="https://rustfs.com">RustFS</a>, úložiště kompatibilní s S3 pro nahrané soubory.</li>
+<li><b>gifs</b>: služba Antimatteru pro GIFy a nálepky, se základní sadou nálepek.</li>
+<li><b>https</b>: <a href="https://caddyserver.com">Caddy</a>, jen s profilem <code>https</code>.</li>
+</ul>
+<p>Databáze, úložiště a služba pro GIFy běží v privátní síti, do které má přístup jen Antimatter.</p>
+<div class="callout">Pokud výběr GIFů zůstává prázdný, otevřete <b>Systémová konzole › Zásuvné moduly › GIFs</b>, jako adresu URL služby nastavte <code>http://gifs:8080/v2</code> a jako klíč API hodnotu <code>GIFS_API_KEY</code> ze svého souboru <code>.env</code>.</div>
+
+<h3>Aktualizace a zálohy</h3>
+<div class="terminal"><span class="c"># aktualizace na nejnovější obrazy</span><br><span class="p">$ </span>docker compose pull &amp;&amp; docker compose up -d<br><span class="c"># záloha databáze</span><br><span class="p">$ </span>docker compose exec postgres pg_dump -U antimatter antimatter &gt; antimatter.sql</div>
+<p style="margin-top:1em">Zálohujte také svazek <code>files</code>, nebo úložiště replikujte libovolným nástrojem pro S3. Nastavení s nginx a vlastními certifikáty najdete v produkčních souborech v repozitáři <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">antimatter-docker</a>.</p>
+
+<h2>Z archivu vydání</h2>
+<ol>
+<li>Připravte databázi PostgreSQL a uživatele.</li>
+<li>Rozbalte archiv (<code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>), například do <code>/opt/antimatter</code>, a v <code>config/config.json</code> nasměrujte <code>SqlSettings.DataSource</code> (nebo proměnnou prostředí <code>MM_SQLSETTINGS_DATASOURCE</code>) na databázi.</li>
+<li>Spusťte server příkazem <code>bin/antimatter</code> pod neprivilegovaným uživatelem a otevřete <code>http://localhost:8065</code>. První vytvořený účet se stane systémovým administrátorem.</li>
+</ol>
+<p><code>bin/amctl</code> spravuje běžící server z příkazové řádky (přímo na serveru jako <code>bin/amctl --local</code>, se zapnutým <code>ServiceSettings.EnableLocalMode</code>).</p>
+
+<h2>Další kroky</h2>
+<ul>
+<li><b>Hovory</b>: otevřete port pro hovory (ve výchozím nastavení UDP a TCP 8443), aby se hlas a video dostaly k serveru.</li>
+<li><b>E-mail</b>: nastavte SMTP pro pozvánky a oznámení.</li>
+<li><b>AI</b>: přidejte model v nastavení agentů; funguje jakékoli API kompatibilní s OpenAI, včetně serveru, který provozujete sami.</li>
+<li><b>Řeč a překlad</b>: nasměrujte přepis hovorů, předčítání a automatický překlad na modely pro převod řeči na text, textu na řeč a pro překlad, které provozujete sami.</li>
+</ul>
+
+</div></section>

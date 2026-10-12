@@ -1,0 +1,59 @@
+title: Drift Antimatter selv
+description: Kjør Antimatter på din egen server på omtrent ti minutter, med én compose-fil: serveren, PostgreSQL, S3-lagring og GIF-tjenesten.
+plain: yes
+source: dd628e5e3c33
+---
+<div class="page-head"><div class="wrap"><span class="eyebrow">Kom i gang</span><h1>Kjør Antimatter på din egen server</h1>
+<p>Én fil, tre kommandoer, omtrent ti minutter: Antimatter med database, fillagring og GIF-tjeneste, på en hvilken som helst Linux-server med Docker.</p></div></div>
+<section><div class="wrap prose">
+<h2 id="docker">Oppe og går på ti minutter</h2>
+<p>Du trenger en Linux-server med <a href="https://docs.docker.com/engine/install/">Docker</a> og Compose-pluginen, minst 2 CPU-kjerner og 4 GB minne.</p>
+
+<h3>1. Last ned compose-filen</h3>
+<div class="terminal"><span class="p">$ </span>mkdir antimatter &amp;&amp; cd antimatter<br><span class="p">$ </span>curl -fsSLO https://antimatter.chat/compose.yaml</div>
+
+<h3>2. Lag innstillingene, med tilfeldige passord</h3>
+<div class="terminal"><span class="p">$ </span>cat &gt; .env &lt;&lt;EOF<br>SITE_URL=http://localhost:8065<br>POSTGRES_PASSWORD=$(openssl rand -hex 24)<br>S3_SECRET_KEY=$(openssl rand -hex 24)<br>GIFS_API_KEY=$(openssl rand -hex 24)<br>EOF</div>
+<p>Sett <code>SITE_URL</code> til adressen folk skal bruke, for eksempel <code>http://192.168.1.20:8065</code> på et lokalt nettverk.</p>
+
+<h3>3. Start den</h3>
+<div class="terminal"><span class="p">$ </span>docker compose up -d</div>
+<p>Den første oppstarten tar et minutt eller to mens databasen opprettes. Åpne deretter <code>SITE_URL</code> i nettleseren og opprett kontoen din: Den første kontoen blir systemadministrator, og oppsettet leder deg gjennom opprettelsen av ditt første team.</p>
+
+<h3>Med eget domene og HTTPS</h3>
+<p>Pek en DNS-post for domenet ditt mot serveren, åpne port 80 og 443, og legg til domenet i <code>.env</code>:</p>
+<div class="terminal"><span class="p">$ </span>cat &gt;&gt; .env &lt;&lt;EOF<br>DOMAIN=chat.example.com<br>EOF<br><span class="p">$ </span>sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env<br><span class="p">$ </span>docker compose --profile https up -d</div>
+<p style="margin-top:1em">Caddy henter et sertifikat fra Let's Encrypt og fornyer det automatisk.</p>
+
+<h3>Dette kjører</h3>
+<ul>
+<li><b>antimatter</b>: serveren med appene sine (notater, tavler, talekanaler, samtaler, avstemninger og de andre). Den lagrer ingenting på disk: Innstillingene ligger i databasen og filene i lagringstjenesten, så containeren kan byttes ut når som helst.</li>
+<li><b>postgres</b>: databasen.</li>
+<li><b>files</b>: <a href="https://rustfs.com">RustFS</a>, S3-kompatibel lagring for opplastede filer.</li>
+<li><b>gifs</b>: GIF- og klistremerketjenesten til Antimatter, med en startpakke med klistremerker.</li>
+<li><b>https</b>: <a href="https://caddyserver.com">Caddy</a>, bare med profilen <code>https</code>.</li>
+</ul>
+<p>Databasen, lagringen og GIF-tjenesten ligger på et privat nettverk som bare Antimatter når.</p>
+<div class="callout">Hvis GIF-velgeren forblir tom, åpner du <b>Systemkonsoll › Plugins › GIFs</b> og setter tjeneste-URL-en til <code>http://gifs:8080/v2</code> og API-nøkkelen til verdien av <code>GIFS_API_KEY</code> i <code>.env</code>-filen din.</div>
+
+<h3>Oppgraderinger og sikkerhetskopier</h3>
+<div class="terminal"><span class="c"># oppgrader til de nyeste avbildningene</span><br><span class="p">$ </span>docker compose pull &amp;&amp; docker compose up -d<br><span class="c"># ta sikkerhetskopi av databasen</span><br><span class="p">$ </span>docker compose exec postgres pg_dump -U antimatter antimatter &gt; antimatter.sql</div>
+<p style="margin-top:1em">Ta også sikkerhetskopi av volumet <code>files</code>, eller repliker lagringen med et hvilket som helst S3-verktøy. Vil du ha et oppsett med nginx og egne sertifikater, finner du produksjonsfilene i <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">antimatter-docker</a>.</p>
+
+<h2>Med et utgivelsesarkiv</h2>
+<ol>
+<li>Sett opp en PostgreSQL-database og en databasebruker.</li>
+<li>Pakk ut arkivet (<code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>), for eksempel til <code>/opt/antimatter</code>, og pek <code>SqlSettings.DataSource</code> i <code>config/config.json</code> (eller miljøvariabelen <code>MM_SQLSETTINGS_DATASOURCE</code>) mot databasen.</li>
+<li>Start serveren med <code>bin/antimatter</code> som en bruker uten administratorrettigheter, og åpne <code>http://localhost:8065</code>. Den første kontoen som opprettes, blir systemadministrator.</li>
+</ol>
+<p><code>bin/amctl</code> styrer en kjørende server fra kommandolinjen (<code>bin/amctl --local</code> på selve serveren, med <code>ServiceSettings.EnableLocalMode</code>).</p>
+
+<h2>Neste steg</h2>
+<ul>
+<li><b>Samtaler</b>: Åpne porten for samtaler (UDP og TCP 8443 som standard) slik at lyd og video når fram til serveren.</li>
+<li><b>E-post</b>: Konfigurer SMTP for invitasjoner og varsler.</li>
+<li><b>KI</b>: Legg til en modell i Agents-innstillingene; et hvilket som helst OpenAI-kompatibelt API fungerer, også en server du kjører selv.</li>
+<li><b>Tale og oversettelse</b>: Pek transkripsjon av samtaler, høytlesing og automatisk oversettelse mot tale-til-tekst-, tekst-til-tale- og oversettelsesmodeller du kjører selv.</li>
+</ul>
+
+</div></section>

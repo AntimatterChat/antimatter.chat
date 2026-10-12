@@ -1,0 +1,59 @@
+title: Antimatter'ı kendi sunucunuzda barındırın
+description: Antimatter'ı tek bir compose dosyasıyla, yaklaşık on dakikada kendi sunucunuzda çalıştırın: sunucu, PostgreSQL, S3 depolama ve GIF hizmeti.
+plain: yes
+source: dd628e5e3c33
+---
+<div class="page-head"><div class="wrap"><span class="eyebrow">Başlarken</span><h1>Antimatter'ı kendi sunucunuzda çalıştırın</h1>
+<p>Tek dosya, üç komut, yaklaşık on dakika: Docker yüklü herhangi bir Linux sunucusunda veritabanı, dosya depolama alanı ve GIF hizmetiyle birlikte Antimatter.</p></div></div>
+<section><div class="wrap prose">
+<h2 id="docker">On dakikada kullanıma hazır</h2>
+<p><a href="https://docs.docker.com/engine/install/">Docker</a> ve Compose eklentisi yüklü, en az 2 CPU çekirdeği ve 4 GB belleğe sahip bir Linux sunucusuna ihtiyacınız var.</p>
+
+<h3>1. Compose dosyasını indirin</h3>
+<div class="terminal"><span class="p">$ </span>mkdir antimatter &amp;&amp; cd antimatter<br><span class="p">$ </span>curl -fsSLO https://antimatter.chat/compose.yaml</div>
+
+<h3>2. Rastgele parolalarla ayarları oluşturun</h3>
+<div class="terminal"><span class="p">$ </span>cat &gt; .env &lt;&lt;EOF<br>SITE_URL=http://localhost:8065<br>POSTGRES_PASSWORD=$(openssl rand -hex 24)<br>S3_SECRET_KEY=$(openssl rand -hex 24)<br>GIFS_API_KEY=$(openssl rand -hex 24)<br>EOF</div>
+<p><code>SITE_URL</code> değerini, kullanıcıların erişeceği adres olarak ayarlayın; örneğin yerel bir ağda <code>http://192.168.1.20:8065</code>.</p>
+
+<h3>3. Başlatın</h3>
+<div class="terminal"><span class="p">$ </span>docker compose up -d</div>
+<p>Veritabanı oluşturulurken ilk başlatma bir iki dakika sürer. Ardından tarayıcınızda <code>SITE_URL</code> adresini açın ve hesabınızı oluşturun: ilk hesap sistem yöneticisi olur ve kurulum sihirbazı ilk takımınızı oluşturmanızda size yol gösterir.</p>
+
+<h3>Kendi alan adınız ve HTTPS ile</h3>
+<p>Alan adınızın bir DNS kaydını sunucuya yönlendirin, 80 ve 443 numaralı bağlantı noktalarını açın ve alan adını <code>.env</code> dosyasına ekleyin:</p>
+<div class="terminal"><span class="p">$ </span>cat &gt;&gt; .env &lt;&lt;EOF<br>DOMAIN=chat.example.com<br>EOF<br><span class="p">$ </span>sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env<br><span class="p">$ </span>docker compose --profile https up -d</div>
+<p style="margin-top:1em">Caddy, Let's Encrypt'ten bir sertifika alır ve onu kendiliğinden yeniler.</p>
+
+<h3>Neler çalışır?</h3>
+<ul>
+<li><b>antimatter</b>: uygulamalarıyla birlikte sunucu (notlar, beyaz tahtalar, ses kanalları, aramalar, anketler ve diğerleri). Diskte hiçbir şey tutmaz: ayarları veritabanında, dosyaları depolama hizmetindedir; bu nedenle kapsayıcı istediğiniz zaman değiştirilebilir.</li>
+<li><b>postgres</b>: veritabanı.</li>
+<li><b>files</b>: yüklenen dosyalar için S3 uyumlu depolama sağlayan <a href="https://rustfs.com">RustFS</a>.</li>
+<li><b>gifs</b>: Antimatter'ın, başlangıç çıkartma paketiyle gelen GIF ve çıkartma hizmeti.</li>
+<li><b>https</b>: <a href="https://caddyserver.com">Caddy</a>; yalnızca <code>https</code> profiliyle çalışır.</li>
+</ul>
+<p>Veritabanı, depolama ve GIF hizmeti, yalnızca Antimatter'ın erişebildiği özel bir ağda bulunur.</p>
+<div class="callout">GIF seçici boş kalırsa <b>Sistem Konsolu › Uygulama ekleri › GIFs</b> sayfasını açın; hizmet URL'sini <code>http://gifs:8080/v2</code>, API anahtarını da <code>.env</code> dosyanızdaki <code>GIFS_API_KEY</code> değeri olarak ayarlayın.</div>
+
+<h3>Güncellemeler ve yedekler</h3>
+<div class="terminal"><span class="c"># en son imajlara güncelleyin</span><br><span class="p">$ </span>docker compose pull &amp;&amp; docker compose up -d<br><span class="c"># veritabanını yedekleyin</span><br><span class="p">$ </span>docker compose exec postgres pg_dump -U antimatter antimatter &gt; antimatter.sql</div>
+<p style="margin-top:1em"><code>files</code> birimini de yedekleyin ya da depolama alanını herhangi bir S3 aracıyla çoğaltın. nginx ve kendi sertifikalarınızla bir kurulum için <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">antimatter-docker</a> deposundaki üretim dosyalarına bakın.</p>
+
+<h2>Sürüm arşiviyle</h2>
+<ol>
+<li>Bir PostgreSQL veritabanı ve kullanıcısı oluşturun.</li>
+<li>Arşivi (<code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>) örneğin <code>/opt/antimatter</code> dizinine açın ve <code>config/config.json</code> dosyasındaki <code>SqlSettings.DataSource</code> ayarını (ya da <code>MM_SQLSETTINGS_DATASOURCE</code> ortam değişkenini) veritabanını gösterecek şekilde ayarlayın.</li>
+<li>Sunucuyu ayrıcalıksız bir kullanıcı olarak <code>bin/antimatter</code> ile başlatın ve <code>http://localhost:8065</code> adresini açın. Oluşturulan ilk hesap sistem yöneticisi olur.</li>
+</ol>
+<p><code>bin/amctl</code>, çalışan bir sunucuyu komut satırından yönetir (sunucunun kendisinde, <code>ServiceSettings.EnableLocalMode</code> açıkken <code>bin/amctl --local</code>).</p>
+
+<h2>Sonraki adımlar</h2>
+<ul>
+<li><b>Aramalar</b>: sesin ve görüntünün sunucuya ulaşması için arama bağlantı noktasını (varsayılan olarak UDP ve TCP 8443) açın.</li>
+<li><b>E-posta</b>: davetler ve bildirimler için SMTP'yi yapılandırın.</li>
+<li><b>Yapay zeka</b>: Agents ayarlarına bir model ekleyin; kendi çalıştırdığınız bir sunucu da dahil, OpenAI uyumlu her API çalışır.</li>
+<li><b>Ses ve çeviri</b>: arama transkripsiyonunu, sesli okumayı ve otomatik çeviriyi, kendi çalıştırdığınız konuşmadan metne, metinden konuşmaya ve çeviri modellerine yönlendirin.</li>
+</ul>
+
+</div></section>

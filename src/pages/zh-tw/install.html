@@ -1,0 +1,59 @@
+title: 自行架設 Antimatter
+description: 只要一個 Compose 檔案，大約十分鐘就能在您自己的伺服器上執行 Antimatter：包含伺服器、PostgreSQL、S3 儲存空間與 GIF 服務。
+plain: yes
+source: dd628e5e3c33
+---
+<div class="page-head"><div class="wrap"><span class="eyebrow">開始使用</span><h1>在您自己的伺服器上執行 Antimatter</h1>
+<p>一個檔案、三道指令、大約十分鐘：在任何裝有 Docker 的 Linux 伺服器上，執行 Antimatter 及其資料庫、檔案儲存空間與 GIF 服務。</p></div></div>
+<section><div class="wrap prose">
+<h2 id="docker">十分鐘內即可上線</h2>
+<p>您需要一台安裝了 <a href="https://docs.docker.com/engine/install/">Docker</a> 及其 Compose 外掛程式的 Linux 伺服器，配備至少 2 個 CPU 核心與 4 GB 記憶體。</p>
+
+<h3>1. 下載 Compose 檔案</h3>
+<div class="terminal"><span class="p">$ </span>mkdir antimatter &amp;&amp; cd antimatter<br><span class="p">$ </span>curl -fsSLO https://antimatter.chat/compose.yaml</div>
+
+<h3>2. 建立設定檔，並產生隨機密碼</h3>
+<div class="terminal"><span class="p">$ </span>cat &gt; .env &lt;&lt;EOF<br>SITE_URL=http://localhost:8065<br>POSTGRES_PASSWORD=$(openssl rand -hex 24)<br>S3_SECRET_KEY=$(openssl rand -hex 24)<br>GIFS_API_KEY=$(openssl rand -hex 24)<br>EOF</div>
+<p>將 <code>SITE_URL</code> 設為使用者連線時要用的網址，例如在區域網路中可設為 <code>http://192.168.1.20:8065</code>。</p>
+
+<h3>3. 啟動</h3>
+<div class="terminal"><span class="p">$ </span>docker compose up -d</div>
+<p>第一次啟動需要一、兩分鐘來建立資料庫。接著在瀏覽器中開啟 <code>SITE_URL</code> 並建立帳號：第一個帳號會成為系統管理員，設定流程會引導您建立第一個團隊。</p>
+
+<h3>使用自己的網域與 HTTPS</h3>
+<p>將網域的 DNS 記錄指向伺服器，開放 80 與 443 連接埠，再把網域加入 <code>.env</code>：</p>
+<div class="terminal"><span class="p">$ </span>cat &gt;&gt; .env &lt;&lt;EOF<br>DOMAIN=chat.example.com<br>EOF<br><span class="p">$ </span>sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env<br><span class="p">$ </span>docker compose --profile https up -d</div>
+<p style="margin-top:1em">Caddy 會向 Let's Encrypt 取得憑證，並自動續期。</p>
+
+<h3>執行的服務</h3>
+<ul>
+<li><b>antimatter</b>：伺服器本身，包含各項應用程式（筆記、白板、語音頻道、通話、投票等）。它不會在磁碟上保存任何資料：設定存在資料庫中，檔案存在儲存服務中，因此容器隨時都可以替換。</li>
+<li><b>postgres</b>：資料庫。</li>
+<li><b>files</b>：<a href="https://rustfs.com">RustFS</a>，與 S3 相容的儲存空間，用來存放上傳的檔案。</li>
+<li><b>gifs</b>：Antimatter 的 GIF 與貼圖服務，附有一組入門貼圖包。</li>
+<li><b>https</b>：<a href="https://caddyserver.com">Caddy</a>，僅在使用 <code>https</code> 設定檔時啟動。</li>
+</ul>
+<p>資料庫、儲存空間與 GIF 服務位於私人網路中，只有 Antimatter 能存取。</p>
+<div class="callout">如果 GIF 選擇器一直是空的，請開啟 <b>系統控制台 › 擴充程式 › GIFs</b>，將服務網址設為 <code>http://gifs:8080/v2</code>，並將 API 金鑰設為 <code>.env</code> 中的 <code>GIFS_API_KEY</code>。</div>
+
+<h3>升級與備份</h3>
+<div class="terminal"><span class="c"># 升級到最新的映像檔</span><br><span class="p">$ </span>docker compose pull &amp;&amp; docker compose up -d<br><span class="c"># 備份資料庫</span><br><span class="p">$ </span>docker compose exec postgres pg_dump -U antimatter antimatter &gt; antimatter.sql</div>
+<p style="margin-top:1em">也請一併備份 <code>files</code> 磁碟區，或使用任何 S3 工具複寫儲存空間。若要搭配 nginx 與您自己的憑證，請參考 <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">antimatter-docker</a> 中的正式環境設定檔。</p>
+
+<h2>使用發行版壓縮檔</h2>
+<ol>
+<li>建立一個 PostgreSQL 資料庫與使用者。</li>
+<li>解壓縮壓縮檔（<code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>），例如解壓縮到 <code>/opt/antimatter</code>，並將 <code>config/config.json</code> 中的 <code>SqlSettings.DataSource</code>（或 <code>MM_SQLSETTINGS_DATASOURCE</code> 環境變數）指向該資料庫。</li>
+<li>以非特權使用者身分執行 <code>bin/antimatter</code> 啟動伺服器，然後開啟 <code>http://localhost:8065</code>。第一個建立的帳號會成為系統管理員。</li>
+</ol>
+<p><code>bin/amctl</code> 可以從命令列管理執行中的伺服器（在伺服器本機上使用 <code>bin/amctl --local</code>，需啟用 <code>ServiceSettings.EnableLocalMode</code>）。</p>
+
+<h2>後續步驟</h2>
+<ul>
+<li><b>通話</b>：開放通話連接埠（預設為 UDP 與 TCP 8443），讓語音與視訊能連到伺服器。</li>
+<li><b>電子郵件</b>：設定 SMTP，以便寄送邀請與通知。</li>
+<li><b>AI</b>：在代理程式設定中新增模型；任何與 OpenAI 相容的 API 都能使用，包括您自行架設的伺服器。</li>
+<li><b>語音與翻譯</b>：將通話轉錄、朗讀與自動翻譯，指向您自行架設的語音轉文字、文字轉語音與翻譯模型。</li>
+</ul>
+
+</div></section>
