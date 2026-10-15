@@ -129,7 +129,7 @@ NOTES = {
         'ours': [
             'A proven server, with fine-grained permissions, a complete API and plugins.',
             'All features included, with no enterprise edition.',
-            'Voice channels, calls with live captions, notes, whiteboards, boards and playbooks built in.',
+            'Voice channels, calls with live captions, notes, whiteboards, kanban and playbooks built in.',
         ],
     },
     'discord': {
@@ -165,7 +165,7 @@ NOTES = {
         ],
         'ours': [
             'Built for teams and communities alike: threads, voice channels, roles and badges, onboarding and moderation tools.',
-            'Apps built in: notes, whiteboards, boards, playbooks, polls and todo lists, plus AI and call transcripts with your own models.',
+            'Apps built in: notes, whiteboards, kanban, playbooks, polls and todo lists, plus AI and call transcripts with your own models.',
             'Every feature included, with no paid server edition.',
         ],
     },
