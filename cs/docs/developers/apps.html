@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vytváření aplikací (pluginů) · Antimatter</title>
-<meta name="description" content="Jak napsat aplikaci (plugin) pro Antimatter: struktura balíčku a soubor plugin.json, serverové háčky a API, registr webových aplikací, podpora rozhraní Fusion, nastavení, klíč-hodnota úložiště, překlady, balení a instalace.">
+<meta name="description" content="Jak napsat aplikaci (plugin) pro Antimatter: struktura balíčku a soubor plugin.json, serverové hooky a API, registr webových aplikací, podpora rozhraní Fusion, nastavení, klíč-hodnota úložiště, překlady, balení a instalace.">
 <meta property="og:title" content="Vytváření aplikací (pluginů) · Antimatter">
-<meta property="og:description" content="Jak napsat aplikaci (plugin) pro Antimatter: struktura balíčku a soubor plugin.json, serverové háčky a API, registr webových aplikací, podpora rozhraní Fusion, nastavení, klíč-hodnota úložiště, překlady, balení a instalace.">
+<meta property="og:description" content="Jak napsat aplikaci (plugin) pro Antimatter: struktura balíčku a soubor plugin.json, serverové hooky a API, registr webových aplikací, podpora rozhraní Fusion, nastavení, klíč-hodnota úložiště, překlady, balení a instalace.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://antimatter.chat/cs/docs/developers/apps.html">
 <meta property="og:locale" content="cs">
@@ -74,18 +74,18 @@
 </aside>
 <article class="docs-body prose">
 <h1>Vytváření aplikací (pluginů)</h1>
-<p class="lead">Aplikace přidávají funkce do Antimatteru zevnitř: serverová část v Go, která se napojuje na server, a webová část v React, která přidává nabídky, panely, typy zpráv a stránky. Tato stránka ukazuje, jak je aplikace strukturována, s využitím vestavěné aplikace Hlasování jako příkladu, a co se mění v rozhraní Fusion v Antimatteru.</p>
+<p class="lead">Aplikace přidávají funkce do Antimatteru zevnitř: serverová část v Go, která se napojuje na server, a webová část v React, která přidává nabídky, panely, typy zpráv a stránky. Tato stránka ukazuje, jak je aplikace strukturována, s využitím přiložené aplikace Polls jako příkladu, a co se mění v rozhraní Fusion v Antimatteru.</p>
 <h2 id="overview">Jak aplikace funguje</h2>
 <ul>
-<li><b>Serverová část</b> je program v Go. Server ho spustí jako samostatný proces a komunikuje s ním přes RPC: volá <b>háčky</b> aplikace (zpráva má být odeslána, byl spuštěn příkaz…) a aplikace volá <b>plugin API</b> serveru (vytvořit příspěvek, přečíst uživatele, uložit data…). Může také sloužit HTTP cesty pod <code>/plugins/&lt;app id&gt;/</code>.</li>
+<li><b>Serverová část</b> je program v Go. Server ho spustí jako samostatný proces a komunikuje s ním přes RPC: volá <b>hooky</b> aplikace (zpráva má být odeslána, byl spuštěn příkaz…) a aplikace volá <b>plugin API</b> serveru (vytvořit příspěvek, přečíst uživatele, uložit data…). Může také sloužit HTTP cesty pod <code>/plugins/&lt;app id&gt;/</code>.</li>
 <li><b>Webová část</b> je JavaScript balíček načtený do prohlížeče spolu s webovou aplikací. Registruje React komponenty a callbacky v <b>registru</b>: tlačítko v nabídce, panel, způsob vykreslení typu zprávy.</li>
 <li>Kterákoli z částí je volitelná. Aplikace se instaluje jako balíček <code>.tar.gz</code> a systémoví administrátoři ji zapínají, vypínají a konfiguruji.</li>
 </ul>
 <div class="callout warn">Serverová část běží s plným přístupem k datům serveru. Aplikaci považujte za kód, který nasazujete na server.</div>
-<p>Antimatter běží s aplikacemi napsanými pro Mattermost a naopak, pokud aplikace používá pouze háčky, které mají obě. Viz <a href="#antimatter-hooks">Háčky, které má pouze Antimatter</a>.</p>
+<p>Antimatter spouští aplikace psané pro Mattermost a naopak, pokud aplikace používá pouze hooky, které mají obě. Viz <a href="#antimatter-hooks">Hooky, které má pouze Antimatter</a>.</p>
 
 <h2 id="layout">Struktura balíčku</h2>
-<p>Neexistuje samostatná šablona pro začátek: začněte od malé vestavěné aplikace, například <a href="https://github.com/AntimatterChat/antimatter-plugin-polls">antimatter-plugin-polls</a> nebo <a href="https://github.com/AntimatterChat/antimatter-plugin-todo">antimatter-plugin-todo</a>, a změňte její ID a kód. Aplikace Hlasování má tuto strukturu:</p>
+<p>Neexistuje samostatná šablona pro začátek: začněte od malé přiložené aplikace, jako je <a href="https://github.com/AntimatterChat/antimatter-plugin-polls">antimatter-plugin-polls</a> nebo <a href="https://github.com/AntimatterChat/antimatter-plugin-todo">antimatter-plugin-todo</a>, a změňte její ID a kód. Aplikace Polls má tuto strukturu:</p>
 <pre><code>antimatter-plugin-polls/
 ├── plugin.json            the manifest
 ├── Makefile               build, test, bundle, deploy
@@ -105,7 +105,7 @@
     ├── src/manifest.ts    generated from plugin.json
     ├── src/translations.ts
     └── dist/main.js       the bundle</code></pre>
-<p>Volitelné: složka <code>public/</code>, která se servíruje bez změn na adrese <code>/plugins/&lt;app id&gt;/public/</code>.</p>
+<p>Volitelné: složka <code>public/</code>, která se servíruje beze změny na adrese <code>/plugins/&lt;app id&gt;/public/</code>.</p>
 
 <h2 id="manifest">plugin.json</h2>
 <pre><code>{
@@ -131,7 +131,7 @@
 }</code></pre>
 <ul>
 <li><code>id</code>: jedinečné a trvalé; obvykle se používá obrácené doménové jméno. Určuje názvy cest, uložených nastavení a WebSocket událostí.</li>
-<li><code>version</code>: sémantická verze. Vestavěné aplikace ji vynechávají v <code>plugin.json</code>; jejich nástroj pro sestavení ji bere z nejnovějšího git tagu <code>v*</code>.</li>
+<li><code>version</code>: sémantická verze. Přiložené aplikace ji vynechávají v <code>plugin.json</code>; jejich nástroj pro sestavení ji bere z nejnovějšího git tagu <code>v*</code>.</li>
 <li><code>min_server_version</code>: Antimatter hlásí <code>12.0.0</code>.</li>
 <li><code>settings_schema</code>: stránka nastavení aplikace v Systémové konzoli (viz <a href="#settings">Nastavení</a>).</li>
 </ul>
@@ -146,7 +146,7 @@ import "github.com/mattermost/mattermost/server/public/plugin"
 func main() {
 	plugin.ClientMain(&amp;Plugin{})
 }</code></pre>
-<p>Typ <code>Plugin</code> obsahuje <code>plugin.MattermostPlugin</code>, což mu poskytuje <code>p.API</code>, a implementuje požadované hooky:</p>
+<p>Typ <code>Plugin</code> obsahuje <code>plugin.MattermostPlugin</code>, což mu poskytuje <code>p.API</code>, a implementuje potřebné háčky:</p>
 <pre><code>type Plugin struct {
 	plugin.MattermostPlugin
 	router *mux.Router
@@ -173,12 +173,12 @@ func (p *Plugin) ExecuteCommand(c *plugin.Context, args *model.CommandArgs) (*mo
 func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Request) {
 	p.router.ServeHTTP(w, r)
 }</code></pre>
-<h3>Běžné hooky</h3>
+<h3>Běžné háčky</h3>
 <table>
-<thead><tr><th>Hook</th><th>Kdy se spustí</th></tr></thead>
+<thead><tr><th>Háček</th><th>Kdy se spustí</th></tr></thead>
 <tbody>
-<tr><td><code>OnActivate</code>, <code>OnDeactivate</code></td><td>Když je aplikace zapnuta nebo vypnuta a když se server spouští a zastavuje. Příkazy a boty registrujte v <code>OnActivate</code>.</td></tr>
-<tr><td><code>OnConfigurationChange</code></td><td>Když se její nastavení změní; načtěte je pomocí <code>p.API.LoadPluginConfiguration(&amp;cfg)</code>.</td></tr>
+<tr><td><code>OnActivate</code>, <code>OnDeactivate</code></td><td>Když je aplikace zapnuta nebo vypnuta, a když se server spouští a zastavuje. Příkazy a boty registrujte v <code>OnActivate</code>.</td></tr>
+<tr><td><code>OnConfigurationChange</code></td><td>Když se změní její nastavení; načtěte je pomocí <code>p.API.LoadPluginConfiguration(&amp;cfg)</code>.</td></tr>
 <tr><td><code>ServeHTTP</code></td><td>Požadavky na <code>/plugins/&lt;app id&gt;/…</code>. Server nastaví hlavičku <code>Mattermost-User-Id</code>, když požadavek pochází od přihlášeného uživatele; požadavky bez ní zamítněte, pokud nemají být veřejné.</td></tr>
 <tr><td><code>ExecuteCommand</code></td><td>Byl spuštěn příkaz, který aplikace registrovala.</td></tr>
 <tr><td><code>MessageWillBePosted</code>, <code>MessageWillBeUpdated</code></td><td>Před uložením zprávy: vraťte upravený příspěvek nebo důvod pro jeho zamítnutí.</td></tr>
@@ -186,10 +186,10 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 <tr><td><code>ReactionHasBeenAdded</code>, <code>ReactionHasBeenRemoved</code></td><td>Reakce.</td></tr>
 <tr><td><code>UserHasJoinedChannel</code>, <code>UserHasLeftChannel</code>, <code>UserHasJoinedTeam</code>, <code>UserHasLeftTeam</code>, <code>ChannelHasBeenCreated</code></td><td>Změny členství a kanálů. Tým je komunita.</td></tr>
 <tr><td><code>FileWillBeUploaded</code></td><td>Před uložením souboru: změňte ho nebo ho zamítněte.</td></tr>
-<tr><td><code>OnPluginClusterEvent</code></td><td>Zpráva ze stejné aplikace na jiném serveru v klastru.</td></tr>
+<tr><td><code>OnPluginClusterEvent</code></td><td>Zpráva ze stejné aplikace na jiném serveru v clusteru.</td></tr>
 </tbody>
 </table>
-<p>Úplný seznam s přesnými podpisy najdete v <code>server/public/plugin/hooks.go</code>; API je v <code>server/public/plugin/api.go</code>. Balíček <code>pluginapi</code> (<code>server/public/pluginapi</code>) obaluje API do uživatelsky přívětivějších pomocných funkcí.</p>
+<p>Úplný seznam s přesnými podpisy najdete v <code>server/public/plugin/hooks.go</code>; API je v <code>server/public/plugin/api.go</code>. Balíček <code>pluginapi</code> (<code>server/public/pluginapi</code>) obaluje API v uživatelsky přívětivějších pomocných funkcích.</p>
 <h3>Užitečné volání API</h3>
 <ul>
 <li><code>CreatePost</code>, <code>UpdatePost</code>, <code>SendEphemeralPost</code>: publikujte jako bot aplikace nebo jako uživatel.</li>
@@ -205,13 +205,13 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 <p>Každá aplikace má ve databázi serveru vlastní klíčově-hodnotové úložiště:</p>
 <ul>
 <li><code>KVSet(key, value)</code>, <code>KVGet(key)</code>, <code>KVDelete(key)</code>: hodnoty jsou bajty, obvykle JSON. Klíče mají maximálně 150 znaků.</li>
-<li><code>KVSetWithExpiry(key, value, seconds)</code>: hodnota zmizí po uplynutí této doby.</li>
+<li><code>KVSetWithExpiry(key, value, seconds)</code>: hodnota po uplynutí této doby zmizí.</li>
 <li><code>KVCompareAndSet(key, old, new)</code> a <code>KVSetWithOptions</code> s <code>Atomic</code>: bezpečné aktualizace, když stejný klíč zapisuje více požadavků nebo serverů. Hlasování takto ukládá každý hlas a v případě konfliktu operaci opakuje.</li>
 <li><code>KVList(page, perPage)</code>: klíče, stránka po stránce.</li>
 </ul>
 
 <h2 id="webapp">Webová část aplikace</h2>
-<p>Balíček registruje třídu pomocí <code>window.registerPlugin</code>. Její metoda <code>initialize</code> přijímá rejstřík a Redux store:</p>
+<p>Balíček registruje třídu pomocí <code>window.registerPlugin</code>. Její <code>initialize</code> přijímá registr a Redux store:</p>
 <pre><code>import manifest from './manifest';
 
 class Plugin {
@@ -227,64 +227,64 @@ class Plugin {
 
 window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <ul>
-<li><b>Sdílené knihovny.</b> Webová aplikace poskytuje React, ReactDOM, Redux, React Redux a React Intl: vyjmenujte je jako webpack <code>externals</code> (<code>React</code>, <code>ReactDOM</code>, <code>Redux</code>, <code>ReactRedux</code>, <code>ReactIntl</code>) místo toho, abyste balíčkovali vlastní kopie. Podívejte se na <code>webpack.config.js</code> aplikace Hlasování.</li>
-<li><b>Volání serverové části.</b> Pošlete požadavek na <code>${window.basename}/plugins/&lt;app id&gt;/…</code> s možnostmi z <code>Client4.getOptions()</code> (z <code>mattermost-redux/client</code>): nesou hlavičky, které server potřebuje k přijetí požadavku z prohlížeče.</li>
-<li><b>Vlastní stav.</b> <code>registerReducer</code> přidá reducer, který se ukládá pod <code>state['plugins-&lt;app id&gt;']</code>.</li>
-<li><b>Typy.</b> Další metody rejstříku v Antimatter nejsou součástí zveřejněných typů Mattermost: Hlasování deklaruje rejstřík, který používá, v <code>webapp/src/types/host.ts</code>.</li>
+<li><b>Sdílené knihovny.</b> Webová aplikace poskytuje React, ReactDOM, Redux, React Redux a React Intl: vyjmenujte je jako webpack <code>externals</code> (<code>React</code>, <code>ReactDOM</code>, <code>Redux</code>, <code>ReactRedux</code>, <code>ReactIntl</code>) místo toho, abyste balíčkovali vlastní kopie. Viz <code>webpack.config.js</code> aplikace Hlasování.</li>
+<li><b>Volání vaší serverové části.</b> Pošlete požadavek na <code>${window.basename}/plugins/&lt;app id&gt;/…</code> s možnostmi z <code>Client4.getOptions()</code> (z <code>mattermost-redux/client</code>): nesou hlavičky, které server potřebuje k přijetí požadavku z prohlížeče.</li>
+<li><b>Váš vlastní stav.</b> <code>registerReducer</code> přidá reducer, který se ukládá pod <code>state['plugins-&lt;app id&gt;']</code>.</li>
+<li><b>Typy.</b> Další metody registru v Antimatter nejsou součástí zveřejněných typů Mattermost: Hlasování deklaruje registr, který používá, v <code>webapp/src/types/host.ts</code>.</li>
 </ul>
-<p>Metody rejstříku a jejich parametry jsou zdokumentovány v kódu, v <code>webapp/fusion/src/plugins/registry.ts</code> (Fusion) a <code>webapp/channels/src/plugins/registry.ts</code> (klasické).</p>
+<p>Metody registru a jejich parametry jsou zdokumentovány v kódu, v <code>webapp/fusion/src/plugins/registry.ts</code> (Fusion) a <code>webapp/channels/src/plugins/registry.ts</code> (klasické).</p>
 
 <h2 id="fusion">Podpora rozhraní Fusion</h2>
-<p>Antimatter má dvě webová rozhraní: Fusion, které je výchozí, a klasické. Oba načítají stejné balíčky aplikací a mají stejný rejstřík, ale Fusion si mnoho věcí vykresluje samo a komponenty pluginů umísťuje svým vlastním způsobem. Otestujte svou aplikaci v obou.</p>
+<p>Antimatter má dvě webová rozhraní: Fusion, které je výchozí, a klasické. Oba načítají stejné balíčky aplikací a mají stejný registr, ale Fusion si mnoho věcí vykresluje samo a komponenty pluginů umísťuje svým vlastním způsobem. Otestujte svou aplikaci v obou.</p>
 <h3>Zjištění rozhraní</h3>
 <p>Před načtením jakékoli aplikace nastaví obě rozhraní <code>window.antimatterWebUI</code> na <code>'fusion'</code> nebo <code>'classic'</code> a stejnou hodnotu na kořenový prvek stránky jako <code>data-am-web-ui</code>. V Mattermost není žádná z nich nastavena.</p>
 <pre><code>export function isFusionUI(): boolean {
     return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
 }</code></pre>
-<p>Balíčky aplikací to používají k tomu, aby se vykreslovaly odlišně. Aplikace Hlasování vykresluje své karty a dialog pro vytvoření ve stylu Fusion a v Fusionu otevírá vlastní dialog pro <code>/poll</code>. Hovory a Hlasové kanály vynechávají komponenty bočního panelu a toastů, které Fusion nahrazuje vlastním rozhraním pro hovory. Aplikace Agenti umísťuje své AI akce do podmenu nabídky zprávy, nikoli do nabídky při najetí myší. Vlastní CSS třídy Fusion (s předponou <code>am-</code>) a její vrstva dialogů (prvek <code>am-layer</code>) jsou to, co tyto aplikace používají k tomu, aby odpovídaly rozhraní; nejedná se o dokumentovanou, stabilní API.</p>
+<p>Balíčky aplikací to používají k tomu, aby se vykreslovaly odlišně. Aplikace Hlasování vykresluje své karty hlasování a dialog pro vytvoření ve stylu Fusion a pro příkaz <code>/poll</code> v Fusionu otevírá vlastní dialog. Hovory a hlasové kanály vynechávají komponenty bočního panelu a toastů, které Fusion nahrazuje vlastním rozhraním pro hovory. Aplikace Agenti umísťuje své AI akce do podmenu nabídky zprávy místo do nabídky při najetí kurzorem. Vlastní CSS třídy Fusionu (s předponou <code>am-</code>) a její vrstva dialogů (element <code>am-layer</code>) jsou to, co tyto aplikace používají k tomu, aby odpovídaly rozhraní; nejde o dokumentovanou ani stabilní API.</p>
 <h3>Kde Fusion zobrazuje komponenty pluginů</h3>
 <table>
 <thead><tr><th>Metoda registru</th><th>Kde se v Fusionu zobrazí</th></tr></thead>
 <tbody>
-<tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>Lišta aplikací, sloupec ikon na pravém okraji, mezi vaším avatarom a tlačítkem <b>O aplikaci Antimatter</b>. Sem patří i tlačítka v hlavičce kanálu, nikoli do samotné hlavičky. Skryje se, když systémový administrátor zapne <b>Vypnout lištu aplikací</b> (<code>ExperimentalSettings.DisableAppBar</code>, výchozí stav je vypnuto).</td></tr>
-<tr><td><code>registerRightHandSidebarComponent</code></td><td>Pravý panel. Lidé ho mohou změnit velikost tažením za okraj. Pokud je aplikace také produktem, panel nabízí možnost <b>Otevřít jako celou stránku</b>.</td></tr>
-<tr><td><code>registerChannelHeaderIcon</code></td><td>Ikony v hlavičce kanálu, za tlačítky pro hovor; na telefonech v menu <b>Více</b> v hlavičce.</td></tr>
+<tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>Lišta aplikací, sloupec ikon na pravém okraji, mezi vaším avatarom a tlačítkem <b>O aplikaci Antimatter</b>. Tam se také umísťují tlačítka v hlavičce kanálu, nikoli v samotné hlavičce. Skryje se, když systémový administrátor zapne <b>Vypnout lištu aplikací</b> (<code>ExperimentalSettings.DisableAppBar</code>, výchozí stav je vypnuto).</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>Pravý panel. Uživatelé ho mohou přeměřovat tažením za okraj. Pokud je aplikace také produktem, panel nabízí možnost <b>Otevřít jako celou stránku</b>.</td></tr>
+<tr><td><code>registerChannelHeaderIcon</code></td><td>Ikony v hlavičce kanálu, za tlačítky pro hovory; na mobilních telefonech v menu <b>Více</b> v hlavičce.</td></tr>
 <tr><td><code>registerCallButtonAction</code></td><td>Tlačítko pro hovor v hlavičce kanálu; několik poskytovatelů sdílí menu <b>Další způsoby, jak zavolat</b>.</td></tr>
 <tr><td><code>registerPostDropdownMenuAction</code></td><td>Menu <b>Další akce</b> (⋯) zprávy, v podmenu <b>Akce se zprávou</b>; také v menu <b>Akce s vláknem</b> v panelu vlákna, pod <b>Další akce</b>.</td></tr>
-<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Vlastní podmenu stejných menu, s názvem a ikonou aplikace.</td></tr>
-<tr><td><code>registerPostActionComponent</code></td><td>Nabídka při najetí myší na zprávu, před tlačítkem ⋯.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Vlastní podmenu těchto nabídek, s názvem a ikonou aplikace.</td></tr>
+<tr><td><code>registerPostActionComponent</code></td><td>Nabídka zprávy při najetí kurzorem, před tlačítkem ⋯.</td></tr>
 <tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>Samotná zpráva: její tělo, pod jejím textem, za jejím časem a na místě náhledů odkazů.</td></tr>
-<tr><td><code>registerChannelHeaderMenuAction</code></td><td>Menu <b>Možnosti kanálu</b> kanálu (⋯ na kanálu v bočním panelu, nebo pravý klik), jako položky s ikonou zásuvky.</td></tr>
-<tr><td><code>registerMainMenuAction</code></td><td>Menu komunity (název komunity nahoře v seznamu kanálů), pod <b>Další akce</b>, seskupené podle aplikace.</td></tr>
+<tr><td><code>registerChannelHeaderMenuAction</code></td><td>Menu <b>Možnosti kanálu</b> kanálu (⋯ u kanálu v bočním panelu, nebo pravým tlačítkem myši), jako položky s ikonou zásuvky.</td></tr>
+<tr><td><code>registerMainMenuAction</code></td><td>Menu komunity (název komunity nahoře v seznamu kanálů), pod <b>Další akce</b>, seskupeno podle aplikace.</td></tr>
 <tr><td><code>registerSidebarBrowseOrAddChannelMenuAction</code></td><td>Menu komunity, za <b>Vytvořit kanál</b> a <b>Vytvořit kategorii</b>.</td></tr>
-<tr><td><code>registerFileUploadMethod</code></td><td>Menu <b>+</b> kompozitora (<b>Přidat do zprávy</b>), za <b>Nahrát soubor</b>.</td></tr>
-<tr><td><code>registerPostEditorActionComponent</code></td><td>Formátovací lišta kompozitora, když je formátování zobrazeno.</td></tr>
-<tr><td><code>registerAIActionMenuItemComponent</code></td><td>Menu <b>AI</b> kompozitora.</td></tr>
+<tr><td><code>registerFileUploadMethod</code></td><td>Menu <b>+</b> v kompozitoru (<b>Přidat do zprávy</b>), za <b>Nahrát soubor</b>.</td></tr>
+<tr><td><code>registerPostEditorActionComponent</code></td><td>Formátovací lišta v kompozitoru, když je formátování zobrazeno.</td></tr>
+<tr><td><code>registerAIActionMenuItemComponent</code></td><td>Menu <b>AI</b> v kompozitoru.</td></tr>
 <tr><td><code>registerFileDropdownMenuAction</code>, <code>registerFilePreviewComponent</code></td><td>Menu možností souboru a náhled souboru.</td></tr>
 <tr><td><code>registerUserSettings</code></td><td><b>Profil a nastavení</b>, jedna záložka na aplikaci pod nadpisem <b>Pluginy</b>.</td></tr>
 <tr><td><code>registerChannelSettingsTab</code></td><td>Dialog nastavení kanálu, pod nadpisem <b>Aplikace</b>.</td></tr>
-<tr><td><code>registerPopoverUserAttributesComponent</code>, <code>registerPopoverUserActionsComponent</code></td><td>Karta profilu zobrazená, když kliknete na jméno nebo avatar.</td></tr>
+<tr><td><code>registerPopoverUserAttributesComponent</code>, <code>registerPopoverUserActionsComponent</code></td><td>Karta profilu, která se zobrazí, když kliknete na jméno nebo avatar.</td></tr>
 <tr><td><code>registerLeftSidebarHeaderComponent</code>, <code>registerSidebarChannelLinkLabelComponent</code>, <code>registerChannelIconOverride</code>, <code>registerBottomTeamSidebarComponent</code></td><td>Horní část seznamu kanálů komunity, vedle názvu kanálu, ikony kanálu a spodní části bočního panelu komunity vlevo.</td></tr>
 <tr><td><code>registerChannelIntro</code>, <code>registerChannelIntroButtonAction</code>, <code>registerChannelToastComponent</code>, <code>registerNewMessagesSeparatorActionComponent</code>, <code>registerChannelComposerBannerComponent</code>, <code>registerComposerPlaceholder</code></td><td>Začátek historie kanálu, horní část seznamu zpráv, čára nepřečtených zpráv, nad editorem zpráv a placeholder editoru.</td></tr>
 <tr><td><code>registerChannelTypeOption</code></td><td>Typy kanálů v dialogu <b>Vytvořit kanál</b>.</td></tr>
 <tr><td><code>registerSearchComponents</code></td><td>Vyhledávací pole v hlavičce kanálu: rozsahy aplikace se zobrazí, když je prázdné.</td></tr>
-<tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>O aplikaci Antimatter</b> (spodní část bočního panelu aplikace), pod <b>Nápovědou</b>.</td></tr>
-<tr><td><code>registerProduct</code></td><td>Celé stránky na URL produktu, uvedené pod <b>Produkty</b> v <b>O aplikaci Antimatter</b>. Stránky produktů si zachovávají klasický rámec stránky.</td></tr>
+<tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>O aplikaci Antimatter</b> (spodní část bočního panelu aplikace), pod <b>Nápověda</b>.</td></tr>
+<tr><td><code>registerProduct</code></td><td>Celé stránky na adrese produktu, uvedené pod <b>Produkty</b> v <b>O aplikaci Antimatter</b>. Stránky produktů si zachovávají klasický rámec stránky.</td></tr>
 <tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, hooky jako <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>Fungují stejně jako v klasickém rozhraní.</td></tr>
 <tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>Systémová konzole, která je v obou rozhraních klasická.</td></tr>
 </tbody>
 </table>
-<h3>Co Fusion nezobrazuje nebo nespouští</h3>
+<h3>Co Fusion nezobrazuje ani nespouští</h3>
 <ul>
 <li><code>registerPostDropdownMenuComponent</code> (komponenta v menu zprávy), <code>registerPostCardTypeComponent</code> (karta zprávy v pravém panelu) a <code>registerProductSwitcherMenuItem</code> se nezobrazují v hlavních pohledech Fusion. Místo prvního použijte <code>registerPostDropdownMenuAction</code>.</li>
-<li><code>registerMessageWillBeUpdatedHook</code> se nespustí, když je zpráva upravena v Fusion. Úpravy zkontrolujte na serveru pomocí hooku <code>MessageWillBeUpdated</code>.</li>
-<li><code>registerActionAfterChannelCreation</code> se spouští pouze z klasického dialogu pro vytváření kanálu, který Fusion otevírá z <b>Dalších možností…</b> ve svém dialogu <b>Vytvořit kanál</b>.</li>
-<li>Komponenty lišty aplikace se zobrazují bez ohledu na <code>supportedProductIds</code>.</li>
+<li><code>registerMessageWillBeUpdatedHook</code> se nespustí, když se zpráva upraví v Fusion. Úpravy ověřujte na serveru pomocí hooku <code>MessageWillBeUpdated</code>.</li>
+<li><code>registerActionAfterChannelCreation</code> se spouští pouze z klasického dialogu pro vytváření kanálu, který Fusion otevírá z <b>Další možnosti…</b> v dialogu <b>Vytvořit kanál</b>.</li>
+<li>Komponenty lišky aplikace se zobrazují bez ohledu na <code>supportedProductIds</code>.</li>
 <li>Cesty z <code>registerNeedsTeamRoute</code> a <code>registerCustomRoute</code> si zachovávají klasický rámec stránky, stejně jako produkty.</li>
 </ul>
 
 <h2 id="antimatter-hooks">Hooky, které má pouze Antimatter</h2>
-<p>Tyto metody registru neexistují v Mattermost. Před voláním metody zkontrolujte, zda existuje, aby aplikace fungovala i tam:</p>
+<p>Tyto metody registru neexistují v Mattermost. Před voláním metody ověřte, že existuje, aby aplikace fungovala i tam:</p>
 <pre><code>if (typeof registry.registerComposerMenuItem === 'function') {
     registry.registerComposerMenuItem({
         text: 'Create a poll',
@@ -298,14 +298,14 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <table>
 <thead><tr><th>Metoda</th><th>Co přidává</th></tr></thead>
 <tbody>
-<tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>Položka v menu <b>+</b> v poli pro zprávy, v obou rozhraních. <code>action</code> přijímá <code>{channelId, rootId}</code>.</td></tr>
-<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Karta výběru emoji v textovém poli zpráv, např. pro GIFy nebo samolepky. V Fusion se karty s hodnotou <code>order</code> menší než 10 zobrazí před kartou Emoji. Komponenta přijímá <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> a <code>isFusion</code>.</td></tr>
-<tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>Panel mezi záhlavím kanálu a zprávami, určený pro kanály, které vybere <code>matcher(state, channel)</code>. Může skrýt zprávy i editor zpráv (<code>setMessagesVisible</code>), stejně jako to dělají hlasové kanály.</td></tr>
-<tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>Řádek pod kanálem v bočním panelu, např. s lidmi v jeho hovoru. Přijímá <code>channel</code>.</td></tr>
+<tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>Položka v menu <b>+</b> v poli pro zprávu, v obou rozhraních. <code>action</code> přijímá <code>{channelId, rootId}</code>.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Karta výběru emoji v poli pro zprávy, například GIFy nebo samolepky. Ve Fusion se karty s hodnotou <code>order</code> menší než 10 zobrazí před kartou Emoji. Komponenta přijímá <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> a <code>isFusion</code>.</td></tr>
+<tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>Panel mezi záhlavím kanálu a zprávami, určený pro kanály, které vybere <code>matcher(state, channel)</code>. Může skrýt zprávy i editor (<code>setMessagesVisible</code>), stejně jako to dělají hlasové kanály.</td></tr>
+<tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>Řádek pod kanálem v bočním panelu, například lidé v jeho hovoru. Přijímá <code>channel</code>.</td></tr>
 <tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Pouze Fusion: položka na stránkách <b>Integrace</b>, vedle vlastních emoji. Aplikace GIFs tam přidá své vlastní GIFy a samolepky.</td></tr>
 </tbody>
 </table>
-<p><code>fusionIcon</code> určuje ikonu z sady ikon Fusion (např. <code>poll</code>, <code>sticker</code>, <code>calendar</code> nebo <code>image</code>; viz <code>webapp/fusion/src/fusion/components/icon</code>). Fusion ji zobrazí místo <code>icon</code>, aby se položka ladila s ostatními.</p>
+<p><code>fusionIcon</code> určuje ikonu z sady ikon Fusion (například <code>poll</code>, <code>sticker</code>, <code>calendar</code> nebo <code>image</code>; viz <code>webapp/fusion/src/fusion/components/icon</code>). Fusion ji zobrazí místo <code>icon</code>, aby se položka ladila s ostatními.</p>
 
 <h2 id="settings">Nastavení</h2>
 <p><code>settings_schema</code> v <code>plugin.json</code> popisuje stránku aplikace v <b>Systémová konzole › Pluginy</b>:</p>
@@ -335,15 +335,15 @@ func (p *Plugin) OnConfigurationChange() error {
 	p.setConfiguration(&amp;cfg)
 	return nil
 }</code></pre>
-<p>Administrátoři je mohou nastavit i v konfiguraci, pod <code>PluginSettings.Plugins.&lt;app id&gt;</code>, s klíči ve spodním písmu (viz <a href="../../../cs/docs/admins/configuration.html#amctl">průvodce pro administrátory</a>).</p>
+<p>Administrátoři je mohou nastavit i v konfiguraci, pod <code>PluginSettings.Plugins.&lt;app id&gt;</code>, s klíči ve小 písmenách (viz <a href="../../../cs/docs/admins/configuration.html#amctl">průvodce pro administrátory</a>).</p>
 
 <h2 id="translations">Překlady</h2>
 <p>Antimatter je přeložen do 37 jazyků, stejně jako přibalené aplikace. Webová část to dělá takto:</p>
 <ol>
-<li>Každý řetězec pište pomocí React Intl, s ID a jeho anglickým textem: <code>&lt;FormattedMessage id='polls.create' defaultMessage='Create a poll'/&gt;</code> nebo <code>defineMessages</code>. ID předčíjte názvem své aplikace.</li>
+<li>Každý řetězec pište pomocí React Intl, s ID a jeho anglickým textem: <code>&lt;FormattedMessage id='polls.create' defaultMessage='Create a poll'/&gt;</code> nebo <code>defineMessages</code>. ID předčínejte názvem vaší aplikace.</li>
 <li>Vyextrahujte anglické řetězce do <code>webapp/i18n/en.json</code> (přibalené aplikace používají <code>formatjs extract</code>).</li>
 <li>Přidejte jeden soubor pro každý jazyk vedle něj, se stejnými ID: <code>fr.json</code>, <code>de.json</code>, <code>pt-BR.json</code>, <code>zh-CN.json</code>…</li>
-<li>Předá se je webové aplikaci, která se uživatele zeptá na jeho jazyk:
+<li>Předá je webové aplikaci, která se uživatele zeptá na jeho jazyk:
 <pre><code>import fr from '../i18n/fr.json';
 import ptBR from '../i18n/pt-BR.json';
 
@@ -358,28 +358,28 @@ registry.registerTranslations(translationsFor);</code></pre></li>
 <p>Chybějící řetězec se vrátí na anglický <code>defaultMessage</code>. U řetězců, které posílá serverová část (odpovědi na příkazy, zprávy botů), balíček <code>pluginapi/i18n</code> načte soubory s překlady dodané v balíčku (například <code>assets/i18n</code>) a poskytne lokalizátor v jazyce každého uživatele.</p>
 
 <h2 id="build">Sestavení, instalace a ladění</h2>
-<p>Budete potřebovat Go a Node.js (verzi uvedenou v souboru <code>.nvmrc</code> aplikace). V adresáři aplikace:</p>
+<p>Budete potřebovat Go a Node.js (verzi uvedenou v souboru <code>.nvmrc</code> aplikace). V složce aplikace:</p>
 <table>
 <thead><tr><th>Příkaz</th><th>Co dělá</th></tr></thead>
 <tbody>
 <tr><td><code>make dist</code></td><td>Sestaví serverovou část pro všechny platformy a webovou aplikaci a zapíše balíček do <code>dist/&lt;app id&gt;-&lt;version&gt;.tar.gz</code>.</td></tr>
 <tr><td><code>make test</code></td><td>Spustí testy Go a JavaScript.</td></tr>
 <tr><td><code>make check-style</code></td><td>Zkontroluje kód (golangci-lint, ESLint) a ověří typy TypeScript.</td></tr>
-<tr><td><code>make deploy</code></td><td>Sestaví, poté nainstaluje a aktivuje balíček na serveru.</td></tr>
-<tr><td><code>make watch</code>, <code>make deploy-from-watch</code></td><td>První příkaz při každém uložení sestaví webovou aplikaci; druhý sestavený výsledek zabalí a nainstaluje na server.</td></tr>
-<tr><td><code>make enable</code>, <code>make disable</code>, <code>make reset</code></td><td>Aktivuje, deaktivuje nebo restartuje aplikaci na serveru.</td></tr>
+<tr><td><code>make deploy</code></td><td>Sestaví, poté nainstaluje a zapne balíček na serveru.</td></tr>
+<tr><td><code>make watch</code>, <code>make deploy-from-watch</code></td><td>První příkaz při každém uložení sestaví webovou aplikaci; druhý sestavení zabalí a nainstaluje na server.</td></tr>
+<tr><td><code>make enable</code>, <code>make disable</code>, <code>make reset</code></td><td>Zapne, vypne nebo restartuje aplikaci na serveru.</td></tr>
 <tr><td><code>make logs</code>, <code>make logs-watch</code></td><td>Zobrazí řádky aplikace v serverovém logu.</td></tr>
 <tr><td><code>make attach</code></td><td>Připojí ladící nástroj Delve ke spuštěné serverové části (nejprve sestavte s <code>AM_DEBUG=1</code>).</td></tr>
 </tbody>
 </table>
-<p>Příkaz <code>make deploy</code> a ostatní serverové příkazy používají místní režim socketu, pokud ho najdou (<code>/var/tmp/antimatter_local.socket</code> nebo <code>AM_LOCALSOCKETPATH</code>): spusťte je na stroji serveru s aktivním místním režimem. V opačném případě se přihlásí na server určený proměnnou <code>MM_SERVICESETTINGS_SITEURL</code> pomocí <code>AM_ADMIN_TOKEN</code> nebo <code>AM_ADMIN_USERNAME</code> a <code>AM_ADMIN_PASSWORD</code>. Sestavovací nástroje zatím nečtou proměnnou s názvem <code>AM_</code> pro adresu serveru.</p>
+<p><code>make deploy</code> a ostatní serverové příkazy používají místní režim socketu, pokud ho najdou (<code>/var/tmp/antimatter_local.socket</code>, nebo <code>AM_LOCALSOCKETPATH</code>): spustíte je na stroji serveru s zapnutým místním režimem. Jinak se přihlásí na server určený proměnnou <code>MM_SERVICESETTINGS_SITEURL</code> pomocí <code>AM_ADMIN_TOKEN</code>, nebo <code>AM_ADMIN_USERNAME</code> a <code>AM_ADMIN_PASSWORD</code>. Sestavovací nástroje zatím nečtou proměnnou <code>AM_</code> pro adresu serveru.</p>
 <h3>Ruční instalace balíčku</h3>
 <ul>
 <li>Systémový administrátor povolí nahrávání pomocí <code>AM_PLUGINSETTINGS_ENABLEUPLOADS=true</code> (výchozí je vypnuto; v Systémové konzoli není přepínač).</li>
 <li>Pak <b>Systémová konzole › Pluginy › Správa pluginů › Nahrát plugin</b>, nebo <code>amctl plugin add weather.tar.gz</code> a poté <code>amctl plugin enable com.example.weather</code>.</li>
 <li>Pokud má server zapnuté <b>Vyžadovat podpis pluginu</b>, přijímá pouze balíčky podepsané klíčem, kterému důvěřuje; viz <a href="../../../cs/docs/admins/apps.html#other-apps">Instalace dalších aplikací</a>.</li>
 </ul>
-<div class="callout">Pro rychlé iterace na vývojovém serveru nastavte na serveru <code>AM_SERVICESETTINGS_ENABLEDEVELOPER=true</code>: chyby pak nesou podrobnosti. Makefiley balíčkových aplikací sestaví serverovou část pouze pro vaši platformu, pokud je ve vašem shellu nastavena proměnná <code>MM_SERVICESETTINGS_ENABLEDEVELOPER</code>.</div>
+<div class="callout">Pro rychlé iterace na vývojovém serveru nastavte na serveru <code>AM_SERVICESETTINGS_ENABLEDEVELOPER=true</code>: chyby pak nesou podrobnosti. Makefiles balíčkových aplikací sestaví serverovou část pouze pro vaši platformu, pokud je ve vašem shellu nastavena proměnná <code>MM_SERVICESETTINGS_ENABLEDEVELOPER</code>.</div>
 <nav class="pager"><a class="prev" href="../../docs/developers/bots.html"><small>Předchozí</small>Boti</a><a class="next" href="../../docs/developers/building.html"><small>Další</small>Kompilace ze zdrojového kódu</a></nav>
 </article>
 </div>

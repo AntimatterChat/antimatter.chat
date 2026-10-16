@@ -1,19 +1,19 @@
 title: Apps schrijven (plugins)
-description: Hoe je een Antimatter-app (plugin) schrijft: de bundelstructuur en plugin.json, de serverhooks en API, het webapp-register, ondersteuning voor de Fusion-interface, instellingen, de sleutel-waarde-opslag, vertalingen, verpakking en installatie.
+description: Hoe je een Antimatter-app (plugin) schrijft: de bundelstructuur en plugin.json, de serverhooks en API, het webapp-registre, ondersteuning voor de Fusion-interface, instellingen, de sleutel-waarde-opslag, vertalingen, verpakken en installeren.
 guide: developers
 order: 6
 nav: Apps schrijven
-lead: Apps voegen functionaliteit toe aan Antimatter van binnenuit: een servergedeelte in Go dat zich aan de server koopt, en een webappgedeelte in React dat menu’s, panelen, berichttypen en pagina’s toevoegt. Deze pagina toont hoe een app is opgebouwd, met de meegeleverde Peilingen-app als voorbeeld, en wat er verandert in de Fusion-interface van Antimatter.
+lead: Apps voegen functionaliteit toe aan Antimatter van binnenuit: een servergedeelte in Go dat aan de server koppelbaar is, en een webappgedeelte in React dat menu’s, panelen, berichttypes en pagina’s toevoegt. Deze pagina toont hoe een app is opgebouwd, met de meegeleverde Peilingen-app als voorbeeld, en wat er verandert in de Fusion-interface van Antimatter.
 source: d9c132cac759
 ---
 <h2 id="overview">Hoe een app werkt</h2>
 <ul>
-<li><b>Het servergedeelte</b> is een Go-programma. De server start dit als een apart proces en communiceert erover RPC mee: het roept de <b>hooks</b> van de app aan (er staat een bericht op het punt te worden gepost, er is een opdracht uitgevoerd…), en de app roept de <b>plugin-API</b> van de server aan (een bericht aanmaken, een gebruiker lezen, data opslaan…). Het kan ook HTTP-routes aanbieden onder <code>/plugins/&lt;app id&gt;/</code>.</li>
-<li><b>Het webappgedeelte</b> is een JavaScript-bundel die in de browser wordt geladen met de webapp. Het registreert React-componenten en callbacks bij het <b>register</b>: een knop in een menu, een paneel, een manier om een berichttype te tekenen.</li>
-<li>Elk van beide gedeeltes is optioneel. Een app wordt geïnstalleerd als een <code>.tar.gz</code>-bundel, en systeembeheerders schakelen deze in, uit en configureren deze.</li>
+<li><b>Het servergedeelte</b> is een Go-programma. De server start het als een apart proces en communiceert erover via RPC: het roept de <b>hooks</b> van de app aan (een bericht staat op het punt te worden gepost, een opdracht is uitgevoerd…), en de app roept de <b>plugin-API</b> van de server aan (een bericht aanmaken, een gebruiker lezen, gegevens opslaan…). Het kan ook HTTP-routes aanbieden onder <code>/plugins/&lt;app id&gt;/</code>.</li>
+<li><b>Het webappgedeelte</b> is een JavaScript-bundel die in de browser wordt geladen samen met de webapp. Het registreert React-componenten en callbacks bij het <b>registre</b>: een knop in een menu, een paneel, een manier om een berichttype weer te geven.</li>
+<li>Elk van de twee onderdelen is optioneel. Een app wordt geïnstalleerd als een <code>.tar.gz</code>-bundel, en systeembeheerders kunnen deze activeren, deactiveren en configureren.</li>
 </ul>
 <div class="callout warn">Het servergedeelte wordt uitgevoerd met volledige toegang tot de gegevens van de server. Behandel een app als code die je op de server uitrolt.</div>
-<p>Antimatter voert apps uit die voor Mattermost zijn geschreven, en andersom, zolang een app alleen hooks gebruikt die beide hebben. Zie <a href="#antimatter-hooks">Alleen door Antimatter beschikbare hooks</a>.</p>
+<p>Antimatter voert apps uit die voor Mattermost zijn geschreven, en omgekeerd, zolang een app alleen hooks gebruikt die beide hebben. Zie <a href="#antimatter-hooks">Alleen door Antimatter beschikbare hooks</a>.</p>
 
 <h2 id="layout">De bundelstructuur</h2>
 <p>Er is geen apart starttemplate: begin bij een kleine meegeleverde app zoals <a href="https://github.com/AntimatterChat/antimatter-plugin-polls">antimatter-plugin-polls</a> of <a href="https://github.com/AntimatterChat/antimatter-plugin-todo">antimatter-plugin-todo</a>, en wijzig de ID en de code. De structuur van Peilingen is als volgt:</p>
@@ -61,15 +61,15 @@ source: d9c132cac759
   "settings_schema": {"settings": []}
 }</code></pre>
 <ul>
-<li><code>id</code>: uniek en permanent; een omgekeerd domeinnaam is gebruikelijk. Het noemt de routes, de opgeslagen instellingen en de WebSocket-gebeurtenissen.</li>
-<li><code>version</code>: semantische versie. De meegeleverde apps laten dit weg uit <code>plugin.json</code>; hun bouwtol haalt het uit de nieuwste <code>v*</code>-git-tag.</li>
+<li><code>id</code>: uniek en permanent; een omgekeerd domeinnaam is gebruikelijk. Het bepaalt de routes, de opgeslagen instellingen en de WebSocket-events.</li>
+<li><code>version</code>: semantische versie. De meegeleverde apps laten dit veld weg in <code>plugin.json</code>; hun bouwwerkzeug haalt het uit de nieuwste <code>v*</code>-git-tag.</li>
 <li><code>min_server_version</code>: Antimatter meldt <code>12.0.0</code>.</li>
 <li><code>settings_schema</code>: de instellingenpagina van de app in de Systeemconsole (zie <a href="#settings">Instellingen</a>).</li>
 </ul>
 <p><code>make apply</code> kopieert het manifest naar <code>server/manifest.go</code> en <code>webapp/src/manifest.ts</code>; <code>make manifest-check</code> valideert het.</p>
 
 <h2 id="server">Het servergedeelte</h2>
-<p>Het servergedeelte importeert dezelfde Go-module als Mattermost-apps, <code>github.com/mattermost/mattermost/server/public</code>, via de Go-module-proxy. De <code>main</code> start alleen de app:</p>
+<p>Het servergedeelte importeert dezelfde Go-module als Mattermost-apps, <code>github.com/mattermost/mattermost/server/public</code>, van de Go-module-proxy. De <code>main</code> start alleen de app:</p>
 <pre><code>package main
 
 import "github.com/mattermost/mattermost/server/public/plugin"
@@ -104,28 +104,28 @@ func (p *Plugin) ExecuteCommand(c *plugin.Context, args *model.CommandArgs) (*mo
 func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Request) {
 	p.router.ServeHTTP(w, r)
 }</code></pre>
-<h3>Algemene hooks</h3>
+<h3>Veelvoorkomende hooks</h3>
 <table>
 <thead><tr><th>Hook</th><th>Wanneer het wordt uitgevoerd</th></tr></thead>
 <tbody>
 <tr><td><code>OnActivate</code>, <code>OnDeactivate</code></td><td>Wanneer de app wordt ingeschakeld of uitgeschakeld, en wanneer de server start en stopt. Registreer slash-opdrachten en bots in <code>OnActivate</code>.</td></tr>
 <tr><td><code>OnConfigurationChange</code></td><td>Wanneer de instellingen veranderen; laad ze in met <code>p.API.LoadPluginConfiguration(&amp;cfg)</code>.</td></tr>
-<tr><td><code>ServeHTTP</code></td><td>Verzoeken naar <code>/plugins/&lt;app id&gt;/…</code>. De server zet de <code>Mattermost-User-Id</code>-header wanneer het verzoek afkomstig is van een ingelogde gebruiker; weiger verzoeken zonder deze header, tenzij ze bedoeld zijn om publiek te zijn.</td></tr>
+<tr><td><code>ServeHTTP</code></td><td>Verzoeken naar <code>/plugins/&lt;app id&gt;/…</code>. De server stelt de <code>Mattermost-User-Id</code>-header in wanneer het verzoek van een ingelogde gebruiker komt; weiger verzoeken zonder deze header, tenzij ze openbaar zijn.</td></tr>
 <tr><td><code>ExecuteCommand</code></td><td>Een door de app geregistreerde slash-opdracht is uitgevoerd.</td></tr>
 <tr><td><code>MessageWillBePosted</code>, <code>MessageWillBeUpdated</code></td><td>Voor een bericht wordt opgeslagen: geef een gewijzigd bericht terug, of een reden om het te weigeren.</td></tr>
-<tr><td><code>MessageHasBeenPosted</code>, <code>MessageHasBeenUpdated</code>, <code>MessageHasBeenDeleted</code></td><td>Naderhand, voor neveneffecten.</td></tr>
+<tr><td><code>MessageHasBeenPosted</code>, <code>MessageHasBeenUpdated</code>, <code>MessageHasBeenDeleted</code></td><td>Naderhand, voor bijwerkingen.</td></tr>
 <tr><td><code>ReactionHasBeenAdded</code>, <code>ReactionHasBeenRemoved</code></td><td>Reacties.</td></tr>
-<tr><td><code>UserHasJoinedChannel</code>, <code>UserHasLeftChannel</code>, <code>UserHasJoinedTeam</code>, <code>UserHasLeftTeam</code>, <code>ChannelHasBeenCreated</code></td><td>Lidmaatschap en wijzigingen in kanalen. Een team is een community.</td></tr>
+<tr><td><code>UserHasJoinedChannel</code>, <code>UserHasLeftChannel</code>, <code>UserHasJoinedTeam</code>, <code>UserHasLeftTeam</code>, <code>ChannelHasBeenCreated</code></td><td>Lidmaatschap en wijzigingen in kanalen. Een team is een gemeenschap.</td></tr>
 <tr><td><code>FileWillBeUploaded</code></td><td>Voor een bestand wordt opgeslagen: wijzig het of weiger het.</td></tr>
 <tr><td><code>OnPluginClusterEvent</code></td><td>Een bericht van dezelfde app op een andere server van een cluster.</td></tr>
 </tbody>
 </table>
-<p>De volledige lijst, met de exacte signaturen, staat in <code>server/public/plugin/hooks.go</code>; de API staat in <code>server/public/plugin/api.go</code>. Het <code>pluginapi</code>-pakket (<code>server/public/pluginapi</code>) verpakt de API in vriendelijkere helpers.</p>
+<p>De volledige lijst, met de exacte signatures, staat in <code>server/public/plugin/hooks.go</code>; de API staat in <code>server/public/plugin/api.go</code>. Het <code>pluginapi</code>-pakket (<code>server/public/pluginapi</code>) verpakt de API in vriendelijkere helpers.</p>
 <h3>Handige API-aanroepen</h3>
 <ul>
-<li><code>CreatePost</code>, <code>UpdatePost</code>, <code>SendEphemeralPost</code>: een bericht plaatsen als de bot van de app of als een gebruiker.</li>
-<li><code>EnsureBotUser(&amp;model.Bot{Username, DisplayName})</code>: maak de bot van de app een keer aan en verkrijg de ID ervan.</li>
-<li><code>PublishWebSocketEvent("poll_updated", payload, &amp;model.WebsocketBroadcast{ChannelId: id})</code>: stuur een evenement naar de webapp. Het komt binnen als <code>custom_&lt;app id&gt;_poll_updated</code>.</li>
+<li><code>CreatePost</code>, <code>UpdatePost</code>, <code>SendEphemeralPost</code>: post als de bot van de app of als een gebruiker.</li>
+<li><code>EnsureBotUser(&amp;model.Bot{Username, DisplayName})</code>: maak de bot van de app een keer aan en haal de ID op.</li>
+<li><code>PublishWebSocketEvent("poll_updated", payload, &amp;model.WebsocketBroadcast{ChannelId: id})</code>: stuur een evenement naar de webapp. Het komt aan als <code>custom_&lt;app id&gt;_poll_updated</code>.</li>
 <li><code>OpenInteractiveDialog</code>: open een <a href="{{root}}docs/developers/bots.html#dialogs">dialoog</a>.</li>
 <li><code>LogInfo</code>, <code>LogError</code> en dergelijke: schrijf naar de serverlog, gemarkeerd met de ID van de app.</li>
 <li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: controleer wie wat mag doen voordat u handelt namens een gebruiker.</li>
@@ -142,7 +142,7 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 </ul>
 
 <h2 id="webapp">Het webapp-deel</h2>
-<p>Het bundle registreert een klasse met <code>window.registerPlugin</code>. De <code>initialize</code>-methode ontvangt het registry en de Redux store:</p>
+<p>Het bundle registreert een klasse met <code>window.registerPlugin</code>. De <code>initialize</code>-methode ontvangt het register en de Redux store:</p>
 <pre><code>import manifest from './manifest';
 
 class Plugin {
@@ -158,32 +158,32 @@ class Plugin {
 
 window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <ul>
-<li><b>Gedeelde bibliotheken.</b> De webapp biedt React, ReactDOM, Redux, React Redux en React Intl aan: vermeld deze als webpack <code>externals</code> (<code>React</code>, <code>ReactDOM</code>, <code>Redux</code>, <code>ReactRedux</code>, <code>ReactIntl</code>) in plaats van uw eigen kopieën te bundelen. Zie <code>webpack.config.js</code> van Peilingen.</li>
-<li><b>Uw server-deel aanroepen.</b> Haal <code>${window.basename}/plugins/&lt;app id&gt;/…</code> op met de opties uit <code>Client4.getOptions()</code> (uit <code>mattermost-redux/client</code>): deze bevatten de headers die de server nodig heeft om een verzoek van de browser te accepteren.</li>
+<li><b>Gedeelde bibliotheken.</b> De webapp biedt React, ReactDOM, Redux, React Redux en React Intl: vermeld ze als webpack <code>externals</code> (<code>React</code>, <code>ReactDOM</code>, <code>Redux</code>, <code>ReactRedux</code>, <code>ReactIntl</code>) in plaats van uw eigen kopieën te bundelen. Zie <code>webpack.config.js</code> van Peilingen.</li>
+<li><b>Uw server-deel aanroepen.</b> Haal <code>${window.basename}/plugins/&lt;app id&gt;/…</code> op met de opties uit <code>Client4.getOptions()</code> (uit <code>mattermost-redux/client</code>): ze bevatten de headers die de server nodig heeft om een verzoek van de browser te accepteren.</li>
 <li><b>Uw eigen status.</b> <code>registerReducer</code> voegt een reducer toe, opgeslagen onder <code>state['plugins-&lt;app id&gt;']</code>.</li>
-<li><b>Types.</b> De extra registry-methoden van Antimatter staan niet in de gepubliceerde types van Mattermost: Peilingen declareert het registry dat het gebruikt in <code>webapp/src/types/host.ts</code>.</li>
+<li><b>Typen.</b> De extra registermethoden van Antimatter staan niet in de gepubliceerde typen van Mattermost: Peilingen declareert het register dat het gebruikt in <code>webapp/src/types/host.ts</code>.</li>
 </ul>
-<p>De methoden en parameters van het registry zijn gedocumenteerd in de code, in <code>webapp/fusion/src/plugins/registry.ts</code> (Fusion) en <code>webapp/channels/src/plugins/registry.ts</code> (klassiek).</p>
+<p>De methoden en parameters van het register zijn gedocumenteerd in de code, in <code>webapp/fusion/src/plugins/registry.ts</code> (Fusion) en <code>webapp/channels/src/plugins/registry.ts</code> (klassiek).</p>
 
 <h2 id="fusion">Ondersteuning voor de Fusion-interface</h2>
-<p>Antimatter heeft twee webinterfaces: Fusion, de standaard, en de klassieke. Beide laden dezelfde app-bundles en hebben hetzelfde registry, maar Fusion tekent veel zaken zelf en plaatst plugincomponenten op zijn eigen manier. Test uw app in beide.</p>
+<p>Antimatter heeft twee webinterfaces: Fusion, de standaard, en de klassieke. Beide laden dezelfde app-bundles en hebben hetzelfde register, maar Fusion tekent veel dingen zelf en plaatst plugincomponenten op zijn eigen manier. Test uw app in beide.</p>
 <h3>De interface detecteren</h3>
 <p>Vóórdat een app wordt geladen, stellen beide interfaces <code>window.antimatterWebUI</code> in op <code>'fusion'</code> of <code>'classic'</code>, en dezelfde waarde op het wortелеlement van de pagina als <code>data-am-web-ui</code>. In Mattermost is er geen van beide ingesteld.</p>
 <pre><code>export function isFusionUI(): boolean {
     return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
 }</code></pre>
-<p>De ingebouwde apps gebruiken dit om anders te tekenen. Peilingen tekent zijn peilingskaarten en zijn aanmaakscherm in de stijl van Fusion en opent een eigen dialoog voor <code>/poll</code> in Fusion. Gesprekken en spraakkanaal laten de zijbalk en toast-componenten weg die Fusion vervangt door zijn eigen gespreksinterface. De Agents-app plaatst zijn AI-acties in een submenu van het berichtmenu in plaats van in de hover-toolbar. De eigen CSS-classes van Fusion (met het voorvoegsel <code>am-</code>) en de dialooglaag (het <code>am-layer</code>-element) zijn wat deze apps gebruiken om de interface te matchen; het is geen gedocumenteerde, stabiele API.</p>
+<p>De ingebouwde apps gebruiken dit om anders te worden weergegeven. Peilingen toont zijn peilingskaarten en zijn aanmaakdialoog in de stijl van Fusion en opent zijn eigen dialoog voor <code>/poll</code> in Fusion. Gesprekken en spraakkanaal laten de zijbalk en toast-componenten weg die Fusion vervangt door zijn eigen gespreksinterface. De Agents-app plaatst zijn AI-acties in een submenu van het berichtmenu in plaats van in de hover-werkbalk. De eigen CSS-classes van Fusion (met het voorvoegsel <code>am-</code>) en de dialooglaag (het <code>am-layer</code>-element) zijn wat deze apps gebruiken om de interface te matchen; het is geen gedocumenteerde, stabiele API.</p>
 <h3>Waar Fusion plugin-componenten toont</h3>
 <table>
-<thead><tr><th>Registry-methode</th><th>Waar het in Fusion verschijnt</th></tr></thead>
+<thead><tr><th>Registratiemethode</th><th>Waar het in Fusion verschijnt</th></tr></thead>
 <tbody>
-<tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>De app-rail, de kolom met iconen aan de rechterkant, tussen je avatar en de knop <b>Over Antimatter</b>. Knoppen in de kanaalkop gaan daar ook naartoe, niet in de kanaalkop. Verborgen wanneer een systeembeheerder <b>Apps-balk uitschakelen</b> inschakelt (<code>ExperimentalSettings.DisableAppBar</code>, standaard uit).</td></tr>
-<tr><td><code>registerRightHandSidebarComponent</code></td><td>Het paneel aan de rechterkant. Gebruikers kunnen het verkleinen door de rand te verslepen. Als de app ook een product is, biedt het paneel <b>Openen als volledige pagina</b>.</td></tr>
+<tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>De app-rail, de kolom met iconen aan de rechterkant, tussen je avatar en de knop <b>Over Antimatter</b>. Knoppen in de kanaalkop komen er ook, niet in de kanaalkop. Verborgen wanneer een systeembeheerder <b>Apps-balk uitschakelen</b> (<code>ExperimentalSettings.DisableAppBar</code>, standaard uit) inschakelt.</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>Het paneel aan de rechterkant. Mensen kunnen het verkleinen door de rand te verslepen. Als de app ook een product is, biedt het paneel <b>Openen als volledige pagina</b>.</td></tr>
 <tr><td><code>registerChannelHeaderIcon</code></td><td>Iconen in de kanaalkop, na de gespreksknoppen; op telefoons in het menu <b>Meer</b> van de kop.</td></tr>
 <tr><td><code>registerCallButtonAction</code></td><td>De gespreksknop in de kanaalkop; meerdere providers delen een menu <b>Andere manieren om te bellen</b>.</td></tr>
 <tr><td><code>registerPostDropdownMenuAction</code></td><td>Het menu <b>Meer acties</b> (⋯) van het bericht, in een submenu <b>Acties voor berichten</b>; ook in het menu <b>Acties voor draadje</b> van het draadpaneel, onder <b>Meer acties</b>.</td></tr>
-<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Een eigen submenu van dezelfde menu’s, met de naam en het icoon van de app.</td></tr>
-<tr><td><code>registerPostActionComponent</code></td><td>De hover-toolbar van het bericht, vóór de ⋯-knop.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Zijn eigen submenu van dezelfde menu’s, met de naam en het icoon van de app.</td></tr>
+<tr><td><code>registerPostActionComponent</code></td><td>De hover-werkbalk van het bericht, vóór de ⋯-knop.</td></tr>
 <tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>Het bericht zelf: de inhoud, onder de tekst, na de tijd, en ter vervanging van linkvoorbeelden.</td></tr>
 <tr><td><code>registerChannelHeaderMenuAction</code></td><td>Het menu <b>Kanaalopties</b> van het kanaal (⋯ op een kanaal in de zijbalk, of rechtermuisklik), als items met een stekkericoon.</td></tr>
 <tr><td><code>registerMainMenuAction</code></td><td>Het gemeenschapsmenu (de naam van de gemeenschap bovenaan de kanaallijst), onder <b>Meer acties</b>, gegroepeerd per app.</td></tr>
@@ -191,27 +191,27 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <tr><td><code>registerFileUploadMethod</code></td><td>Het menu <b>+</b> van de invoerbalk (<b>Toevoegen aan bericht</b>), na <b>Bestand uploaden</b>.</td></tr>
 <tr><td><code>registerPostEditorActionComponent</code></td><td>De opmaakbalk van de invoerbalk, wanneer opmaak wordt weergegeven.</td></tr>
 <tr><td><code>registerAIActionMenuItemComponent</code></td><td>Het menu <b>AI</b> van de invoerbalk.</td></tr>
-<tr><td><code>registerFileDropdownMenuAction</code>, <code>registerFilePreviewComponent</code></td><td>Het optiemenu van een bestand, en de voorvertoning van het bestand.</td></tr>
+<tr><td><code>registerFileDropdownMenuAction</code>, <code>registerFilePreviewComponent</code></td><td>Het optiemenu van een bestand, en de bestandsvoorschouw.</td></tr>
 <tr><td><code>registerUserSettings</code></td><td><b>Profiel &amp; instellingen</b>, één tab per app onder de kop <b>Plugins</b>.</td></tr>
-<tr><td><code>registerChannelSettingsTab</code></td><td>Het instellingsdialoogvenster van het kanaal, onder de kop <b>Apps</b>.</td></tr>
-<tr><td><code>registerPopoverUserAttributesComponent</code>, <code>registerPopoverUserActionsComponent</code></td><td>De profielkaart die wordt weergegeven wanneer je op een naam of avatar klikt.</td></tr>
-<tr><td><code>registerLeftSidebarHeaderComponent</code>, <code>registerSidebarChannelLinkLabelComponent</code>, <code>registerChannelIconOverride</code>, <code>registerBottomTeamSidebarComponent</code></td><td>De bovenkant van de kanaallijst van een community, naast de naam en het pictogram van een kanaal, en de onderkant van het communitypaneel links.</td></tr>
+<tr><td><code>registerChannelSettingsTab</code></td><td>Het dialoogvenster voor kanaalinstellingen, onder de kop <b>Apps</b>.</td></tr>
+<tr><td><code>registerPopoverUserAttributesComponent</code>, <code>registerPopoverUserActionsComponent</code></td><td>De profielkaart die wordt weergegeven wanneer je op een naam of een avatar klikt.</td></tr>
+<tr><td><code>registerLeftSidebarHeaderComponent</code>, <code>registerSidebarChannelLinkLabelComponent</code>, <code>registerChannelIconOverride</code>, <code>registerBottomTeamSidebarComponent</code></td><td>De bovenkant van de kanaallijst van een community, naast de naam en het pictogram van een kanaal, en de onderkant van het communitypaneel aan de linkerkant.</td></tr>
 <tr><td><code>registerChannelIntro</code>, <code>registerChannelIntroButtonAction</code>, <code>registerChannelToastComponent</code>, <code>registerNewMessagesSeparatorActionComponent</code>, <code>registerChannelComposerBannerComponent</code>, <code>registerComposerPlaceholder</code></td><td>Het begin van de geschiedenis van een kanaal, de bovenkant van de berichtenlijst, de onlezenlijn, boven de invoerbalk en de placeholder van de invoerbalk.</td></tr>
-<tr><td><code>registerChannelTypeOption</code></td><td>De kanaltypen in het dialoogvenster <b>Kanaal aanmaken</b>.</td></tr>
-<tr><td><code>registerSearchComponents</code></td><td>Het zoekvak in de kanaalkop: appbereiken worden weergegeven wanneer het leeg is.</td></tr>
-<tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>Over Antimatter</b> (onderaan het apppaneel), onder <b>Help</b>.</td></tr>
-<tr><td><code>registerProduct</code></td><td>Volledige pagina’s op het product-URL, vermeld onder <b>Producten</b> in <b>Over Antimatter</b>. Productpagina’s behouden het klassieke paginakader.</td></tr>
-<tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, hooks zoals <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>Werk zoals in de klassieke interface.</td></tr>
+<tr><td><code>registerChannelTypeOption</code></td><td>De kanaaltypen in het dialoogvenster <b>Kanaal aanmaken</b>.</td></tr>
+<tr><td><code>registerSearchComponents</code></td><td>Het zoekvak in de kanaalkop: toepassingsbereiken worden weergegeven wanneer het leeg is.</td></tr>
+<tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>Over Antimatter</b> (onderaan het applicatiepaneel), onder <b>Help</b>.</td></tr>
+<tr><td><code>registerProduct</code></td><td>Volledige pagina’s op het URL-adres van het product, vermeld onder <b>Producten</b> in <b>Over Antimatter</b>. Productpagina’s behouden het klassieke paginaraam.</td></tr>
+<tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, hooks zoals <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>Werken zoals in de klassieke interface.</td></tr>
 <tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>De Systeemconsole, die in beide interfaces de klassieke is.</td></tr>
 </tbody>
 </table>
 <h3>Wat Fusion niet toont of uitvoert</h3>
 <ul>
-<li><code>registerPostDropdownMenuComponent</code> (een component in het berichtmenu), <code>registerPostCardTypeComponent</code> (een kaart van een bericht in het paneel rechts) en <code>registerProductSwitcherMenuItem</code> worden niet getoond in de hoofdweergaven van Fusion. Gebruik in plaats daarvan <code>registerPostDropdownMenuAction</code> voor het eerste.</li>
+<li><code>registerPostDropdownMenuComponent</code> (een component in het berichtmenu), <code>registerPostCardTypeComponent</code> (een kaart van een bericht in het paneel aan de rechterkant) en <code>registerProductSwitcherMenuItem</code> worden niet getoond in de hoofdweergaven van Fusion. Gebruik in plaats daarvan <code>registerPostDropdownMenuAction</code> voor het eerste.</li>
 <li><code>registerMessageWillBeUpdatedHook</code> wordt niet uitgevoerd wanneer een bericht in Fusion wordt bewerkt. Controleer bewerkingen op de server met de <code>MessageWillBeUpdated</code>-hook.</li>
-<li><code>registerActionAfterChannelCreation</code> wordt alleen uitgevoerd vanuit het klassieke dialoogvenster voor kanaalaanmaak, dat Fusion opent via <b>Meer opties…</b> in het dialoogvenster <b>Kanaal aanmaken</b>.</li>
-<li>Componenten in de appbalk worden getoond ongeacht hun <code>supportedProductIds</code>.</li>
-<li>Routes van <code>registerNeedsTeamRoute</code> en <code>registerCustomRoute</code> behouden het klassieke paginakader, net als producten.</li>
+<li><code>registerActionAfterChannelCreation</code> wordt alleen uitgevoerd vanuit het klassieke dialoogvenster voor het aanmaken van een kanaal, dat Fusion opent via <b>Meer opties…</b> in het dialoogvenster <b>Kanaal aanmaken</b>.</li>
+<li>Componenten in de applicatiebalk worden getoond ongeacht hun <code>supportedProductIds</code>.</li>
+<li>Routes van <code>registerNeedsTeamRoute</code> en <code>registerCustomRoute</code> behouden het klassieke paginaraam, net als producten.</li>
 </ul>
 
 <h2 id="antimatter-hooks">Hooks die alleen Antimatter heeft</h2>
@@ -230,10 +230,10 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <thead><tr><th>Methode</th><th>Wat het toevoegt</th></tr></thead>
 <tbody>
 <tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>Een item in het <b>+</b>-menu van het berichtvak, in beide interfaces. <code>action</code> ontvangt <code>{channelId, rootId}</code>.</td></tr>
-<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Een tab van de emoji-kiezer in het berichtvak, zoals GIF's of stickers. In Fusion verschijnen tabs met een <code>order</code> lager dan 10 vóór de Emoji-tab. Het component ontvangt <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> en <code>isFusion</code>.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Een tab van de emoji-kiezer in het berichtvak, zoals GIF’s of stickers. In Fusion verschijnen tabs met een <code>order</code> onder de 10 vóór de Emoji-tab. Het component ontvangt <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> en <code>isFusion</code>.</td></tr>
 <tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>Een paneel tussen de kanaalkop en de berichten, voor de kanalen die <code>matcher(state, channel)</code> selecteert. Het kan de berichten en de invoerbalk verbergen (<code>setMessagesVisible</code>), zoals spraakkanaal dat doet.</td></tr>
 <tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>Een regel onder een kanaal in de zijbalk, zoals de personen in het gesprek. Het ontvangt het <code>channel</code>.</td></tr>
-<tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Alleen Fusion: een item op de pagina's <b>Integraties</b>, naast aangepaste emoji. De GIF-app voegt daar zijn aangepaste GIF's en stickers toe.</td></tr>
+<tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Alleen Fusion: een item op de pagina’s <b>Integraties</b>, naast aangepaste emoji’s. De GIF-app voegt daar zijn aangepaste GIF’s en stickers toe.</td></tr>
 </tbody>
 </table>
 <p><code>fusionIcon</code> noemt een pictogram uit de pictogramset van Fusion (bijvoorbeeld <code>poll</code>, <code>sticker</code>, <code>calendar</code> of <code>image</code>; zie <code>webapp/fusion/src/fusion/components/icon</code>). Fusion toont dit in plaats van <code>icon</code>, zodat het item overeenkomt met de andere.</p>
@@ -269,11 +269,11 @@ func (p *Plugin) OnConfigurationChange() error {
 <p>Beheerders kunnen ze ook instellen in de configuratie, onder <code>PluginSettings.Plugins.&lt;app id&gt;</code>, met sleutels in kleine letters (zie <a href="{{root}}docs/admins/configuration.html#amctl">de beheerdersgids</a>).</p>
 
 <h2 id="translations">Vertalingen</h2>
-<p>Antimatter is vertaald in 37 talen, en ook de meegeleverde apps. Het webapp-deel doet dit als volgt:</p>
+<p>Antimatter is vertaald naar 37 talen, en de meegeleverde apps ook. Het webapp-deel doet dit als volgt:</p>
 <ol>
-<li>Schrijf elke tekenreeks met React Intl, met een ID en de Engelse tekst: <code>&lt;FormattedMessage id='polls.create' defaultMessage='Create a poll'/&gt;</code> of <code>defineMessages</code>. Voeg de ID's voor met de naam van uw app.</li>
+<li>Schrijf elke tekenreeks met React Intl, met een ID en de Engelse tekst: <code>&lt;FormattedMessage id='polls.create' defaultMessage='Create a poll'/&gt;</code> of <code>defineMessages</code>. Voeg de ID’s voor met de naam van uw app.</li>
 <li>Extraheer de Engelse tekenreeksen naar <code>webapp/i18n/en.json</code> (de meegeleverde apps gebruiken <code>formatjs extract</code>).</li>
-<li>Voeg er één bestand per taal toe, met dezelfde ID's: <code>fr.json</code>, <code>de.json</code>, <code>pt-BR.json</code>, <code>zh-CN.json</code>…</li>
+<li>Voeg er één bestand per taal toe, met dezelfde ID’s: <code>fr.json</code>, <code>de.json</code>, <code>pt-BR.json</code>, <code>zh-CN.json</code>…</li>
 <li>Geef ze door aan de webapp, die de taal van de gebruiker vraagt:
 <pre><code>import fr from '../i18n/fr.json';
 import ptBR from '../i18n/pt-BR.json';
@@ -289,13 +289,13 @@ registry.registerTranslations(translationsFor);</code></pre></li>
 <p>Een ontbrekende string valt terug op de Engelse <code>defaultMessage</code>. Voor strings die het servergedeelte verstuurt (antwoorden op opdrachten, botberichten), laadt het <code>pluginapi/i18n</code>-pakket de vertaalbestanden die in het bundle worden meegeleverd (bijvoorbeeld <code>assets/i18n</code>) en geeft een localizer in de taal van elke gebruiker.</p>
 
 <h2 id="build">Bouwen, installeren en debuggen</h2>
-<p>U heeft Go en Node.js nodig (de versie in het <code>.nvmrc</code> van de app). In de map van de app:</p>
+<p>U heeft Go en Node.js nodig (de versie in het <code>.nvmrc</code>-bestand van de app). In de map van de app:</p>
 <table>
 <thead><tr><th>Opdracht</th><th>Wat het doet</th></tr></thead>
 <tbody>
 <tr><td><code>make dist</code></td><td>Bouwt het servergedeelte voor elk platform en het webappgedeelte, en schrijft het bundle naar <code>dist/&lt;app id&gt;-&lt;version&gt;.tar.gz</code>.</td></tr>
 <tr><td><code>make test</code></td><td>Voert de Go- en JavaScript-tests uit.</td></tr>
-<tr><td><code>make check-style</code></td><td>Controleert de code (golangci-lint, ESLint) en de TypeScript-types.</td></tr>
+<tr><td><code>make check-style</code></td><td>Controleert de code (golangci-lint, ESLint) en controleert de TypeScript-types.</td></tr>
 <tr><td><code>make deploy</code></td><td>Bouwt, installeert en activeert het bundle op een server.</td></tr>
 <tr><td><code>make watch</code>, <code>make deploy-from-watch</code></td><td>De eerste bouwt het webappgedeelte elke keer dat u opslaat; de tweede bundelt wat het heeft gebouwd en installeert het op de server.</td></tr>
 <tr><td><code>make enable</code>, <code>make disable</code>, <code>make reset</code></td><td>Activeert, deactiveert of herstart de app op de server.</td></tr>
@@ -303,11 +303,11 @@ registry.registerTranslations(translationsFor);</code></pre></li>
 <tr><td><code>make attach</code></td><td>Koppelt de Delve-debugger aan het draaiende servergedeelte (bouw eerst met <code>AM_DEBUG=1</code>).</td></tr>
 </tbody>
 </table>
-<p><code>make deploy</code> en de andere serveropdrachten gebruiken een lokale modus socket als ze er een vinden (<code>/var/tmp/antimatter_local.socket</code>, of <code>AM_LOCALSOCKETPATH</code>): voer ze uit op de machine van de server met lokale modus aan. Anders melden ze zich aan bij de server die is opgegeven door <code>MM_SERVICESETTINGS_SITEURL</code> met <code>AM_ADMIN_TOKEN</code>, of <code>AM_ADMIN_USERNAME</code> en <code>AM_ADMIN_PASSWORD</code>. De bouwgereedschappen lezen nog geen <code>AM_</code>-naam voor de site-URL.</p>
+<p><code>make deploy</code> en de andere serveropdrachten gebruiken een lokale modus socket als ze er een vinden (<code>/var/tmp/antimatter_local.socket</code>, of <code>AM_LOCALSOCKETPATH</code>): voer ze uit op de machine van de server met lokale modus ingeschakeld. Anders melden ze zich aan bij de server die is opgegeven door <code>MM_SERVICESETTINGS_SITEURL</code> met <code>AM_ADMIN_TOKEN</code>, of <code>AM_ADMIN_USERNAME</code> en <code>AM_ADMIN_PASSWORD</code>. De bouwt hulpmiddelen lezen nog geen <code>AM_</code>-naam voor de site-URL.</p>
 <h3>Een bundle handmatig installeren</h3>
 <ul>
 <li>Een systeembeheerder staat uploads toe met <code>AM_PLUGINSETTINGS_ENABLEUPLOADS=true</code> (standaard uit; er is geen schakelaar in de Systeemconsole).</li>
 <li>Vervolgens <b>Systeemconsole › Plugins › Plugin Beheer › Plugin Uploaden</b>, of <code>amctl plugin add weather.tar.gz</code> gevolgd door <code>amctl plugin enable com.example.weather</code>.</li>
 <li>Als de server <b>Plugin-handtekening vereist</b> heeft ingeschakeld, accepteert het alleen bundles die zijn ondertekend met een sleutel waaraan het vertrouwen hecht; zie <a href="{{root}}docs/admins/apps.html#other-apps">Andere apps installeren</a>.</li>
 </ul>
-<div class="callout">Voor snelle iteraties op een ontwikkelserver, stel <code>AM_SERVICESETTINGS_ENABLEDEVELOPER=true</code> in op de server: fouten dragen dan hun details mee. De Makefiles van de gebundelde apps bouwen het servergedeelte alleen voor uw platform als <code>MM_SERVICESETTINGS_ENABLEDEVELOPER</code> is ingesteld in uw shell.</div>
+<div class="callout">Voor snelle iteraties op een ontwikkelserver, stel <code>AM_SERVICESETTINGS_ENABLEDEVELOPER=true</code> in op de server: fouten bevatten dan hun details. De Makefiles van de gebundelde apps bouwen het servergedeelte alleen voor uw platform als <code>MM_SERVICESETTINGS_ENABLEDEVELOPER</code> is ingesteld in uw shell.</div>

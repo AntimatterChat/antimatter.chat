@@ -77,19 +77,19 @@
 <p class="lead">需要备份的内容、如何在新主机上还原、如何升级，以及如何将 Mattermost 服务器或单个社区迁移至 Antimatter。</p>
 <h2 id="what">需要备份的内容</h2>
 <table>
-<thead><tr><th>内容</th><th>使用站点的 compose 文件时</th><th>使用发布包时</th></tr></thead>
+<thead><tr><th>内容</th><th>使用站点的 compose 文件</th><th>使用发布包</th></tr></thead>
 <tbody>
-<tr><td>数据库：消息、用户、社区、频道，以及使用站点的 compose 文件时的配置</td><td>卷 <code>antimatter_postgres</code>，通过 <code>pg_dump</code></td><td>您的 PostgreSQL 数据库</td></tr>
+<tr><td>数据库：消息、用户、社区、频道，以及使用站点 compose 文件时的配置</td><td>卷 <code>antimatter_postgres</code>，通过 <code>pg_dump</code></td><td>您的 PostgreSQL 数据库</td></tr>
 <tr><td>上传的文件、图片和已安装的应用</td><td>卷 <code>antimatter_files</code>（S3 存储）</td><td><code>FileSettings.Directory</code>，默认为 <code>./data/</code></td></tr>
 <tr><td>配置文件</td><td>（位于数据库中）</td><td><code>config/config.json</code></td></tr>
 <tr><td>GIF 和贴纸</td><td>卷 <code>antimatter_gifs</code></td><td>GIF 服务的数据目录</td></tr>
 <tr><td>密钥</td><td><code>.env</code>（以及 <code>compose.override.yaml</code>）</td><td>您的环境文件</td></tr>
 </tbody>
 </table>
-<p>数据库和文件是关联的：请同时备份它们，并将副本保存在服务器之外。卷名称以 compose 项目名称 <code>antimatter</code> 开头（<code>docker volume ls</code> 可列出它们）。</p>
+<p>数据库和文件是配套的：请同时备份它们，并将副本保存在服务器之外。卷名称以 compose 项目名称 <code>antimatter</code> 开头（<code>docker volume ls</code> 可列出它们）。</p>
 
 <h2 id="backup">备份</h2>
-<p>在 <code>compose.yaml</code> 所在的目录中运行。先停止 Antimatter 可获得完全一致的副本；在运行期间进行的备份通常也没问题，但备份期间上传的文件可能会缺失。</p>
+<p>在 <code>compose.yaml</code> 所在的目录中运行。先停止 Antimatter 可获得完全一致的副本；在运行期间进行备份通常也没问题，但备份期间上传的文件可能会缺失。</p>
 <pre><code>stamp=$(date +%Y%m%d-%H%M%S)
 mkdir -p backups
 docker compose stop antimatter
@@ -104,11 +104,11 @@ done
 docker compose start antimatter
 # Secrets
 cp .env "backups/env-$stamp"</code></pre>
-<p>通过 cron 运行以实现每日备份，并将 <code>backups/</code> 目录复制到另一台机器。请像保护服务器一样妥善保管 <code>.env</code> 的副本，因为它们包含服务器的密码。</p>
+<p>通过 cron 运行以实现每日备份，并将 <code>backups/</code> 目录复制到另一台机器。请像保护服务器一样妥善保管 <code>.env</code> 的副本：其中包含其密码。</p>
 <p>若要逐个对象复制上传的文件（例如复制到另一个 S3 存储），请使用 <code>bucket</code> 服务的 AWS 命令行工具：</p>
 <pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
     "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
-<p>使用发布包时，使用 <code>pg_dump -Fc</code> 备份数据库，并使用常用工具备份 <code>data/</code> 和 <code>config/</code> 目录。</p>
+<p>使用发布包时，用 <code>pg_dump -Fc</code> 备份数据库，并用常用工具备份 <code>data/</code> 和 <code>config/</code> 目录。</p>
 
 <h2 id="restore">在新主机上还原</h2>
 <p>将 <code>compose.yaml</code>、保存的 <code>.env</code> 和备份文件放入一个新目录，然后：</p>
@@ -122,8 +122,8 @@ for v in files gifs; do
         alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
 done
 docker compose up -d</code></pre>
-<p>使用相同的 <code>.env</code>：存储和数据库必须保留原有的密码。如果新主机具有不同的地址，请更新 <code>SITE_URL</code>（以及 <code>DOMAIN</code>）。</p>
-<p>时不时地在另一台机器上还原备份以测试其有效性。</p>
+<p>使用相同的 <code>.env</code>：存储和数据库必须保留原有的密码。如果新主机地址不同，请更新 <code>SITE_URL</code>（以及 <code>DOMAIN</code>）。</p>
+<p>时不时地在另一台机器上还原备份，以测试备份的有效性。</p>
 
 <h2 id="upgrade">升级</h2>
 <ol>
@@ -134,29 +134,29 @@ docker compose up -d</code></pre>
 docker compose up -d
 docker compose logs -f antimatter</code></pre></li>
 </ol>
-<p>启动时，服务器会升级数据库架构（可在日志中查看进度；大型服务器可能需要几分钟），并从镜像中安装捆绑应用的新版本。如果使用发布存档：请停止服务器，将除 <code>config/</code>、<code>data/</code>、<code>logs/</code>、<code>plugins/</code> 和 <code>client/plugins/</code> 以外的所有内容替换为新存档的内容，然后重新启动。</p>
-<div class="callout warn">升级只能向前进行。一旦较新的服务器升级了数据库，旧版本就无法再使用它：若要回退，请恢复升级前创建的备份。从 <code>antimatter-next</code> 回退到 <code>antimatter</code> 的情况也是如此。</div>
+<p>启动时，服务器会升级数据库架构（可在日志中跟踪进度；大型服务器可能需要几分钟），并从镜像中安装捆绑应用的更新版本。如果使用发布归档：请停止服务器，用新归档的内容替换除 <code>config/</code>、<code>data/</code>、<code>logs/</code>、<code>plugins/</code> 和 <code>client/plugins/</code> 之外的所有内容，然后重新启动。</p>
+<div class="callout warn">升级只能向前进行。一旦较新的服务器升级了数据库，旧版本就无法使用它：若要回退，请恢复升级前创建的备份。从 <code>antimatter-next</code> 回退到 <code>antimatter</code> 的情况也是如此。</div>
 <h3>版本</h3>
-<p>Antimatter 服务器会报告其基于的 Mattermost 版本（当前为 12.0.0）。镜像从 <code>main</code> 分支重建：<code>antimatter-next</code> 每晚重建（标签为 <code>nightly-&lt;YYYYMMDD&gt;</code>），两个镜像则在每次变更时重建（标签为 <code>sha-&lt;commit&gt;</code>）。请固定使用其中一个标签，有意进行升级，并记录之前的标签，以便知道哪个备份与之对应。</p>
+<p>Antimatter 服务器会报告其基于的 Mattermost 版本（当前为 12.0.0）。镜像从 <code>main</code> 分支重新构建：<code>antimatter-next</code> 每晚构建一次（标签为 <code>nightly-&lt;YYYYMMDD&gt;</code>），两个镜像则在每次更改时构建（标签为 <code>sha-&lt;commit&gt;</code>）。请固定使用其中一个标签，有意进行升级，并记录之前的标签，以便知道哪个备份与之对应。</p>
 <h3>PostgreSQL 主要版本</h3>
-<p>compose 文件使用 <code>postgres:17-alpine</code>。Antimatter 需要 PostgreSQL 15 或更高版本。PostgreSQL 的新主要版本无法读取旧版本的数据目录：若要迁移，请导出数据库，在新卷上启动新版本，并将导出文件恢复到其中。</p>
+<p>compose 文件使用 <code>postgres:17-alpine</code>。Antimatter 需要 PostgreSQL 15 或更高版本。PostgreSQL 的新主要版本无法读取旧版本的数据目录：若要迁移，请转储数据库，在新卷上启动新版本，并将转储内容恢复到其中。</p>
 
 <h2 id="mattermost">从 Mattermost 迁移</h2>
-<p>Antimatter 使用 Mattermost 的数据库架构并添加自己的表，因此可以接管 Mattermost 服务器的 PostgreSQL 数据库和文件。请先在副本上尝试：</p>
+<p>Antimatter 使用 Mattermost 的数据库架构并添加了自身的表，因此可以接管 Mattermost 服务器的 PostgreSQL 数据库和文件。请先在副本上尝试：</p>
 <ol>
 <li>备份 Mattermost 数据库、其文件存储（<code>data/</code> 或 S3 存储桶）以及 <code>config.json</code>，然后停止 Mattermost。</li>
 <li>将数据库恢复到 Antimatter 的 PostgreSQL 中，或将 Antimatter 指向其副本（<code>AM_SQLSETTINGS_DATASOURCE</code>）。</li>
-<li>将文件复制到 Antimatter 的存储中，保持其路径不变：使用 S3 工具复制到 <code>antimatter</code> 存储桶，或使用发布存档复制到 <code>data/</code>。</li>
-<li>重用您的设置：复制 <code>config.json</code>，或使用 <code>amctl --local config migrate</code> 将其迁移到数据库中（参见 <a href="../../../zh-cn/docs/admins/configuration.html">配置</a>）。您的 <code>MM_</code> 环境变量继续有效；方便时可将其重命名为 <code>AM_</code>。</li>
-<li>启动 Antimatter，并跟踪日志以查看数据库升级过程。然后检查 <b>系统控制台 › 插件 › 插件管理</b>。当通话、操作手册、看板（Boards）、智能体以及集成的版本比已安装版本更新时，Antimatter 会安装其自身的构建版本。如果 Mattermost 拥有其中某个应用的更新版本，请删除该应用并重启 Antimatter，以便安装 Antimatter 自身的构建版本。</li>
-<li>使用您自己的推送代理重新设置推送通知：Antimatter 从不向 Mattermost 的推送服务（无论是测试版还是托管版）发送通知，因为这些服务仅用于向 Mattermost 自身的客户端发送通知。在更改 <b>推送通知服务器</b> 之前，服务器不会发送任何推送通知（参见 <a href="../../../zh-cn/docs/admins/email-push.html#push">推送通知</a>）。</li>
+<li>将文件复制到 Antimatter 的存储中，保持其路径不变：使用 S3 工具复制到 <code>antimatter</code> 存储桶，或使用发布归档复制到 <code>data/</code>。</li>
+<li>重用您的设置：复制 <code>config.json</code>，或使用 <code>amctl --local config migrate</code> 将其迁移到数据库中（参见 <a href="../../../zh-cn/docs/admins/configuration.html">配置</a>）。您的 <code>MM_</code> 环境变量将继续有效；方便时可将其重命名为 <code>AM_</code>。</li>
+<li>启动 Antimatter，并跟踪日志以查看数据库升级过程。然后检查 <b>系统控制台 › 插件 › 插件管理</b>。当通话、操作手册、看板（Boards）、智能体及集成的版本比已安装版本更新时，Antimatter 会安装其自带的构建版本。如果 Mattermost 拥有其中某个应用的更新版本，请删除该应用并重启 Antimatter，以便安装 Antimatter 自带的构建版本。</li>
+<li>使用您自己的推送代理重新设置推送通知：Antimatter 从不向 Mattermost 的推送服务（无论是测试环境还是托管环境）发送通知，因为这些服务仅向 Mattermost 自己的应用投递通知。在您更改 <b>推送通知服务器</b> 之前，服务器不会发送任何推送通知（参见 <a href="../../../zh-cn/docs/admins/email-push.html#push">推送通知</a>）。</li>
 </ol>
-<p>Antimatter 不会联系由 Mattermost, Inc. 运行的任何服务（参见 <a href="../../../zh-cn/docs/admins/security.html#outbound">对外部服务的连接</a>），即使您的配置中仍然指定了这些服务：</p>
+<p>Antimatter 不会联系由 Mattermost, Inc. 运行的任何服务（参见 <a href="../../../zh-cn/docs/admins/security.html#outbound">与外部服务的连接</a>），即使您的配置中仍然指定了这些服务：</p>
 <ul>
-<li>Mattermost 的推送通知服务器保留在设置中，但永远不会被使用；</li>
+<li>Mattermost 的推送通知服务器保留在设置中，但从未被使用；</li>
 <li>Mattermost 的应用市场（<b>市场 URL</b>）和产品通知地址已被清空；</li>
-<li>通话应用使用 Cloudflare 的公共 STUN 服务器，而不是 Mattermost 的，且不会更改已保存的设置（参见 <a href="../../../zh-cn/docs/admins/calls.html#network">通话</a>）；</li>
-<li>安全更新检查和崩溃报告功能已移除，相关的系统控制台设置（<b>启用安全警报</b>、<b>启用诊断和错误报告</b>）以及 <b>通知</b> 页面也随之消失。</li>
+<li>通话应用使用 Cloudflare 的公共 STUN 服务器，而不是 Mattermost 的服务器，且不会更改已保存的设置（参见 <a href="../../../zh-cn/docs/admins/calls.html#network">通话</a>）；</li>
+<li>安全更新检查和崩溃报告已被移除，相关的系统控制台设置（<b>启用安全警报</b>、<b>启用诊断和错误报告</b>）以及 <b>通知</b> 页面也随之消失。</li>
 </ul>
 <p>本地模式套接字现在是 <code>/var/tmp/antimatter_local.socket</code>；<code>amctl</code> 也会尝试旧的 <code>/var/tmp/mattermost_local.socket</code>。Mattermost 的近期版本仅支持 PostgreSQL，Antimatter 也是如此：请先将 MySQL 数据库迁移到 PostgreSQL。在 Antimatter 升级数据库后返回 Mattermost，意味着需要恢复您的 Mattermost 备份。</p>
 
@@ -170,8 +170,8 @@ amctl export download &lt;export file&gt; design.zip
 amctl import upload design.zip
 amctl import list available
 amctl import process &lt;uploaded file&gt; --imported-users active</code></pre>
-<p>使用 <code>amctl export job list</code> 和 <code>amctl import job list</code> 查看任务。对于社区或频道导出，必须指定 <code>--imported-users</code>：当用户迁移到该服务器时，使用 <code>active</code>；当导入到用户已有账户的服务器时，使用 <code>inactive</code>，这样从不确定匹配中创建的账户将保持停用状态，直到管理员核实。使用 <code>--destination-team-name</code> 可导入到现有的团队。导出和导入文件默认在服务器存储（<code>ExportSettings.Directory</code>、<code>ImportSettings.Directory</code>）中保留 30 天。</p>
-<p>在服务器本身，<code>antimatter export bulk</code> 和 <code>antimatter import bulk --apply</code> 可以从文件执行相同操作，无需通过 API。</p>
+<p>使用 <code>amctl export job list</code> 和 <code>amctl import job list</code> 查看任务。对于社区或频道导出，必须指定 <code>--imported-users</code>：当用户迁移到该服务器时使用 <code>active</code>；当导入到用户已有账户的服务器时使用 <code>inactive</code>，这样从不确定匹配中创建的账户将保持停用，直到管理员确认。使用 <code>--destination-team-name</code> 可导入到现有团队。导出和导入文件默认在服务器存储（<code>ExportSettings.Directory</code>、<code>ImportSettings.Directory</code>）中保留 30 天。</p>
+<p>在服务器本身，<code>antimatter export bulk</code> 和 <code>antimatter import bulk --apply</code> 可从文件执行相同操作，无需通过 API。</p>
 <nav class="pager"><a class="prev" href="../../docs/admins/authentication.html"><small>上一页</small>登录与账户</a><a class="next" href="../../docs/admins/operations.html"><small>下一页</small>运维</a></nav>
 </article>
 </div>

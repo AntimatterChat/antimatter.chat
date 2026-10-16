@@ -1,26 +1,26 @@
 title: Backups und Upgrades
-description: Sichern und wiederherstellen eines Antimatter-Servers (Datenbank, Dateispeicher, Konfiguration), ihn sicher aktualisieren, einen Mattermost-Server zu Antimatter migrieren und Daten exportieren oder importieren.
+description: Sichern und wiederherstellen eines Antimatter-Servers (Datenbank, Dateispeicher, Konfiguration), ihn sicher aktualisieren, einen Mattermost-Server zu Antimatter migrieren sowie Daten exportieren oder importieren.
 guide: admins
 order: 10
 nav: Backups und Upgrades
-lead: Was gesichert werden muss, wie man es auf einem neuen Host wiederherstellt, wie man aktualisiert und wie man einen Mattermost-Server oder eine einzelne Community zu Antimatter migriert.
+lead: Was gesichert werden muss, wie die Wiederherstellung auf einem neuen Host erfolgt, wie das Upgrade abläuft und wie ein Mattermost-Server oder eine einzelne Community zu Antimatter migriert wird.
 source: b0797af8b6e7
 ---
 <h2 id="what">Was gesichert werden muss</h2>
 <table>
 <thead><tr><th>Was</th><th>Mit der Compose-Datei der Site</th><th>Mit einem Release-Archiv</th></tr></thead>
 <tbody>
-<tr><td>Die Datenbank: Nachrichten, Benutzer, Communities, Kanäle und, mit der Compose-Datei der Site, die Konfiguration</td><td>Volume <code>antimatter_postgres</code>, über <code>pg_dump</code></td><td>Ihre PostgreSQL-Datenbank</td></tr>
+<tr><td>Die Datenbank: Nachrichten, Benutzer, Communities, Kanäle und – mit der Compose-Datei der Site – die Konfiguration</td><td>Volume <code>antimatter_postgres</code>, über <code>pg_dump</code></td><td>Ihre PostgreSQL-Datenbank</td></tr>
 <tr><td>Hochgeladene Dateien, Bilder und installierte Apps</td><td>Volume <code>antimatter_files</code> (der S3-Speicher)</td><td><code>FileSettings.Directory</code>, standardmäßig <code>./data/</code></td></tr>
 <tr><td>Die Konfigurationsdatei</td><td>(in der Datenbank)</td><td><code>config/config.json</code></td></tr>
-<tr><td>GIFs und Sticker</td><td>Volume <code>antimatter_gifs</code></td><td>Das Verzeichnis für die Daten des GIF-Dienstes</td></tr>
+<tr><td>GIFs und Sticker</td><td>Volume <code>antimatter_gifs</code></td><td>Das Dataverzeichnis des GIF-Dienstes</td></tr>
 <tr><td>Geheimnisse</td><td><code>.env</code> (und <code>compose.override.yaml</code>)</td><td>Ihre Umgebungsdatei</td></tr>
 </tbody>
 </table>
 <p>Die Datenbank und die Dateien gehören zusammen: Sichern Sie sie gleichzeitig und bewahren Sie Kopien außerhalb des Servers auf. Die Volumennamen beginnen mit dem Compose-Projektnamen <code>antimatter</code> (<code>docker volume ls</code> listet sie auf).</p>
 
 <h2 id="backup">Sichern</h2>
-<p>Führen Sie dies aus dem Verzeichnis von <code>compose.yaml</code> aus. Wenn Sie Antimatter vorher stoppen, erhalten Sie eine vollständig konsistente Kopie; ein Backup, das während des Betriebs erstellt wird, ist in der Regel in Ordnung, aber Dateien, die während des Backups hochgeladen werden, fehlen möglicherweise darin.</p>
+<p>Führen Sie dies aus dem Verzeichnis von <code>compose.yaml</code> aus. Wenn Sie Antimatter vorher stoppen, erhalten Sie eine vollständig konsistente Kopie; eine Sicherung während des Betriebs ist in der Regel in Ordnung, aber während der Sicherung hochgeladene Dateien können darin fehlen.</p>
 <pre><code>stamp=$(date +%Y%m%d-%H%M%S)
 mkdir -p backups
 docker compose stop antimatter
@@ -35,14 +35,14 @@ done
 docker compose start antimatter
 # Secrets
 cp .env "backups/env-$stamp"</code></pre>
-<p>Führen Sie es über cron für tägliche Backups aus und kopieren Sie das Verzeichnis <code>backups/</code> auf einen anderen Rechner. Bewahren Sie die Kopien von <code>.env</code> so sicher auf wie den Server: Sie enthalten dessen Passwörter.</p>
+<p>Führen Sie dies über cron für tägliche Sicherungen aus und kopieren Sie das Verzeichnis <code>backups/</code> auf einen anderen Rechner. Bewahren Sie die Kopien von <code>.env</code> so sicher auf wie den Server: Sie enthalten dessen Passwörter.</p>
 <p>Um die hochgeladenen Dateien stattdessen Objekt für Objekt zu kopieren (z. B. in einen anderen S3-Speicher), verwenden Sie das AWS-Befehlszeilenwerkzeug des <code>bucket</code>-Dienstes:</p>
 <pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
     "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
 <p>Mit einem Release-Archiv sichern Sie die Datenbank mit <code>pg_dump -Fc</code> und die Verzeichnisse <code>data/</code> und <code>config/</code> mit Ihren üblichen Werkzeugen.</p>
 
-<h2 id="restore">Wiederherstellen auf einem neuen Host</h2>
-<p>Legen Sie <code>compose.yaml</code>, die gespeicherte <code>.env</code> und die Backups in einem neuen Verzeichnis ab, dann:</p>
+<h2 id="restore">Wiederherstellung auf einem neuen Host</h2>
+<p>Legen Sie <code>compose.yaml</code>, die gespeicherte <code>.env</code>-Datei und die Sicherungen in einem neuen Verzeichnis ab, dann:</p>
 <pre><code>stamp=20261016-030000          # the backup to restore
 docker compose create           # creates the volumes, starts nothing
 docker compose up -d postgres
@@ -53,43 +53,43 @@ for v in files gifs; do
         alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
 done
 docker compose up -d</code></pre>
-<p>Verwenden Sie dieselbe <code>.env</code>: Der Speicher und die Datenbank müssen die Passwörter beibehalten, die sie hatten. Wenn der neue Host eine andere Adresse hat, aktualisieren Sie <code>SITE_URL</code> (und <code>DOMAIN</code>).</p>
-<p>Testen Sie Ihre Backups, indem Sie sie von Zeit zu Zeit auf einem anderen Rechner wiederherstellen.</p>
+<p>Verwenden Sie dieselbe <code>.env</code>-Datei: Der Speicher und die Datenbank müssen die Passwörter beibehalten, die sie hatten. Wenn der neue Host eine andere Adresse hat, aktualisieren Sie <code>SITE_URL</code> (und <code>DOMAIN</code>).</p>
+<p>Testen Sie Ihre Sicherungen, indem Sie sie von Zeit zu Zeit auf einem anderen Rechner wiederherstellen.</p>
 
-<h2 id="upgrade">Aktualisieren</h2>
+<h2 id="upgrade">Upgrade</h2>
 <ol>
-<li>Erstellen Sie ein Backup.</li>
+<li>Erstellen Sie eine Sicherung.</li>
 <li>Ändern Sie das Image-Tag in <code>.env</code> (<code>ANTIMATTER_IMAGE</code>), falls Sie eines festlegen, wie empfohlen.</li>
-<li>Ziehen Sie es herunter und starten Sie neu:
+<li>Ziehen Sie es ab und starten Sie neu:
 <pre><code>docker compose pull
 docker compose up -d
 docker compose logs -f antimatter</code></pre></li>
 </ol>
-<p>Beim Start aktualisiert der Server das Datenbank-Schema (verfolgen Sie den Fortschritt im Protokoll; bei großen Servern kann dies mehrere Minuten dauern) und installiert die neueren Versionen der mitgelieferten Apps aus dem Image. Bei einem Release-Archiv: Server stoppen, alles außer <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> und <code>client/plugins/</code> durch den Inhalt des neuen Archivs ersetzen und den Server erneut starten.</p>
-<div class="callout warn">Upgrades sind nur in eine Richtung möglich. Sobald ein neuerer Server die Datenbank aktualisiert hat, kann eine ältere Version sie nicht mehr verwenden: Um zurückzugehen, müssen Sie das vor dem Upgrade erstellte Backup wiederherstellen. Dasselbe gilt für den Wechsel von <code>antimatter-next</code> zurück zu <code>antimatter</code>.</div>
+<p>Beim Start aktualisiert der Server das Datenbank-Schema (dieser Vorgang wird im Protokoll protokolliert; bei großen Servern kann er mehrere Minuten dauern) und installiert die neueren Versionen der mitgelieferten Apps aus dem Image. Bei einem Release-Archiv: Server stoppen, alles außer <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> und <code>client/plugins/</code> durch den Inhalt des neuen Archivs ersetzen und den Server erneut starten.</p>
+<div class="callout warn">Upgrades sind nur in eine Richtung möglich. Sobald ein neuerer Server die Datenbank aktualisiert hat, kann eine ältere Version sie nicht mehr verwenden: Um zurückzugehen, muss das vor dem Upgrade erstellte Backup wiederhergestellt werden. Dasselbe gilt für den Wechsel von <code>antimatter-next</code> zurück zu <code>antimatter</code>.</div>
 <h3>Versionen</h3>
-<p>Der Antimatter-Server meldet die Version der Mattermost-Zeile, auf der er basiert (derzeit 12.0.0). Die Images werden aus den <code>main</code>-Branches neu gebaut: <code>antimatter-next</code> jede Nacht (Tags <code>nightly-&lt;YYYYMMDD&gt;</code>) und beide Images bei jeder Änderung (Tags <code>sha-&lt;commit&gt;</code>). Verwenden Sie einen dieser Tags, führen Sie Upgrades bewusst durch und notieren Sie sich den vorherigen Tag, damit Sie wissen, welches Backup dazu gehört.</p>
+<p>Der Antimatter-Server meldet die Version der Mattermost-Zeile, auf der er basiert (derzeit 12.0.0). Die Images werden aus den <code>main</code>-Branches neu gebaut: <code>antimatter-next</code> jede Nacht (Tags <code>nightly-&lt;YYYYMMDD&gt;</code>) und beide Images bei jeder Änderung (Tags <code>sha-&lt;commit&gt;</code>). Verwenden Sie einen dieser Tags, führen Sie Upgrades bewusst durch und notieren Sie sich den vorherigen Tag, damit Sie wissen, welches Backup dazu passt.</p>
 <h3>PostgreSQL-Hauptversionen</h3>
-<p>Die Compose-Datei verwendet <code>postgres:17-alpine</code>. Antimatter benötigt PostgreSQL 15 oder neuer. Eine neue Hauptversion von PostgreSQL kann das Datenverzeichnis der vorherigen Version nicht lesen: Um zu wechseln, erstellen Sie ein Datenbank-Dump, starten Sie die neue Version auf einem neuen Volume und stellen Sie das Dump darin wieder her.</p>
+<p>Die Compose-Datei verwendet <code>postgres:17-alpine</code>. Antimatter benötigt PostgreSQL 15 oder neuer. Eine neue Hauptversion von PostgreSQL kann das Datenverzeichnis der vorherigen Version nicht lesen: Um zu wechseln, müssen Sie die Datenbank dumpen, die neue Version auf einem neuen Volume starten und den Dump darin wiederherstellen.</p>
 
 <h2 id="mattermost">Umzug von Mattermost</h2>
 <p>Antimatter verwendet das Datenbank-Schema von Mattermost und fügt eigene Tabellen hinzu, sodass es die PostgreSQL-Datenbank und Dateien eines Mattermost-Servers übernehmen kann. Testen Sie dies zunächst an einer Kopie:</p>
 <ol>
 <li>Sichern Sie die Mattermost-Datenbank, ihren Dateispeicher (<code>data/</code> oder S3-Bucket) und <code>config.json</code>, und stoppen Sie dann Mattermost.</li>
 <li>Stellen Sie die Datenbank in der PostgreSQL-Instanz von Antimatter wieder her oder verweisen Sie Antimatter auf eine Kopie davon (<code>AM_SQLSETTINGS_DATASOURCE</code>).</li>
-<li>Kopieren Sie die Dateien in den Speicher von Antimatter, wobei Sie ihre Pfade beibehalten: mit einem S3-Tool in den <code>antimatter</code>-Bucket oder mit einem Release-Archiv in <code>data/</code>.</li>
+<li>Kopieren Sie die Dateien in den Speicher von Antimatter, wobei ihre Pfade beibehalten werden: mit einem S3-Tool in den <code>antimatter</code>-Bucket oder mit einem Release-Archiv in <code>data/</code>.</li>
 <li>Wiederverwenden Sie Ihre Einstellungen: Kopieren Sie <code>config.json</code> oder verschieben Sie es in die Datenbank mit <code>amctl --local config migrate</code> (siehe <a href="{{root}}docs/admins/configuration.html">Konfiguration</a>). Ihre <code>MM_</code>-Umgebungsvariablen funktionieren weiterhin; benennen Sie sie bei Gelegenheit in <code>AM_</code> um.</li>
 <li>Starten Sie Antimatter und beobachten Sie das Protokoll, während die Datenbank aktualisiert wird. Prüfen Sie anschließend <b>Systemkonsole › Plugins › Plugin-Verwaltung</b>. Antimatter installiert eigene Versionen von Calls, Playbooks, Kanban (Boards), Agents und Integrationen, wenn diese neuer sind als die installierte Version. Falls Mattermost eine neuere Version einer dieser Apps hatte, entfernen Sie diese App und starten Sie Antimatter neu, damit die eigene Version installiert wird.</li>
-<li>Richten Sie Push-Benachrichtigungen erneut mit Ihrem eigenen Push-Proxy ein: Antimatter sendet niemals Benachrichtigungen an die Push-Dienste von Mattermost, weder Test- noch gehostete, da diese nur an die eigenen Apps von Mattermost zugestellt werden. Solange Sie <b>Push-Benachrichtigungs-Server</b> nicht ändern, sendet der Server keine Push-Benachrichtigungen (siehe <a href="{{root}}docs/admins/email-push.html#push">Push-Benachrichtigungen</a>).</li>
+<li>Richten Sie Push-Benachrichtigungen erneut mit Ihrem eigenen Push-Proxy ein: Antimatter sendet keine Benachrichtigungen an die Push-Dienste von Mattermost (weder Test- noch gehostete), da diese nur an die eigenen Apps von Mattermost zugestellt werden. Solange Sie <b>Push-Benachrichtigungs-Server</b> nicht ändern, sendet der Server keine Push-Benachrichtigungen (siehe <a href="{{root}}docs/admins/email-push.html#push">Push-Benachrichtigungen</a>).</li>
 </ol>
 <p>Antimatter kontaktiert keinen von Mattermost, Inc. betriebenen Dienst (siehe <a href="{{root}}docs/admins/security.html#outbound">Verbindungen zu externen Diensten</a>), selbst wenn Ihre Konfiguration noch einen solchen angibt:</p>
 <ul>
 <li>ein Push-Benachrichtigungs-Server bei Mattermost wird in den Einstellungen beibehalten, aber nie verwendet;</li>
 <li>die Adressen von Mattermost für den App-Marktplatz (<b>Marktplatz-URL</b>) und für Produktankündigungen werden geleert;</li>
 <li>die Calls-App verwendet den öffentlichen STUN-Server von Cloudflare anstelle des von Mattermost, ohne die gespeicherte Einstellung zu ändern (siehe <a href="{{root}}docs/admins/calls.html#network">Calls</a>);</li>
-<li>die Sicherheitsaktualisierungsprüfung und das Crash-Reporting sind entfernt, ebenso deren Einstellungen in der Systemkonsole (<b>Sicherheitswarnungen aktivieren</b>, <b>Diagnose- und Fehlerberichte aktivieren</b>) und die Seite <b>Ankündigungen</b>.</li>
+<li>die Sicherheitsaktualisierungsprüfung und die Crash-Meldung sind entfernt, ebenso wie deren Einstellungen in der Systemkonsole (<b>Sicherheitswarnungen aktivieren</b>, <b>Diagnose- und Fehlerberichte aktivieren</b>) und die Seite <b>Ankündigungen</b>.</li>
 </ul>
-<p>Der Socket für den lokalen Modus ist jetzt <code>/var/tmp/antimatter_local.socket</code>; <code>amctl</code> versucht auch den alten <code>/var/tmp/mattermost_local.socket</code>. Mattermost unterstützt in seinen aktuellen Versionen nur noch PostgreSQL, und das tut Antimatter auch: Verschieben Sie eine MySQL-Datenbank zuerst nach PostgreSQL. Wenn Sie nach einer Datenbankaktualisierung durch Antimatter zu Mattermost zurückkehren, müssen Sie Ihr Mattermost-Backup wiederherstellen.</p>
+<p>Der Socket für den lokalen Modus ist nun <code>/var/tmp/antimatter_local.socket</code>; <code>amctl</code> versucht auch den alten <code>/var/tmp/mattermost_local.socket</code>. Mattermost unterstützt in seinen neueren Versionen nur noch PostgreSQL, und dies gilt auch für Antimatter: Verschieben Sie eine MySQL-Datenbank zunächst nach PostgreSQL. Wenn Sie nach der Datenbankaktualisierung durch Antimatter zu Mattermost zurückkehren, müssen Sie Ihr Mattermost-Backup wiederherstellen.</p>
 
 <h2 id="export-import">Daten exportieren und importieren</h2>
 <p>Das Format für Massenexporte verschiebt Daten zwischen Servern: den gesamten Server, bestimmte Communities oder bestimmte Kanäle, einschließlich Anhänge, Profilbilder und benutzerdefinierter Emojis, wenn gewünscht.</p>
@@ -101,5 +101,5 @@ amctl export download &lt;export file&gt; design.zip
 amctl import upload design.zip
 amctl import list available
 amctl import process &lt;uploaded file&gt; --imported-users active</code></pre>
-<p>Beobachten Sie die Jobs mit <code>amctl export job list</code> und <code>amctl import job list</code>. Für einen Community- oder Kanalexport ist <code>--imported-users</code> erforderlich: <code>active</code>, wenn die Personen auf diesen Server wechseln, und <code>inactive</code>, wenn in einen Server importiert wird, in dem sie bereits Konten haben, damit Konten aus unsicheren Zuordnungen deaktiviert bleiben, bis ein Administrator sie überprüft. <code>--destination-team-name</code> importiert in eine bestehende Community. Exporte und Importe werden standardmäßig 30 Tage im Speicher des Servers (<code>ExportSettings.Directory</code>, <code>ImportSettings.Directory</code>) aufbewahrt.</p>
-<p>Auf dem Server selbst führen <code>antimatter export bulk</code> und <code>antimatter import bulk --apply</code> dieselben Vorgänge aus Dateien aus, ohne die API.</p>
+<p>Beobachten Sie die Jobs mit <code>amctl export job list</code> und <code>amctl import job list</code>. Für einen Export von Communities oder Kanälen ist <code>--imported-users</code> erforderlich: <code>active</code>, wenn die Personen auf diesen Server wechseln, <code>inactive</code>, wenn in einen Server importiert wird, in dem sie bereits Konten haben, damit Konten aus unsicheren Übereinstimmungen deaktiviert bleiben, bis ein Administrator sie überprüft. <code>--destination-team-name</code> importiert in eine bestehende Community. Exporte und Importe werden standardmäßig 30 Tage im Speicher des Servers (<code>ExportSettings.Directory</code>, <code>ImportSettings.Directory</code>) aufbewahrt.</p>
+<p>Auf dem Server selbst erledigen <code>antimatter export bulk</code> und <code>antimatter import bulk --apply</code> dasselbe aus Dateien, ohne die API.</p>

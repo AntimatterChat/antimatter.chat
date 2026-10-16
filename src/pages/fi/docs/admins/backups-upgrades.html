@@ -10,17 +10,17 @@ source: b0797af8b6e7
 <table>
 <thead><tr><th>Mikä</th><th>Sivuston compose-tiedostolla</th><th>Julkaisupaketilla</th></tr></thead>
 <tbody>
-<tr><td>Tietokanta: viestit, käyttäjät, yhteisöt, kanavat ja, sivuston compose-tiedostolla, asetukset</td><td>volume <code>antimatter_postgres</code>, <code>pg_dump</code>:n avulla</td><td>PostgreSQL-tietokanta</td></tr>
-<tr><td>Lähetetyt tiedostot, kuvat ja asennetut sovellukset</td><td>volume <code>antimatter_files</code> (S3-varasto)</td><td><code>FileSettings.Directory</code>, oletuksena <code>./data/</code></td></tr>
+<tr><td>Tietokanta: viestit, käyttäjät, yhteisöt, kanavat ja, sivuston compose-tiedostolla, asetukset</td><td>volyymi <code>antimatter_postgres</code>, <code>pg_dump</code>:n avulla</td><td>PostgreSQL-tietokantasi</td></tr>
+<tr><td>Lähetetyt tiedostot, kuvat ja asennetut sovellukset</td><td>volyymi <code>antimatter_files</code> (S3-varasto)</td><td><code>FileSettings.Directory</code>, oletuksena <code>./data/</code></td></tr>
 <tr><td>Asetustiedosto</td><td>(tietokannassa)</td><td><code>config/config.json</code></td></tr>
-<tr><td>GIFit ja tarrat</td><td>volume <code>antimatter_gifs</code></td><td>GIF-palvelun datakansio</td></tr>
-<tr><td>Salaisuudet</td><td><code>.env</code> (ja <code>compose.override.yaml</code>)</td><td>ympäristötiedosto</td></tr>
+<tr><td>GIFit ja tarrat</td><td>volyymi <code>antimatter_gifs</code></td><td>GIF-palvelun datakansio</td></tr>
+<tr><td>Salaisuudet</td><td><code>.env</code> (ja <code>compose.override.yaml</code>)</td><td>ympäristötiedostosi</td></tr>
 </tbody>
 </table>
-<p>Tietokanta ja tiedostot kuuluvat yhteen: varmuuskopioi ne samanaikaisesti ja säilytä kopiot palvelimen ulkopuolella. Volume-nimet alkavat compose-projektin nimellä <code>antimatter</code> (<code>docker volume ls</code> listaa ne).</p>
+<p>Tietokanta ja tiedostot kuuluvat yhteen: varmuuskopioi ne samanaikaisesti ja säilytä kopiot palvelimen ulkopuolella. Volyymien nimet alkavat compose-projektin nimellä <code>antimatter</code> (<code>docker volume ls</code> listaa ne).</p>
 
 <h2 id="backup">Varmuuskopioi</h2>
-<p>Suorita <code>compose.yaml</code>:n kansioista. Antimatterin pysäyttäminen ensin antaa täysin yhdenmukaisen kopion; varmuuskopio, joka otetaan ajon aikana, on yleensä kelvollinen, mutta varmuuskopion aikana lähetetyt tiedostot voivat puuttua siitä.</p>
+<p><code>compose.yaml</code>:n kansio. Antimatterin pysäyttäminen ensin antaa täysin yhdenmukaisen kopion; varmuuskopio, joka otetaan, kun palvelin on käynnissä, on yleensä kunnossa, mutta varmuuskopiointiaikana lähetetyt tiedostot voivat puuttua siitä.</p>
 <pre><code>stamp=$(date +%Y%m%d-%H%M%S)
 mkdir -p backups
 docker compose stop antimatter
@@ -36,10 +36,10 @@ docker compose start antimatter
 # Secrets
 cp .env "backups/env-$stamp"</code></pre>
 <p>Suorita se cronnin kautta päivittäisiksi varmuuskopioiksi ja kopioi <code>backups/</code>-kansio toiselle koneelle. Säilytä <code>.env</code>:n kopiot yhtä turvallisesti kuin palvelin: siinä ovat sen salasanat.</p>
-<p>Jos haluat kopioida lähetetyt tiedostot objektikohtaisesti (esimerkiksi toiseen S3-varastoon), käytä <code>bucket</code>-palvelun AWS-komennonrivityökalua:</p>
+<p>Jos haluat kopioida lähetetyt tiedostot esine kerrallaan (esimerkiksi toiseen S3-varastoon), käytä <code>bucket</code>-palvelun AWS-komennonrivityökalua:</p>
 <pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
     "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
-<p>Julkaisupaketilla varmuuskopioi tietokanta <code>pg_dump -Fc</code>:llä sekä <code>data/</code>- ja <code>config/</code>-kansiot tavallisilla työkaluillasi.</p>
+<p>Julkaisupaketilla varmuuskopioi tietokanta <code>pg_dump -Fc</code>:lla sekä <code>data/</code>- ja <code>config/</code>-kansiot tavallisilla työkaluillasi.</p>
 
 <h2 id="restore">Palauta uuteen isäntäpalvelimeen</h2>
 <p>Aseta <code>compose.yaml</code>, tallennettu <code>.env</code> ja varmuuskopiot uuteen kansioon, sitten:</p>
@@ -65,34 +65,34 @@ docker compose up -d</code></pre>
 docker compose up -d
 docker compose logs -f antimatter</code></pre></li>
 </ol>
-<p>Käynnistyksen yhteydessä palvelin päivittää tietokannan skeeman (seuraa etenemistä lokissa; suurilla palvelimilla se voi kestää useita minuutteja) ja asenta kuvan mukana toimitettujen sovellusten uudemmat versiot. Jos käytät julkaisupakettia: pysäytä palvelin, korvaa kaikki paitsi <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> ja <code>client/plugins/</code> uuden paketin sisällöllä ja käynnistä palvelin uudelleen.</p>
-<div class="callout warn">Päivitykset tehdään vain eteenpäin. Kun uudempi palvelin on päivittänyt tietokannan, vanhempi versio ei voi käyttää sitä: palataksesi taaksepäin palauta varuuskopiota, joka otettiin ennen päivitystä. Sama koskee siirtymistä <code>antimatter-next</code>:stä takaisin <code>antimatter</code>:iin.</div>
+<p>Käynnistyessä palvelin päivittää tietokannan skeeman (seuraa etenemistä lokissa; suuressa palvelimessa se voi kestää useita minuutteja) ja asenta kuvan mukana toimitettujen sovellusten uudemmat versiot. Jos käytät julkaisupakettia: pysäytä palvelin, korvaa kaikki paitsi <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> ja <code>client/plugins/</code> uuden paketin sisällöllä ja käynnistä palvelin uudelleen.</p>
+<div class="callout warn">Päivitykset tehdään vain eteenpäin. Kun uudempi palvelin on päivittänyt tietokannan, vanhempi versio ei voi käyttää sitä: palataksesi taaksepäin palauta varuuskopiota, joka otettiin ennen päivitystä. Sama pätee, jos siirryt <code>antimatter-next</code>:stä takaisin <code>antimatter</code>:iin.</div>
 <h3>Versiot</h3>
-<p>Antimatterin palvelin ilmoittaa, minkä Mattermost-rivin versio se perustuu (tällä hetkellä 12.0.0). Kuvat rakennetaan uudelleen <code>main</code>-haaroista: <code>antimatter-next</code> joka yö (tagit <code>nightly-&lt;YYYYMMDD&gt;</code>) ja molemmat kuvat jokaisesta muutoksesta (tagit <code>sha-&lt;commit&gt;</code>). Kiinnitä jokin näistä tageista, tee päivitys tarkoituksella ja merkitse ylös edellisen tagin, jotta tiedät, mihin varuuskopioon se liittyy.</p>
-<h3>PostgreSQLin pääversiot</h3>
-<p>Compose-tiedostossa käytetään <code>postgres:17-alpine</code>:a. Antimatter vaatii PostgreSQL 15:tä tai uudemman. Uusi PostgreSQLin pääversio ei voi lukea edellisen version tietokansioa: siirtyäksesi uuteen versioon, luo varuuskopio (dump) tietokannasta, käynnistä uusi versio uuteen tilavuuteen ja palauta varuuskopio siihen.</p>
+<p>Antimatterin palvelin ilmoittaa, minkä Mattermost-pohjaisen versiotason se perustuu (tällä hetkellä 12.0.0). Kuvat rakennetaan uudelleen <code>main</code>-haaroista: <code>antimatter-next</code> joka yö (tagit <code>nightly-&lt;YYYYMMDD&gt;</code>) ja molemmat kuvat jokaisesta muutoksesta (tagit <code>sha-&lt;commit&gt;</code>). Kiinnitä jokin näistä tageista, tee päivitys tarkoituksella ja merkitse ylös edellinen tagi, jotta tiedät, minkä varuuskopion se vastaa.</p>
+<h3>PostgreSQL:n pääversiot</h3>
+<p>Compose-tiedostossa käytetään <code>postgres:17-alpine</code>:a. Antimatter vaatii PostgreSQL 15:tä tai uudemman. Uusi PostgreSQL-pääversio ei voi lukea edellisen versiotason tietokansioa: siirtyäksesi uuteen versioon, luo varuuskopio tietokannasta, käynnistä uusi versio uuteen tilavuuteen ja palauta varuuskopio siihen.</p>
 
 <h2 id="mattermost">Siirtyminen Mattermostista</h2>
-<p>Antimatter käyttää Mattermostin tietokantaskeemaa ja lisää siihen omia taulujaan, joten se voi ottaa haltuunsa Mattermost-palvelimen PostgreSQL-tietokannan ja tiedostot. Kokeile ensin kopiossa:</p>
+<p>Antimatter käyttää Mattermostin tietokantaskeemaa ja lisää siihen omia taulujaan, joten se voi ottaa haltuunsa Mattermost-palvelimen PostgreSQL-tietokannan ja tiedostot. Kokeile ensin kopiolla:</p>
 <ol>
-<li>Luo varuuskopio Mattermostin tietokannasta, sen tiedostovarastosta (<code>data/</code> tai S3-astekaappi) ja <code>config.json</code>-tiedostosta, ja pysäytä Mattermost.</li>
-<li>Palauta tietokanta Antimatterin PostgreSQLiin, tai osoita Antimatteri sen kopioon (<code>AM_SQLSETTINGS_DATASOURCE</code>).</li>
-<li>Kopioi tiedostot Antimatterin varastoon, säilyttäen niiden polut: S3-työkalulla <code>antimatter</code>-astekaappiin, tai julkaisupaketilla <code>data/</code>-kansioon.</li>
-<li>Tee uudelleen käyttöä asetuksistasi: kopioi <code>config.json</code>-tiedosto, tai siirrä se tietokantaan komennolla <code>amctl --local config migrate</code> (katso <a href="{{root}}docs/admins/configuration.html">Asetukset</a>). <code>MM_</code>-ympäristömuuttujasi toimivat yhä; nimeä ne <code>AM_</code>-muuttujiksi, kun se on kätevää.</li>
-<li>Käynnistä Antimatter ja seuraa lokitiedostoa, kun se päivittää tietokannan. Tarkista tämän jälkeen <b>Järjestelmäkonsoli › Liiteohjelmat › Liiteohjelmien hallinta</b>. Antimatter asettaa omat rakennelmansa Puheluille, Ohjekirjoille, Kanban-tauluille, Agenteille ja integraatioille, jos ne ovat uudempi versio kuin asennettu. Jos Mattermostilla oli jostain näistä uudempi versio, poista sovellus ja käynnistä Antimatter uudelleen, jotta sen oma versio asennetaan.</li>
+<li>Luo varuuskopio Mattermostin tietokannasta, sen tiedostovarastosta (<code>data/</code> tai S3-astio) ja <code>config.json</code>-tiedostosta, ja pysäytä sitten Mattermost.</li>
+<li>Palauta tietokanta Antimatterin PostgreSQL-tietokantaan, tai osoita Antimatterin kohdalle sen kopio (<code>AM_SQLSETTINGS_DATASOURCE</code>).</li>
+<li>Kopioi tiedostot Antimatterin varastoon, säilyttäen niiden polut: S3-työkalulla <code>antimatter</code>-astiaan, tai julkaisupaketilla <code>data/</code>-kansioon.</li>
+<li>Tee uudelleen käyttämiäsi asetuksia: kopioi <code>config.json</code>-tiedosto, tai siirrä se tietokantaan komennolla <code>amctl --local config migrate</code> (katso <a href="{{root}}docs/admins/configuration.html">Asetukset</a>). <code>MM_</code>-ympäristömuuttujasi toimivat yhä; nimeä ne <code>AM_</code>-muuttujiksi, kun se on kätevää.</li>
+<li>Käynnistä Antimatter ja seuraa lokitiedostoa, kun se päivittää tietokannan. Tarkista sen jälkeen <b>Järjestelmäkonsoli › Liiteohjelmat › Liiteohjelmien hallinta</b>. Antimatter asettaa omat rakennelmansa Puheluille, Ohjekirjoille, Kanban-tauluille, Agenteille ja integraatioille, jos ne ovat uudemmat kuin asennetut versiot. Jos Mattermostilla oli jostain näistä uudempi versio, poista se sovellus ja käynnistä Antimatter uudelleen, jotta sen oma rakennelma asennetaan.</li>
 <li>Aseta push-ilmoitukset uudelleen omalla push-välityspalvelimellasi: Antimatter ei koskaan lähetä ilmoituksia Mattermostin push-palveluihin, olipa kyseessä testipalvelin tai hosting-palvelin, sillä ne toimittavat ilmoitukset vain Mattermostin omiin sovelluksiin. Kunnes muutat <b>Push-ilmoituspalvelin</b>-asetusta, palvelin ei lähetä push-ilmoituksia (ks. <a href="{{root}}docs/admins/email-push.html#push">Push-ilmoitukset</a>).</li>
 </ol>
-<p>Antimatter ei ota yhteyttä Mattermost, Inc.:n ylläpitämiin palveluihin (ks. <a href="{{root}}docs/admins/security.html#outbound">Yhteydet ulkoisiin palveluihin</a>), vaikka asetuksissasi olisikin yhä jokin sellainen määritelty:</p>
+<p>Antimatter ei ota yhteyttä Mattermost, Inc.:n ylläpitämiin palveluihin (ks. <a href="{{root}}docs/admins/security.html#outbound">Yhteydet ulkoisiin palveluihin</a>), vaikka asetuksissasi olisi yhä mainittu jokin tällainen palvelu:</p>
 <ul>
 <li>Mattermostin push-ilmoituspalvelin säilyy asetuksissa, mutta sitä ei koskaan käytetä;</li>
-<li>Mattermostin sovelluskaupan (<b>Kaupan URL</b>) ja tuotetilannetietojen osoitteet tyhjennetään;</li>
-<li>Puhelut-sovellus käyttää Cloudflaren julkista STUN-palvelinta Mattermostin sijaan, mutta muuttamatta tallennettua asetusta (ks. <a href="{{root}}docs/admins/calls.html#network">Puhelut</a>);</li>
-<li>tietoturvapäivitysten tarkistus ja kaatumisraportointi poistetaan, ja samoin poistuvat niiden Järjestelmäkonsolin asetukset (<b>Ota tietoturva-ilmoitukset käyttöön</b>, <b>Ota diagnostiikan ja virheraportoinnin käyttöön</b>) sekä <b>Ilmoitukset</b>-sivu.</li>
+<li>Mattermostin osoitteet sovelluskauppaan (<b>Kaupan URL</b>) ja tuotetilaisuuksiin tyhjennetään;</li>
+<li>Puhelut-sovellus käyttää Cloudflaren julkista STUN-palvelinta Mattermostin sijaan, mutta tallennettua asetusta ei muuteta (ks. <a href="{{root}}docs/admins/calls.html#network">Puhelut</a>);</li>
+<li>tietoturvapäivitysten tarkistus ja kaatumisilmoitukset poistetaan, ja samoin niiden Järjestelmäkonsolin asetukset (<b>Ota tietoturvailmoitukset käyttöön</b>, <b>Ota diagnostiikan ja virheilmoitusten käyttöön</b>) sekä <b>Ilmoitukset</b>-sivu.</li>
 </ul>
-<p>Paikallisen tilan pistorasia on nyt <code>/var/tmp/antimatter_local.socket</code>; <code>amctl</code> yrittää myös vanhan <code>/var/tmp/mattermost_local.socket</code>. Mattermost tukee uusimmissa versioissaan vain PostgreSQL-tietokantaa, ja samoin Antimatter: siirrä MySQL-tietokanta ensin PostgreSQLiin. Paluu Mattermostiin Antimatterin päivittämän tietokannan jälkeen vaatii Mattermost-varuksen palauttamisen.</p>
+<p>Paikallisen tilan pistorasia on nyt <code>/var/tmp/antimatter_local.socket</code>; <code>amctl</code> yrittää myös vanhan <code>/var/tmp/mattermost_local.socket</code>-pistorasian. Mattermost tukee vain PostgreSQL-tietokantaa uusimmissa versioissaan, ja sama pätee Antimatteriin: siirrä MySQL-tietokanta ensin PostgreSQLiin. Paluu Mattermostiin Antimatterin päivittämän tietokannan jälkeen vaatii Mattermost-varuksen palauttamisen.</p>
 
 <h2 id="export-import">Vie ja tuo dataa</h2>
-<p>Eräviennin formaatti siirtää dataa palvelimien välillä: koko palvelimen, jonkin yhteisön tai jonkin kanavan, liitteineen, profiilikuvineen ja mukautetuine emojineen, jos haluat.</p>
+<p>Massavienti-muoto siirtää dataa palvelimien välillä: koko palvelimen, jonkin yhteisön tai jonkin kanavan, liitteineen, profiilikuvineen ja mukautetuine emojineen, jos haluat.</p>
 <pre><code># on the source server
 amctl export create --team-name design --include-profile-pictures
 amctl export list
@@ -101,5 +101,5 @@ amctl export download &lt;export file&gt; design.zip
 amctl import upload design.zip
 amctl import list available
 amctl import process &lt;uploaded file&gt; --imported-users active</code></pre>
-<p>Seuraa työtehtäviä komennoilla <code>amctl export job list</code> ja <code>amctl import job list</code>. Yhteisön tai kanavan viennissä <code>--imported-users</code>-valitsin on pakollinen: <code>active</code>, jos henkilöt siirtyvät tälle palvelimelle, ja <code>inactive</code>, kun tuodaan palvelimelle, jossa heillä on jo tilin, jolloin epävarmoista osumista luodut tilin pysyvät poissa käytöstä, kunnes ylläpitäjä tarkistaa ne. <code>--destination-team-name</code> tuo sisällön olemassa olevaan yhteisöön. Viennit ja tuonnit säilytetään palvelimen tallennustilassa (<code>ExportSettings.Directory</code>, <code>ImportSettings.Directory</code>) oletuksena 30 päivää.</p>
-<p>Itse palvelimella komennot <code>antimatter export bulk</code> ja <code>antimatter import bulk --apply</code> tekevät saman tiedostoista ilman API:ta.</p>
+<p>Seuraa työtä komennoilla <code>amctl export job list</code> ja <code>amctl import job list</code>. Kanavan tai yhteisön viennissä <code>--imported-users</code>-valitsin on pakollinen: <code>active</code>, jos käyttäjät siirtyvät tälle palvelimelle, ja <code>inactive</code>, kun tuodaan palvelimelle, jossa heillä on jo tilin. Näin tilit, jotka on luotu epävarmoista osumista, pysyvät poissa käytöstä, kunnes ylläpitäjä tarkistaa ne. <code>--destination-team-name</code>-valitsin tuo viennin olemassa olevaan yhteisöön. Viennit ja tuonnit säilytetään palvelimen tallennustilassa (<code>ExportSettings.Directory</code>, <code>ImportSettings.Directory</code>) oletusarvoisesti 30 päivää.</p>
+<p>Suorita palvelimella komennot <code>antimatter export bulk</code> ja <code>antimatter import bulk --apply</code> suorittamaan sama tiedostoista ilman API:ta.</p>

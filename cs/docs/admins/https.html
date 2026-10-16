@@ -76,36 +76,36 @@
 <h1>Doména, HTTPS a reverzní proxy</h1>
 <p class="lead">Umístěte Antimatter na doménové jméno s HTTPS, pomocí profilu Caddy v souboru compose nebo vlastního reverzního proxy, a správně nastavte adresu webu a adresy klientů.</p>
 <h2 id="site-url">Adresa webu (URL)</h2>
-<p>Adresa webu (<code>ServiceSettings.SiteURL</code>) je adresa, kterou lidé používají k přístupu k Antimatter, např. <code>https://chat.example.com</code>. Server ji používá v odkazích v e-mailech a oznámeních, při přesměrování při přihlášení (OAuth, OpenID Connect, SAML), pro mobilní a desktopové aplikace a k ověření, odkud požadavky pocházejí. Nastavte ji přesně na adresu v adresním řádku prohlížeče: schéma, doména a port, pokud není výchozí, bez lomítka na konci.</p>
+<p>Adresa webu (<code>ServiceSettings.SiteURL</code>) je adresa, kterou lidé používají k přístupu k Antimatter, např. <code>https://chat.example.com</code>. Server ji používá v odkazech v e-mailech a oznámeních, při přesměrování přihlášení (OAuth, OpenID Connect, SAML), pro mobilní a desktopové aplikace a k ověření, odkud požadavky pocházejí. Nastavte ji přesně na adresu v adresním řádku prohlížeče: schéma, doména a port, pokud není výchozí, bez lomítka na konci.</p>
 <ul>
-<li>Při použití souboru compose webu: <code>SITE_URL</code> v <code>.env</code>.</li>
+<li>Pomocí souboru compose webu: <code>SITE_URL</code> v <code>.env</code>.</li>
 <li>Jinde: <code>AM_SERVICESETTINGS_SITEURL</code>, nebo <b>Systémová konzole › Prostředí › Webový server › Adresa webu (URL)</b>.</li>
 </ul>
-<p>Pokud je adresa webu nesprávná, přihlášení pomocí poskytovatele identit selže, odkazy v e-mailech budou ukazovat na špatné místo a aplikace se nemusí připojit. Po změně domény ji aktualizujte zde a v adresách pro přesměrování všech poskytovatelů identit.</p>
+<p>Pokud je adresa webu nesprávná, přihlášení s identitním poskytovatelem selže, odkazy v e-mailech vedou na špatné místo a aplikace se nemusí připojit. Po změně domény ji aktualizujte zde a v adresách pro přesměrování všech identitních poskytovatelů.</p>
 
 <h2 id="caddy">HTTPS s přiloženým profilem Caddy</h2>
-<p>Soubor <code>compose.yaml</code> webu obsahuje službu <a href="https://caddyserver.com">Caddy</a> v profilu <code>https</code>. Získá certifikát od Let's Encrypt, obnovuje ho sám, přesměrovává HTTP na HTTPS a přeposílá vše, včetně websocketů, do Antimatter.</p>
+<p>Soubor <code>compose.yaml</code> webu obsahuje službu <a href="https://caddyserver.com">Caddy</a> v profilu <code>https</code>. Získá certifikát od Let's Encrypt, obnovuje ho sám, přesměrovává HTTP na HTTPS a předává vše, včetně websocketů, do Antimatter.</p>
 <ol>
 <li>Nasměrujte záznam DNS (A, a AAAA pro IPv6) vaší domény na server.</li>
-<li>Otevřete v firewallu porty 80/tcp, 443/tcp a 443/udp (HTTP/3). Let's Encrypt musí mít přístup na port 80 nebo 443 z internetu.</li>
+<li>Otevřete v firewallu porty 80/tcp, 443/tcp a 443/udp (HTTP/3). Let's Encrypt musí mít přístup k portu 80 nebo 443 z internetu.</li>
 <li>Přidejte doménu do <code>.env</code> a nastavte adresu webu:
 <pre><code>echo "DOMAIN=chat.example.com" &gt;&gt; .env
 sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env</code></pre></li>
 <li>Spusťte s profilem:
 <pre><code>docker compose --profile https up -d</code></pre></li>
 </ol>
-<p>Při každém dalším <code>docker compose up</code> přidejte <code>--profile https</code>, nebo přidejte <code>COMPOSE_PROFILES=https</code> do <code>.env</code>, aby běžné <code>docker compose up -d</code> tento profil zahrnulo. Caddy si své certifikáty uchovává v objemu <code>https</code>.</p>
-<p>Vlastní port Antimatter zůstává publikovaný na hostiteli (<code>HTTP_PORT</code>, výchozí 8065). S Caddy před ním ho ponechte pouze pro samotný server:</p>
+<p>Přidejte <code>--profile https</code> ke každému dalšímu <code>docker compose up</code>, nebo přidejte <code>COMPOSE_PROFILES=https</code> do <code>.env</code>, aby běžné <code>docker compose up -d</code> zahrnulo i tento profil. Caddy si své certifikáty uchovává v objemu <code>https</code>.</p>
+<p>Vlastní port Antimatter zůstává publikovaný na hostiteli (<code>HTTP_PORT</code>, výchozí 8065). S Caddy před ním ho nechte pouze pro samotný server:</p>
 <pre><code>echo "HTTP_PORT=127.0.0.1:8065" &gt;&gt; .env
 docker compose --profile https up -d</code></pre>
-<p>Caddy se k Antimatter připojuje přes vnitřní síť <code>edge</code>, ne přes tento port, takže se pro vaše uživatele nic nemění.</p>
+<p>Caddy se k Antimatter připojuje přes interní síť <code>edge</code>, ne přes tento port, takže se pro vaše uživatele nic nemění.</p>
 
 <h2 id="nginx">S vlastním reverzním proxy (nginx)</h2>
 <p>Pokud na serveru již běží nginx nebo jiný proxy, vypněte profil <code>https</code> a nastavte proxy na port 8065 služby Antimatter. Proxy musí:</p>
 <ul>
-<li>přeposílat upgrade na websocket (webová aplikace i mobilní aplikace si drží otevřené websockety na <code>/api/v4/websocket</code>, některé aplikace si navíc otevírají vlastní);</li>
-<li>přijímat těla požadavků nejméně tak velká jako největší nahrávka (<b>Maximální velikost souboru</b>, výchozí hodnota 100 MB);</li>
-<li>držet dlouhotrvající spojení (websockety, velké nahrávky a stažení);</li>
+<li>přeposílat upgrade na websocket (webová aplikace i mobilní aplikace si udržují otevřené websockety na <code>/api/v4/websocket</code>, některé aplikace pak otvírají vlastní);</li>
+<li>přijímat těla požadavků nejméně tak velká, jak je největší nahrávka (<b>Maximální velikost souboru</b>, výchozí 100 MB);</li>
+<li>udržovat dlouhotrvající spojení (websockety, velké nahrávky a stažení);</li>
 <li>přeposílat hlavičku <code>Host</code> a adresu klienta.</li>
 </ul>
 <p>Kompletní blok serveru, upravený z produkční šablony v antimatter-docker. Nahraďte doménu a cesty k certifikátům:</p>
@@ -179,32 +179,32 @@ server {
         proxy_pass http://antimatter;
     }
 }</code></pre>
-<p>Soubor zkontrolujte příkazem <code>nginx -t</code> a použijte ho příkazem <code>systemctl reload nginx</code>. Server sám odesílá hlavičky <code>X-Content-Type-Options</code>, <code>Referrer-Policy</code>, <code>Permissions-Policy</code> a <code>X-Frame-Options</code>; HSTS je na proxy. Jakmile HTTPS funguje, zvýšte její <code>max-age</code> a přidejte <code>includeSubDomains</code> pouze tehdy, pokud všechny subdomény používají HTTPS.</p>
+<p>Soubor zkontrolujte pomocí <code>nginx -t</code> a použijte ho pomocí <code>systemctl reload nginx</code>. Server sám odesílá hlavičky <code>X-Content-Type-Options</code>, <code>Referrer-Policy</code>, <code>Permissions-Policy</code> a <code>X-Frame-Options</code>; HSTS je na proxy. Jakmile HTTPS funguje, zvýšte její <code>max-age</code> a přidejte <code>includeSubDomains</code> pouze v případě, že všechny subdomény používají HTTPS.</p>
 <p>Při použití Docker Compose a nginx na hostiteli ukazuje výše uvedené <code>upstream</code> na publikovaný port 8065. Publikujte ho pouze na <code>127.0.0.1</code> (<code>HTTP_PORT=127.0.0.1:8065</code>), aby nikdo nemohl proxy obejít.</p>
 <p>Repozitář antimatter-docker obsahuje kompletní nastavení s nginx v kontejneru a Let's Encrypt přes certbot, v <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">deploy/compose</a>.</p>
 
-<h3>Ostatní proxy</h3>
-<p>Funguje libovolné proxy, pokud splňuje výše uvedené čtyři body. Audio a video hovor nikdy neprochází proxy: používají vlastní port, viz <a href="../../../cs/docs/admins/calls.html">Hovory a hlas</a>.</p>
+<h3>Jiné proxy</h3>
+<p>Funguje jakékoli proxy, pokud splňuje výše uvedené čtyři body. Hlasové a video hovory nikdy neprocházejí proxy: používají vlastní port, viz <a href="../../../cs/docs/admins/calls.html">Hovory a hlas</a>.</p>
 
 <h2 id="client-address">Adresy klientů za proxy</h2>
-<p>Za proxy se zdá, že všechny požadavky přicházejí od proxy. Aby se logovala skutečná adresa klienta, nastavte serveru, která hlavička adresu nese, a kterým proxy může věřit. Ani jedno z těchto nastavení nemá pole v Systémové konzoli: nastavte je v <code>config.json</code> nebo pomocí proměnných.</p>
+<p>Za proxy se zdá, že každý požadavek pochází od proxy. Aby se logovala skutečná adresa klienta, nastavte serveru, která hlavička adresu nese a kterým proxy může věřit. Ani jedna z těchto nastavení nemá pole v Systémové konzoli: nastavte je v <code>config.json</code> nebo pomocí proměnných.</p>
 <table>
 <thead><tr><th>Klíč a proměnná</th><th>Výchozí</th><th>Co dělá</th></tr></thead>
 <tbody>
-<tr><td><code>ServiceSettings.TrustedProxyIPHeader</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER</code></td><td>prázdné: server používá adresu spojení</td><td>Hlavičky, které nesou adresu klienta, například <code>X-Forwarded-For</code>. Použije se první, která je v požadavku přítomná.</td></tr>
-<tr><td><code>ServiceSettings.TrustedProxyIPs</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code></td><td>prázdné</td><td>Adresy nebo CIDR rozsahy vašich proxy, například <code>172.29.71.0/28</code>. Hlavičky se počítají pouze pro požadavky, které přicházejí od jednoho z nich.</td></tr>
+<tr><td><code>ServiceSettings.TrustedProxyIPHeader</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER</code></td><td>prázdné: server používá adresu spojení</td><td>Hlavičky, které nesou adresu klienta, například <code>X-Forwarded-For</code>. Použije se první, která je v požadavku přítomna.</td></tr>
+<tr><td><code>ServiceSettings.TrustedProxyIPs</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code></td><td>prázdné</td><td>Adresy nebo CIDR rozsahy vašich proxy, například <code>172.29.71.0/28</code>. Hlavičky se počítají pouze pro požadavky, které pocházejí od jednoho z nich.</td></tr>
 </tbody>
 </table>
 <p>V proměnné oddělte více hodnot mezerami: <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>. Server odmítne konfiguraci, která v <code>TrustedProxyIPs</code> obsahuje položku, která není ani IP adresou, ani CIDR rozsahem.</p>
 <h3>Jak server nachází adresu klienta</h3>
-<p>Každý proxy přidává na pravou stranu hlavičky <code>X-Forwarded-For</code> adresu, od které požadavek přijal. Adresu, kterou klient sám do hlavičky zadal, ponechá na levé straně. Server tedy hlavičku čte zprava, přeskočí adresy svých důvěryhodných proxy a jako adresu klienta vezme první jinou adresu. Klient si nemůže adresu vybrat tím, že pošle vlastní hlavičku.</p>
+<p>Každý proxy přidává na pravou stranu hlavičky <code>X-Forwarded-For</code> adresu, od které požadavek přijal. Adresu, kterou klient sám do hlavičky zadal, ponechá na levé straně. Server proto čte hlavičku zprava, přeskočí adresy svých důvěryhodných proxy a jako adresu klienta vezme první jinou adresu. Klient si nemůže adresu vybrat tím, že pošle vlastní hlavičku.</p>
 <ul>
-<li>Za jedním proxy stačí pro správnou adresu jen <code>TrustedProxyIPHeader</code>: server vezme pravou adresu v hlavičce. Při spuštění vypíše varování, dokud nenastavíte i <code>TrustedProxyIPs</code>. Bez něj může hlavičku nastavit kdokoli, kdo se přímě dostane na port 8065, takže tento port publikujte pouze na <code>127.0.0.1</code> nebo v soukromé síti.</li>
-<li>Za více proxy, například za CDN nebo vyvažovačem zátěže před vlastním proxy, vyjmenujte je všechny v <code>TrustedProxyIPs</code>. Jinak server vezme adresu vnějšího proxy za adresu klienta.</li>
-<li>Proxy může hlavičku nahradit adresou, kterou vidí, jak ukazuje výše uvedený příklad pro nginx (<code>X-Forwarded-For $remote_addr</code>), nebo k ní přidat (nginx <code>$proxy_add_x_forwarded_for</code>). Obojí funguje.</li>
+<li>Za jedním proxy stačí <code>TrustedProxyIPHeader</code> pro správnou adresu: server vezme nejpravější adresu v hlavičce. Při spuštění vypíše varování, dokud nenastavíte i <code>TrustedProxyIPs</code>. Bez něj může hlavičku nastavit kdokoli, kdo se přímě dostane na port 8065, takže tento port publikujte pouze na <code>127.0.0.1</code> nebo v soukromé síti.</li>
+<li>Za více proxy, například CDN nebo vyvažovačem zátěže před vaším proxy, vyjmenujte je všechny v <code>TrustedProxyIPs</code>. Jinak server vezme za adresu klienta adresu vnějšího proxy.</li>
+<li>Proxy může hlavičku nahradit adresou, kterou vidí, jak ukazuje výše uvedený příklad pro nginx (<code>X-Forwarded-For $remote_addr</code>), nebo k ní přidat další hodnotu (nginx <code>$proxy_add_x_forwarded_for</code>). Oba způsoby fungují.</li>
 </ul>
 <h3>Které adresy vyjmenovat</h3>
-<p>Vyjmenujte adresu, od které požadavky proxy pocházejí, tak jak ji Antimatter vidí.</p>
+<p>Vyjmenujte adresu, od které požadavky proxy pocházejí, tak jak ji vidí Antimatter.</p>
 <ul>
 <li>S compose souborem webu a Caddy je to už hotovo: Caddy se k Antimatteru připojí přes síť <code>edge</code> a compose soubor nastaví <code>TrustedProxyIPHeader</code> na <code>X-Forwarded-For</code> a <code>TrustedProxyIPs</code> na rozsah této sítě, <code>EDGE_SUBNET</code> (pokud ho v <code>.env</code> nezměníte, je to <code>172.29.71.0/28</code>). Pokud se <code>EDGE_SUBNET</code> překrývá s jednou z vašich sítí, změňte ho.</li>
 <li>Produkční nastavení v antimatter-docker dělá to samé pro svůj nginx kontejner pomocí <code>FRONTEND_SUBNET</code>.</li>
@@ -213,7 +213,7 @@ server {
 </ul>
 
 <h2 id="builtin-tls">TLS bez proxy</h2>
-<p>Server může HTTPS poskytovat i sám, v <b>Systémová konzole › Prostředí › Webový server</b>: <b>Zabezpečení připojení</b> nastaveno na TLS (<code>ServiceSettings.ConnectionSecurity</code>), s <b>Soubor TLS certifikátu</b> a <b>Soubor TLS klíče</b> (<code>ServiceSettings.TLSCertFile</code>, <code>ServiceSettings.TLSKeyFile</code>), nebo <b>Použít Let's Encrypt</b> (<code>ServiceSettings.UseLetsEncrypt</code>). Server pak musí naslouchat na portu 443 (<b>Adresa naslouchání</b>, <code>ServiceSettings.ListenAddress</code>, výchozí je <code>:8065</code>), a <code>ServiceSettings.Forward80To443</code> přesměruje port 80. Reverzní proxy je jednodušší na provoz a obnovu a je to, co tento průvodce předpokládá.</p>
+<p>Server může HTTPS poskytovat i sám, v <b>Systémová konzole › Prostředí › Webový server</b>: <b>Zabezpečení připojení</b> nastaveno na TLS (<code>ServiceSettings.ConnectionSecurity</code>), se <b>Soubor TLS certifikátu</b> a <b>Soubor TLS klíče</b> (<code>ServiceSettings.TLSCertFile</code>, <code>ServiceSettings.TLSKeyFile</code>), nebo <b>Použít Let's Encrypt</b> (<code>ServiceSettings.UseLetsEncrypt</code>). Server musí pak naslouchat na portu 443 (<b>Adresa naslouchání</b>, <code>ServiceSettings.ListenAddress</code>, výchozí je <code>:8065</code>), a <code>ServiceSettings.Forward80To443</code> přesměrovává port 80. Reverse proxy je jednodušší na provoz a obnovování a je to, co předpokládá tento průvodce.</p>
 
 <h2 id="timeouts">Časové limity serveru a velikost požadavků</h2>
 <p>Nastavení vlastního webového serveru, v <b>Systémová konzole › Prostředí › Webový server</b>:</p>
@@ -227,7 +227,7 @@ server {
 <tr><td><b>Maximální velikost datového přenosu (bajty)</b></td><td><code>ServiceSettings.MaximumPayloadSizeBytes</code></td><td>viz <a href="../../../cs/docs/admins/security.html">Zabezpečení</a></td></tr>
 </tbody>
 </table>
-<p>Vlastní časové limity proxy nechte alespoň stejně dlouhé jako tyto pro běžné požadavky, a velikost těla požadavku alespoň <b>Maximální velikost souboru</b>.</p>
+<p>Udržujte vlastní časové limity proxy alespoň tak dlouhé jako tyto pro běžné požadavky a velikost těla požadavku alespoň <b>Maximální velikost souboru</b>.</p>
 <nav class="pager"><a class="prev" href="../../docs/admins/configuration.html"><small>Předchozí</small>Konfigurace</a><a class="next" href="../../docs/admins/calls.html"><small>Další</small>Hovory a hlas</a></nav>
 </article>
 </div>

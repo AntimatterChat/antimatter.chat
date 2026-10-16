@@ -3,20 +3,20 @@ description: Antimatterアプリ（プラグイン）の作成方法：バンド
 guide: developers
 order: 6
 nav: アプリの作成
-lead: アプリはAntimatterの内部から機能を追加します。サーバーにフックするGo製のサーバー部分と、メニュー、パネル、メッセージタイプ、ページを追加するReact製のWebアプリ部分から構成されます。このページでは、バンドルされているPollsアプリを例に、アプリの構成と、AntimatterのFusionインターフェースにおける変更点について説明します。
+lead: アプリはAntimatterの内部から機能を追加します。サーバーにフックするGoで書かれたサーバー部分と、メニュー、パネル、メッセージタイプ、ページを追加するReactで書かれたWebアプリ部分があります。このページでは、バンドルされているPollsアプリを例に、アプリの構成と、AntimatterのFusionインターフェースでの変更点について説明します。
 source: d9c132cac759
 ---
-<h2 id="overview">アプリの動作原理</h2>
+<h2 id="overview">アプリの仕組み</h2>
 <ul>
-<li><b>サーバー部分</b>はGoで書かれたプログラムです。サーバーはこれを独立したプロセスとして起動し、RPCを介して通信します。サーバーはアプリの<b>フック</b>（メッセージが投稿されようとしている、コマンドが実行されたなど）を呼び出し、アプリはサーバーの<b>プラグインAPI</b>（投稿の作成、ユーザーの読み取り、データの保存など）を呼び出します。また、<code>/plugins/&lt;app id&gt;/</code>配下のHTTPルートを提供することもできます。</li>
-<li><b>Webアプリ部分</b>は、Webアプリとともにブラウザに読み込まれるJavaScriptバンドルです。<b>レジストリ</b>にReactコンポーネントとコールバックを登録します。メニュー内のボタン、パネル、メッセージタイプの描画方法などがこれにあたります。</li>
-<li>どちらかの部分のみでも構いません。アプリは<code>.tar.gz</code>バンドルとしてインストールされ、システム管理者が有効化、無効化、設定を行います。</li>
+<li><b>サーバー部分</b>はGoプログラムです。サーバーはこれを独立したプロセスとして起動し、RPCを介して通信します。サーバーはアプリの<b>フック</b>（メッセージが投稿されようとしている、コマンドが実行されたなど）を呼び出し、アプリはサーバーの<b>プラグインAPI</b>（投稿の作成、ユーザーの読み取り、データの保存など）を呼び出します。また、<code>/plugins/&lt;app id&gt;/</code>配下のHTTPルートを提供することもできます。</li>
+<li><b>Webアプリ部分</b>はWebアプリとともにブラウザに読み込まれるJavaScriptバンドルです。<b>レジストリ</b>にReactコンポーネントとコールバックを登録します：メニュー内のボタン、パネル、メッセージタイプの描画方法などです。</li>
+<li>どちらの部分も省略可能です。アプリは<code>.tar.gz</code>バンドルとしてインストールされ、システム管理者が有効化、無効化、設定を行います。</li>
 </ul>
 <div class="callout warn">サーバー部分はサーバーのデータに完全なアクセス権を持って実行されます。アプリはサーバーにデプロイするコードとして扱ってください。</div>
-<p>AntimatterはMattermost向けに書かれたアプリを実行でき、逆もまた然りです（アプリが両方に共通するフックのみを使用する場合）。<a href="#antimatter-hooks">Antimatter固有のフック</a>を参照してください。</p>
+<p>AntimatterはMattermost向けに書かれたアプリを実行でき、その逆も可能です（アプリが両方に共通するフックのみを使用する場合）。<a href="#antimatter-hooks">Antimatter固有のフック</a>を参照してください。</p>
 
-<h2 id="layout">バンドルの構成</h2>
-<p>個別のスターターテンプレートはありません。<a href="https://github.com/AntimatterChat/antimatter-plugin-polls">antimatter-plugin-polls</a>や<a href="https://github.com/AntimatterChat/antimatter-plugin-todo">antimatter-plugin-todo</a>のような小さなバンドル済みアプリから始め、IDとコードを変更してください。Pollsの構成は以下の通りです：</p>
+<h2 id="layout">バンドル構成</h2>
+<p>個別のスターターテンプレートはありません：<a href="https://github.com/AntimatterChat/antimatter-plugin-polls">antimatter-plugin-polls</a>や<a href="https://github.com/AntimatterChat/antimatter-plugin-todo">antimatter-plugin-todo</a>などの小さなバンドル済みアプリから始め、IDとコードを変更してください。Pollsの構成は以下の通りです：</p>
 <pre><code>antimatter-plugin-polls/
 ├── plugin.json            the manifest
 ├── Makefile               build, test, bundle, deploy
@@ -61,15 +61,15 @@ source: d9c132cac759
   "settings_schema": {"settings": []}
 }</code></pre>
 <ul>
-<li><code>id</code>：一意かつ永続的な値。逆ドメイン名が一般的です。ルート、保存される設定、WebSocketイベントの名前になります。</li>
+<li><code>id</code>：一意かつ永続的である必要があります。逆ドメイン名が一般的です。ルート、保存される設定、WebSocketイベントの名前になります。</li>
 <li><code>version</code>：セマンティックバージョニング。バンドル済みアプリは<code>plugin.json</code>からこれを省略しており、ビルドツールが最新の<code>v*</code> gitタグから取得します。</li>
 <li><code>min_server_version</code>：Antimatterは<code>12.0.0</code>を報告します。</li>
 <li><code>settings_schema</code>: システムコンソールのアプリ設定ページ（<a href="#settings">設定</a>を参照）。</li>
 </ul>
-<p><code>make apply</code> はマニフェストを <code>server/manifest.go</code> と <code>webapp/src/manifest.ts</code> にコピーします。<code>make manifest-check</code> で検証できます。</p>
+<p><code>make apply</code> はマニフェストを <code>server/manifest.go</code> と <code>webapp/src/manifest.ts</code> にコピーします。<code>make manifest-check</code> はその検証を行います。</p>
 
 <h2 id="server">サーバー部分</h2>
-<p>サーバー部分は、Mattermost アプリと同じ Go モジュール <code>github.com/mattermost/mattermost/server/public</code> を Go モジュールプロキシからインポートします。その <code>main</code> はアプリを起動するだけです。</p>
+<p>サーバー部分は、Mattermost アプリと同じ Go モジュール <code>github.com/mattermost/mattermost/server/public</code> を Go モジュールプロキシからインポートします。その <code>main</code> はアプリの起動のみを行います。</p>
 <pre><code>package main
 
 import "github.com/mattermost/mattermost/server/public/plugin"
@@ -77,7 +77,7 @@ import "github.com/mattermost/mattermost/server/public/plugin"
 func main() {
 	plugin.ClientMain(&amp;Plugin{})
 }</code></pre>
-<p><code>Plugin</code> 型は <code>plugin.MattermostPlugin</code> を埋め込み、<code>p.API</code> を取得し、必要なフックを実装します。</p>
+<p><code>Plugin</code> 型は <code>plugin.MattermostPlugin</code> を埋め込み、<code>p.API</code> を取得するとともに、必要なフックを実装します。</p>
 <pre><code>type Plugin struct {
 	plugin.MattermostPlugin
 	router *mux.Router
@@ -108,12 +108,12 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 <table>
 <thead><tr><th>フック</th><th>実行タイミング</th></tr></thead>
 <tbody>
-<tr><td><code>OnActivate</code>, <code>OnDeactivate</code></td><td>アプリの有効化・無効化時、およびサーバーの起動・停止時。<code>OnActivate</code> でコマンドやボットを登録します。</td></tr>
+<tr><td><code>OnActivate</code>, <code>OnDeactivate</code></td><td>アプリの有効化または無効化時、およびサーバーの起動と停止時。<code>OnActivate</code> でコマンドとボットを登録します。</td></tr>
 <tr><td><code>OnConfigurationChange</code></td><td>設定が変更されたとき。<code>p.API.LoadPluginConfiguration(&amp;cfg)</code> で読み込みます。</td></tr>
 <tr><td><code>ServeHTTP</code></td><td><code>/plugins/&lt;app id&gt;/…</code> へのリクエスト。ログイン済みユーザーからのリクエストの場合、サーバーは <code>Mattermost-User-Id</code> ヘッダーを設定します。公開目的でない限り、このヘッダーがないリクエストは拒否してください。</td></tr>
 <tr><td><code>ExecuteCommand</code></td><td>アプリが登録したコマンドが実行されたとき。</td></tr>
 <tr><td><code>MessageWillBePosted</code>, <code>MessageWillBeUpdated</code></td><td>メッセージが保存される前：変更された投稿を返すか、拒否理由を返します。</td></tr>
-<tr><td><code>MessageHasBeenPosted</code>, <code>MessageHasBeenUpdated</code>, <code>MessageHasBeenDeleted</code></td><td>事後の副作用のために使用します。</td></tr>
+<tr><td><code>MessageHasBeenPosted</code>, <code>MessageHasBeenUpdated</code>, <code>MessageHasBeenDeleted</code></td><td>事後に、副作用のために実行されます。</td></tr>
 <tr><td><code>ReactionHasBeenAdded</code>, <code>ReactionHasBeenRemoved</code></td><td>リアクション。</td></tr>
 <tr><td><code>UserHasJoinedChannel</code>, <code>UserHasLeftChannel</code>, <code>UserHasJoinedTeam</code>, <code>UserHasLeftTeam</code>, <code>ChannelHasBeenCreated</code></td><td>メンバーシップとチャンネルの変更。チームはコミュニティです。</td></tr>
 <tr><td><code>FileWillBeUploaded</code></td><td>ファイルが保存される前：変更するか拒否します。</td></tr>
@@ -127,22 +127,22 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 <li><code>EnsureBotUser(&amp;model.Bot{Username, DisplayName})</code>：アプリのボットを一度作成し、その ID を取得します。</li>
 <li><code>PublishWebSocketEvent("poll_updated", payload, &amp;model.WebsocketBroadcast{ChannelId: id})</code>：Web アプリにイベントを送信します。<code>custom_&lt;app id&gt;_poll_updated</code> として届きます。</li>
 <li><code>OpenInteractiveDialog</code>：<a href="{{root}}docs/developers/bots.html#dialogs">ダイアログ</a>を開きます。</li>
-<li><code>LogInfo</code>、<code>LogError</code> などの関数：アプリの ID をタグとして付与し、サーバーログに書き込みます。</li>
+<li><code>LogInfo</code>、<code>LogError</code> などの関数：アプリの ID をタグとしてサーバーログに書き込みます。</li>
 <li><code>GetUser</code>、<code>GetChannel</code>、<code>HasPermissionToChannel</code>：ユーザーに代わって操作する前に、誰が何をできるかを確認します。</li>
 </ul>
-<p>アプリはクラスタのすべてのサーバーで実行されます。状態はメモリだけでなく、キーバリューストアまたはデータベースに保存してください。</p>
+<p>アプリはクラスタのすべてのサーバーで実行されます。状態はメモリだけでなく、キーバリューストアまたはデータベースに保持してください。</p>
 
 <h2 id="kv">データの保存</h2>
-<p>各アプリには、サーバーのデータベースに独自のキーバリューストアがあります：</p>
+<p>各アプリには、サーバーのデータベースに独自のキーバリューストアがあります。</p>
 <ul>
 <li><code>KVSet(key, value)</code>、<code>KVGet(key)</code>、<code>KVDelete(key)</code>：値はバイト列（通常は JSON）です。キーは最大 150 文字です。</li>
 <li><code>KVSetWithExpiry(key, value, seconds)</code>：指定した時間後に値が削除されます。</li>
-<li><code>KVCompareAndSet(key, old, new)</code> および <code>Atomic</code> を使用した <code>KVSetWithOptions</code>：複数のリクエストやサーバーが同じキーに書き込む場合の安全な更新です。Polls はこの方法で各投票を保存し、競合が発生した場合は再試行します。</li>
+<li><code>KVCompareAndSet(key, old, new)</code> および <code>Atomic</code> を使用した <code>KVSetWithOptions</code>：複数のリクエストやサーバーが同じキーに書き込む場合の安全な更新に使用します。Polls はこの方法で各投票を保存し、競合が発生した場合は再試行します。</li>
 <li><code>KVList(page, perPage)</code>：ページごとにキーを列挙します。</li>
 </ul>
 
 <h2 id="webapp">Web アプリ部分</h2>
-<p>バンドルは <code>window.registerPlugin</code> でクラスを登録します。その <code>initialize</code> はレジストリと Redux ストアを受け取ります：</p>
+<p>バンドルは <code>window.registerPlugin</code> でクラスを登録します。その <code>initialize</code> はレジストリと Redux ストアを受け取ります。</p>
 <pre><code>import manifest from './manifest';
 
 class Plugin {
@@ -158,64 +158,64 @@ class Plugin {
 
 window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <ul>
-<li><b>共有ライブラリ。</b> Web アプリは React、ReactDOM、Redux、React Redux、React Intl を提供します：これらを webpack の <code>externals</code>（<code>React</code>、<code>ReactDOM</code>、<code>Redux</code>、<code>ReactRedux</code>、<code>ReactIntl</code>）として列挙し、独自のコピーをバンドルしないでください。Polls の <code>webpack.config.js</code> を参照してください。</li>
-<li><b>サーバー部分への呼び出し。</b> <code>Client4.getOptions()</code>（<code>mattermost-redux/client</code> から）のオプションを使用して、<code>${window.basename}/plugins/&lt;app id&gt;/…</code> をフェッチします：これらは、サーバーがブラウザからのリクエストを受け入れるために必要なヘッダーを保持しています。</li>
+<li><b>共有ライブラリ。</b> Web アプリは React、ReactDOM、Redux、React Redux、React Intl を提供します。これらを webpack の <code>externals</code>（<code>React</code>、<code>ReactDOM</code>、<code>Redux</code>、<code>ReactRedux</code>、<code>ReactIntl</code>）として列挙し、独自のコピーをバンドルしないでください。Polls の <code>webpack.config.js</code> を参照してください。</li>
+<li><b>サーバー部分への呼び出し。</b> <code>Client4.getOptions()</code>（<code>mattermost-redux/client</code> から）のオプションを使用して、<code>${window.basename}/plugins/&lt;app id&gt;/…</code> をフェッチします。これにより、サーバーがブラウザからのリクエストを受け入れるために必要なヘッダーが送信されます。</li>
 <li><b>独自の状態。</b> <code>registerReducer</code> はリデューサーを追加し、<code>state['plugins-&lt;app id&gt;']</code> 以下に保存されます。</li>
-<li><b>型。</b> Antimatter の追加レジストリメソッドは、Mattermost の公開されている型には含まれていません：Polls は使用するレジストリを <code>webapp/src/types/host.ts</code> で宣言しています。</li>
+<li><b>型。</b> Antimatter の追加レジストリメソッドは、Mattermost の公開されている型には含まれていません。Polls は使用するレジストリを <code>webapp/src/types/host.ts</code> で宣言しています。</li>
 </ul>
-<p>レジストリのメソッドとそのパラメータは、<code>webapp/fusion/src/plugins/registry.ts</code>（Fusion）および <code>webapp/channels/src/plugins/registry.ts</code>（クラシック）のコードにドキュメント化されています。</p>
+<p>レジストリのメソッドとそのパラメータは、<code>webapp/fusion/src/plugins/registry.ts</code>（Fusion）および <code>webapp/channels/src/plugins/registry.ts</code>（クラシック）のコード内でドキュメント化されています。</p>
 
-<h2 id="fusion">Fusion インターフェースのサポート</h2>
-<p>Antimatter には Fusion（デフォルト）とクラシックという 2 つの Web インターフェースがあります。どちらも同じアプリバンドルを読み込み、同じレジストリを持ちますが、Fusion は多くの要素を自分で描画し、プラグインコンポーネントを独自の方式で配置します。両方のインターフェースでアプリをテストしてください。</p>
+<h2 id="fusion">Fusion インターフェースへの対応</h2>
+<p>Antimatter には Fusion（デフォルト）とクラシックという 2 つの Web インターフェースがあります。どちらも同じアプリバンドルを読み込み、同じレジストリを持ちますが、Fusion は多くの要素を独自に描画し、プラグインコンポーネントも独自の方式で配置します。両方のインターフェースでアプリをテストしてください。</p>
 <h3>インターフェースの検出</h3>
-<p>アプリが読み込まれる前に、両方のインターフェースは <code>window.antimatterWebUI</code> を <code>'fusion'</code> または <code>'classic'</code> に設定し、ページのルート要素にも <code>data-am-web-ui</code> として同じ値を設定します。Mattermost では、どちらも設定されません。</p>
+<p>アプリが読み込まれる前に、両方のインターフェースは <code>window.antimatterWebUI</code> を <code>'fusion'</code> または <code>'classic'</code> に設定し、ページのルート要素にも <code>data-am-web-ui</code> として同じ値を設定します。Mattermost では、これらは設定されません。</p>
 <pre><code>export function isFusionUI(): boolean {
     return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
 }</code></pre>
-<p>バンドルアプリは、これを使用して異なる描画を行います。Pollsは、Fusionのスタイルで投票カードと作成ダイアログを描画し、Fusion内の<code>/poll</code>には独自のダイアログを開きます。CallsとVoice channelsは、Fusionが独自の通話インターフェースで置き換えるサイドバーとトーストコンポーネントを省略します。Agentsアプリは、ホバーツールバーではなく、メッセージメニューのサブメニューにAIアクションを配置します。Fusion独自のCSSクラス（<code>am-</code>プレフィックス付き）とダイアログレイヤー（<code>am-layer</code>要素）は、これらのアプリがインターフェースに合わせるために使用しますが、文書化された安定したAPIではありません。</p>
+<p>バンドルアプリはこれを使用して、異なる描画を行います。PollsはFusionのスタイルで投票カードと作成ダイアログを描画し、Fusion内の<code>/poll</code>には独自のダイアログを開きます。CallsとVoice channelsは、Fusionが独自の通話インターフェースで置き換えるサイドバーとトーストコンポーネントを省略します。Agentsアプリは、ホバーツールバーではなく、メッセージメニューのサブメニューにAIアクションを配置します。Fusion独自のCSSクラス（<code>am-</code>プレフィックス付き）とダイアログレイヤー（<code>am-layer</code>要素）は、これらのアプリがインターフェースに合わせるために使用しますが、文書化された安定したAPIではありません。</p>
 <h3>Fusionでプラグインコンポーネントが表示される場所</h3>
 <table>
 <thead><tr><th>レジストリメソッド</th><th>Fusionでの表示場所</th></tr></thead>
 <tbody>
-<tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>アプリレール（右端のアイコン列）で、アバターと<b>Antimatterについて</b>ボタンの間です。チャンネルヘッダーのボタンもここに表示され、チャンネルヘッダー内には表示されません。システム管理者が<b>App Barを無効にする</b>（<code>ExperimentalSettings.DisableAppBar</code>、デフォルトではオフ）をオンにした場合、非表示になります。</td></tr>
+<tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>アプリレール（右端のアイコン列）で、アバターと<b>Antimatterについて</b>ボタンの間です。チャンネルヘッダーのボタンもここに表示され、チャンネルヘッダー内ではありません。システム管理者が<b>App Barを無効にする</b>（<code>ExperimentalSettings.DisableAppBar</code>、デフォルトではオフ）をオンにした場合、非表示になります。</td></tr>
 <tr><td><code>registerRightHandSidebarComponent</code></td><td>右側パネルです。ユーザーはエッジをドラッグしてサイズを変更できます。アプリがプロダクトでもある場合、パネルには<b>ページ全体で開く</b>が提供されます。</td></tr>
-<tr><td><code>registerChannelHeaderIcon</code></td><td>通話ボタンの後のチャンネルヘッダー内のアイコンです。スマートフォンでは、ヘッダーの<b>さらに</b>メニュー内に表示されます。</td></tr>
+<tr><td><code>registerChannelHeaderIcon</code></td><td>チャンネルヘッダー内の通話ボタンの後のアイコンです。スマートフォンでは、ヘッダーの<b>さらに</b>メニュー内に表示されます。</td></tr>
 <tr><td><code>registerCallButtonAction</code></td><td>チャンネルヘッダーの通話ボタンです。複数のプロバイダーが<b>その他の通話方法</b>メニューを共有します。</td></tr>
 <tr><td><code>registerPostDropdownMenuAction</code></td><td>メッセージの<b>その他のアクション</b>（⋯）メニュー内の<b>メッセージアクション</b>サブメニューです。また、スレッドパネルの<b>スレッドの操作</b>メニュー内の<b>その他のアクション</b>の下にも表示されます。</td></tr>
 <tr><td><code>registerPostDropdownSubMenuAction</code></td><td>同じメニューの独自のサブメニューで、アプリ名とアイコンが表示されます。</td></tr>
 <tr><td><code>registerPostActionComponent</code></td><td>メッセージのホバーツールバーで、⋯ボタンの前です。</td></tr>
-<tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>メッセージ本体です。テキストの下、時間の後、リンクプレビューの代わりに表示されます。</td></tr>
-<tr><td><code>registerChannelHeaderMenuAction</code></td><td>チャンネルの<b>チャンネルオプション</b>メニュー（サイドバーのチャンネルの⋯または右クリック）で、プラグインアイコン付きの項目として表示されます。</td></tr>
-<tr><td><code>registerMainMenuAction</code></td><td>コミュニティメニュー（チャンネルリストの上部にあるコミュニティ名）の<b>その他のアクション</b>の下で、アプリごとにグループ化されています。</td></tr>
+<tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>メッセージ本体です。テキストの下、時刻の後、リンクプレビューの代わりに表示されます。</td></tr>
+<tr><td><code>registerChannelHeaderMenuAction</code></td><td>チャンネルの<b>チャンネルオプション</b>メニュー（サイドバーのチャンネルの⋯、または右クリック）で、プラグインアイコン付きの項目として表示されます。</td></tr>
+<tr><td><code>registerMainMenuAction</code></td><td>コミュニティメニュー（チャンネルリストの上部にあるコミュニティ名）で、<b>その他のアクション</b>の下にアプリごとにグループ化されて表示されます。</td></tr>
 <tr><td><code>registerSidebarBrowseOrAddChannelMenuAction</code></td><td>コミュニティメニューで、<b>チャンネルを作成</b>と<b>カテゴリを作成</b>の後です。</td></tr>
 <tr><td><code>registerFileUploadMethod</code></td><td>コンポーザーの<b>+</b>メニュー（<b>メッセージに追加</b>）で、<b>ファイルをアップロード</b>の後です。</td></tr>
-<tr><td><code>registerPostEditorActionComponent</code></td><td>フォーマット表示が有効な場合のコンポーザーのフォーマットバーです。</td></tr>
+<tr><td><code>registerPostEditorActionComponent</code></td><td>コンポーザーのフォーマットバーで、フォーマットが表示されている場合です。</td></tr>
 <tr><td><code>registerAIActionMenuItemComponent</code></td><td>コンポーザーの<b>AI</b>メニューです。</td></tr>
-<tr><td><code>registerFileDropdownMenuAction</code>, <code>registerFilePreviewComponent</code></td><td>ファイルのオプションメニューとファイルプレビューです。</td></tr>
+<tr><td><code>registerFileDropdownMenuAction</code>, <code>registerFilePreviewComponent</code></td><td>ファイルのオプションメニューと、ファイルプレビューです。</td></tr>
 <tr><td><code>registerUserSettings</code></td><td><b>プロフィール &amp; 設定</b>で、<b>プラグイン</b>の見出しの下にアプリごとに1つのタブがあります。</td></tr>
-<tr><td><code>registerChannelSettingsTab</code></td><td>チャンネル設定ダイアログの<b>アプリ</b>見出しの下です。</td></tr>
+<tr><td><code>registerChannelSettingsTab</code></td><td>チャンネル設定ダイアログで、<b>アプリ</b>の見出しの下です。</td></tr>
 <tr><td><code>registerPopoverUserAttributesComponent</code>, <code>registerPopoverUserActionsComponent</code></td><td>名前やアバターをクリックしたときに表示されるプロフィールカードです。</td></tr>
-<tr><td><code>registerLeftSidebarHeaderComponent</code>, <code>registerSidebarChannelLinkLabelComponent</code>, <code>registerChannelIconOverride</code>, <code>registerBottomTeamSidebarComponent</code></td><td>コミュニティのチャンネルリストの上部、チャンネル名とアイコンの横、および左側のコミュニティレールの下部。</td></tr>
-<tr><td><code>registerChannelIntro</code>, <code>registerChannelIntroButtonAction</code>, <code>registerChannelToastComponent</code>, <code>registerNewMessagesSeparatorActionComponent</code>, <code>registerChannelComposerBannerComponent</code>, <code>registerComposerPlaceholder</code></td><td>チャンネルの履歴の先頭、メッセージリストの上部、未読ライン、コンポーザーの上、およびコンポーザーのプレースホルダー。</td></tr>
+<tr><td><code>registerLeftSidebarHeaderComponent</code>, <code>registerSidebarChannelLinkLabelComponent</code>, <code>registerChannelIconOverride</code>, <code>registerBottomTeamSidebarComponent</code></td><td>コミュニティのチャンネルリストの上部、チャンネル名とアイコンの横、左側のコミュニティレールの下部。</td></tr>
+<tr><td><code>registerChannelIntro</code>, <code>registerChannelIntroButtonAction</code>, <code>registerChannelToastComponent</code>, <code>registerNewMessagesSeparatorActionComponent</code>, <code>registerChannelComposerBannerComponent</code>, <code>registerComposerPlaceholder</code></td><td>チャンネルの履歴の開始部分、メッセージリストの上部、未読ライン、コンポーザーの上、コンポーザーのプレースホルダー。</td></tr>
 <tr><td><code>registerChannelTypeOption</code></td><td><b>チャンネルを作成</b>ダイアログのチャンネルタイプ。</td></tr>
-<tr><td><code>registerSearchComponents</code></td><td>チャンネルヘッダーの検索ボックス：空の場合にアプリスコープが表示されます。</td></tr>
+<tr><td><code>registerSearchComponents</code></td><td>チャンネルヘッダーの検索ボックス：空欄の場合にアプリのスコープが表示されます。</td></tr>
 <tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>Antimatterについて</b>（アプリレールの下部）、<b>ヘルプ</b>の下。</td></tr>
-<tr><td><code>registerProduct</code></td><td>プロダクトのURLにある全ページ。<b>Antimatterについて</b>内の<b>プロダクト</b>にリストされています。プロダクトページは従来のページフレームを維持します。</td></tr>
-<tr><td><code>registerRootComponent</code>、<code>registerGlobalComponent</code>、<code>registerMessageWillBePostedHook</code>、<code>registerSlashCommandWillBePostedHook</code>、<code>registerMessageWillFormatHook</code>、<code>registerFilesWillUploadHook</code>、<code>registerDesktopNotificationHook</code>、<code>registerWebSocketEventHandler</code>、<code>registerReducer</code>、<code>registerTranslations</code>などのフック</td><td>従来のインターフェースと同様に動作します。</td></tr>
-<tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>システムコンソールは、両方のインターフェースで従来のものと同じです。</td></tr>
+<tr><td><code>registerProduct</code></td><td>プロダクトのURLにある全ページ。<b>Antimatterについて</b>内の<b>プロダクト</b>にリストされています。プロダクトページはクラシックなページフレームを維持します。</td></tr>
+<tr><td><code>registerRootComponent</code>、<code>registerGlobalComponent</code>、<code>registerMessageWillBePostedHook</code>、<code>registerSlashCommandWillBePostedHook</code>、<code>registerMessageWillFormatHook</code>、<code>registerFilesWillUploadHook</code>、<code>registerDesktopNotificationHook</code>、<code>registerWebSocketEventHandler</code>、<code>registerReducer</code>、<code>registerTranslations</code>などのフック</td><td>クラシックなインターフェースと同様に動作します。</td></tr>
+<tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>システムコンソール。両方のインターフェースでクラシックなものです。</td></tr>
 </tbody>
 </table>
 <h3>Fusionが表示または実行しないもの</h3>
 <ul>
-<li><code>registerPostDropdownMenuComponent</code>（メッセージメニュー内のコンポーネント）、<code>registerPostCardTypeComponent</code>（右側パネル内の投稿カード）、および<code>registerProductSwitcherMenuItem</code>は、Fusionのメインビューでは表示されません。最初のものではなく、代わりに<code>registerPostDropdownMenuAction</code>を使用してください。</li>
-<li><code>registerMessageWillBeUpdatedHook</code>は、Fusionでメッセージが編集されたときに実行されません。代わりに、<code>MessageWillBeUpdated</code>フックを使用してサーバー側で編集を確認してください。</li>
-<li><code>registerActionAfterChannelCreation</code>は、従来のチャンネル作成ダイアログからのみ実行されます。Fusionは、その<b>チャンネルを作成</b>ダイアログ内の<b>その他のオプション…</b>から従来のダイアログを開きます。</li>
+<li><code>registerPostDropdownMenuComponent</code>（メッセージメニュー内のコンポーネント）、<code>registerPostCardTypeComponent</code>（右側パネル内の投稿カード）、<code>registerProductSwitcherMenuItem</code>は、Fusionのメインビューでは表示されません。最初のものではなく、代わりに<code>registerPostDropdownMenuAction</code>を使用してください。</li>
+<li><code>registerMessageWillBeUpdatedHook</code>は、Fusionでメッセージが編集された際に実行されません。代わりに、<code>MessageWillBeUpdated</code>フックでサーバー側で編集を確認してください。</li>
+<li><code>registerActionAfterChannelCreation</code>は、クラシックなチャンネル作成ダイアログからのみ実行されます。Fusionは、その<b>チャンネルを作成</b>ダイアログ内の<b>その他のオプション…</b>からこれを開きます。</li>
 <li>アプリバーのコンポーネントは、<code>supportedProductIds</code>に関わらず表示されます。</li>
-<li><code>registerNeedsTeamRoute</code>および<code>registerCustomRoute</code>からのルートは、プロダクトと同様に従来のページフレームを維持します。</li>
+<li><code>registerNeedsTeamRoute</code>および<code>registerCustomRoute</code>からのルートは、プロダクトと同様にクラシックなページフレームを維持します。</li>
 </ul>
 
 <h2 id="antimatter-hooks">Antimatterにのみ存在するフック</h2>
-<p>これらのレジストリメソッドはMattermostには存在しません。アプリがMattermostでも動作するように、呼び出す前にメソッドの存在を確認してください：</p>
+<p>これらのレジストリメソッドはMattermostには存在しません。アプリがMattermostでも動作するように、呼び出す前にメソッドが存在するか確認してください：</p>
 <pre><code>if (typeof registry.registerComposerMenuItem === 'function') {
     registry.registerComposerMenuItem({
         text: 'Create a poll',
@@ -231,12 +231,12 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <tbody>
 <tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>両方のインターフェースで、メッセージボックスの<b>+</b>メニュー内の項目。<code>action</code>は<code>{channelId, rootId}</code>を受け取ります。</td></tr>
 <tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>メッセージボックスの絵文字ピッカーのタブです。GIFやステッカーなどが該当します。Fusionでは、<code>order</code>が10未満のタブは絵文字タブの前に表示されます。このコンポーネントは<code>channelId</code>、<code>rootId</code>、<code>filter</code>、<code>onFilterChange</code>、<code>onSelectDone</code>、<code>insertText</code>、<code>isFusion</code>を受け取ります。</td></tr>
-<tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>チャンネルヘッダーとメッセージの間のパネルです。<code>matcher(state, channel)</code>が選択したチャンネルに表示されます。音声チャンネルのように、メッセージとコンポーザーを非表示にすることもできます（<code>setMessagesVisible</code>）。</td></tr>
-<tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>サイドバーのチャンネルの下に表示される行です。例えば、通話に参加しているメンバーなどが該当します。<code>channel</code>を受け取ります。</td></tr>
-<tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Fusion専用: <b>統合機能</b>ページの項目で、カスタム絵文字の隣にあります。GIFアプリは、そのカスタムGIFやステッカーをここに追加します。</td></tr>
+<tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>チャンネルヘッダーとメッセージの間に配置されるパネルです。<code>matcher(state, channel)</code>が選択したチャンネルに表示されます。音声チャンネルのように、メッセージとコンポーザーを非表示にすることもできます（<code>setMessagesVisible</code>）。</td></tr>
+<tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>サイドバーのチャンネルの下に表示される行です。例えば、その通話に参加しているメンバーなどが該当します。<code>channel</code>を受け取ります。</td></tr>
+<tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Fusion専用: <b>統合機能</b>ページの項目で、カスタム絵文字の隣にあります。GIFアプリは、そのカスタムGIFやステッカーをここに表示します。</td></tr>
 </tbody>
 </table>
-<p><code>fusionIcon</code>は、Fusionのアイコンセットのアイコンを指定します（例: <code>poll</code>、<code>sticker</code>、<code>calendar</code>、<code>image</code>。詳細は<code>webapp/fusion/src/fusion/components/icon</code>を参照）。Fusionでは<code>icon</code>の代わりにこれを表示するため、他の項目と一貫性を保てます。</p>
+<p><code>fusionIcon</code>は、Fusionのアイコンセットのアイコンを指定します（例: <code>poll</code>、<code>sticker</code>、<code>calendar</code>、<code>image</code>。詳細は<code>webapp/fusion/src/fusion/components/icon</code>を参照）。Fusionでは<code>icon</code>の代わりにこれを表示するため、他の項目と一貫した外観になります。</p>
 
 <h2 id="settings">設定</h2>
 <p><code>plugin.json</code>内の<code>settings_schema</code>は、<b>システムコンソール › プラグイン</b>のアプリページを記述します:</p>
@@ -250,7 +250,7 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
      "help_text": "Post alerts in the channels that follow a city."}
   ]
 }</code></pre>
-<p>設定の種類: <code>bool</code>、<code>text</code>、<code>longtext</code>、<code>number</code>、<code>dropdown</code>、<code>radio</code>、<code>generated</code>（ランダムなシークレット）、<code>username</code>、<code>custom</code>（Webアプリ部分で<code>registerAdminConsoleCustomSetting</code>に登録されたコンポーネントによって描画されます）。設定は<code>sections</code>にグループ化できます。</p>
+<p>設定のタイプ: <code>bool</code>、<code>text</code>、<code>longtext</code>、<code>number</code>、<code>dropdown</code>、<code>radio</code>、<code>generated</code>（ランダムなシークレット）、<code>username</code>、<code>custom</code>（Webアプリ部分で<code>registerAdminConsoleCustomSetting</code>に登録したコンポーネントによって描画されます）。設定は<code>sections</code>にグループ化できます。</p>
 <p>サーバー部分は、キーと一致するフィールドを持つ構造体としてこれらを読み込みます:</p>
 <pre><code>type configuration struct {
 	ServiceURL   string
@@ -266,13 +266,13 @@ func (p *Plugin) OnConfigurationChange() error {
 	p.setConfiguration(&amp;cfg)
 	return nil
 }</code></pre>
-<p>管理者は、<code>PluginSettings.Plugins.&lt;app id&gt;</code>の下で設定ファイルにも設定できます（キーは小文字。詳細は<a href="{{root}}docs/admins/configuration.html#amctl">管理者ガイド</a>を参照）。</p>
+<p>管理者は、設定ファイルの<code>PluginSettings.Plugins.&lt;app id&gt;</code>の下でもこれらを設定できます（キーは小文字を使用。詳細は<a href="{{root}}docs/admins/configuration.html#amctl">管理者ガイド</a>を参照）。</p>
 
 <h2 id="translations">翻訳</h2>
-<p>Antimatterは37言語に翻訳されており、バンドルアプリも同様です。Webアプリ部分は次のように行います:</p>
+<p>Antimatterは37言語に翻訳されており、バンドルされたアプリも同様です。Webアプリ部分は次のように処理します:</p>
 <ol>
-<li>すべての文字列をReact Intlで記述し、IDと英語テキストを指定します: <code>&lt;FormattedMessage id='polls.create' defaultMessage='Create a poll'/&gt;</code>または<code>defineMessages</code>。IDにはアプリ名をプレフィックスとして付けます。</li>
-<li>英語の文字列を<code>webapp/i18n/en.json</code>に抽出します（バンドルアプリは<code>formatjs extract</code>を使用）。</li>
+<li>すべての文字列はReact Intlで記述し、IDと英語のテキストを指定します: <code>&lt;FormattedMessage id='polls.create' defaultMessage='Create a poll'/&gt;</code>または<code>defineMessages</code>。IDにはアプリ名をプレフィックスとして付与します。</li>
+<li>英語の文字列を<code>webapp/i18n/en.json</code>に抽出します（バンドルされたアプリは<code>formatjs extract</code>を使用）。</li>
 <li>同じIDを持つファイルを言語ごとに1つずつ隣に追加します: <code>fr.json</code>、<code>de.json</code>、<code>pt-BR.json</code>、<code>zh-CN.json</code>…</li>
 <li>Web アプリに渡します。Web アプリはユーザーの言語を要求します。
 <pre><code>import fr from '../i18n/fr.json';
@@ -286,28 +286,28 @@ export function translationsFor(locale) {
 
 registry.registerTranslations(translationsFor);</code></pre></li>
 </ol>
-<p>文字列が見つからない場合、<code>defaultMessage</code> の英語にフォールバックします。サーバー側が送信する文字列（コマンドの応答、ボットメッセージなど）については、<code>pluginapi/i18n</code> パッケージがバンドルに同梱されている翻訳ファイル（<code>assets/i18n</code> など）を読み込み、各ユーザーの言語に合わせたローカライザーを提供します。</p>
+<p>文字列が欠落している場合、<code>defaultMessage</code> の英語にフォールバックします。サーバー側が送信する文字列（コマンドの応答、ボットメッセージなど）については、<code>pluginapi/i18n</code> パッケージがバンドルに同梱されている翻訳ファイル（<code>assets/i18n</code> など）を読み込み、各ユーザーの言語に合わせたローカライザーを提供します。</p>
 
 <h2 id="build">ビルド、インストール、デバッグ</h2>
-<p>Go と Node.js（アプリの <code>.nvmrc</code> に記載されているバージョン）が必要です。アプリのフォルダ内で以下を実行します。</p>
+<p>Go と Node.js（アプリの <code>.nvmrc</code> に記載されているバージョン）が必要です。アプリのフォルダ内で実行します。</p>
 <table>
 <thead><tr><th>コマンド</th><th>機能</th></tr></thead>
 <tbody>
 <tr><td><code>make dist</code></td><td>すべてのプラットフォーム向けのサーバー部分と Web アプリ部分をビルドし、<code>dist/&lt;app id&gt;-&lt;version&gt;.tar.gz</code> にバンドルを書き出します。</td></tr>
 <tr><td><code>make test</code></td><td>Go と JavaScript のテストを実行します。</td></tr>
-<tr><td><code>make check-style</code></td><td>コードを Lint（golangci-lint、ESLint）し、TypeScript の型チェックを実行します。</td></tr>
+<tr><td><code>make check-style</code></td><td>コードを Lint（golangci-lint、ESLint）し、TypeScript の型チェックを行います。</td></tr>
 <tr><td><code>make deploy</code></td><td>ビルドした後、サーバー上にバンドルをインストールして有効化します。</td></tr>
 <tr><td><code>make watch</code>, <code>make deploy-from-watch</code></td><td>前者は保存するたびに Web アプリ部分を再ビルドし、後者はビルドした内容をバンドル化してサーバーにインストールします。</td></tr>
 <tr><td><code>make enable</code>, <code>make disable</code>, <code>make reset</code></td><td>サーバー上のアプリを有効化、無効化、または再起動します。</td></tr>
-<tr><td><code>make logs</code>, <code>make logs-watch</code></td><td>サーバーログ内のアプリ関連の行を表示します。</td></tr>
+<tr><td><code>make logs</code>, <code>make logs-watch</code></td><td>サーバーログの該当アプリの行を表示します。</td></tr>
 <tr><td><code>make attach</code></td><td>実行中のサーバー部分に Delve デバッガーをアタッチします（事前に <code>AM_DEBUG=1</code> でビルドしてください）。</td></tr>
 </tbody>
 </table>
-<p><code>make deploy</code> およびその他のサーバーコマンドは、ローカルモードのソケット（<code>/var/tmp/antimatter_local.socket</code> または <code>AM_LOCALSOCKETPATH</code>）が見つかった場合、それを使用します。その場合は、ローカルモードをオンにしてサーバーのマシン上で実行してください。見つからない場合は、<code>MM_SERVICESETTINGS_SITEURL</code> で指定されたサーバーに <code>AM_ADMIN_TOKEN</code>、または <code>AM_ADMIN_USERNAME</code> と <code>AM_ADMIN_PASSWORD</code> を使用してサインインします。ビルドツールは、サイト URL 用の <code>AM_</code> 接頭辞付きの環境変数を読み取っていません。</p>
-<h3>バンドルを手動でインストールする</h3>
+<p><code>make deploy</code> およびその他のサーバーコマンドは、ローカルモードのソケット（<code>/var/tmp/antimatter_local.socket</code> または <code>AM_LOCALSOCKETPATH</code>）が見つかった場合、それを使用します。その場合は、ローカルモードを有効にしたサーバーのマシン上で実行してください。見つからない場合は、<code>MM_SERVICESETTINGS_SITEURL</code> で指定されたサーバーに <code>AM_ADMIN_TOKEN</code>、または <code>AM_ADMIN_USERNAME</code> と <code>AM_ADMIN_PASSWORD</code> を使用してサインインします。ビルドツールは、サイト URL 用の <code>AM_</code> 接頭辞付きの環境変数を読み込む機能はまだありません。</p>
+<h3>バンドルの手動インストール</h3>
 <ul>
-<li>システム管理者は <code>AM_PLUGINSETTINGS_ENABLEUPLOADS=true</code> を設定することでアップロードを許可します（デフォルトでは無効で、システムコンソールには切り替えスイッチがありません）。</li>
-<li>その後、<b>システムコンソール › プラグイン › プラグイン管理 › プラグインをアップロードする</b> を選択するか、<code>amctl plugin add weather.tar.gz</code> を実行した後に <code>amctl plugin enable com.example.weather</code> を実行します。</li>
-<li>サーバーで <b>プラグイン署名が必要</b> がオンになっている場合、サーバーが信頼する鍵で署名されたバンドルのみを受け入れます。<a href="{{root}}docs/admins/apps.html#other-apps">その他のアプリのインストール</a> を参照してください。</li>
+<li>システム管理者は <code>AM_PLUGINSETTINGS_ENABLEUPLOADS=true</code> を設定することでアップロードを許可できます（デフォルトでは無効。システムコンソールには切り替えスイッチはありません）。</li>
+<li>その後、<b>システムコンソール › プラグイン › プラグイン管理 › プラグインをアップロードする</b> を選択するか、<code>amctl plugin add weather.tar.gz</code> を実行し、続いて <code>amctl plugin enable com.example.weather</code> を実行します。</li>
+<li>サーバーで <b>プラグイン署名が必要</b> が有効になっている場合、サーバーが信頼する鍵で署名されたバンドルのみを受け入れます。<a href="{{root}}docs/admins/apps.html#other-apps">その他のアプリのインストール</a> を参照してください。</li>
 </ul>
-<div class="callout">開発サーバーでの高速な反復開発のために、サーバー上で <code>AM_SERVICESETTINGS_ENABLEDEVELOPER=true</code> を設定してください。これにより、エラーに詳細情報が含まれるようになります。バンドルされたアプリの Makefile は、シェルで <code>MM_SERVICESETTINGS_ENABLEDEVELOPER</code> が設定されている場合のみ、現在のプラットフォーム向けのサーバー部分をビルドします。</div>
+<div class="callout">開発サーバーでの高速な反復開発のために、サーバーで <code>AM_SERVICESETTINGS_ENABLEDEVELOPER=true</code> を設定してください。これにより、エラーに詳細情報が含まれるようになります。バンドルされたアプリの Makefile は、シェルで <code>MM_SERVICESETTINGS_ENABLEDEVELOPER</code> が設定されている場合のみ、現在のプラットフォーム向けのサーバー部分をビルドします。</div>
