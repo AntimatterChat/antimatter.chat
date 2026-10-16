@@ -1,0 +1,122 @@
+title: Polecenia z ukośnikiem
+description: Niestandardowe polecenia z ukośnikiem w Antimatter: ich tworzenie, żądanie otrzymywane przez usługę, format odpowiedzi, odpowiedzi tymczasowe i w kanale, odpowiedzi z opóźnieniem oraz automatyczne uzupełnianie.
+guide: developers
+order: 4
+nav: Polecenia z ukośnikiem
+lead: Niestandardowe polecenie z ukośnikiem pozwala użytkownikom wpisać /coś w polu wiadomości, aby wywołać Twoją usługę. Antimatter przesyła polecenie na Twój adres URL i wyświetla odpowiedź – wyłącznie dla danej osoby lub dla całego kanału.
+source: 24dbc9730e62
+---
+<h2 id="how">Jak działa polecenie z ukośnikiem</h2>
+<ol>
+<li>Ktoś wpisuje <code>/weather Paris</code> i wysyła. Tekst nie jest publikowany.</li>
+<li>Antimatter wysyła żądanie HTTP na adres URL polecenia, zawierając dane o tym, kto je wpisał, gdzie oraz tekst po słowie wyzwalającym.</li>
+<li>Twoja usługa odpowiada w ramach limitu czasu żądania (domyślnie 30 sekund) wiadomością.</li>
+<li>Antimatter wyświetla odpowiedź: tylko dla tej osoby (tymczasowo) lub w kanale dla wszystkich.</li>
+</ol>
+<p>Polecenia należą do społeczności, a słowo wyzwalające jest w niej unikalne. Wbudowane polecenia, takie jak <code>/join</code>, <code>/msg</code> lub <code>/away</code>, nie mogą zostać zastąpione. Aplikacje (wtyczki) również mogą rejestrować polecenia; zobacz <a href="{{root}}docs/developers/apps.html#server">Część serwerowa</a>.</p>
+
+<h2 id="create">Utworzenie polecenia</h2>
+<p>Niestandardowe polecenia z ukośnikiem są domyślnie włączone (<b>Włącz Niestandardowe Polecenia z Ukośnikiem</b> w <b>Konsola systemu › Integracje › Zarządzanie Integracjami</b>, <code>ServiceSettings.EnableCommands</code>). Domyślnie mogą je tworzyć administratorzy społeczności i administratorzy systemu.</p>
+<ol>
+<li>Otwórz swój awatar w prawym górnym rogu, następnie <b>Integracje › Polecenia po ukośniku</b>, a potem <b>Dodaj Polecenie</b>.</li>
+<li>Wypełnij <b>Tytuł</b> i <b>Opis</b> (wyświetlane na stronach integracji).</li>
+<li>Wpisz <b>Słowo Wyzwalacza Polecenia</b>, bez ukośnika i bez spacji, na przykład <code>weather</code>.</li>
+<li>Wpisz <b>URL żądania</b> i wybierz <b>Metodę Zapytania</b>: <b>POST</b> (domyślnie) lub <b>GET</b>.</li>
+<li>Opcjonalnie ustaw <b>Nazwę użytkownika odpowiedzi</b> i <b>Ikona odpowiedzi</b>. Są one używane tylko wtedy, gdy serwer pozwala integracjom na nadpisywanie nazw i ikon (zobacz <a href="{{root}}docs/developers/webhooks.html#identity">Nazwa i ikona</a>).</li>
+<li>Zaznacz <b>Automatyczne uzupełnianie</b>, aby wykazać polecenie, gdy użytkownicy wpisują <code>/</code>, wraz z <b>Automatyczne uzupełnianie podpowiedzi</b> (jego argumentami, takimi jak <code>[city]</code>) i <b>Opis autouzupełniania</b>.</li>
+<li>Wybierz <b>Zapisz</b> i skopiuj wyświetlany token. Twoja usługa używa go do weryfikacji, że żądania pochodzą z Twojego serwera.</li>
+</ol>
+<p>Za pomocą API: <code>POST /api/v4/commands</code> z <code>{"team_id", "trigger", "url", "method": "P", "display_name", "description", "auto_complete": true, "auto_complete_hint", "auto_complete_desc", "username", "icon_url"}</code>. Metoda to <code>P</code> dla POST lub <code>G</code> dla GET. <code>PUT /api/v4/commands/{command_id}/regen_token</code> wydaje nowy token.</p>
+
+<h2 id="request">Żądanie otrzymywane przez usługę</h2>
+<p>Polecenie POST wysyła treść w formacie formularza (<code>application/x-www-form-urlencoded</code>); polecenie GET wysyła te same pola w ciągu zapytania. Token znajduje się również w nagłówku <code>Authorization: Token &lt;token&gt;</code>.</p>
+<table>
+<thead><tr><th>Pole</th><th>Wartość</th></tr></thead>
+<tbody>
+<tr><td><code>token</code></td><td>Token polecenia. Weryfikuj go przy każdym żądaniu.</td></tr>
+<tr><td><code>command</code></td><td>Wyzwalacz z ukośnikiem, na przykład <code>/weather</code>.</td></tr>
+<tr><td><code>text</code></td><td>Wszystko po wyzwalaczu, na przykład <code>Paris</code>.</td></tr>
+<tr><td><code>user_id</code>, <code>user_name</code></td><td>Kto wykonał polecenie.</td></tr>
+<tr><td><code>channel_id</code>, <code>channel_name</code></td><td>Gdzie zostało wykonane.</td></tr>
+<tr><td><code>team_id</code>, <code>team_domain</code></td><td>ID i nazwa URL przestrzeni roboczej.</td></tr>
+<tr><td><code>root_id</code></td><td>Wątek, jeśli polecenie zostało wykonane w polu odpowiedzi wątku.</td></tr>
+<tr><td><code>trigger_id</code></td><td>Umożliwia otwarcie okna dialogowego w odpowiedzi (patrz <a href="{{root}}docs/developers/bots.html#dialogs">Okna dialogowe</a>). Jest ważny tylko przez krótki czas.</td></tr>
+<tr><td><code>response_url</code></td><td>URL do wysłania kolejnych odpowiedzi później (patrz <a href="#delayed">Opóźnione odpowiedzi</a>).</td></tr>
+<tr><td><code>user_mentions</code>, <code>user_mentions_ids</code>, <code>channel_mentions</code>, <code>channel_mentions_ids</code></td><td>Osoby i kanały publiczne wzmiankowane w tekście, jeśli występują.</td></tr>
+</tbody>
+</table>
+<div class="callout">Aby niestandardowe polecenia mogły działać, w <b>URL strony</b> serwera musi być ustawiona wartość: Antimatter tworzy na jej podstawie <code>response_url</code>.</div>
+
+<h2 id="response">Odpowiedź</h2>
+<p>Odpowiedz kodem <code>200</code> z danymi JSON (<code>Content-Type: application/json</code>):</p>
+<pre><code>{
+  "response_type": "in_channel",
+  "text": "Paris: 18 °C, light rain",
+  "attachments": []
+}</code></pre>
+<table>
+<thead><tr><th>Pole</th><th>Znaczenie</th></tr></thead>
+<tbody>
+<tr><td><code>response_type</code></td><td><code>ephemeral</code> (domyślnie): tylko osoba, która wykonała polecenie, widzi odpowiedź, a ta nie jest zachowywana po odświeżeniu strony. <code>in_channel</code>: odpowiedź jest publikowana w kanale.</td></tr>
+<tr><td><code>text</code>, <code>attachments</code></td><td>Wiadomość, podobnie jak dla webhooków: tekst w Markdown oraz <a href="{{root}}docs/developers/webhooks.html#attachments">załączniki</a>, w tym przyciski i menu.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code></td><td>Nazwa i obrazek do wyświetlenia, jeśli są dozwolone nadpisy. Własne ustawienia polecenia mają pierwszeństwo przed nimi.</td></tr>
+<tr><td><code>channel_id</code></td><td>Opublikuj odpowiedź w innym kanale, którego użytkownik musi być członkiem.</td></tr>
+<tr><td><code>goto_location</code></td><td>URL do otwarcia po wykonaniu polecenia.</td></tr>
+<tr><td><code>props</code>, <code>type</code></td><td>Dodatkowe właściwości i niestandardowy typ posta, podobnie jak dla webhooków.</td></tr>
+<tr><td><code>extra_responses</code></td><td>Kolejne odpowiedzi, każda z tymi samymi polami, publikowane po pierwszej.</td></tr>
+<tr><td><code>skip_slack_parsing</code></td><td>Wartość <code>true</code> zachowuje tekst bez zmian, bez konwersji linków i wzmianek w stylu Slack.</td></tr>
+</tbody>
+</table>
+<p>Odpowiedź inna niż JSON jest wyświetlana jako wiadomość tymczasowa, a jej treść staje się tekstem wiadomości. Kod <code>204 No Content</code> nie wyświetla niczego. Każdy kod statusu spoza zakresu 200–299 wyświetla użytkownikowi błąd.</p>
+
+<h2 id="example">Przykładowa usługa</h2>
+<p>Minimalna usługa polecenia w Pythonie, korzystająca wyłącznie z biblioteki standardowej:</p>
+<pre><code>import hmac
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
+
+TOKEN = "the token shown when you saved the command"
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        form = {key: values[0] for key, values in parse_qs(body).items()}
+        if not hmac.compare_digest(form.get("token", ""), TOKEN):
+            self.send_response(401)
+            self.end_headers()
+            return
+        answer = {
+            "response_type": "ephemeral",
+            "text": f"Hello @{form['user_name']}, you asked for: {form.get('text', '')}",
+        }
+        data = json.dumps(answer).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(data)
+
+HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()</code></pre>
+<p>Jeśli usługa działa na adresie prywatnej sieci, administrator systemu musi ją dozwolić w <b>Pozwól na niezaufane połączenia wewnętrzne do</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>).</p>
+
+<h2 id="delayed">Opóźnione odpowiedzi</h2>
+<p>W przypadku pracy, która trwa dłużej niż limit czasu, odpowiedz od razu (na przykład efemerycznym „Pracuję nad tym…”), a następnie wyślij właściwą odpowiedź metodą POST na <code>response_url</code>. Przyjmuje ten sam JSON co odpowiedź i działa do 5 razy w ciągu 30 minut od polecenia.</p>
+<pre><code>curl -X POST "$RESPONSE_URL" -H 'Content-Type: application/json' \
+  -d '{"response_type": "in_channel", "text": "Report ready: https://reports.example.com/42"}'</code></pre>
+
+<h2 id="run">Uruchomienie polecenia za pomocą API</h2>
+<p>Skrypty i boty mogą uruchamiać dowolne polecenie, wbudowane lub niestandardowe, tak jakby je wpisali:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/commands/execute \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "command": "/weather Paris"}'</code></pre>
+<p><code>GET /api/v4/teams/{team_id}/commands/autocomplete</code> wyświetla listę poleceń, które użytkownicy mogą uzupełniać automatycznie w społeczności.</p>
+
+<h2 id="autocomplete">Uzupełnianie automatyczne</h2>
+<p>Polecenia utworzone na stronach integracji są uzupełniane automatycznie na podstawie wyzwalacza, podpowiedzi i opisu. Polecenia zarejestrowane przez aplikacje mogą szczegółowo opisywać swoje podpolecenia i argumenty za pomocą <code>AutocompleteData</code>, od <code>model.NewAutocompleteData(trigger, hint, helpText)</code>:</p>
+<ul>
+<li><code>AddCommand(sub)</code> dodaje podpolecenie, które jest również <code>AutocompleteData</code>.</li>
+<li><code>AddTextArgument(helpText, hint, pattern)</code> dodaje dowolny tekst.</li>
+<li><code>AddStaticListArgument(helpText, required, items)</code> oferuje stałą listę <code>AutocompleteListItem{Item, Hint, HelpText}</code>.</li>
+<li><code>AddDynamicListArgument(helpText, url, required)</code> prosi Twoją aplikację o podpowiedzi podczas pisania. Adres URL to trasa Twojej aplikacji, np. <code>/plugins/com.example.weather/cities</code>. Otrzymuje użytkownika, kanał i społeczność, a zwraca listę JSON z elementami <code>{"Item", "Hint", "HelpText"}</code>.</li>
+</ul>
+<p>Warianty <code>Named…</code> (takie jak <code>AddNamedTextArgument</code> i inne) dodają flagi <code>--name value</code>. Oba interfejsy sieciowe wyświetlają te podpowiedzi.</p>

@@ -1,0 +1,313 @@
+title: Scrierea aplicațiilor (pluginuri)
+description: Cum să scrieți o aplicație Antimatter (plugin): structura pachetului și fișierul plugin.json, hook-urile și API-ul serverului, registrul aplicației web, suportul pentru interfața Fusion, setările, stocarea cheie-valoare, traducerile, împachetarea și instalarea.
+guide: developers
+order: 6
+nav: Scrierea aplicațiilor
+lead: Aplicațiile adaugă funcționalități în interiorul Antimatter: o parte de server în Go care se integrează în server și o parte de aplicație web în React care adaugă meniuri, panouri, tipuri de mesaje și pagini. Această pagină arată cum este structurată o aplicație, folosind aplicația Polls inclusă ca exemplu, și ce se schimbă în interfața Fusion a Antimatter.
+source: d9c132cac759
+---
+<h2 id="overview">Cum funcționează o aplicație</h2>
+<ul>
+<li><b>Partea de server</b> este un program Go. Serverul îl pornește ca un proces separat și comunică cu el prin RPC: apelează <b>hook-urile</b> aplicației (un mesaj este pe cale să fie publicat, o comandă a fost executată...) și aplicația apelează <b>API-ul de plugin</b> al serverului (creare post, citire utilizator, stocare date...). Poate, de asemenea, să servească rute HTTP sub <code>/plugins/&lt;app id&gt;/</code>.</li>
+<li><b>Partea de aplicație web</b> este un pachet JavaScript încărcat în browser împreună cu aplicația web. Înregistrează componente React și callback-uri în <b>registrul</b>: un buton într-un meniu, un panou, o metodă de a desena un tip de mesaj.</li>
+<li>Orice parte este opțională. O aplicație este instalată ca un pachet <code>.tar.gz</code>, iar administratorii de sistem o activează, dezactivează și o configurează.</li>
+</ul>
+<div class="callout warn">Partea de server rulează cu acces complet la datele serverului. Tratați o aplicație ca pe un cod pe care îl distribuiți pe server.</div>
+<p>Antimatter rulează aplicațiile scrise pentru Mattermost și invers, atâta timp cât o aplicație folosește doar hook-uri pe care ambele le au. Consultați <a href="#antimatter-hooks">Hook-uri doar în Antimatter</a>.</p>
+
+<h2 id="layout">Structura pachetului</h2>
+<p>Nu există un șablon de pornire separat: porniți de la o aplicație mică inclusă, cum ar fi <a href="https://github.com/AntimatterChat/antimatter-plugin-polls">antimatter-plugin-polls</a> sau <a href="https://github.com/AntimatterChat/antimatter-plugin-todo">antimatter-plugin-todo</a>, și modificați ID-ul și codul acesteia. Polls este structurat astfel:</p>
+<pre><code>antimatter-plugin-polls/
+├── plugin.json            the manifest
+├── Makefile               build, test, bundle, deploy
+├── build/                 the manifest and pluginctl helper tools (Go), setup.mk
+├── assets/icon.svg        files shipped with the bundle
+├── go.mod
+├── server/
+│   ├── main.go            plugin.ClientMain(&amp;Plugin{})
+│   ├── plugin.go          the Plugin type, OnActivate, ServeHTTP
+│   ├── manifest.go        generated from plugin.json
+│   ├── api.go, command.go, hooks.go, store.go …
+│   └── dist/              compiled binaries, one per platform
+└── webapp/
+    ├── package.json, webpack.config.js, tsconfig.json
+    ├── i18n/              en.json and one file per language
+    ├── src/index.tsx      registers the app with the web app
+    ├── src/manifest.ts    generated from plugin.json
+    ├── src/translations.ts
+    └── dist/main.js       the bundle</code></pre>
+<p>Opțional: un folder <code>public/</code>, servit direct la <code>/plugins/&lt;app id&gt;/public/</code>.</p>
+
+<h2 id="manifest">plugin.json</h2>
+<pre><code>{
+  "id": "com.example.weather",
+  "name": "Weather",
+  "description": "Forecasts in the chat.",
+  "homepage_url": "https://github.com/example/weather",
+  "support_url": "https://github.com/example/weather/issues",
+  "icon_path": "assets/icon.svg",
+  "version": "1.0.0",
+  "min_server_version": "12.0.0",
+  "server": {
+    "executables": {
+      "linux-amd64": "server/dist/plugin-linux-amd64",
+      "linux-arm64": "server/dist/plugin-linux-arm64",
+      "darwin-amd64": "server/dist/plugin-darwin-amd64",
+      "darwin-arm64": "server/dist/plugin-darwin-arm64",
+      "windows-amd64": "server/dist/plugin-windows-amd64.exe"
+    }
+  },
+  "webapp": {"bundle_path": "webapp/dist/main.js"},
+  "settings_schema": {"settings": []}
+}</code></pre>
+<ul>
+<li><code>id</code>: unic și permanent; un nume de domeniu inversat este uzual. Numește rutele, setările stocate și evenimentele WebSocket.</li>
+<li><code>version</code>: versiune semantică. Aplicațiile incluse lasă acest câmp în afara <code>plugin.json</code>; instrumentul de construcție îl preia din ultima etichetă git <code>v*</code>.</li>
+<li><code>min_server_version</code>: Antimatter raportează <code>12.0.0</code>.</li>
+<li><code>settings_schema</code>: pagina de setări a aplicației din Consola de sistem (a se vedea <a href="#settings">Setări</a>).</li>
+</ul>
+<p><code>make apply</code> copiază manifestul în <code>server/manifest.go</code> și <code>webapp/src/manifest.ts</code>; <code>make manifest-check</code> îl validează.</p>
+
+<h2 id="server">Partea de server</h2>
+<p>Partea de server importă același modul Go ca aplicațiile Mattermost, <code>github.com/mattermost/mattermost/server/public</code>, din proxiful de module Go. Funcția sa <code>main</code> doar pornește aplicația:</p>
+<pre><code>package main
+
+import "github.com/mattermost/mattermost/server/public/plugin"
+
+func main() {
+	plugin.ClientMain(&amp;Plugin{})
+}</code></pre>
+<p>Tipul <code>Plugin</code> încorporează <code>plugin.MattermostPlugin</code>, ceea ce îi oferă <code>p.API</code>, și implementează hook-urile de care are nevoie:</p>
+<pre><code>type Plugin struct {
+	plugin.MattermostPlugin
+	router *mux.Router
+}
+
+func (p *Plugin) OnActivate() error {
+	p.router = p.newRouter()
+	return p.API.RegisterCommand(&amp;model.Command{
+		Trigger:          "weather",
+		AutoComplete:     true,
+		AutoCompleteDesc: "Show the forecast",
+		AutoCompleteHint: "[city]",
+	})
+}
+
+func (p *Plugin) ExecuteCommand(c *plugin.Context, args *model.CommandArgs) (*model.CommandResponse, *model.AppError) {
+	city := strings.TrimSpace(strings.TrimPrefix(args.Command, "/weather"))
+	return &amp;model.CommandResponse{
+		ResponseType: model.CommandResponseTypeEphemeral,
+		Text:         "Forecast for " + city + ": sunny",
+	}, nil
+}
+
+func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Request) {
+	p.router.ServeHTTP(w, r)
+}</code></pre>
+<h3>Hook-uri comune</h3>
+<table>
+<thead><tr><th>Hook</th><th>Când se execută</th></tr></thead>
+<tbody>
+<tr><td><code>OnActivate</code>, <code>OnDeactivate</code></td><td>Când aplicația este activată sau dezactivată, și când serverul pornește și se oprește. Înregistrează comenzi și bot-uri în <code>OnActivate</code>.</td></tr>
+<tr><td><code>OnConfigurationChange</code></td><td>Când setările se modifică; încarcă-le cu <code>p.API.LoadPluginConfiguration(&amp;cfg)</code>.</td></tr>
+<tr><td><code>ServeHTTP</code></td><td>Cereri către <code>/plugins/&lt;app id&gt;/…</code>. Serverul setează antetul <code>Mattermost-User-Id</code> când cererea vine de la un utilizator autentificat; refuză cererile fără acest antet, cu excepția celor destinate să fie publice.</td></tr>
+<tr><td><code>ExecuteCommand</code></td><td>O comandă înregistrată de aplicație a fost executată.</td></tr>
+<tr><td><code>MessageWillBePosted</code>, <code>MessageWillBeUpdated</code></td><td>Înainte ca un mesaj să fie salvat: returnează un post modificat, sau un motiv pentru a-l respinge.</td></tr>
+<tr><td><code>MessageHasBeenPosted</code>, <code>MessageHasBeenUpdated</code>, <code>MessageHasBeenDeleted</code></td><td>A posteriori, pentru efecte secundare.</td></tr>
+<tr><td><code>ReactionHasBeenAdded</code>, <code>ReactionHasBeenRemoved</code></td><td>Reacții.</td></tr>
+<tr><td><code>UserHasJoinedChannel</code>, <code>UserHasLeftChannel</code>, <code>UserHasJoinedTeam</code>, <code>UserHasLeftTeam</code>, <code>ChannelHasBeenCreated</code></td><td>Modificări de apartenență și de canal. O echipă este o comunitate.</td></tr>
+<tr><td><code>FileWillBeUploaded</code></td><td>Înainte ca un fișier să fie stocat: modifică-l sau respinge-l.</td></tr>
+<tr><td><code>OnPluginClusterEvent</code></td><td>Un mesaj de la aceeași aplicație de pe un alt server dintr-un cluster.</td></tr>
+</tbody>
+</table>
+<p>Lista completă, cu semnăturile exacte, se găsește în <code>server/public/plugin/hooks.go</code>; API-ul este în <code>server/public/plugin/api.go</code>. Pachetul <code>pluginapi</code> (<code>server/public/pluginapi</code>) împachetează API-ul în helperi mai prietenoși.</p>
+<h3>Apeluri utile la API</h3>
+<ul>
+<li><code>CreatePost</code>, <code>UpdatePost</code>, <code>SendEphemeralPost</code>: postează în numele bot-ului aplicației sau în numele unui utilizator.</li>
+<li><code>EnsureBotUser(&amp;model.Bot{Username, DisplayName})</code>: creează bot-ul aplicației o singură dată și obține ID-ul acestuia.</li>
+<li><code>PublishWebSocketEvent("poll_updated", payload, &amp;model.WebsocketBroadcast{ChannelId: id})</code>: trimite un eveniment către aplicația web. Acesta sosește sub forma <code>custom_&lt;app id&gt;_poll_updated</code>.</li>
+<li><code>OpenInteractiveDialog</code>: deschide un <a href="{{root}}docs/developers/bots.html#dialogs">dialog</a>.</li>
+<li><code>LogInfo</code>, <code>LogError</code> și altele: scrie în jurnalul serverului, etichetat cu ID-ul aplicației.</li>
+<li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: verifică cine poate face ce, înainte de a acționa în numele unui utilizator.</li>
+</ul>
+<p>O aplicație rulează pe fiecare server din cluster. Păstrați starea în magazinul de perechi cheie-valoare sau în baza de date, nu doar în memorie.</p>
+
+<h2 id="kv">Stocarea datelor</h2>
+<p>Fiecare aplicație are propriul magazin de perechi cheie-valoare în baza de date a serverului:</p>
+<ul>
+<li><code>KVSet(key, value)</code>, <code>KVGet(key)</code>, <code>KVDelete(key)</code>: valorile sunt octeți, de obicei JSON. Cheile au cel mult 150 de caractere.</li>
+<li><code>KVSetWithExpiry(key, value, seconds)</code>: valoarea dispare după acest interval de timp.</li>
+<li><code>KVCompareAndSet(key, old, new)</code> și <code>KVSetWithOptions</code> cu <code>Atomic</code>: actualizări sigure atunci când mai multe cereri sau servere scriu aceeași cheie. Sondaj salvează fiecare vot în acest mod și reîncearcă în caz de conflict.</li>
+<li><code>KVList(page, perPage)</code>: cheile, pagină cu pagină.</li>
+</ul>
+
+<h2 id="webapp">Partea de aplicație web</h2>
+<p>Pachetul înregistrează o clasă cu <code>window.registerPlugin</code>. Metoda sa <code>initialize</code> primește registrul și stocul Redux:</p>
+<pre><code>import manifest from './manifest';
+
+class Plugin {
+    initialize(registry, store) {
+        registry.registerTranslations((locale) =&gt; translationsFor(locale));
+        registry.registerPostTypeComponent('custom_poll', PollPost);
+        registry.registerWebSocketEventHandler(`custom_${manifest.id}_poll_updated`, (msg) =&gt; {
+            store.dispatch(pollUpdated(JSON.parse(msg.data.poll)));
+        });
+        registry.registerReconnectHandler(() =&gt; store.dispatch(reloadPolls()));
+    }
+}
+
+window.registerPlugin(manifest.id, new Plugin());</code></pre>
+<ul>
+<li><b>Biblioteci partajate.</b> Aplicația web oferă React, ReactDOM, Redux, React Redux și React Intl: enumerați-le ca <code>externals</code> în webpack (<code>React</code>, <code>ReactDOM</code>, <code>Redux</code>, <code>ReactRedux</code>, <code>ReactIntl</code>) în loc de a include copiile proprii. Consultați <code>webpack.config.js</code> al Sondaj.</li>
+<li><b>Apelarea părții de server.</b> Folosiți Fetch pentru <code>${window.basename}/plugins/&lt;app id&gt;/…</code> cu opțiunile din <code>Client4.getOptions()</code> (din <code>mattermost-redux/client</code>): acestea conțin anteturile de care serverul are nevoie pentru a accepta o cerere din browser.</li>
+<li><b>Starea proprie.</b> <code>registerReducer</code> adaugă un reducer, stocat sub <code>state['plugins-&lt;app id&gt;']</code>.</li>
+<li><b>Tipuri.</b> Metodele suplimentare ale registrului din Antimatter nu se află în tipurile publicate de Mattermost: Sondaj declară registrul pe care îl utilizează în <code>webapp/src/types/host.ts</code>.</li>
+</ul>
+<p>Metodele registrului și parametrii lor sunt documentați în cod, în <code>webapp/fusion/src/plugins/registry.ts</code> (Fusion) și <code>webapp/channels/src/plugins/registry.ts</code> (clasic).</p>
+
+<h2 id="fusion">Suportul pentru interfața Fusion</h2>
+<p>Antimatter are două interfețe web: Fusion, cea implicită, și cea clasică. Ambele încarcă aceleași pachete de aplicații și au același registru, dar Fusion desenează multe elemente singură și plasează componentele pluginurilor în propriul mod. Testați aplicația în ambele.</p>
+<h3>Detectarea interfeței</h3>
+<p>Înainte de încărcarea oricărei aplicații, ambele interfețe setează <code>window.antimatterWebUI</code> la <code>'fusion'</code> sau <code>'classic'</code>, și aceeași valoare pe elementul rădăcină al paginii ca <code>data-am-web-ui</code>. În Mattermost, niciuna dintre ele nu este setată.</p>
+<pre><code>export function isFusionUI(): boolean {
+    return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
+}</code></pre>
+<p>Aplicațiile incluse folosesc acest lucru pentru a fi desenate diferit. Sondajul își desenează cardurile și dialogul de creare în stilul Fusion, iar în Fusion deschide propriul dialog pentru <code>/poll</code>. Apelurile și canalele vocale omit componentele de bară laterală și notificări (toast) pe care le înlocuiește Fusion cu propriul interfață de apel. Aplicația Agenți își plasează acțiunile AI într-un submeniu al meniului mesaj, în loc de bara de instrumente la trecerea cu mouse-ul. Clasele CSS proprii ale Fusion (cu prefixul <code>am-</code>) și stratul de dialog (elementul <code>am-layer</code>) sunt cele pe care aceste aplicații le folosesc pentru a se potrivi interfeței; ele nu constituie o API documentată și stabilă.</p>
+<h3>Unde afișează Fusion componentele plugin-urilor</h3>
+<table>
+<thead><tr><th>Metoda de registru</th><th>Unde apare în Fusion</th></tr></thead>
+<tbody>
+<tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>Bara de aplicații, coloana de iconițe de pe marginea dreaptă, între avatarul tău și butonul <b>Despre Antimatter</b>. Butoanele din antetul canalului se află, de asemenea, acolo, nu în antetul canalului. Este ascunsă când un administrator de sistem activează <b>Dezactivează bara de aplicații</b> (<code>ExperimentalSettings.DisableAppBar</code>, dezactivată implicit).</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>Panoul din dreapta. Utilizatorii îl pot redimensiona trăgând de margine. Dacă aplicația este, de asemenea, un produs, panoul oferă opțiunea <b>Deschide ca pagină completă</b>.</td></tr>
+<tr><td><code>registerChannelHeaderIcon</code></td><td>Iconițe în antetul canalului, după butoanele de apel; pe telefoane, în meniul <b>Mai multe</b> din antet.</td></tr>
+<tr><td><code>registerCallButtonAction</code></td><td>Butonul de apel din antetul canalului; mai mulți furnizori partajează un meniu <b>Alte moduri de apelare</b>.</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>Meniul <b>Mai multe actiuni</b> (⋯) al mesajului, într-un submeniu <b>Acțiuni mesaj</b>; de asemenea, în meniul <b>Acțiuni pentru firul de discuție</b> al panoului de fir de discuție, sub <b>Mai multe actiuni</b>.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Un submeniu propriu al aceluiași meniu, cu numele și iconița aplicației.</td></tr>
+<tr><td><code>registerPostActionComponent</code></td><td>Bara de instrumente la trecerea cu mouse-ul peste mesaj, înaintea butonului ⋯.</td></tr>
+<tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>Mesajul însuși: corpul său, sub text, după oră și în locul previzualizărilor de link-uri.</td></tr>
+<tr><td><code>registerChannelHeaderMenuAction</code></td><td>Meniul <b>Opțiuni de canal</b> al canalului (⋯ pe un canal din bara laterală, sau clic dreapta), ca elemente cu iconiță de priză.</td></tr>
+<tr><td><code>registerMainMenuAction</code></td><td>Meniul comunității (numele comunității de susul listei de canale), sub <b>Mai multe actiuni</b>, grupat după aplicație.</td></tr>
+<tr><td><code>registerSidebarBrowseOrAddChannelMenuAction</code></td><td>Meniul comunității, după <b>Creează un canal</b> și <b>Creează o categorie</b>.</td></tr>
+<tr><td><code>registerFileUploadMethod</code></td><td>Meniul <b>+</b> al compozitorului (<b>Adaugă la mesaj</b>), după <b>Încarcă un fișier</b>.</td></tr>
+<tr><td><code>registerPostEditorActionComponent</code></td><td>Bara de formatare a compozitorului, când formatarea este afișată.</td></tr>
+<tr><td><code>registerAIActionMenuItemComponent</code></td><td>Meniul <b>AI</b> al compozitorului.</td></tr>
+<tr><td><code>registerFileDropdownMenuAction</code>, <code>registerFilePreviewComponent</code></td><td>Meniul de opțiuni al unui fișier și previzualizarea fișierului.</td></tr>
+<tr><td><code>registerUserSettings</code></td><td><b>Profil și setări</b>, un tab per aplicație sub titlul <b>Plugin-uri</b>.</td></tr>
+<tr><td><code>registerChannelSettingsTab</code></td><td>Dialogul de setări ale canalului, sub titlul <b>Aplicații</b>.</td></tr>
+<tr><td><code>registerPopoverUserAttributesComponent</code>, <code>registerPopoverUserActionsComponent</code></td><td>Cartea de profil afișată când faci clic pe un nume sau un avatar.</td></tr>
+<tr><td><code>registerLeftSidebarHeaderComponent</code>, <code>registerSidebarChannelLinkLabelComponent</code>, <code>registerChannelIconOverride</code>, <code>registerBottomTeamSidebarComponent</code></td><td>Partea de sus a listei de canale a unei comunități, lângă numele canalului, lângă pictograma canalului și partea de jos a barei laterale a comunității, din stânga.</td></tr>
+<tr><td><code>registerChannelIntro</code>, <code>registerChannelIntroButtonAction</code>, <code>registerChannelToastComponent</code>, <code>registerNewMessagesSeparatorActionComponent</code>, <code>registerChannelComposerBannerComponent</code>, <code>registerComposerPlaceholder</code></td><td>Începutul istoricului unui canal, partea de sus a listei de mesaje, linia de necitite, deasupra compozitorului și textul de plasare al compozitorului.</td></tr>
+<tr><td><code>registerChannelTypeOption</code></td><td>Tipurile de canale din dialogul <b>Creează un canal</b>.</td></tr>
+<tr><td><code>registerSearchComponents</code></td><td>Câmpul de căutare din antetul canalului: ariile de acoperire ale aplicațiilor apar când este gol.</td></tr>
+<tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>Despre Antimatter</b> (partea de jos a barei laterale a aplicației), sub <b>Ajutor</b>.</td></tr>
+<tr><td><code>registerProduct</code></td><td>Pagini complete la adresa URL a produsului, listate sub <b>Produse</b> în <b>Despre Antimatter</b>. Paginile de produse păstrează cadrul clasic al paginii.</td></tr>
+<tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, hook-uri precum <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>Funcționează la fel ca în interfața clasică.</td></tr>
+<tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>Consola de sistem, care este cea clasică în ambele interfețe.</td></tr>
+</tbody>
+</table>
+<h3>Ce nu afișează sau nu rulează Fusion</h3>
+<ul>
+<li><code>registerPostDropdownMenuComponent</code> (un component din meniul mesajului), <code>registerPostCardTypeComponent</code> (un card al unui mesaj în panoul din dreapta) și <code>registerProductSwitcherMenuItem</code> nu sunt afișate în vederea principală a Fusion. Folosiți <code>registerPostDropdownMenuAction</code> în locul primului.</li>
+<li><code>registerMessageWillBeUpdatedHook</code> nu rulează când un mesaj este editat în Fusion. Verificați editările pe server cu hook-ul <code>MessageWillBeUpdated</code> în schimb.</li>
+<li><code>registerActionAfterChannelCreation</code> rulează doar din dialogul clasic de creare de canal, pe care Fusion îl deschide din <b>Mai multe opțiuni…</b> în dialogul său <b>Creează un canal</b>.</li>
+<li>Componentele barei de aplicații sunt afișate indiferent de <code>supportedProductIds</code>.</li>
+<li>Rutele din <code>registerNeedsTeamRoute</code> și <code>registerCustomRoute</code> păstrează cadrul clasic al paginii, la fel ca produsele.</li>
+</ul>
+
+<h2 id="antimatter-hooks">Hook-uri pe care le are doar Antimatter</h2>
+<p>Aceste metode de registru nu există în Mattermost. Verificați dacă o metodă există înainte de a o apela, astfel încât aplicația să funcționeze și acolo:</p>
+<pre><code>if (typeof registry.registerComposerMenuItem === 'function') {
+    registry.registerComposerMenuItem({
+        text: 'Create a poll',
+        icon: &lt;i className='icon icon-chart-bar'/&gt;,
+        fusionIcon: 'poll',
+        action: ({channelId, rootId}) =&gt; openPollCreation(channelId, rootId),
+    });
+} else {
+    registry.registerChannelHeaderButtonAction(icon, (channel) =&gt; openPollCreation(channel.id), 'Create a poll', 'Create a poll');
+}</code></pre>
+<table>
+<thead><tr><th>Metodă</th><th>Ce adaugă</th></tr></thead>
+<tbody>
+<tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>Un element din meniul <b>+</b> al casetei de mesaje, în ambele interfețe. <code>action</code> primește <code>{channelId, rootId}</code>.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>O filă a selectorului de emoji din caseta de mesaje, cum ar fi GIF-urile sau stickerele. În Fusion, fișele cu o valoare a <code>order</code> mai mică decât 10 apar înaintea filării Emoji. Componenta primește <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> și <code>isFusion</code>.</td></tr>
+<tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>Un panou situat între antetul canalului și mesaje, destinat canalelor selectate de <code>matcher(state, channel)</code>. Poate ascunde mesajele și compozitorul (<code>setMessagesVisible</code>), așa cum fac canalele vocale.</td></tr>
+<tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>O linie situată sub un canal în bara laterală, cum ar fi persoanele din apelul său. Primește <code>channel</code>.</td></tr>
+<tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Doar în Fusion: o intrare din paginile <b>Integrări</b>, lângă emoji-urile personalizate. Aplicația GIF adaugă acolo GIF-urile și stickerele sale personalizate.</td></tr>
+</tbody>
+</table>
+<p><code>fusionIcon</code> numește o icoană din setul de iconițe Fusion (de exemplu <code>poll</code>, <code>sticker</code>, <code>calendar</code> sau <code>image</code>; consultați <code>webapp/fusion/src/fusion/components/icon</code>). Fusion o afișează în locul <code>icon</code>, astfel încât elementul să fie coerent cu celelalte.</p>
+
+<h2 id="settings">Setări</h2>
+<p><code>settings_schema</code> din <code>plugin.json</code> descrie pagina aplicației din <b>Consola de sistem › Plugin-uri</b>:</p>
+<pre><code>"settings_schema": {
+  "header": "Forecasts come from the weather service below.",
+  "settings": [
+    {"key": "ServiceURL", "display_name": "Service URL", "type": "text", "default": "https://api.example.com"},
+    {"key": "Units", "display_name": "Units", "type": "dropdown", "default": "metric",
+     "options": [{"display_name": "Celsius", "value": "metric"}, {"display_name": "Fahrenheit", "value": "imperial"}]},
+    {"key": "EnableAlerts", "display_name": "Severe weather alerts", "type": "bool", "default": false,
+     "help_text": "Post alerts in the channels that follow a city."}
+  ]
+}</code></pre>
+<p>Tipuri de setări: <code>bool</code>, <code>text</code>, <code>longtext</code>, <code>number</code>, <code>dropdown</code>, <code>radio</code>, <code>generated</code> (un secret aleatoriu), <code>username</code> și <code>custom</code> (desenat de o componentă înregistrată de partea de aplicație web prin <code>registerAdminConsoleCustomSetting</code>). Setările pot fi grupate în <code>sections</code>.</p>
+<p>Partea de server le citește într-o structură ale cărei câmpuri corespund cheilor:</p>
+<pre><code>type configuration struct {
+	ServiceURL   string
+	Units        string
+	EnableAlerts bool
+}
+
+func (p *Plugin) OnConfigurationChange() error {
+	var cfg configuration
+	if err := p.API.LoadPluginConfiguration(&amp;cfg); err != nil {
+		return err
+	}
+	p.setConfiguration(&amp;cfg)
+	return nil
+}</code></pre>
+<p>Administratorii le pot configura și în configurație, sub <code>PluginSettings.Plugins.&lt;app id&gt;</code>, cu chei în litere mici (consultați <a href="{{root}}docs/admins/configuration.html#amctl">ghidul pentru administratori</a>).</p>
+
+<h2 id="translations">Traduceri</h2>
+<p>Antimatter este tradus în 37 de limbi, iar aplicațiile incluse, de asemenea. Partea de aplicație web face acest lucru astfel:</p>
+<ol>
+<li>Scrieți fiecare șir de caractere cu React Intl, folosind un ID și textul în engleză: <code>&lt;FormattedMessage id='polls.create' defaultMessage='Create a poll'/&gt;</code> sau <code>defineMessages</code>. Prefixați ID-urile cu numele aplicației.</li>
+<li>Extrageți șirurile în engleză în <code>webapp/i18n/en.json</code> (aplicațiile incluse folosesc <code>formatjs extract</code>).</li>
+<li>Adăugați un fișier pentru fiecare limbă lângă acesta, cu aceleași ID-uri: <code>fr.json</code>, <code>de.json</code>, <code>pt-BR.json</code>, <code>zh-CN.json</code>…</li>
+<li>Transmiteți-le aplicației web, care solicită limba utilizatorului:
+<pre><code>import fr from '../i18n/fr.json';
+import ptBR from '../i18n/pt-BR.json';
+
+const catalogs = {fr, 'pt-BR': ptBR};
+
+export function translationsFor(locale) {
+    return catalogs[locale] || catalogs[locale.split('-')[0]] || {};
+}
+
+registry.registerTranslations(translationsFor);</code></pre></li>
+</ol>
+<p>Un șir lipsă revine la <code>defaultMessage</code> în limba engleză. Pentru șirurile trimise de partea de server (răspunsuri la comenzi, mesaje de bot), pachetul <code>pluginapi/i18n</code> încarcă fișierele de traducere incluse în bundle (de exemplu <code>assets/i18n</code>) și oferă un localizator în limba fiecărui utilizator.</p>
+
+<h2 id="build">Construiți, instalați și depanați</h2>
+<p>Aveți nevoie de Go și Node.js (versiunea din <code>.nvmrc</code> al aplicației). În folderul aplicației:</p>
+<table>
+<thead><tr><th>Comandă</th><th>Ce face</th></tr></thead>
+<tbody>
+<tr><td><code>make dist</code></td><td>Construiește partea de server pentru fiecare platformă și partea de aplicație web, și scrie bundle în <code>dist/&lt;app id&gt;-&lt;version&gt;.tar.gz</code>.</td></tr>
+<tr><td><code>make test</code></td><td>Rulează testele Go și JavaScript.</td></tr>
+<tr><td><code>make check-style</code></td><td>Analizează codul (golangci-lint, ESLint) și verifică tipurile TypeScript.</td></tr>
+<tr><td><code>make deploy</code></td><td>Construiește, apoi instalează și activează bundle pe server.</td></tr>
+<tr><td><code>make watch</code>, <code>make deploy-from-watch</code></td><td>Primul reconstruiește partea de aplicație web de fiecare dată când salvați; al doilea împachetează ce a construit și îl instalează pe server.</td></tr>
+<tr><td><code>make enable</code>, <code>make disable</code>, <code>make reset</code></td><td>Activează, dezactivează sau repornește aplicația pe server.</td></tr>
+<tr><td><code>make logs</code>, <code>make logs-watch</code></td><td>Afișează liniile aplicației din jurnalul serverului.</td></tr>
+<tr><td><code>make attach</code></td><td>Atașează depănatorul Delve la partea de server în funcțiune (construiți mai întâi cu <code>AM_DEBUG=1</code>).</td></tr>
+</tbody>
+</table>
+<p><code>make deploy</code> și celelalte comenzi de server folosesc un socket local de mod local când găsesc unul (<code>/var/tmp/antimatter_local.socket</code>, sau <code>AM_LOCALSOCKETPATH</code>): rulați-le pe mașina serverului cu modul local activ. În caz contrar, se autentifică pe serverul dat de <code>MM_SERVICESETTINGS_SITEURL</code> cu <code>AM_ADMIN_TOKEN</code>, sau <code>AM_ADMIN_USERNAME</code> și <code>AM_ADMIN_PASSWORD</code>. Instrumentele de construcție nu citesc încă un nume <code>AM_</code> pentru URL-ul site-ului.</p>
+<h3>Instalați manual un bundle</h3>
+<ul>
+<li>Un administrator de sistem permite încărcările cu <code>AM_PLUGINSETTINGS_ENABLEUPLOADS=true</code> (dezactivat implicit; nu există un comutator în Consola de sistem).</li>
+<li>Apoi <b>Consola de sistem › Plugin-uri › Gestionare › Încărcați pluginul</b>, sau <code>amctl plugin add weather.tar.gz</code> urmat de <code>amctl plugin enable com.example.weather</code>.</li>
+<li>Dacă serverul are activată opțiunea <b>Solicitați semnătură de plugin</b>, acceptă doar bundle-uri semnate cu o cheie de încredere; consultați <a href="{{root}}docs/admins/apps.html#other-apps">Instalarea altor aplicații</a>.</li>
+</ul>
+<div class="callout">Pentru iterații rapide pe un server de dezvoltare, setați <code>AM_SERVICESETTINGS_ENABLEDEVELOPER=true</code> pe server: erorile vor include apoi detaliile. Makefile-urile aplicațiilor incluse construiesc partea de server doar pentru platforma dvs. când <code>MM_SERVICESETTINGS_ENABLEDEVELOPER</code> este setat în shell-ul dvs.</div>

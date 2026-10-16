@@ -1,0 +1,120 @@
+title: 設定
+description: Antimatter の設定の仕組み: データベースまたは config.json 内の設定、AM_ 環境変数、システムコンソール、amctl コマンドラインツール、ログの保存場所。
+guide: admins
+order: 3
+nav: 設定
+lead: Antimatter が設定を保存する場所、設定を変更する 3 つの方法 (システムコンソール、環境変数、amctl)、ログの保存場所。
+source: e2d6546121d3
+---
+<h2 id="where">設定の保存場所</h2>
+<p>すべてのサーバー設定には、セクション名とキー名からなる名前があります。例えば <code>ServiceSettings.SiteURL</code> や <code>EmailSettings.SMTPServer</code> などです。これらが組み合わさって 1 つの設定となり、以下の 2 つの場所のいずれかに保存されます。</p>
+<ul>
+<li><b>データベース内。</b> サイトの compose ファイルで <code>AM_CONFIG</code> に PostgreSQL の接続 URL を設定すると、設定はデータベース内の 1 行として保存され、コンテナはディスク上に何も保持しません。1 つのデータベースを共有する複数のサーバーは、設定も共有します。</li>
+<li><b>ファイル内。</b> <code>AM_CONFIG</code> が設定されていない場合、サーバーは <code>bin/</code> ディレクトリ (Docker イメージでは <code>/antimatter/config/config.json</code>) の隣にある <code>config/config.json</code> を読み込みます。リリースアーカイブと antimatter-docker の本番環境用 compose ファイルはこの方式で動作します。このファイルにはパスワードやキーが含まれるため、サーバーのユーザーのみが読み取れるようにしてください。</li>
+</ul>
+<p><code>AM_CONFIG</code> (または <code>antimatter</code> コマンドの <code>--config</code> フラグ) には、ファイルパスまたは <code>postgres://</code> URL を指定できます。指定しない設定はデフォルト値が使用されます。</p>
+<p>既存の設定をファイルからデータベースに移行するには、サーバー上でこれを実行し、その後 <code>AM_CONFIG</code> に同じ URL を設定してサーバーを起動してください。</p>
+<pre><code>amctl --local config migrate /opt/antimatter/config/config.json \
+    "postgres://antimatter:PASSWORD@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10"</code></pre>
+
+<h2 id="environment">環境変数</h2>
+<p>すべての設定は環境変数としても指定できます。環境変数は保存された設定よりも優先されるため、デプロイメントに属するもの (データベース、サイト URL、ファイルストレージ、ポートなど) に適しています。</p>
+<h3>命名規則</h3>
+<p><code>AM_</code> の後にセクション名、さらにキー名を大文字とアンダースコアで区切った形で記述します。セクション名やキー名内の単語間は区切りません。</p>
+<table>
+<thead><tr><th>設定項目</th><th>変数</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.SiteURL</code></td><td><code>AM_SERVICESETTINGS_SITEURL</code></td></tr>
+<tr><td><code>SqlSettings.DataSource</code></td><td><code>AM_SQLSETTINGS_DATASOURCE</code></td></tr>
+<tr><td><code>EmailSettings.SMTPServer</code></td><td><code>AM_EMAILSETTINGS_SMTPSERVER</code></td></tr>
+<tr><td><code>PrivacySettings.EnableUserBlocking</code></td><td><code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li>真偽値の設定には <code>true</code> または <code>false</code> を、数値の設定には通常の数字を指定します。</li>
+<li>リスト形式の設定は、値をスペースで区切ります。例えば <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code> のように指定します。</li>
+<li>オブジェクト形式の設定には JSON を指定します。アプリに関する唯一のこのような変数は <code>AM_PLUGINSETTINGS_PLUGINS</code> で、これは <em>すべての</em> アプリの設定を一度に置き換えます。アプリの設定は、システムコンソールまたは <code>amctl</code> を使用して設定してください (下記を参照)。</li>
+<li>旧バージョンのMattermostセットアップでは<code>MM_</code>プレフィックスが使用されていました。例えば<code>MM_SQLSETTINGS_DATASOURCE</code>などです。これはレガシーエイリアスとして引き続き動作します。両方が設定されている場合、<code>AM_</code>変数が優先されます。</li>
+</ul>
+<p>環境変数によって設定された項目は、システムコンソール内でロックされ、「この設定は環境変数によって設定されています。システムコンソールからは変更できません。」という注記が表示されます。保存された設定ファイルには書き込まれず、環境変数を削除すると、保存済みの値が再び適用されます。</p>
+<h3>Docker Composeを使用する場合</h3>
+<p><code>antimatter</code>サービスの<code>environment:</code>セクションに、または<code>compose.yaml</code>の隣に<code>compose.override.yaml</code>ファイルを作成して変数を追加します（Composeはこれを自動的に読み込み、ダウンロードされたファイルの更新後も保持されます）：</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_LOGSETTINGS_CONSOLELEVEL: INFO</code></pre>
+<p><code>docker compose up -d</code>を実行して変更を適用します。これによりコンテナが再作成されます。</p>
+<h3>アプリが読み取る変数</h3>
+<p>一部のアプリは、<code>antimatter</code>サービスに設定された独自の環境変数を読み取ります。Callsアプリは<code>AM_CALLS_*</code>を読み取ります（<a href="{{root}}docs/admins/calls.html">通話と音声</a>を参照）、GIFsアプリは<code>AM_GIFS_SERVICE_URL</code>、<code>AM_GIFS_API_KEY</code>、<code>AM_GIFS_UPLOAD_KEY</code>を読み取ります（<a href="{{root}}docs/admins/apps.html">バンドルアプリ</a>を参照）。</p>
+
+<h2 id="console">システムコンソール</h2>
+<p>システムコンソールは、Webアプリの管理領域であり、システム管理者向けに設計されています。開くには、プロフィール画像をクリックして<b>システムコンソール</b>を選択するか、<code>https://chat.example.com/admin_console</code>にアクセスします。サイドバーには、すべてのページを検索できる<b>設定の検索</b>ボックスがあります。</p>
+<figure><img src="{{root}}assets/img/shots/admin.webp" alt="The System Console, with its sidebar of sections on the left and the SAML 2.0 settings page on the right."><figcaption>システムコンソール。サイドバーは、レポート、ユーザー管理、環境などのセクションにページをグループ化しています。</figcaption></figure>
+<p>セクションは以下の通りです：</p>
+<ul>
+<li><b>レポート</b>：統計情報とサーバーログ。</li>
+<li><b>ユーザー管理</b>：ユーザー、グループ、コミュニティ（チームとしてリスト表示）、チャンネル、権限、および委任管理。</li>
+<li><b>システム属性</b>：カスタムプロフィール属性と属性ベースのアクセス制御。</li>
+<li><b>環境</b>：Webサーバー、データベース、ファイルストレージ、イメージプロキシ、SMTP、プッシュ通知、レート制限、ログ出力、セッション期間、パフォーマンス監視。</li>
+<li><b>サイト設定</b>：ブランディング、ユーザーとチーム、通知、投稿、ファイル共有、およびその他のサーバー全体にわたる動作設定。</li>
+<li><b>認証</b>：サインアップ、メールとパスワードによるサインイン、MFA、AD/LDAP、SAML 2.0、OAuth 2.0、OpenID Connect、およびゲストアクセス。</li>
+<li><b>プラグイン</b>：アプリの管理と、インストール済み各アプリの設定。</li>
+<li><b>統合機能</b>：Webhook、スラッシュコマンド、ボットアカウント、GIF、テキスト読み上げ、CORS。</li>
+<li><b>コンプライアンス</b>: データ保持、コンプライアンスエクスポートと監視、監査ログ、カスタム利用規約。</li>
+<li><b>実験的機能</b>: 変更される可能性のある機能。</li>
+</ul>
+<p>このガイドでは、設定はシステムコンソール内のパス、ラベル、設定キーの順で記載します。例: <b>システムコンソール › サイト設定 › ユーザーとチーム › 無視、ブロック、メッセージリクエストを有効にする</b> (<code>PrivacySettings.EnableUserBlocking</code>)。</p>
+<p>ほとんどの変更は<b>保存する</b>をクリックした時点で適用されます。一部の項目(リスニングアドレス、一部のデータベースおよびキャッシュ設定)は再起動が必要であり、ページにその旨が記載されています。</p>
+
+<h2 id="amctl">amctl コマンドラインツール</h2>
+<p><code>amctl</code> はコマンドラインからサーバーを管理します: ユーザー、コミュニティ、チャンネル、アプリ、設定、ジョブなど。サーバーとの通信は2つの方法のいずれかで行います。</p>
+<h3>ローカルモード(サーバー上)</h3>
+<p>ローカルモードでは、<code>amctl</code> は Unix ソケットを介してサーバーと通信し、サインインは不要です。Docker イメージでは有効になっています。アーカイブからインストールしたサーバーでは、<b>ServiceSettings.EnableLocalMode</b> (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>) を設定して有効にします。ソケットのデフォルト位置は <code>/var/tmp/antimatter_local.socket</code> です (<code>ServiceSettings.LocalModeSocketLocation</code>)。</p>
+<pre><code># with Docker Compose
+docker compose exec antimatter amctl --local system status
+# with a release archive
+sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code></pre>
+<div class="callout warn">ソケットを使用できる者、またはホスト上で <code>docker compose exec</code> を実行できる者は、完全なシステム管理者権限を有します。</div>
+<h3>リモート(アカウント使用)</h3>
+<p>任意のマシンから、システム管理者アカウント(またはパーソナルアクセストークン)でサインインし、そのサーバーに対してコマンドを実行します:</p>
+<pre><code>amctl auth login https://chat.example.com --name prod --username admin
+amctl system status</code></pre>
+<h3>設定コマンド</h3>
+<table>
+<thead><tr><th>コマンド</th><th>機能</th></tr></thead>
+<tbody>
+<tr><td><code>amctl config get ServiceSettings.SiteURL</code></td><td>1つの設定を表示します。</td></tr>
+<tr><td><code>amctl config set TeamSettings.EnableOpenServer false</code></td><td>1つの設定を変更します。リスト形式の設定は複数の値を受け取ります。</td></tr>
+<tr><td><code>amctl config patch settings.json</code></td><td>設定の JSON ファイルを現在の設定にマージします。</td></tr>
+<tr><td><code>amctl config show</code></td><td>設定全体を JSON として表示します。</td></tr>
+<tr><td><code>amctl config edit</code></td><td>エディター(<code>$EDITOR</code>)で設定を開きます。</td></tr>
+<tr><td><code>amctl config reset</code></td><td>設定をデフォルト値にリセットします。</td></tr>
+<tr><td><code>amctl config reload</code></td><td>サーバー外部で変更が行われた後、保存先から設定を再読み込みします。</td></tr>
+</tbody>
+</table>
+<p>アプリの設定は <code>PluginSettings.Plugins.&lt;app id&gt;</code> の下にあり、キーは小文字です。例えば、Docker ホストから GIFs アプリのサービス URL とキーを設定するには:</p>
+<pre><code>docker compose exec -T antimatter amctl --local config patch /dev/stdin &lt;&lt;'EOF'
+{"PluginSettings": {"Plugins": {"com.antimatterchat.gifs": {
+  "serviceurl": "http://gifs:8080/v2",
+  "apikey": "the GIFS_API_KEY of your .env"
+}}}}
+EOF</code></pre>
+<p>その他の有用なコマンド: <code>amctl user create</code>、<code>amctl user deactivate</code>、<code>amctl team create</code>、<code>amctl plugin list</code>、<code>amctl plugin enable</code>、<code>amctl system supportpacket</code>、<code>amctl logs</code>。各コマンドのオプションについては <code>amctl help &lt;command&gt;</code> を実行してください。</p>
+
+<h2 id="logs">ログ</h2>
+<p>サーバーはログを2つの場所に出力します。それぞれに独自のレベル（<code>DEBUG</code>、<code>INFO</code>、<code>WARN</code>または<code>ERROR</code>）が設定されており、<b>システムコンソール › 環境 › ログ</b>で設定します。</p>
+<table>
+<thead><tr><th>出力先</th><th>設定</th><th>デフォルト値</th></tr></thead>
+<tbody>
+<tr><td>コンソール（標準出力）</td><td><b>ログをコンソールに出力する</b>（<code>LogSettings.EnableConsole</code>）、<b>コンソールログレベル</b>（<code>LogSettings.ConsoleLevel</code>）、<b>コンソールログをJSONで出力する</b>（<code>LogSettings.ConsoleJson</code>）</td><td>オン、<code>DEBUG</code>、JSON</td></tr>
+<tr><td>ファイル（<code>antimatter.log</code>）</td><td><b>ログをファイルに出力する</b>（<code>LogSettings.EnableFile</code>）、<b>ファイルログレベル</b>（<code>LogSettings.FileLevel</code>）、<b>ログファイルの出力ディレクトリー</b>（<code>LogSettings.FileLocation</code>）</td><td>オン、<code>INFO</code>、<code>bin/</code>の隣にある<code>logs/</code>ディレクトリー</td></tr>
+</tbody>
+</table>
+<p>ログファイルは100 MBでローテーションされ、古いファイルは圧縮されます。</p>
+<p>サイトのcomposeファイルではファイルへのログ出力がオフに設定されています（<code>AM_LOGSETTINGS_ENABLEFILE=false</code>）そのため、ログはコンテナの出力にのみ記録されます。</p>
+<pre><code>docker compose logs -f antimatter
+docker compose logs --since 1h antimatter | grep -i error</code></pre>
+<p>コンソールレベルのデフォルトは詳細な<code>DEBUG</code>です。負荷の高いサーバーでは、<code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code>を設定してください。systemd下でリリースアーカイブを使用している場合、コンソール出力はジャーナル（<code>journalctl -u antimatter</code>）に、ファイルは<code>/opt/antimatter/logs/antimatter.log</code>に出力されます。</p>
+<p>ファイルへのログ出力がオンになっている場合、システム管理者は<b>システムコンソール › レポート › サーバーログ</b>または<code>amctl logs</code>コマンドで、最新のログ行を読み取ることができます。</p>

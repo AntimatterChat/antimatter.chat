@@ -1,0 +1,172 @@
+title: Ботове и интерактивни съобщения
+description: Ботови акаунти в Antimatter: създаването им, техните токени и права, публикуване от името на бот, директни съобщения, интерактивни бутони и менюта, както и диалози.
+guide: developers
+order: 5
+nav: Ботове
+lead: Ботовият акаунт е потребител, създаден за програма. Има собствено име, изображение и токени, а до името му се показва етикет BOT. Тази страница обхваща и интерактивните елементи на съобщенията: бутони, менюта и диалози, които всяка интеграция може да използва.
+source: 45503666f647
+---
+<h2 id="why">Защо ботов акаунт</h2>
+<ul>
+<li>Съобщенията му идват от ясна идентичност, с етикет <b>БОТ</b>, а не от акаунта на колега.</li>
+<li>Токените му продължават да действат, когато лицето, което го е настроило, смени роля или напусне (освен ако сървърът не деактивира ботовете на деактивирани собственици, вижте по-долу).</li>
+<li>Ботовете не могат да влизат с парола и никога не виждат уеб приложението.</li>
+</ul>
+<p>Приложенията създават собствени ботове, например ботовете за Задачи или Наръчници, чрез API за плъгини (<code>EnsureBotUser</code>).</p>
+
+<h2 id="enable">Активиране на ботови акаунти</h2>
+<p>Системен администратор активира <b>Разреши създаването на бот акаунти</b> в <b>Системна конзола › Интеграции › Акаунти на ботове</b> (<code>ServiceSettings.EnableBotAccountCreation</code>, <code>AM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION</code>). По подразбиране е изключено. Само системни администратори могат да създават ботове, освен ако не предоставят това право на други роли в настройките за разрешения.</p>
+<p>На същата страница <b>Деактивирай бот профили, когато собственикът е деактивиран</b> (<code>ServiceSettings.DisableBotsWhenOwnerIsDeactivated</code>, активно по подразбиране) изключва бота, когато акаунтът на собственика му е деактивиран.</p>
+
+<h2 id="create">Създаване на бот</h2>
+<ol>
+<li>Отворете аватара си в горния десен ъгъл, след това <b>Интеграции › Акаунти на ботове</b>, и после <b>Добавете бот профил</b>.</li>
+<li>Въведете <b>Потребителско име</b> (малки букви, цифри, точки, тирета и долни черти) и по желание <b>Икона на бот</b>, <b>Показвано на име</b> и <b>Описание</b>.</li>
+<li>Изберете <b>Роля</b>: <b>Член</b> или <b>Системен администратор</b> за бот, който управлява сървъра. Давайте на бота само това, от което има нужда.</li>
+<li>Отбележете <b>публикувай:канали</b>, за да може да публикува във всеки публичен канал, или <b>публикувай:всички</b> за всеки канал, включително частните и директните съобщения, без да е член.</li>
+<li>Задайте кога изтича срокът на валидност на токена по подразбиране, след което изберете <b>Създайте бот профил</b>.</li>
+<li>Копирайте показания токен за достъп. Той няма да се покаже отново.</li>
+</ol>
+<p>По-късно, <b>Създаване на нов токен</b> в реда на бота добавя токен, и всеки токен може да бъде деактивиран или изтрит. Токените на ботовете работят, дори когато личните достъпни токени са изключени за хората.</p>
+<p>Чрез API:</p>
+<pre><code># create the bot (you become its owner)
+curl -X POST https://chat.example.com/api/v4/bots \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username": "deploy-bot", "display_name": "Deploy", "description": "Posts deployments"}'
+
+# give it a token
+curl -X POST https://chat.example.com/api/v4/users/$BOT_USER_ID/tokens \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"description": "deploy pipeline"}'</code></pre>
+<p>От командния ред, след като сте влезли като администратор (не в локален режим): <code>amctl bot create deploy-bot --display-name Deploy --with-token --expires-in 90d</code>. Други крайни точки: <code>GET /api/v4/bots</code>, <code>PUT /api/v4/bots/{bot_user_id}</code>, <code>POST /api/v4/bots/{bot_user_id}/disable</code> и <code>/enable</code>, <code>POST /api/v4/bots/{bot_user_id}/assign/{user_id}</code> за смяна на собственика.</p>
+
+<h2 id="membership">Добавете бота в общности и канали</h2>
+<p>Новият бот не е в нито една общност. Добавете го като обикновен член, чрез управлението на членовете на общността или чрез API:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/teams/$TEAM_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"team_id": "'$TEAM_ID'", "user_id": "'$BOT_USER_ID'"}'
+
+curl -X POST https://chat.example.com/api/v4/channels/$CHANNEL_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"user_id": "'$BOT_USER_ID'"}'</code></pre>
+<p>Бот с <b>публикувай:канали</b> или <b>публикувай:всички</b> може да публикува, без да е член, но получава WebSocket събития само за каналите, в които присъства.</p>
+
+<h2 id="post">Публикуване от името на бота</h2>
+<p>Използвайте токена на бота в всеки API извикване; <code>POST /api/v4/posts</code> е най-честото (вижте <a href="{{root}}docs/developers/api.html#resources">Основни ресурси</a>). За да пишете директно на някого, първо отворете канала за директно съобщение:</p>
+<pre><code># returns the channel; use its "id" as channel_id
+curl -X POST https://chat.example.com/api/v4/channels/direct \
+  -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' \
+  -d '["'$BOT_USER_ID'", "'$USER_ID'"]'</code></pre>
+<p>За да реагирате на това, което хората казват, следвайте <a href="{{root}}docs/developers/api.html#websocket">WebSocket</a> с токена на бота и отговаряйте на събитията <code>posted</code>, които ви интересуват. Игнорирайте собствените съобщения на бота, за да избегнете цикли.</p>
+<p>Съобщение, което може да види само един човек (ефемерно съобщение), се изпраща с <code>POST /api/v4/posts/ephemeral</code> и <code>{"user_id", "post": {"channel_id", "message"}}</code>. Изисква се разрешение <code>create_post_ephemeral</code>, което по подразбиране имат само системните администратори. Интеграциите обикновено изпращат ефемерни съобщения като отговор на команди с наклонена черта и бутони.</p>
+
+<h2 id="interactive">Интерактивни съобщения: бутони и менюта</h2>
+<p>Всяко съобщение с прикачени файлове може да съдържа действия: бутони и менюта за избор. Те работят в съобщения, публикувани чрез API, Webhook и отговори на команди с наклонена черта. Когато някой използва действие, Antimatter извиква URL-а на вашата интеграция.</p>
+<pre><code>{
+  "channel_id": "…",
+  "message": "Deploy **api 2.4.0** to production?",
+  "props": {
+    "attachments": [{
+      "actions": [
+        {
+          "id": "approve",
+          "type": "button",
+          "name": "Approve",
+          "style": "primary",
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "approve"}}
+        },
+        {
+          "id": "env",
+          "type": "select",
+          "name": "Pick an environment",
+          "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}],
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "env"}}
+        }
+      ]
+    }]
+  }
+}</code></pre>
+<ul>
+<li><code>type</code>: <code>button</code> или <code>select</code>.</li>
+<li><code>id</code>: букви, цифри, тирета и долни черти, различни за всяко действие в съобщението. Генерира се, ако го оставите празен.</li>
+<li><code>style</code> (за бутони): <code>default</code>, <code>primary</code>, <code>success</code>, <code>good</code>, <code>warning</code>, <code>danger</code> или шестнадесичен цвят.</li>
+<li><code>options</code> (за менюта) или <code>data_source</code>: <code>users</code> или <code>channels</code> за избор на човек или канал. <code>default_option</code> предварително избира стойност.</li>
+<li><code>integration.url</code>: адресът, към който се изпраща щракването. Приложението (плъгинът) може да използва собствен маршрут, например <code>/plugins/com.example.deploy/actions</code>. <code>integration.context</code> е ваш: връща се заедно с щракването и клиентите никога не го виждат.</li>
+</ul>
+<h3>Заявката, която интеграцията ви получава</h3>
+<pre><code>{
+  "user_id": "…",
+  "user_name": "priya",
+  "channel_id": "…",
+  "channel_name": "releases",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "post_id": "…",
+  "trigger_id": "…",
+  "type": "button",
+  "context": {"release": "2.4.0", "action": "approve"}
+}</code></pre>
+<p>За меню <code>type</code> е <code>select</code>, а <code>context.selected_option</code> съдържа избраната стойност.</p>
+<h3>Вашият отговор</h3>
+<pre><code>{
+  "update": {"message": "Deploy of **api 2.4.0** approved by @priya", "props": {}},
+  "ephemeral_text": "Done. The deploy starts in a minute."
+}</code></pre>
+<ul>
+<li><code>update</code>: замества текста и свойствата на съобщението, например за да премахне бутоните след използването им (празно <code>props</code>).</li>
+<li><code>ephemeral_text</code>: съобщение, което вижда само лицето, което е щракнало.</li>
+<li><code>goto_location</code>: URL за отваряне.</li>
+<li>Празно тяло не променя нищо.</li>
+</ul>
+<p>Сървърът изчака докато <b>Време за изчакване на заявката за интегриране</b> позволява (30 секунди по подразбиране). Адресите на интеграции в частни мрежи трябва да бъдат разрешени от системен администратор, както и за webhook-ове.</p>
+
+<h2 id="dialogs">Диалози</h2>
+<p>Диалогът е формуляр, който се отваря върху чата. Може да се отвори само в отговор на нещо, което лицето току-що е направило — команда с наклонена черта или бутон, защото е необходим <code>trigger_id</code> на тази заявка. <code>trigger_id</code> е валиден за времето на Integration request timeout.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/actions/dialogs/open \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "trigger_id": "'$TRIGGER_ID'",
+    "url": "https://deploy.example.com/dialog",
+    "dialog": {
+      "callback_id": "new-release",
+      "title": "New release",
+      "introduction_text": "Fill in the release details.",
+      "submit_label": "Create",
+      "notify_on_cancel": false,
+      "state": "anything you want back",
+      "elements": [
+        {"display_name": "Version", "name": "version", "type": "text", "placeholder": "2.4.0"},
+        {"display_name": "Notes", "name": "notes", "type": "textarea", "optional": true},
+        {"display_name": "Environment", "name": "env", "type": "select",
+         "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}]},
+        {"display_name": "Owner", "name": "owner", "type": "select", "data_source": "users"},
+        {"display_name": "Notify the channel", "name": "notify", "type": "bool", "default": "true"}
+      ]
+    }
+  }'</code></pre>
+<table>
+<thead><tr><th>Тип на елемента</th><th>Какво показва</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>Едноредово поле. <code>subtype</code>: <code>text</code>, <code>email</code>, <code>number</code>, <code>password</code>, <code>tel</code> или <code>url</code>. <code>min_length</code> и <code>max_length</code> го ограничават.</td></tr>
+<tr><td><code>textarea</code></td><td>Многоредово поле.</td></tr>
+<tr><td><code>select</code></td><td>Списък: <code>options</code>, или <code>data_source</code> <code>users</code>, <code>channels</code>, или <code>dynamic</code> с <code>data_source_url</code>. <code>multiselect</code> позволява няколко стойности.</td></tr>
+<tr><td><code>bool</code></td><td>Квадратче за отметка.</td></tr>
+<tr><td><code>radio</code></td><td>Един избор сред <code>options</code>.</td></tr>
+<tr><td><code>date</code>, <code>datetime</code></td><td>Дата или дата и час.</td></tr>
+</tbody>
+</table>
+<p>Всеки елемент приема <code>display_name</code>, <code>name</code>, <code>help_text</code>, <code>placeholder</code>, <code>default</code> и <code>optional</code>.</p>
+<p>Когато лицето изпрати, Antimatter изпраща POST към <code>url</code> на диалога:</p>
+<pre><code>{
+  "type": "dialog_submission",
+  "callback_id": "new-release",
+  "state": "anything you want back",
+  "user_id": "…",
+  "channel_id": "…",
+  "team_id": "…",
+  "submission": {"version": "2.4.0", "notes": "", "env": "staging", "owner": "…", "notify": true},
+  "cancelled": false
+}</code></pre>
+<p>Отговорете с празно тяло, за да затворите диалога, или го оставете отворен и покажете какво е грешно:</p>
+<pre><code>{"errors": {"version": "This version already exists."}}</code></pre>
+<p><code>{"error": "…"}</code> показва съобщение за цялата форма. С <code>notify_on_cancel</code>, затварянето на диалога изпраща <code>"cancelled": true</code>. Диалозите работят по същия начин в приложенията: <code>OpenInteractiveDialog</code> от API на плъгините приема същата заявка.</p>

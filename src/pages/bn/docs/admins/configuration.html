@@ -1,0 +1,120 @@
+title: কনফিগারেশন
+description: Antimatter-এর কনফিগারেশন কীভাবে কাজ করে: ডাটাবেস বা config.json-এ সেটিংস, AM_ এনভাইরনমেন্ট ভেরিয়েবল, System Console, amctl কমান্ড-লাইন টুল, এবং লগ কোথায় খুঁজবেন।
+guide: admins
+order: 3
+nav: কনফিগারেশন
+lead: Antimatter তার সেটিংস কোথায় রাখে, সেগুলো পরিবর্তনের তিনটি উপায় (System Console, এনভাইরনমেন্ট ভেরিয়েবল, amctl), এবং লগ কোথায় যায়।
+source: e2d6546121d3
+---
+<h2 id="where">সেটিংস কোথায় থাকে</h2>
+<p>প্রতিটি সার্ভার সেটিংসের একটি নাম থাকে যা একটি সেকশন এবং একটি কী দিয়ে গঠিত, যেমন <code>ServiceSettings.SiteURL</code> বা <code>EmailSettings.SMTPServer</code>। একসাথে তারা একটি কনফিগারেশন গঠন করে, যা দুটির একটি জায়গায় সংরক্ষিত থাকে:</p>
+<ul>
+<li><b>ডাটাবেসে।</b> সাইটের কম্পোজ ফাইল <code>AM_CONFIG</code>-কে PostgreSQL কানেকশন URL-এ সেট করে, তাই কনফিগারেশনটি ডাটাবেসের একটি রো এবং কন্টেইনারটি ডিস্কে কিছু সংরক্ষণ করে না। একাধিক সার্ভার একটি ডাটাবেস শেয়ার করলে তারা তাদের কনফিগারেশনও শেয়ার করে।</li>
+<li><b>একটি ফাইলে।</b> <code>AM_CONFIG</code> ছাড়া, সার্ভার তার <code>bin/</code> ডিরেক্টরির পাশে <code>config/config.json</code> পড়ে (Docker ইমেজে <code>/antimatter/config/config.json</code>)। antimatter-docker-এর রিলিজ আর্কাইভ এবং প্রোডাকশন কম্পোজ ফাইল এইভাবে কাজ করে। এই ফাইলটি শুধুমাত্র সার্ভারের ইউজার দ্বারা পড়ার মতো রাখুন: এতে পাসওয়ার্ড এবং কী থাকে।</li>
+</ul>
+<p><code>AM_CONFIG</code> (বা <code>antimatter</code> কমান্ডের <code>--config</code> ফ্ল্যাগ) একটি ফাইল পাথ বা <code>postgres://</code> URL গ্রহণ করে। যেসব সেটিংস আপনি বাদ দেন, তারা তাদের ডিফল্ট মান নেয়।</p>
+<p>একটি বিদ্যমান কনফিগারেশন ফাইল থেকে ডাটাবেসে সরানোর জন্য, সার্ভারে এটি চালান, তারপর <code>AM_CONFIG</code> একই URL-এ সেট করে সার্ভার শুরু করুন:</p>
+<pre><code>amctl --local config migrate /opt/antimatter/config/config.json \
+    "postgres://antimatter:PASSWORD@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10"</code></pre>
+
+<h2 id="environment">এনভাইরনমেন্ট ভেরিয়েবল</h2>
+<p>যেকোনো সেটিংসকে একটি এনভাইরনমেন্ট ভেরিয়েবল হিসেবেও দেওয়া যেতে পারে। ভেরিয়েবলগুলো সংরক্ষিত কনফিগারেশনের চেয়ে অগ্রাধিকার পায়, যা ডিপ্লয়মেন্টের সাথে যুক্ত বিষয়গুলোর জন্য উপযুক্ত: ডাটাবেস, সাইট URL, ফাইল স্টোরেজ, পোর্ট।</p>
+<h3>নামকরণ নিয়ম</h3>
+<p><code>AM_</code> লিখুন, তারপর সেকশন, তারপর কী, বড় অক্ষরে এবং আন্ডারস্কোর দিয়ে আলাদা করে। একটি সেকশন বা কী নামের ভেতরের শব্দগুলো আলাদা করা হয় না:</p>
+<table>
+<thead><tr><th>সেটিং</th><th>ভেরিয়েবল</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.SiteURL</code></td><td><code>AM_SERVICESETTINGS_SITEURL</code></td></tr>
+<tr><td><code>SqlSettings.DataSource</code></td><td><code>AM_SQLSETTINGS_DATASOURCE</code></td></tr>
+<tr><td><code>EmailSettings.SMTPServer</code></td><td><code>AM_EMAILSETTINGS_SMTPSERVER</code></td></tr>
+<tr><td><code>PrivacySettings.EnableUserBlocking</code></td><td><code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li>সত্য ও মিথ্যার সেটিংস <code>true</code> বা <code>false</code> নেয়; সংখ্যাগুলো সাধারণ সংখ্যা।</li>
+<li>লিস্ট সেটিংস তাদের মানগুলো স্পেস দিয়ে আলাদা করে নেয়, যেমন <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>।</li>
+<li>অবজেক্ট ধরনের সেটিংস JSON গ্রহণ করে। অ্যাপসের জন্য এমন একমাত্র ভ্যারিয়েবল হলো <code>AM_PLUGINSETTINGS_PLUGINS</code>, যা একসাথে <em>সব</em> অ্যাপের সেটিংস প্রতিস্থাপন করে: পরিবর্তে System Console-এ বা <code>amctl</code> ব্যবহার করে অ্যাপ সেটিংস সেট করুন (নিচে দেখুন)।</li>
+<li>পুরনো Mattermost সেটআপগুলো <code>MM_</code> প্রিফিক্স ব্যবহার করে, যেমন <code>MM_SQLSETTINGS_DATASOURCE</code>। এটি এখনও একটি লেগেসি অ্যালিয়াস হিসেবে কাজ করে। যদি উভয়ই সেট করা থাকে, তবে <code>AM_</code> ভ্যারিয়েবলটি অগ্রাধিকার পায়।</li>
+</ul>
+<p>ভ্যারিয়েবল দ্বারা প্রদত্ত কোনো সেটিং System Console-এ লক করা থাকে, সাথে এই নোট থাকে: "এই সেটিংটি একটি এনভায়রনমেন্ট ভ্যারিয়েবলের মাধ্যমে সেট করা হয়েছে। এটি System Console-এর মাধ্যমে পরিবর্তন করা যাবে না।" এটি সংরক্ষিত কনফিগারেশনে লেখা হয় না: ভ্যারিয়েবলটি সরিয়ে দিলে সংরক্ষিত মানটি আবার প্রযোজ্য হবে।</p>
+<h3>Docker Compose-এর সাথে</h3>
+<p><code>antimatter</code> সার্ভিসের <code>environment:</code> অংশের নিচে ভ্যারিয়েবল যোগ করুন, অথবা <code>compose.yaml</code>-এর পাশে <code>compose.override.yaml</code> ফাইলে যোগ করুন (Compose এটি স্বয়ংক্রিয়ভাবে পড়ে, এবং ডাউনলোড করা ফাইলের আপডেটে এটি টিকে থাকে):</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_LOGSETTINGS_CONSOLELEVEL: INFO</code></pre>
+<p><code>docker compose up -d</code> ব্যবহার করে পরিবর্তন প্রয়োগ করুন, যা কন্টেইনারটি পুনরায় তৈরি করবে।</p>
+<h3>অ্যাপস দ্বারা পড়া ভ্যারিয়েবলসমূহ</h3>
+<p>কয়েকটি অ্যাপ <code>antimatter</code> সার্ভিসে সেট করা নিজস্ব ভ্যারিয়েবল পড়ে: Calls অ্যাপটি <code>AM_CALLS_*</code> পড়ে (দেখুন <a href="{{root}}docs/admins/calls.html">Calls and voice</a>), এবং GIFs অ্যাপটি <code>AM_GIFS_SERVICE_URL</code>, <code>AM_GIFS_API_KEY</code> এবং <code>AM_GIFS_UPLOAD_KEY</code> পড়ে (দেখুন <a href="{{root}}docs/admins/apps.html">Bundled apps</a>)।</p>
+
+<h2 id="console">System Console</h2>
+<p>সিস্টেম কনসোল হলো ওয়েব অ্যাপের প্রশাসনিক অংশ, যা সিস্টেম অ্যাডমিনদের জন্য। এটি খোলার জন্য আপনার প্রোফাইল ছবিতে ক্লিক করে <b>সিস্টেম কনসোল</b> নির্বাচন করুন, অথবা <code>https://chat.example.com/admin_console</code> এ যান। এর সাইডবারে একটি <b>সেটিংস খুঁজুন</b> বক্স রয়েছে যা প্রতিটি পেজে সার্চ করে।</p>
+<figure><img src="{{root}}assets/img/shots/admin.webp" alt="The System Console, with its sidebar of sections on the left and the SAML 2.0 settings page on the right."><figcaption>System Console। সাইডবারটি পেজগুলিকে Reporting, User Management এবং Environment-এর মতো সেকশনে ভাগ করে।</figcaption></figure>
+<p>এর সেকশনগুলো হলো:</p>
+<ul>
+<li><b>রিপোর্টিং</b>: পরিসংখ্যান এবং সার্ভার লগ।</li>
+<li><b>ব্যবহারকারী ব্যবস্থাপনা</b>: ব্যবহারকারী, গ্রুপ, কমিউনিটি (টিম হিসেবে তালিকাভুক্ত), চ্যানেলসমূহ, অনুমতি এবং প্রতিনিধিত্বমূলক প্রশাসন।</li>
+<li><b>সিস্টেম অ্যাট্রিবিউট</b>: কাস্টম প্রোফাইল অ্যাট্রিবিউট এবং অ্যাট্রিবিউট-ভিত্তিক অ্যাক্সেস।</li>
+<li><b>এনভাইরনমেন্ট</b>: ওয়েব সার্ভার, ডেটাবেস, ফাইল স্টোরেজ, ইমেজ প্রক্সি, SMTP, পুশ নোটিফিকেশনসমূহ, রেট লিমিটিং, লগিং, সেশন দৈর্ঘ্য এবং পারফরম্যান্স মনিটরিং।</li>
+<li><b>সাইট কনফিগারেশন</b>: ব্র্যান্ডিং, ব্যবহারকারী এবং টিমসমূহ, নোটিফিকেশনসমূহ, পোস্ট, ফাইল শেয়ারিং এবং অন্যান্য সার্ভার-ব্যাপী আচরণ।</li>
+<li><b>প্রমাণীকরণ</b>: সাইন-আপ, ইমেইল এবং পাসওয়ার্ড সাইন-ইন, MFA, AD/LDAP, SAML 2.0, OAuth 2.0, OpenID Connect এবং অতিথি অ্যাক্সেস।</li>
+<li><b>প্লাগইনসমূহ</b>: অ্যাপ ব্যবস্থাপন এবং প্রতিটি ইনস্টল করা অ্যাপের সেটিংস।</li>
+<li><b>ইন্টিগ্রেশনসমূহ</b>: ওয়েবহুক, স্লাশ কমান্ড, বট অ্যাকাউন্ট, GIF, টেক্সট টু স্পিচ, CORS।</li>
+<li><b>Compliance</b>: ডেটা রিটেনশন, কমপ্লায়েন্স এক্সপোর্ট এবং মনিটরিং, অডিট লগিং, কাস্টম টার্মস অব সার্ভিস।</li>
+<li><b>পরীক্ষামূলক</b>: এমন ফিচার যা পরিবর্তিত হতে পারে।</li>
+</ul>
+<p>এই গাইডে, একটি সেটিংকে সিস্টেম কনসোলে এর পথ, তারপর এর লেবেল, তারপর এর কনফিগারেশন কী হিসেবে লেখা হয়েছে, যেমন <b>সিস্টেম কনসোল › সাইট কনফিগারেশন › ব্যবহারকারী এবং টিমসমূহ › উপেক্ষা, ব্লক এবং মেসেজ রিকোয়েস্ট চালু করুন</b> (<code>PrivacySettings.EnableUserBlocking</code>)।</p>
+<p>আপনি <b>সংরক্ষণ করুন</b> এ ক্লিক করার সাথে সাথেই বেশিরভাগ পরিবর্তন প্রয়োগ হয়। কিছু পরিবর্তনের (লিসেন অ্যাড্রেস, কিছু ডেটাবেস এবং ক্যাশ সেটিংস) জন্য রিস্টার্ট প্রয়োজন, এবং পেজে তা উল্লেখ করা থাকে।</p>
+
+<h2 id="amctl">amctl কমান্ড-লাইন টুল</h2>
+<p><code>amctl</code> কমান্ড লাইন থেকে একটি সার্ভার পরিচালনা করে: ইউজার, কমিউনিটি, চ্যানেল, অ্যাপ, কনফিগারেশন, জব এবং আরও অনেক কিছু। এটি সার্ভারের সাথে দুইভাবে যোগাযোগ করে।</p>
+<h3>লোকাল মোড, সার্ভারে</h3>
+<p>লোকাল মোডে <code>amctl</code> সাইন-ইন ছাড়াই একটি Unix সকেটের মাধ্যমে সার্ভারের সাথে যোগাযোগ করতে পারে। Docker ইমেজে এটি চালু থাকে। আর্কাইভ থেকে ইনস্টল করা সার্ভারে <b>ServiceSettings.EnableLocalMode</b> (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>) চালু করে এটি সক্রিয় করা যায়। ডিফল্ট সকেট হলো <code>/var/tmp/antimatter_local.socket</code> (<code>ServiceSettings.LocalModeSocketLocation</code>)।</p>
+<pre><code># with Docker Compose
+docker compose exec antimatter amctl --local system status
+# with a release archive
+sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code></pre>
+<div class="callout warn">যে কেউ সকেট ব্যবহার করতে পারে, অথবা হোস্টে <code>docker compose exec</code> চালানো যায়, তার পূর্ণ সিস্টেম অ্যাডমিনিস্ট্রেটর অধিকার থাকে।</div>
+<h3>রিমোট, একটি অ্যাকাউন্টের মাধ্যমে</h3>
+<p>যেকোনো মেশিন থেকে, একটি সিস্টেম অ্যাডমিনিস্ট্রেটর অ্যাকাউন্টে (অথবা পার্সোনাল অ্যাক্সেস টোকেনে) সাইন-ইন করে, তারপর সেই সার্ভারের বিরুদ্ধে কমান্ড চালান:</p>
+<pre><code>amctl auth login https://chat.example.com --name prod --username admin
+amctl system status</code></pre>
+<h3>কনফিগারেশন কমান্ড</h3>
+<table>
+<thead><tr><th>কমান্ড</th><th>এটি কী করে</th></tr></thead>
+<tbody>
+<tr><td><code>amctl config get ServiceSettings.SiteURL</code></td><td>একটি সেটিং প্রিন্ট করে।</td></tr>
+<tr><td><code>amctl config set TeamSettings.EnableOpenServer false</code></td><td>একটি সেটিং পরিবর্তন করে। লিস্ট সেটিংস একাধিক মান গ্রহণ করে।</td></tr>
+<tr><td><code>amctl config patch settings.json</code></td><td>কনফিগারেশনে একটি JSON ফাইলের সেটিংস মার্জ করে।</td></tr>
+<tr><td><code>amctl config show</code></td><td>পুরো কনফিগারেশন JSON হিসেবে প্রিন্ট করে।</td></tr>
+<tr><td><code>amctl config edit</code></td><td>আপনার এডিটরে (<code>$EDITOR</code>) কনফিগারেশন খোলে।</td></tr>
+<tr><td><code>amctl config reset</code></td><td>সেটিংসকে ডিফল্টে রিসেট করে।</td></tr>
+<tr><td><code>amctl config reload</code></td><td>সার্ভারের বাইরে থেকে করা পরিবর্তনের পরে, সেটিংসকে যেখান থেকে সেটি সংরক্ষিত থাকে সেখান থেকে রিলোড করে।</td></tr>
+</tbody>
+</table>
+<p>অ্যাপ সেটিংস <code>PluginSettings.Plugins.&lt;app id&gt;</code>-এর নিচে থাকে, কীগুলো লোয়ার কেসে থাকে। উদাহরণস্বরূপ, Docker হোস্ট থেকে GIFs অ্যাপের সার্ভিস URL এবং কী সেট করতে:</p>
+<pre><code>docker compose exec -T antimatter amctl --local config patch /dev/stdin &lt;&lt;'EOF'
+{"PluginSettings": {"Plugins": {"com.antimatterchat.gifs": {
+  "serviceurl": "http://gifs:8080/v2",
+  "apikey": "the GIFS_API_KEY of your .env"
+}}}}
+EOF</code></pre>
+<p>অন্যান্য উপযোগী কমান্ড: <code>amctl user create</code>, <code>amctl user deactivate</code>, <code>amctl team create</code>, <code>amctl plugin list</code>, <code>amctl plugin enable</code>, <code>amctl system supportpacket</code> এবং <code>amctl logs</code>। প্রতিটির অপশন জানতে <code>amctl help &lt;command&gt;</code> চালান।</p>
+
+<h2 id="logs">লগ</h2>
+<p>সার্ভার তার লগ দুটি জায়গায় লেখে, প্রতিটির নিজস্ব লেভেল (<code>DEBUG</code>, <code>INFO</code>, <code>WARN</code> বা <code>ERROR</code>) সহ, যা <b>সিস্টেম কনসোল › এনভাইরনমেন্ট › লগিং</b> এ সেট করা হয়:</p>
+<table>
+<thead><tr><th>গন্তব্য</th><th>সেটিংস</th><th>ডিফল্ট</th></tr></thead>
+<tbody>
+<tr><td>কনসোল (স্ট্যান্ডার্ড আউটপুট)</td><td><b>কনসোলে লগ আউটপুট করুন</b> (<code>LogSettings.EnableConsole</code>), <b>কনসোল লগ লেভেল</b> (<code>LogSettings.ConsoleLevel</code>), <b>কনসোল লগ JSON হিসেবে আউটপুট করুন</b> (<code>LogSettings.ConsoleJson</code>)</td><td>চালু, <code>DEBUG</code>, JSON</td></tr>
+<tr><td>একটি ফাইল, <code>antimatter.log</code></td><td><b>লগ ফাইলে আউটপুট করুন</b> (<code>LogSettings.EnableFile</code>), <b>ফাইল লগ লেভেল</b> (<code>LogSettings.FileLevel</code>), <b>ফাইল লগ ডিরেক্টরি</b> (<code>LogSettings.FileLocation</code>)</td><td>চালু, <code>INFO</code>, <code>bin/</code>-এর পাশে <code>logs/</code> ডিরেক্টরি</td></tr>
+</tbody>
+</table>
+<p>লগ ফাইল ১০০ মেগাবাইটে রোটেট হয় এবং পুরনো ফাইলগুলো কমপ্রেস করা হয়।</p>
+<p>সাইটের কম্পোজ ফাইল ফাইল লগিং বন্ধ করে রাখে (<code>AM_LOGSETTINGS_ENABLEFILE=false</code>), তাই লগ শুধুমাত্র কন্টেইনারের আউটপুটে থাকে:</p>
+<pre><code>docker compose logs -f antimatter
+docker compose logs --since 1h antimatter | grep -i error</code></pre>
+<p>কনসোল লেভেলের ডিফল্ট <code>DEBUG</code>, যা বেশি বিস্তারিত। ব্যস্ত সার্ভারে <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code> সেট করুন। systemd-এর নিচে রিলিজ আর্কাইভ থাকলে, কনসোল আউটপুট জার্নালে যায় (<code>journalctl -u antimatter</code>) এবং ফাইল <code>/opt/antimatter/logs/antimatter.log</code>-এ যায়।</p>
+<p>ফাইল লগিং চালু থাকলে, সিস্টেম অ্যাডমিনরা <b>সিস্টেম কনসোল › রিপোর্টিং › সার্ভার লগ</b> এ বা <code>amctl logs</code> দিয়ে সর্বশেষ লগ লাইনগুলো পড়তে পারেন।</p>

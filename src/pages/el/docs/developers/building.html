@@ -1,0 +1,102 @@
+title: Δημιουργία από πηγή
+description: Πώς να δημιουργήσετε το Antimatter από πηγή: ο διακομιστής Go, οι διαδικτυακές επιφάνειες Fusion και κλασική, ένας διακομιστής ανάπτυξης, δοκιμές, αρχεία έκδοσης, το εικό Docker, και οι εφαρμογές για επιτραπέζιους υπολογιστές και κινητά.
+guide: developers
+order: 7
+nav: Δημιουργία από πηγή
+lead: Σε αυτήν τη σελίδα εξηγείται πώς να δημιουργήσετε και να εκτελέσετε το Antimatter από τον πηγαίο του κώδικα, είτε για να εργαστείτε πάνω σε αυτό είτε για να δημιουργήσετε τις δικές σας εκδόσεις. Καλύπτει τον διακομιστή και τις διαδικτυακές επιφάνειες, οι οποίες βρίσκονται σε ένα αποθετήριο, και στη συνέχεια το εικό Docker και τις εφαρμογές.
+source: dfdf67f34f6e
+---
+<h2 id="requirements">Τι χρειάζεστε</h2>
+<ul>
+<li><b>Εντάξει</b>, στη έκδοση στο <code>server/go.mod</code> (1.26.7 κατά τη στιγμή της συγγραφής).</li>
+<li><b>Node.js και npm</b>, στις εκδόσεις που αναφέρονται στα <code>.nvmrc</code> και <code>webapp/package.json</code> (Node 24.11.1 με npm 11.6.2). Με το <a href="https://mise.jdx.dev">mise</a>, το <code>mise.toml</code> του αποθετηρίου εγκαθιστά το σωστό Node.</li>
+<li><b>Docker</b> με Compose: η ρύθμιση ανάπτυξης εκτελεί το PostgreSQL και μερικές άλλες υπηρεσίες σε containers.</li>
+<li><b>make</b>, <b>git</b>, και μια μηχανή Linux ή macOS.</li>
+<li><b>Μνήμη</b>: η δημιουργία των διαδικτυακών επιφανειών είναι το βαρύτερο μέρος. Προγραμματίστε για 16 GB RAM· δείτε <a href="#memory">Δημιουργίες και μνήμη</a>.</li>
+</ul>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter.git
+cd antimatter</code></pre>
+<p>Το αποθετήριο περιέχει τον διακομιστή στο <code>server/</code>, τις διαδικτυακές επιφάνειες στο <code>webapp/</code> (Fusion στο <code>webapp/fusion</code>, κλασική στο <code>webapp/channels</code>, κοινά πακέτα στο <code>webapp/platform</code>), και δοκιμές άκρο-προς-άκρο στο <code>e2e-tests/</code>.</p>
+
+<h2 id="dev-server">Εκτέλεση διακομιστή ανάπτυξης</h2>
+<pre><code>cd server
+make run</code></pre>
+<p>Η εντολή <code>make run</code> ξεκινά τα containers ανάπτυξης (PostgreSQL, Redis, έναν παγιδευτή αλληλογραφίας και εργαλεία παρακολούθησης), συνδέει τις δημιουργίες της διαδικτυακής εφαρμογής στη σωστή θέση, ξεκινά τον διακομιστή σε segundo plano με <code>go run</code>, και ξεκινά τον παρατηρητή (watcher) της διαδικτυακής εφαρμογής, ο οποίος ξαναδημιουργεί την κλασική επιφάνεια καθώς την επεξεργάζεστε. Ανοίξτε το <code>http://localhost:8065</code> και δημιουργήστε έναν λογαριασμό: ο πρώτος γίνεται διαχειριστής συστήματος.</p>
+<table>
+<thead><tr><th>Εντολή (στο <code>server/</code>)</th><th>Λειτουργία</th></tr></thead>
+<tbody>
+<tr><td><code>make run-server</code>, <code>make run-client</code></td><td>Ξεκινήστε μόνο τον διακομιστή, ή μόνο τον παρατηρητή της διαδικτυακής εφαρμογής.</td></tr>
+<tr><td><code>make restart-server</code></td><td>Επανεκκινήστε τον διακομιστή μετά από αλλαγές στον κώδικα Go.</td></tr>
+<tr><td><code>make stop</code></td><td>Διακόψτε τον διακομιστή, τον παρατηρητή και τα containers.</td></tr>
+<tr><td><code>make debug-server</code></td><td>Εκτελέστε τον διακομιστή κάτω από τον αποσφαλμωτή Delve.</td></tr>
+<tr><td><code>make run-cli ARGS="-version"</code></td><td>Εκτελέστε μια εντολή διακομιστή.</td></tr>
+<tr><td><code>make config-reset</code></td><td>Επαναφέρετε το <code>config/config.json</code> στις προεπιλογές.</td></tr>
+<tr><td><code>make clean</code>, <code>make nuke</code></td><td>Διαγράψτε τα αρχεία δημιουργίας· το <code>nuke</code> διαγράφει επίσης τα δεδομένα ανάπτυξης.</td></tr>
+</tbody>
+</table>
+<p>Η βάση δεδομένων ανάπτυξης είναι <code>postgres://mmuser:mostest_password@localhost/mattermost_test</code>, η προεπιλεγμένη πηγή δεδομένων του διακομιστή. Επιλέξτε ποια containers ξεκινούν με το <code>ENABLED_DOCKER_SERVICES</code>, σε ένα αρχείο <code>server/config.override.mk</code> ή στο περιβάλλον σας (δείτε <code>server/config.mk</code>).</p>
+
+<h2 id="webapp">Οι διαδικτυακές επιφάνειες</h2>
+<p>Στο <code>webapp/</code>:</p>
+<pre><code>npm install      # also builds the shared packages
+npm run build    # the classic interface, then Fusion</code></pre>
+<p>Τα builds αποθηκεύονται στο <code>webapp/channels/dist</code> (classic) και στο <code>webapp/fusion/dist</code> (Fusion). Η εντολή <code>make client</code> στο <code>server/</code> τα συνδέει ως <code>server/client</code> και <code>server/client-fusion</code>, από όπου ο server τα σερβίρει: το classic κάτω από <code>/static/</code>, το Fusion κάτω από <code>/static/fusion/</code>.</p>
+<ul>
+<li>Η εντολή <code>npm run run</code> (ή <code>make run</code> στο <code>webapp/</code>) παρακολουθεί και ξαναδημιουργεί το classic interface. Προσθέστε <code>WATCH_FUSION=true</code> για να ξαναδημιουργηθεί και το Fusion.</li>
+<li>Η εντολή <code>npm run dev-server</code> (<code>make dev</code>) εκτελεί τον development server του webpack: το classic στην θύρα 9005, το Fusion στην θύρα 9006.</li>
+<li>Για να δείτε το ένα ή το άλλο interface στον browser, προσθέστε <code>?webui=fusion</code> ή <code>?webui=classic</code> στη διεύθυνση οποιασδήποτε σελίδας.</li>
+</ul>
+
+<h2 id="tests">Δοκιμές και έλεγχοι</h2>
+<table>
+<thead><tr><th>Εντολή</th><th>Πού</th><th>Λειτουργία</th></tr></thead>
+<tbody>
+<tr><td><code>make test-server</code></td><td><code>server/</code></td><td>Το suite δοκιμών του server, ενάντια στα development containers. Απαιτεί πολύ χρόνο.</td></tr>
+<tr><td><code>make test-server-quick</code></td><td><code>server/</code></td><td>Μόνο οι σύντομες δοκιμές.</td></tr>
+<tr><td><code>go test ./channels/app/... -run TestName</code></td><td><code>server/</code></td><td>Ένα πακέτο ή δοκιμή, με τα containers σε λειτουργία (<code>make start-docker</code>).</td></tr>
+<tr><td><code>make check-style</code></td><td><code>server/</code></td><td>go vet, golangci-lint και οι υπόλοιποι έλεγχοι Go.</td></tr>
+<tr><td><code>make test</code></td><td><code>webapp/</code></td><td>Οι unit tests (Jest) της web app, σε κάθε πακέτο.</td></tr>
+<tr><td><code>npm run test -- &lt;pattern&gt;</code></td><td><code>webapp/fusion</code></td><td>Κάποιες από τις δοκιμές του Fusion.</td></tr>
+<tr><td><code>make check-style</code>, <code>make check-types</code></td><td><code>webapp/</code></td><td>ESLint και TypeScript.</td></tr>
+<tr><td><code>make i18n-extract</code></td><td><code>server/</code> και <code>webapp/</code></td><td>Ενημερώνει τα αρχεία αγγλικών συμβόλων μετά την προσθήκη ή αλλαγή συμβόλων (βλ. <a href="{{root}}docs/developers/contributing.html#translations">Μεταφράσεις</a>).</td></tr>
+</tbody>
+</table>
+<p>Εκτελέστε <code>make modules-tidy</code> αντί για <code>go mod tidy</code> στο <code>server/</code>.</p>
+
+<h2 id="release">Αρχεία έκδοσης</h2>
+<pre><code>cd webapp &amp;&amp; npm run build &amp;&amp; cd ..
+cd server
+make build-linux       # the antimatter and amctl binaries
+make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
+<p>Η εντολή <code>make build</code> δημιουργεί τα web interfaces και τα Linux binaries σε μία κίνηση. Το αρχείο περιέχει <code>bin/antimatter</code>, <code>bin/amctl</code>, ένα προεπιλεγμένο <code>config/config.json</code>, και τα δύο web interfaces, τα templates, τα γραμματοσειρές και τις μεταφράσεις. Άλλες πλατφόρμες: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>. Τα αρχεία δεν περιλαμβάνουν τις ενσωματωμένες apps, αλλά το Docker image ναι.</p>
+
+<h2 id="docker">Το Docker image</h2>
+<p>Το repository <a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> δημιουργεί τα δημοσιευμένα images, τον server με τις apps του, εντελώς μέσα στο Docker:</p>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter-docker.git
+cd antimatter-docker
+scripts/build-all.sh                     # from the main branches on GitHub
+SOURCES=local scripts/build-all.sh       # from your checkouts next to this folder
+VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatter app</code></pre>
+<p>Απαιτεί Docker με buildx, Python 3, git και gpg, περίπου 16 GB RAM και 30 GB δίσκου. Το αποτέλεσμα φορτώνεται ως <code>ghcr.io/antimatterchat/antimatter:dev</code>. Δοκιμάστε το με <code>ANTIMATTER_IMAGE=ghcr.io/antimatterchat/antimatter:dev docker compose -f compose.local.yml up -d</code>. Το <code>plugins.json</code> αναφέρει τις apps και τις εκδόσεις που δημιουργήθηκαν, ενώ το README του repository εξηγεί τις παραλλαγές.</p>
+<div class="callout warn">Το <code>build-all.sh</code> υπογράφει τις συσκευασίες των εφαρμογών με το κλειδί υπογραφής του Antimatter, και η δημιουργία της εικόνας απορρίπτει τις μη υπογεγραμμένες εφαρμογές. Χωρίς αυτό το ιδιωτικό κλειδί, το οποίο κατέχουν μόνο οι συντηρητές, εκτελέστε μόνο τα πρώτα βήματα: <code>scripts/fetch-sources.sh</code>, <code>scripts/build-plugins.sh</code> (συσκευασίες εφαρμογών στο <code>out/plugins/</code>) και <code>scripts/build-server.sh</code> (συμπαγεία διακομιστή στο <code>out/server/</code>).</div>
+
+<h2 id="memory">Δημιουργία και μνήμη</h2>
+<p>Οι διαδικτυακές διεπαφές είναι μεγάλες δημιουργίες webpack, και η εξάντληση της μνήμης είναι η πιο συνηθισμένη αποτυχία δημιουργίας.</p>
+<ul>
+<li>Η εντολή <code>npm run build</code> δημιουργεί τη κλασική διεπαφή και τη Fusion τη μία μετά την άλλη, όχι ταυτόχρονα, ώστε να κρατηθεί η κορυφή χαμηλότερη. Μην τις εκτελείτε παράλληλα μόνοι σας.</li>
+<li>Ο συμπιέστης ξεκινά έναν εργαζόμενο ανά επεξεργαστή. Σε έναν υπολογιστή με πολλούς πυρήνες και λίγη μνήμη, περιορίστε τους επεξεργαστές που βλέπει η δημιουργία: <code>taskset -c 0-5 npm run build</code>.</li>
+<li>Αν το Node εξαντλήσει τη στήλη (heap), αυξήστε το όριο του: <code>NODE_OPTIONS=--max-old-space-size=6144</code>. Η δημιουργία Docker χρησιμοποιεί αυτή την τιμή (<code>BUILD_NODE_OPTIONS</code> στο <code>build.env</code>).</li>
+<li>Αποφύγετε την ταυτόχρονη εκτέλεση της πλήρους σουίτας δοκιμών του διακομιστή, μιας διαδικτυακής δημιουργίας και μιας δημιουργίας Docker σε έναν μικρό υπολογιστή.</li>
+</ul>
+
+<h2 id="apps">Οι εφαρμογές</h2>
+<p>Κάθε εφαρμογή (πρόσθετο) έχει το δικό της αποθετήριο και Makefile· η εντολή <code>make dist</code> δημιουργεί τη συσκευασία της. Δείτε <a href="{{root}}docs/developers/apps.html#build">Δημιουργία, εγκατάσταση και αποσφαλμάτωση</a>.</p>
+<h3>Εφαρμογή για επιτραπέζιο υπολογιστή</h3>
+<p>Η <a href="https://github.com/AntimatterChat/desktop-app">εφαρμογή για επιτραπέζιο υπολογιστή</a> είναι μια εφαρμογή Electron. Με Node.js 24 ή νεότερη:</p>
+<pre><code>npm install --allow-git=all
+npm run build          # development build, into dist/
+npm start              # run it
+npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
+<p>Οι ρυθμίσεις κατά τη δημιουργία, όπως οι διακομιστές που θα προϿρυθμιστούν, βρίσκονται στο <code>src/common/config/buildConfig.ts</code>.</p>
+<h3>Εφαρμογή για κινητό</h3>
+<p>Η <a href="https://github.com/AntimatterChat/mobile-app">εφαρμογή για κινητό</a> είναι μια εφαρμογή React Native· το README της απαριθμεί τις εντολές (<code>npm run ios</code>, <code>npm run android</code>). Για να δημιουργήσετε το δικό σας αντίγραφο, χρειάζεστε επίσης τα δικά σας κλειδιά υπογραφής, ένα έργο Firebase για ειδοποιήσεις Android, ένα κλειδί APNs για iOS και έναν <a href="https://github.com/AntimatterChat/push-proxy">push proxy</a> που να διατηρεί αυτές τις διαπιστευτήριες.</p>

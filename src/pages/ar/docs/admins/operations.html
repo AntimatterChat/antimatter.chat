@@ -1,0 +1,85 @@
+title: العمليات
+description: تشغيل Antimatter يومياً: فحوصات الحالة، المقاييس والمراقبة، تطبيق المقاييس، حزم الدعم، البحث والتوسع، التوفر العالي، الاحتفاظ بالبيانات، تصديرات الامتثال وسجلات التدقيق، وإصلاح المشكلات الشائعة.
+guide: admins
+order: 11
+nav: العمليات
+lead: مراقبة الخادم، تمكينه من التعامل مع عدد أكبر من المستخدمين، تحديد مدة الاحتفاظ بالبيانات، وإصلاح المشكلات التي يواجهها المسؤولون في أغلب الأحيان.
+source: 32577b38c3db
+---
+<h2 id="health">فحوصات الحالة</h2>
+<ul>
+<li><code>amctl --local system status</code> (داخل الحاوية: <code>docker compose exec antimatter amctl --local system status</code>). يعمل فحص الحالة في صورة Docker كل 30 ثانية، لذا يعرض <code>docker compose ps</code> حالة <code>healthy</code> أو <code>unhealthy</code>.</li>
+<li>يُجيب <code>GET /api/v4/system/ping</code> دون تسجيل الدخول، وذلك لمراقب خارجي أو موزّع أحمال: <code>curl -fsS https://chat.example.com/api/v4/system/ping</code>.</li>
+<li>يتحقق <code>antimatter db ping</code> من إمكانية الوصول إلى قاعدة البيانات باستخدام الإعدادات المحددة.</li>
+<li>يعرض <b>وحدة التحكم بالنظام › التقارير › إحصائيات النظام</b> عدد المستخدمين والمشاركات والجلسات، بينما تُدرج <b>تحسين مساحة العمل</b> مشكلات الإعداد التي يجب النظر فيها.</li>
+</ul>
+
+<h2 id="metrics">المقاييس</h2>
+<p>يمكن للخادم نشر مقاييس Prometheus: معدلات الطلبات ومددها، اتصالات websocket، استخدام قاعدة البيانات والذاكرة المؤقتة، المهام، خطافات الإضافات والمزيد. فعّلها من <b>وحدة التحكم بالنظام › البيئة › مراقبة الأداء</b>:</p>
+<table>
+<thead><tr><th>الإعداد</th><th>المفتاح والمتغير</th><th>الافتراضي</th></tr></thead>
+<tbody>
+<tr><td><b>تمكين مراقبة الأداء</b></td><td><code>MetricsSettings.Enable</code>, <code>AM_METRICSSETTINGS_ENABLE</code></td><td>معطّل</td></tr>
+<tr><td><b>عنوان الاستماع</b></td><td><code>MetricsSettings.ListenAddress</code>, <code>AM_METRICSSETTINGS_LISTENADDRESS</code></td><td><code>:8067</code></td></tr>
+<tr><td><b>تمكين مراقبة أداء العميل</b></td><td><code>MetricsSettings.EnableClientMetrics</code></td><td>على: تُبلّغ المتصفحات والتطبيقات عن أزمنتها الخاصة</td></tr>
+</tbody>
+</table>
+<p>ثم يقوم Prometheus بسحب <code>http://&lt;server&gt;:8067/metrics</code>. يُنشر كل مقياس تحت اسم Mattermost الخاص به (<code>mattermost_…</code>) واسم Antimatter الخاص به (<code>antimatter_…</code>)، مما يتيح استمرار عمل لوحات معلومات Mattermost الحالية. تُنشر التطبيقات مقاييسها الخاصة، على سبيل المثال تطبيق الوكلاء في <code>/plugins/mattermost-ai/metrics</code>.</p>
+<p>لا يتطلب منفذ المقاييس تسجيل الدخول: احتفظ به على شبكة خاصة. لا يُنشر ملف compose الخاص بالموقع هذا المنفذ؛ لسحبه من المضيف، أضف <code>"127.0.0.1:8067:8067"</code> إلى <code>ports</code> لخدمة <code>antimatter</code>.</p>
+<h3>تطبيق المقاييس</h3>
+<p>Without a Prometheus server, the Metrics app (off by default, see <a href="{{root}}docs/admins/apps.html">Bundled apps</a>) collects the same metrics into a small time-series database inside Antimatter: every 60 seconds, kept 15 days. It turns on the metrics endpoint when it starts. Its page in <b>System Console › Plugins</b> shows the database's size and lets you download dumps of the data, for your own analysis or to attach to a bug report; the latest day is also added to support packets.</p>
+
+<h2 id="support-packet">حزمة الدعم</h2>
+<p>حزمة الدعم هي ملف zip يحتوي على ما يلزم لتشخيص المشكلة: الإصدارات، الإحصائيات، الإعدادات مع إزالة أسرارها، قائمة التطبيقات والمهام، مخطط قاعدة البيانات، والسجلات الحديثة وملفات الأداء. أنشئ واحدة باستخدام <code>amctl system supportpacket</code>، أو من وحدة التحكم بالنظام عبر القائمة أعلى شريطها الجانبي (<b>الدعم التجاري</b>، والتي تتيح لك بعد ذلك اختيار ما تريد تضمينه). اقرأها قبل مشاركتها: فهي لا تحتوي على الرسائل، لكنها تحتوي على أسماء المجتمعات والمستخدمين والإعدادات.</p>
+
+<h2 id="scaling">الأداء والتوسع</h2>
+<p>يخدم خادم واحد بمعالج من 2 نواة وذاكرة 4 جيجابايت بضع مئات من الأشخاص. قبل إضافة خوادم، راجع ما يلي:</p>
+<ul>
+<li><b>قاعدة البيانات.</b> يقوم PostgreSQL بمعظم العمل: امنحه تخزيناً سريعاً وذاكرة. يمكن لنسخ القراءة (Read replicas) أن تتحمل حمل القراءة (<code>SqlSettings.DataSourceReplicas</code>، وهو قائمة من عناوين الاتصال).</li>
+<li><b>البحث.</b> يتم البحث في الرسائل داخل قاعدة البيانات افتراضياً. بالنسبة للخوادم الكبيرة، يمكن لـ Elasticsearch أو OpenSearch أن يتولى البحث والفهرسة: <b>وحدة التحكم بالنظام › البيئة › Elasticsearch</b> (<code>ElasticsearchSettings</code>: <b>نوع المحرك</b> Elasticsearch أو OpenSearch، <b>عنوان اتصال بالخادم</b>، بيانات الاعتماد، ثم تفعيل الفهرسة، بناء الفهرس، وتفعيل البحث).</li>
+<li><b>المكالمات.</b> وسائط المكالمات هي أثقل حمل. انقلها إلى خادم rtcd: انظر <a href="{{root}}docs/admins/calls.html#rtcd">المكالمات والصوت</a>.</li>
+<li><b>الملفات المفتوحة.</b> يحتفظ كل شخص متصل بفتح websocket. يرفع ملف compose للإنتاج في antimatter-docker الحد إلى 49152 (<code>ulimits: nofile</code>)؛ قم بالمثل مع systemd (<code>LimitNOFILE</code>).</li>
+<li><b>السجلات.</b> اخفض <code>LogSettings.ConsoleLevel</code> إلى <code>INFO</code> أو <code>WARN</code>: يسجل <code>DEBUG</code> الكثير على الخادم المزدحم.</li>
+</ul>
+<h3>التوافر العالي</h3>
+<p>يمكن تشغيل عدة خوادم Antimatter كعنقود خلف موازن الأحمال، دون الحاجة إلى ترخيص. يجب أن تتشارك الخوادم في نفس قاعدة بيانات PostgreSQL، ونفس تخزين الملفات S3، والإعدادات المخزنة في قاعدة البيانات (<code>AM_CONFIG</code>). في <b>وحدة التحكم بالنظام › البيئة › التوافر العالي</b> (<code>ClusterSettings</code>): فعّل <b>تفعيل وضع التوافر العالي</b> (<code>ClusterSettings.Enable</code>)، وأعطِ كل عقدة نفس <b>اسم العنقود</b> (<code>ClusterSettings.ClusterName</code>)، واطلب من العقد الوصول إلى بعضها البعض عبر منفذ الغسوسب، <b>8074</b> TCP وUDP (<code>ClusterSettings.GossipPort</code>). تتعرف العقد على بعضها البعض عبر قاعدة البيانات. يجب أن يمرر موازن الأحمال اتصالات WebSocket. لاستخدام المكالمات في العنقود، استخدم rtcd.</p>
+
+<h2 id="retention">الاحتفاظ بالبيانات</h2>
+<p>بشكل افتراضي، يحتفظ Antimatter بكل رسالة وملف بشكل دائم. لحذف العناصر القديمة تلقائيًا، انتقل إلى <b>وحدة التحكم بالنظام › الامتثال › سياسات الاحتفاظ بالبيانات</b>:</p>
+<ul>
+<li>تحدد <b>سياسة الاحتفاظ العامة</b> <b>احتفاظ الرسائل في القنوات والرسائل المباشرة</b> و<b>احتفاظ بالملفات</b> للخادم بأكمله: <b>احتفاظ دائم</b>، أو عدد من الساعات أو الأيام أو السنوات (<code>DataRetentionSettings.EnableMessageDeletion</code>، <code>MessageRetentionHours</code>، <code>EnableFileDeletion</code>، <code>FileRetentionHours</code>).</li>
+<li>تحدد <b>سياسات الاحتفاظ المخصصة</b> مدة أخرى للمجتمعات والقنوات المحددة.</li>
+<li>تُنفَّذ مهمة الحذف يوميًا في الوقت الذي تحدده (<code>DataRetentionSettings.DeletionJobStartTime</code>، و<code>02:00</code> بتوقيت UTC افتراضيًا). يؤدي <b>تشغيل مهمة الحذف الآن</b> إلى تنفيذها فورًا، بينما يدرج <b>سجل السياسات</b> ما أزالته كل عملية تشغيل.</li>
+</ul>
+<div class="callout warn">تُحذف الرسائل والملفات المحذوفة نهائيًا، من قاعدة البيانات ومن تخزين الملفات. تحقق من المدد قبل تفعيل سياسة، وتذكر أن نسخ احتياطية ما زالت تحتفظ بالبيانات المحذوفة حتى تنتهي صلاحيتها.</div>
+
+<h2 id="compliance">تصدير الامتثال وسجلات التدقيق</h2>
+<ul>
+<li>تُصدِّر <b>وحدة التحكم بالنظام › الامتثال › تصدير الامتثال</b> جميع الرسائل والملفات يوميًا (<b>تفعيل تصدير الامتثال</b>، <code>MessageExportSettings.EnableExport</code>، معطَّل افتراضيًا؛ <b>وقت تصدير الامتثال</b>، <code>01:00</code> افتراضيًا) بأحد الصيغ التي تقرأها أنظمة الأرشفة: CSV، أو Actiance XML، أو Global Relay (ملف zip، أو EML يُرسَل عبر SMTP). يُنفَّذ <code>amctl compliance-export</code> ويحمِّل التصديرات من سطر الأوامر.</li>
+<li>يكتب <b>مراقبة الامتثال</b> (<code>ComplianceSettings</code>) تقاريرًا يومية في مجلد. هذا هو الآلية الأقدم؛ يُفضَّل استخدام تصدير الامتثال.</li>
+<li>يسجّل <b>سجل التدقيق</b> (نسخة تجريبية، <code>ExperimentalAuditSettings</code>) الأحداث الإدارية والأمنية (تسجيل الدخول، وتغييرات الأذونات والإعدادات) في ملف خاص به.</li>
+<li>يطلب <b>شروط الخدمة المخصصة</b> من الجميع قبول شروطك قبل استخدام Antimatter، ثم يطلب قبولها مرة أخرى بعد أي تغيير تجريه عليها.</li>
+</ul>
+
+<h2 id="troubleshooting">مشاكل شائعة</h2>
+<h3>«تعذّر الاتصال بالخادم»، أو ظهور الرسائل فقط بعد إعادة التحميل</h3>
+<p>لا يمرّ اتصال WebSocket. تأكد من أن وكيل العكس يمرر رؤوس <code>Upgrade</code> و<code>Connection</code> (انظر <a href="{{root}}docs/admins/https.html#nginx">مثال nginx</a>)، وأن عنوان الموقع يطابق العنوان في المتصفح تمامًا، بما في ذلك <code>https</code>.</p>
+<h3>فشل الرفع مع رسالة «413 Request Entity Too Large»</h3>
+<p>يرفض الوكيل الحجم. ارفع حدّه (nginx <code>client_max_body_size</code>) إلى ما لا يقل عن <b>الحد الأقصى لحجم الملف</b> في <b>وحدة التحكم بالنظام › البيئة › تخزين الملفات</b> (<code>FileSettings.MaxFileSize</code>، وهو 100 ميغابايت افتراضيًا).</p>
+<h3>تعذّر بدء المكالمات، أو انضمام الأشخاص إليها دون سماع أي شيء</h3>
+<p>إذا كان غير المديرين غير قادرين على بدء المكالمات، فعطّل <b>وضع الاختبار</b> للمكالمات. وإذا انضم الأشخاص دون سماع أي شيء، فإما أن منفذ الوسائط محجوب أو أن الخادم يعلن عنوانًا خاطئًا: افتح المنفذ 8443 عبر UDP وTCP، و اضبط <b>تجاوز مضيف ICE</b> خلف NAT. يحتاج الأشخاص على الشبكات التي تحجب كلا البروتوكولين إلى خادم TURN. راجع <a href="{{root}}docs/admins/calls.html">المكالمات والصوت</a>.</p>
+<h3>مُنتقي GIF فارغ</h3>
+<p>تحقق من <b>عنوان خدمة GIF</b> (<code>http://gifs:8080/v2</code> في ملف compose الخاص بالموقع) و<b>مفتاح الواجهة البرمجية</b> (<code>GIFS_API_KEY</code> في <code>.env</code>) في <b>وحدة التحكم بالنظام › الإضافات › GIF</b>، وتأكد من تشغيل خدمة <code>gifs</code>: <code>docker compose ps gifs</code>.</p>
+<h3>عدم وصول رسائل البريد الإلكتروني</h3>
+<p>استخدم <b>اختبار الاتصال</b> في <b>وحدة التحكم بالنظام › البيئة › SMTP</b>، وتحقق من أن <b>عنوان المرسل للإشعارات</b> لم يعد <code>test@example.com</code>، وابحث في السجل عن <code>smtp</code> أو <code>mail</code>.</p>
+<h3>إظهار التطبيق لرسالة «فشل في البدء»</h3>
+<p>ابحث عن معرّفه في السجل (<code>docker compose logs antimatter | grep &lt;app id&gt;</code>). عطّله ثم فعّله في إدارة الإضافات لإعادة تشغيله.</p>
+<h3>عدم بدء تشغيل الخادم</h3>
+<p>اقرأ نهاية سجله. في أغلب الأحيان، يكون السبب عدم إمكانية الوصول إلى قاعدة البيانات (تحقق من <code>AM_SQLSETTINGS_DATASOURCE</code> باستخدام <code>antimatter db ping</code>)، أو فشل ترحيل قاعدة البيانات (استعد النسخة الاحتياطية المأخوذة قبل الترقية وأبلغ عن الخطأ)، أو أن منفذ الاستماع مشغول.</p>
+<h3>قفل حساب المدير</h3>
+<p>من الخادم، لا يحتاج الوضع المحلي إلى كلمة مرور:</p>
+<pre><code>docker compose exec antimatter amctl --local user change-password admin --password 'a-new-password'
+docker compose exec antimatter amctl --local user resetmfa admin
+docker compose exec antimatter amctl --local roles system-admin admin</code></pre>
+<h3>الإبلاغ عن خطأ</h3>
+<p>افتح مشكلة في <a href="https://github.com/AntimatterChat/community/issues/new/choose">مستودع مجتمع Antimatter</a>، مع ذكر الإصدار، وطريقة التثبيت، وما قمت به، والسطور ذات الصلة في السجلات. أبلغ عن المشكلات الأمنية على وجه الخصوص، كما يوضح <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">سياسة الأمان</a>.</p>

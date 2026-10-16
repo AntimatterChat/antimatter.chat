@@ -1,0 +1,122 @@
+title: Snedstreckskommandon
+description: Anpassade snedstreckskommandon i Antimatter: hur du skapar dem, den begäran din tjänst tar emot, svarsformatet, tillfälliga och kanalvisa svar, fördröjda svar och autofullständighet.
+guide: developers
+order: 4
+nav: Snedstreckskommandon
+lead: Ett anpassat snedstreckskommando gör att personer kan skriva /något i meddelandefältet för att anropa din tjänst. Antimatter skickar kommandot till din URL och visar ditt svar, antingen bara för den personen eller för hela kanalen.
+source: 24dbc9730e62
+---
+<h2 id="how">Så fungerar ett snedstreckskommando</h2>
+<ol>
+<li>Någon skriver <code>/weather Paris</code> och skickar det. Texten publiceras inte.</li>
+<li>Antimatter skickar en HTTP-begäran till kommandots URL, med vem som skrev det, var, och texten efter utlösaren.</li>
+<li>Din tjänst svarar inom begäranstiden (30 sekunder som standard) med ett meddelande.</li>
+<li>Antimatter visar svaret: bara för den personen (tillfälligt) eller i kanalen för alla.</li>
+</ol>
+<p>Kommandon tillhör en gemenskap, och ett utlösande ord är unikt inom den. Inbyggda kommandon som <code>/join</code>, <code>/msg</code> eller <code>/away</code> kan inte ersättas. Appar (plugins) kan också registrera kommandon; se <a href="{{root}}docs/developers/apps.html#server">Serverdelen</a>.</p>
+
+<h2 id="create">Skapa ett kommando</h2>
+<p>Egna snedstreckskommandon är aktiverade som standard (<b>Aktivera egna slash-kommandon</b> i <b>Systemkonsol › Integrationer › Hantera integrationer</b>, <code>ServiceSettings.EnableCommands</code>). Community-administratörer och systemadministratörer kan som standard skapa dem.</p>
+<ol>
+<li>Öppna din avatar i övre högra hörnet, välj sedan <b>Integrationer › Slash-kommando</b> och därefter <b>Lägg till slash-kommandon</b>.</li>
+<li>Fyll i <b>Titel</b> och <b>Beskrivning</b> (visas på integrationsssidorna).</li>
+<li>Ange <b>Kommandots aktiveringsord</b>, utan snedstreck och utan mellanslag, till exempel <code>weather</code>.</li>
+<li>Ange <b>Begärans URL</b> och välj <b>Metod för begäran</b>: <b>POST</b> (standard) eller <b>GET</b>.</li>
+<li>Välj om så önskas ett <b>Svarets användarnamn</b> och en <b>Svarsikon</b>. De används endast när servern tillåter att integrationer åsidosätter namn och ikoner (se <a href="{{root}}docs/developers/webhooks.html#identity">Namn och ikon</a>).</li>
+<li>Markera <b>Komplettera automatiskt</b> för att visa kommandot när någon skriver <code>/</code>, med ett <b>Tip för automatisk komplettering</b> (dess argument, till exempel <code>[city]</code>) och en <b>Beskrivning av automatisk komplettering</b>.</li>
+<li>Välj <b>Spara</b> och kopiera den visade tokenen. Din tjänst använder den för att kontrollera att begäranden kommer från din server.</li>
+</ol>
+<p>Med API:et <code>POST /api/v4/commands</code> med <code>{"team_id", "trigger", "url", "method": "P", "display_name", "description", "auto_complete": true, "auto_complete_hint", "auto_complete_desc", "username", "icon_url"}</code>. Metoden är <code>P</code> för POST eller <code>G</code> för GET. <code>PUT /api/v4/commands/{command_id}/regen_token</code> genererar en ny token.</p>
+
+<h2 id="request">Begäran som din tjänst tar emot</h2>
+<p>Ett POST-kommando skickar en formulärkoderad kropp (<code>application/x-www-form-urlencoded</code>); ett GET-kommando skickar samma fält i frågesträngen. Token finns också i <code>Authorization: Token &lt;token&gt;</code>-huvudet.</p>
+<table>
+<thead><tr><th>Fält</th><th>Värde</th></tr></thead>
+<tbody>
+<tr><td><code>token</code></td><td>Kommandots token. Kontrollera den vid varje begäran.</td></tr>
+<tr><td><code>command</code></td><td>Utlösaren med dess snedstreck, till exempel <code>/weather</code>.</td></tr>
+<tr><td><code>text</code></td><td>Allt efter utlösaren, till exempel <code>Paris</code>.</td></tr>
+<tr><td><code>user_id</code>, <code>user_name</code></td><td>Vem som körde det.</td></tr>
+<tr><td><code>channel_id</code>, <code>channel_name</code></td><td>Var det kördes.</td></tr>
+<tr><td><code>team_id</code>, <code>team_domain</code></td><td>Arbetsytans ID och URL-namn.</td></tr>
+<tr><td><code>root_id</code></td><td>Tråden, om det kördes i en tråds svarsruta.</td></tr>
+<tr><td><code>trigger_id</code></td><td>Gör att ditt svar kan öppna en dialog (se <a href="{{root}}docs/developers/bots.html#dialogs">Dialoger</a>). Den är endast giltig under en kort tid.</td></tr>
+<tr><td><code>response_url</code></td><td>En URL för att posta fler svar senare (se <a href="#delayed">Försenade svar</a>).</td></tr>
+<tr><td><code>user_mentions</code>, <code>user_mentions_ids</code>, <code>channel_mentions</code>, <code>channel_mentions_ids</code></td><td>Personer och publika kanaler som omnämns i texten, om sådana finns.</td></tr>
+</tbody>
+</table>
+<div class="callout">Serverns <b>Site URL</b> måste vara inställd för att anpassade kommandon ska kunna köras: Antimatter bygger <code>response_url</code> utifrån den.</div>
+
+<h2 id="response">Svaret</h2>
+<p>Svara med <code>200</code> och JSON (<code>Content-Type: application/json</code>):</p>
+<pre><code>{
+  "response_type": "in_channel",
+  "text": "Paris: 18 °C, light rain",
+  "attachments": []
+}</code></pre>
+<table>
+<thead><tr><th>Fält</th><th>Betydelse</th></tr></thead>
+<tbody>
+<tr><td><code>response_type</code></td><td><code>ephemeral</code> (standard): endast personen som körde kommandot ser svaret, och det sparas inte efter en omladdning. <code>in_channel</code>: svaret postas i kanalen.</td></tr>
+<tr><td><code>text</code>, <code>attachments</code></td><td>Meddelandet, som för webhooks: Markdown-text och <a href="{{root}}docs/developers/webhooks.html#attachments">bilagor</a>, inklusive knappar och menyer.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code></td><td>Namn och bild att visa, när åsidosättningar är tillåtna. Kommandots egna inställningar har företräde framför dessa.</td></tr>
+<tr><td><code>channel_id</code></td><td>Posta svaret i en annan kanal, som personen måste vara medlem i.</td></tr>
+<tr><td><code>goto_location</code></td><td>En URL att öppna när kommandot har körts.</td></tr>
+<tr><td><code>props</code>, <code>type</code></td><td>Extra egenskaper och en anpassad posttyp, som för webhooks.</td></tr>
+<tr><td><code>extra_responses</code></td><td>Fler svar, var och ett med samma fält, postade efter det första.</td></tr>
+<tr><td><code>skip_slack_parsing</code></td><td><code>true</code> behåller texten som den är, utan att konvertera Slack-stil länkar och omnämnanden.</td></tr>
+</tbody>
+</table>
+<p>Ett svar som inte är JSON visas som ett tillfälligt meddelande med kroppen som text. <code>204 No Content</code> visar ingenting. Alla statuskoder utanför 200–299 visar personen ett fel.</p>
+
+<h2 id="example">Exempeltjänst</h2>
+<p>En minimal kommandotjänst i Python, med endast standardbiblioteket:</p>
+<pre><code>import hmac
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
+
+TOKEN = "the token shown when you saved the command"
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        form = {key: values[0] for key, values in parse_qs(body).items()}
+        if not hmac.compare_digest(form.get("token", ""), TOKEN):
+            self.send_response(401)
+            self.end_headers()
+            return
+        answer = {
+            "response_type": "ephemeral",
+            "text": f"Hello @{form['user_name']}, you asked for: {form.get('text', '')}",
+        }
+        data = json.dumps(answer).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(data)
+
+HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()</code></pre>
+<p>Om tjänsten körs på en privat nätverksadress måste en systemadministratör tillåta den i <b>Tillåt osäkra interna anslutningar till</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>).</p>
+
+<h2 id="delayed">Försenade svar</h2>
+<p>För arbete som tar längre tid än tidsgränsen, svara omedelbart (till exempel med ett tillfälligt "Jobbar på det…") och skicka sedan det faktiska svaret till <code>response_url</code>. Det tar samma JSON som svaret och fungerar upp till 5 gånger inom 30 minuter efter kommandot.</p>
+<pre><code>curl -X POST "$RESPONSE_URL" -H 'Content-Type: application/json' \
+  -d '{"response_type": "in_channel", "text": "Report ready: https://reports.example.com/42"}'</code></pre>
+
+<h2 id="run">Kör ett kommando med API:t</h2>
+<p>Skript och bots kan köra valfritt kommando, inbyggt eller anpassat, som om de hade skrivit det:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/commands/execute \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "command": "/weather Paris"}'</code></pre>
+<p><code>GET /api/v4/teams/{team_id}/commands/autocomplete</code> listar de kommandon som användare kan autofylla i en gemenskap.</p>
+
+<h2 id="autocomplete">Autofyllning</h2>
+<p>Kommandon som skapas på integrationsssiderna autofylls med deras utlösare, ledtråd och beskrivning. Kommandon som registreras av appar kan beskriva sina underkommandon och argument i detalj med <code>AutocompleteData</code>, från <code>model.NewAutocompleteData(trigger, hint, helpText)</code>:</p>
+<ul>
+<li><code>AddCommand(sub)</code> lägger till ett underkommando, som i sig är ett <code>AutocompleteData</code>.</li>
+<li><code>AddTextArgument(helpText, hint, pattern)</code> lägger till fri text.</li>
+<li><code>AddStaticListArgument(helpText, required, items)</code> erbjuder en fast lista av <code>AutocompleteListItem{Item, Hint, HelpText}</code>.</li>
+<li><code>AddDynamicListArgument(helpText, url, required)</code> ber appen om förslag medan användarna skriver. URL:en är en ruta i din app, till exempel <code>/plugins/com.example.weather/cities</code>. Den tar emot användaren, kanalen och gemenskapen, och returnerar en JSON-lista av <code>{"Item", "Hint", "HelpText"}</code>.</li>
+</ul>
+<p>De <code>Named…</code>-varianterna (<code>AddNamedTextArgument</code> och andra) lägger till <code>--name value</code>-flaggor. Båda webbgränssnitten visar dessa förslag.</p>

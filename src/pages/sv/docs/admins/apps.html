@@ -1,0 +1,141 @@
+title: Medföljande appar
+description: Apparna som ingår i Antimatter (Kanban, Samtal, Röstkanaler, Anteckningar, Whiteboard, GIF, Agenter och andra): vilka som är aktiverade som standard, hur du aktiverar och inaktiverar dem, deras administratörsinställningar och hur du installerar andra appar.
+guide: admins
+order: 7
+nav: Medföljande appar
+lead: Antimatters Docker-images innehåller en uppsättning appar (plugins, i Systemkonsolen). Denna sida listar dem, anger vilka som är aktiverade efter installationen och beskriver de inställningar varje app kräver från en administratör.
+source: ed28cd79fdc1
+---
+<h2 id="list">De medföljande apparna</h2>
+<p>Apparna listas som <b>Plugins</b> i Systemkonsolen. De finns i image:n (i <code>/antimatter/prepackaged_plugins</code>), är signerade med Antimatters app-signeringsnyckel och installeras därför utan internetanslutning.</p>
+<table>
+<thead><tr><th>App</th><th>App-id</th><th>Image</th><th>Aktiverad efter installation</th></tr></thead>
+<tbody>
+<tr><td>Agenter (AI)</td><td><code>mattermost-ai</code></td><td>båda</td><td>ja</td></tr>
+<tr><td>Samtal</td><td><code>com.mattermost.calls</code></td><td>båda</td><td>ja</td></tr>
+<tr><td>Kanban</td><td><code>focalboard</code></td><td>båda</td><td>ja</td></tr>
+<tr><td>Playbooks</td><td><code>playbooks</code></td><td>båda</td><td>ja</td></tr>
+<tr><td>GitHub</td><td><code>github</code></td><td>båda</td><td>nej</td></tr>
+<tr><td>GitLab</td><td><code>com.github.manland.mattermost-plugin-gitlab</code></td><td>båda</td><td>nej</td></tr>
+<tr><td>Jira</td><td><code>jira</code></td><td>båda</td><td>nej</td></tr>
+<tr><td>Metriker</td><td><code>com.mattermost.mattermost-plugin-metrics</code></td><td>båda</td><td>nej</td></tr>
+<tr><td>Röstkanaler</td><td><code>com.antimatterchat.voice-channels</code></td><td><code>antimatter-next</code></td><td>ja</td></tr>
+<tr><td>Omröstningar</td><td><code>com.antimatterchat.polls</code></td><td><code>antimatter-next</code></td><td>ja</td></tr>
+<tr><td>Anteckningar</td><td><code>com.antimatterchat.notes</code></td><td><code>antimatter-next</code></td><td>ja</td></tr>
+<tr><td>Whiteboard</td><td><code>com.antimatterchat.whiteboard</code></td><td><code>antimatter-next</code></td><td>ja</td></tr>
+<tr><td>E-post</td><td><code>com.antimatterchat.mail</code></td><td><code>antimatter-next</code></td><td>ja</td></tr>
+<tr><td>Kalender</td><td><code>com.antimatterchat.calendar</code></td><td><code>antimatter-next</code></td><td>ja</td></tr>
+<tr><td>GIF</td><td><code>com.antimatterchat.gifs</code></td><td><code>antimatter-next</code></td><td>ja</td></tr>
+<tr><td>Memes</td><td><code>memes</code></td><td><code>antimatter-next</code></td><td>nej</td></tr>
+<tr><td>Att göra</td><td><code>com.mattermost.plugin-todo</code></td><td><code>antimatter-next</code></td><td>nej</td></tr>
+</tbody>
+</table>
+<p>Appar som är aktiverade som standard installeras vid varje start om de inte redan finns, eller uppgraderas om image:n innehåller en nyare version. Om du inaktiverar en app förblir den inaktiverad: standardinställningen gäller endast för appar som konfigurationen inte ännu nämner. Appar som behåller sitt Mattermost-id (Agenter, Samtal, Kanban, Playbooks och integreringarna) är Antimatters egna byggen.</p>
+
+<h2 id="manage">Aktivera, inaktivera och konfigurera appar</h2>
+<p>Gå till <b>Systemkonsol › Plugin › Pluginadministration</b>. Under <b>Installerade plugins</b> finns <b>Aktivera</b> eller <b>Avaktivera</b>, <b>Inställningar</b> och <b>Ta bort</b> för varje app, samt dess status (Kör, Ej i körning, Start misslyckades…). Varje app med inställningar har också en egen sida under <b>Systemkonsol › Plugin</b>.</p>
+<p>De medföljande appar som är inaktiverade som standard installeras från image:ns egen kopia: öppna <b>App Marketplace</b> från produktmenyn, hitta appen och klicka på <b>Install</b>, aktivera den sedan i Plugin Management. Från kommandoraden:</p>
+<pre><code>docker compose exec antimatter amctl --local plugin marketplace install github
+docker compose exec antimatter amctl --local plugin enable github</code></pre>
+<p>Andra kommandon: <code>amctl plugin list</code>, <code>amctl plugin disable &lt;id&gt;</code>, <code>amctl plugin delete &lt;id&gt;</code>.</p>
+<h3>Aktivera appar via konfigurationen</h3>
+<p>Vilka appar som är aktiva styrs av inställningen <code>PluginSettings.PluginStates</code>, en kartläggning av app-id:n. Du kan slå ihop poster i den med <code>amctl</code>; när <b>Aktivera Automatiska förpaketerade plugins</b> är aktiverat (standard) installeras en aktiverad medföljande app vid nästa start:</p>
+<pre><code>docker compose exec -T antimatter amctl --local config patch /dev/stdin &lt;&lt;'EOF'
+{"PluginSettings": {"PluginStates": {"com.mattermost.plugin-todo": {"Enable": true}}}}
+EOF
+docker compose restart antimatter</code></pre>
+<p>Detta är också hur du installerar Att göra, som inte erbjuds i dialogrutan för Marketplace. Variabeln <code>AM_PLUGINSETTINGS_PLUGINSTATES</code> fungerar också, men den ersätter hela mappningen: lista alla appar du vill ha aktiverade.</p>
+<h3>Appinställningar</h3>
+<p>App-inställningarna lagras under <code>PluginSettings.Plugins.&lt;app id&gt;</code>, med nycklar i gemena bokstäver. Ändra dem på appens Systemkonsol-sida eller med <code>amctl config patch</code> som visas i <a href="{{root}}docs/admins/configuration.html#amctl">Konfiguration</a>. <code>AM_PLUGINSETTINGS_PLUGINS</code> byter ut inställningarna för alla appar på en gång och låser dem, så undvik det.</p>
+
+<h2 id="gifs">GIF</h2>
+<p>Appen GIF-bilder lägger till en flik för GIF-bilder och klistermärken i emojiväljaren, baserad på Antimatters GIF-tjänst (<code>gifs-server</code>), som kommunicerar med Tenor API. Webbplatsens compose-fil startar tjänsten och konfigurerar appen genom variabler. Dess inställningar, i <b>Systemkonsol › Plugin › GIF-bilder</b>:</p>
+<table>
+<thead><tr><th>Inställning</th><th>Variabel (fallback)</th><th>Standard</th><th>Vad den gör</th></tr></thead>
+<tbody>
+<tr><td><b>GIF-tjänstens URL</b></td><td><code>AM_GIFS_SERVICE_URL</code></td><td>tom</td><td>Tjänstens API-bas, till exempel <code>http://gifs:8080/v2</code>. GIF:er är avstängda medan den är tom.</td></tr>
+<tr><td><b>API-nyckel</b></td><td><code>AM_GIFS_API_KEY</code></td><td>tom</td><td>En av tjänstens <code>AM_GIFS_API_KEYS</code>.</td></tr>
+<tr><td><b>Uppladdningsnyckel</b></td><td><code>AM_GIFS_UPLOAD_KEY</code></td><td>tom</td><td>En av tjänstens <code>AM_GIFS_UPLOAD_KEYS</code>. Gör det möjligt för användare att lägga till GIF:er och klistermärken. Tomt stänger av uppladdningar.</td></tr>
+<tr><td><b>Vem kan lägga till GIF:er och klistermärken</b></td><td></td><td>administratörer</td><td>Endast systemadministratörer, eller alla.</td></tr>
+<tr><td><b>Aktivera klistermärken</b></td><td></td><td>på</td><td>Visar fliken för klistermärken.</td></tr>
+<tr><td><b>Innehållsfiltre</b></td><td></td><td>medium</td><td>hög, medium, låg eller av.</td></tr>
+<tr><td><b>Servera medien via Antimatter</b></td><td></td><td>på</td><td>Webbläsare laddar GIF:er från Antimatter, som hämtar dem från tjänsten. Håll den på när tjänsten endast är på ditt interna nätverk.</td></tr>
+<tr><td><b>Media-URL</b></td><td></td><td>tjänstens <code>/media/</code></td><td>Var medien finns, när de serveras direkt.</td></tr>
+<tr><td><b>Cachestorlek (MB)</b></td><td></td><td>64 MB</td><td>Appens minnescache.</td></tr>
+</tbody>
+</table>
+<p>För denna app är variablerna bara fallbacks: ett värde satt i Systemkonsolen har företräde framför dem. Om GIF-väljaren förblir tom, kontrollera tjänstens URL och API-nyckeln på den sidan.</p>
+<p>När appen GIF-bilder är konfigurerad ersätter dess flik den inbyggda Giphy-väljaren (<b>Systemkonsol › Integrationer › GIF › Aktivera GIF-väljare</b>, <code>ServiceSettings.EnableGifPicker</code>).</p>
+<h3>GIF-tjänsten</h3>
+<p>Tjänsten lagrar allt i sin datakatalog (<code>/data</code>, volymen <code>gifs</code>): en sökindex och medien. Dess huvudvariabler:</p>
+<table>
+<thead><tr><th>Variabel</th><th>Standard</th><th>Vad den gör</th></tr></thead>
+<tbody>
+<tr><td><code>AM_GIFS_API_KEYS</code></td><td>ingen</td><td>Komma-separerade API-nycklar. <b>Utan en nyckel är API:t öppet för alla som når det.</b> Flera nycklar gör att du kan rotera dem.</td></tr>
+<tr><td><code>AM_GIFS_UPLOAD_KEYS</code></td><td>ingen</td><td>Nycklar som är tillåtna att ladda upp. Inga uppladdningar utan en.</td></tr>
+<tr><td><code>AM_GIFS_RATE_LIMIT</code></td><td><code>20</code></td><td>Anrop per sekund per klient (API-nyckel och adress); <code>0</code> stänger av det. Compose-filen sätter 0, eftersom alla Antimatters anrop delar en nyckel och en adress.</td></tr>
+<tr><td><code>AM_GIFS_LISTEN</code></td><td><code>:8080</code></td><td>Lyssnande adress.</td></tr>
+<tr><td><code>AM_GIFS_PUBLIC_URL</code></td><td>från anrop</td><td>Extern URL, om du exponerar tjänsten.</td></tr>
+<tr><td><code>AM_GIFS_TRUST_PROXY</code></td><td><code>false</code></td><td>Lita på <code>X-Forwarded-*</code>-huvuden, endast bakom en proxy.</td></tr>
+<tr><td><code>AM_GIFS_UPLOAD_MAX_MB</code></td><td><code>16</code></td><td>Störst uppladdad fil.</td></tr>
+</tbody>
+</table>
+<p>För att lägga till egna GIF:er i bulk, importera dem med en manifestfil från en katalog som är monterad i en engångskontainer:</p>
+<pre><code>docker compose run --rm -v "$PWD/my-gifs:/import:ro" gifs import -manifest /import/manifest.json</code></pre>
+<p>För att återimportera startstickrarna efter en uppgradering: <code>docker compose run --rm gifs stickers</code>. Manifestformatet och de andra kommandona finns i <a href="https://github.com/AntimatterChat/gifs-server">gifs-server README</a>.</p>
+
+<h2 id="mail-calendar">E-post och Kalender</h2>
+<p>E-post och Kalender kopplar varje person till sin egen postlåda (IMAP och SMTP) och sin egen kalender (CalDAV). Personer anger sin server och lösenord i appen; lösenorden lagras krypterade. Du konfigurerar inte e-post- eller kalendrarserver för dem, men du bestämmer vad de får ansluta till:</p>
+<table>
+<thead><tr><th>App</th><th>Inställning</th><th>Standard</th><th>Vad den gör</th></tr></thead>
+<tbody>
+<tr><td>E-post, Kalender</td><td><b>Tillåt e-postserver på privata nätverk</b>, <b>Tillåt kalendrarserver på privata nätverk</b> (<code>AllowPrivateNetworks</code>)</td><td>Av</td><td>Av, servern vägrar att ansluta till loopback-, privata och länkslokala adresser, så att apparna inte kan användas för att nå ditt interna nätverk. Slå på om din e-post- eller kalendrarserver är på en privat adress.</td></tr>
+<tr><td>E-post, Kalender</td><td><b>Tillåt okrypterade anslutningar</b> (<code>AllowInsecureConnections</code>)</td><td>Av</td><td>Av, anslutningar måste använda TLS (E-post: TLS eller STARTTLS; Kalender: HTTPS).</td></tr>
+<tr><td>E-post</td><td><b>Intervall för kontroll av olästa (minuter)</b> (<code>UnreadCheckMinutes</code>)</td><td>2 minuter</td><td>Hur ofta antalet olästa kontrolleras när e-postservern inte kan skicka dem.</td></tr>
+<tr><td>E-post</td><td><b>Största meddelandestorlek (MB)</b> (<code>MaxMessageSizeMB</code>)</td><td>25 MB</td><td>Storleksgräns för meddelanden som skickas och läses.</td></tr>
+<tr><td>Kalender</td><td><b>Skicka påminnelser</b> (<code>EnableReminders</code>)</td><td>på</td><td>Kalenderboten skickar ett direktmeddelande före händelser (10 minuter före, för händelser utan egen alarm).</td></tr>
+</tbody>
+</table>
+<p>För att låta personer logga in på Gmail- eller Microsoft 365-postlådor med sitt konto i stället för ett lösenord, skapa en OAuth-klient och fyll i fälten för Google eller Microsoft i E-post-appen:</p>
+<ul>
+<li><b>Google</b>: en web-OAuth-klient med Gmail API och omfånget <code>https://mail.google.com/</code>.</li>
+<li><b>Microsoft</b>: en Entra ID-app med de delegerade behörigheterna <code>IMAP.AccessAsUser.All</code>, <code>SMTP.Send</code>, <code>offline_access</code>, <code>openid</code>, <code>email</code> och <code>profile</code>. Tenanten är <code>common</code> som standard.</li>
+<li>I båda är omdirigerings-URI:en <code>https://chat.example.com/plugins/com.antimatterchat.mail/oauth/callback</code> (din webbplats-URL).</li>
+</ul>
+
+<h2 id="kanban-notes">Kanban, Anteckningar, Whiteboard, Omröstningar och Playbooks</h2>
+<ul>
+<li><b>Kanban</b> (<code>focalboard</code>) finns på <code>/kanban</code> (gamla länkar till <code>/boards</code> omdirigeras dit). Dess enda inställning, <b>Enable Publicly-Shared Boards</b> (<code>EnablePublicSharedBoards</code>, av), låter tavleredaktörer dela en tavla med alla som har länken, utan att de behöver logga in.</li>
+<li><b>Anteckningar</b> och <b>Omröstningar</b> har inga inställningar.</li>
+<li><b>Whiteboard</b>: systemadministratörer kan ladda upp formsamlingar (Excalidraw-filer med ändelsen <code>.excalidrawlib</code>, högst 5 MB vardera) för hela servern på inställningssidan. Community-administratörer hanterar sina egna communitys formsamlingar.</li>
+<li><b>Playbooks</b> har några inställningar, mest experimentella funktioner; standardinställningarna passar de flesta serverna.</li>
+<li><b>Memes</b>: <b>Who can add meme templates</b> (alla som standard, eller administratörer).</li>
+<li><b>Att göra</b> har inga serverinställningar.</li>
+</ul>
+
+<h2 id="integrations">GitHub, GitLab och Jira</h2>
+<p>Dessa appar kopplar Antimatter till din kodhosting och ditt problemspårningssystem. Varje app kräver en OAuth-tillämpning på den andra sidan och en webhook som pekar tillbaka till Antimatter. Aktivera appen och kör sedan dess installationskommando i valfri kanal, vilket guidar dig steg för steg: <code>/github setup</code>, <code>/gitlab setup</code> eller <code>/jira setup</code>.</p>
+<table>
+<thead><tr><th>App</th><th>OAuth-omdirigerings-URL</th><th>Webhook-URL</th></tr></thead>
+<tbody>
+<tr><td>GitHub</td><td><code>https://chat.example.com/plugins/github/oauth/complete</code></td><td><code>https://chat.example.com/plugins/github/webhook</code></td></tr>
+<tr><td>GitLab</td><td><code>https://chat.example.com/plugins/com.github.manland.mattermost-plugin-gitlab/oauth/complete</code></td><td><code>https://chat.example.com/plugins/com.github.manland.mattermost-plugin-gitlab/webhook</code></td></tr>
+<tr><td>Jira</td><td colspan="2"><code>/jira instance install server &lt;url&gt;</code> eller <code>/jira instance install cloud-oauth &lt;url&gt;</code>; <code>/jira webhook</code> visar webhook-URL:erna.</td></tr>
+</tbody>
+</table>
+<div class="callout warn">Lämna <b>Use Preregistered OAuth Application</b> av i GitHub- och GitLab-apparna: den förlitar sig på en Mattermost-tjänst som Antimatter inte har, och appen vägrar starta om den är på. Registrera din egen OAuth-tillämpning.</div>
+<p>GitHub- och GitLab-apparna genererar sin webhook-secret och sin krypteringsnyckel vid första sparande. GitHub-appen kan begränsas till organisationer (<code>GithubOrg</code>) och GitLab-appen till en grupp (<code>GitlabGroup</code>); för GitHub Enterprise eller en självhostad GitLab, ställ in dess bas-URL.</p>
+
+<h2 id="metrics">Metriker</h2>
+<p>Metrics-appen samlar in serverns prestandamått i en liten tidsseriedatabas inuti Antimatter, så att du kan ladda ner dem eller inkludera dem i ett supportpaket utan att köra Prometheus. När den startar, aktiverar den serverns metrics-endpoint (<code>MetricsSettings.Enable</code>). Se <a href="{{root}}docs/admins/operations.html">Drift</a>.</p>
+
+<h2 id="other-apps">Installera andra appar</h2>
+<p>Antimatter kör Mattermost-appar (plugins). Tre sätt att lägga till en:</p>
+<ul>
+<li><b>Från en fjärrmarketplace.</b> <b>Remote Marketplace aktiverad</b> (<code>PluginSettings.EnableRemoteMarketplace</code>) är av som standard, och <b>Marketplace URL</b> (<code>PluginSettings.MarketplaceURL</code>) är tom: Antimatter använder inte Mattermosts marketplace och ignorerar dess adress om en konfiguration från Mattermost fortfarande innehåller den. För att visa apparna från en marketplace-server du litar på, aktivera inställningen och ange dess URL. Marketplace-versioner av appar som Antimatter levererar (Samtal, Playbooks, Kanban och andra) döljs, så att de inte kan ersätta Antimatters: <b>Tillåt Marketplace-versioner av Antimatter-plugins</b> (<code>PluginSettings.AllowMarketplaceToReplaceAntimatterPlugins</code>) är av som standard.</li>
+<li><b>Vid uppladdning av en bundle</b> (<code>.tar.gz</code>). Uppladdningar är inaktiverade som standard och har ingen växlar i Systemkonsolen: sätt <code>AM_PLUGINSETTINGS_ENABLEUPLOADS=true</code>, använd sedan <b>Ladda upp plugin</b> i Pluginhanteringen, eller <code>amctl --local plugin add app.tar.gz</code>.</li>
+<li><b>Från en URL</b>: <code>amctl plugin install-url &lt;url&gt;</code>, även med uppladdningar aktiverade.</li>
+</ul>
+<p>Antimatter kontrollerar appsignaturer mot de nycklar den litar på: Antimatters nyckel, den nyckel Mattermost, Inc. signerar sina publicerade appar med (så att en Mattermost-app du laddar ner själv installeras) och eventuella nycklar du lägger till i <code>PluginSettings.SignaturePublicKeyFiles</code>. När <b>Kräv Plugin-signatur</b> (<code>PluginSettings.RequirePluginSignature</code>, av som standard) är aktiverat, avvisas osignerade appar och uppladdningar är inaktiverade.</p>
+<div class="callout warn">En app körs inuti servern med full tillgång till dess data. Installera endast appar du litar på.</div>
+<p>Vissa appar gjorda för Mattermosts betalda utgåvor kontrollerar själva efter en Mattermost-licens och vägrar att köra; Antimatter gör inte anspråk på att ha en sådan för dem.</p>

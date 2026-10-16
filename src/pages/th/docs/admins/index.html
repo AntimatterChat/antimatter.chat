@@ -1,0 +1,75 @@
+title: การรันเซิร์ฟเวอร์
+description: คู่มือสำหรับผู้ดูลำดับระบบท่ีติดตั้งและรัน Antimatter: การดิลพลอยประกอบด้วยอะไรบ้าง, คุณตองมีอะไรบ้าง, และตองเร่ิมตั้นจากไหน
+guide: admins
+order: 1
+nav: ภาพรวม
+lead: คู่มือนี้สำหร้บผู้ดูลำดับระบบท่ีติดตั้งและรันเซิร์ฟเวอร์ Antimatter. สมมติว่าคุณร้บ Linux, Docker และ reverse proxies แต่ไมร้บ Antimatter.
+source: bf9ad573ed07
+---
+<h2 id="parts">อะไรท่ีประกอบเป็นดิลพลอย</h2>
+<p>Antimatter เป็นทีมแชทท่ีโฮสต์เอง, เป็น fork ของ Mattermost. การดิลพลอยท่ีสมบูรณ์ประกอบด้วยส่วนเหล่านี้. มีเพียสามส่วนแรกท่ีเป็นส่วนท่ีตองมี.</p>
+<table>
+<thead><tr><th>ส่วน</th><th>สิ่งที่ทำ</th><th>ตองมี</th></tr></thead>
+<tbody>
+<tr><td><b>เซิร์ฟเวอร์ Antimatter</b></td><td>โปรแกรม Go หน่ึง (<code>antimatter</code>) ท่ีให้บริการแอปเว็บ, API และ websockets บนพอร์ต 8065, รันแอปท่ีรวมมา (plugins), และแบกรับมีเดียการโทรบนพอร์ต 8443. เครื่องมือ command-line <code>amctl</code> ใช้เพื่อดูแลระบบ.</td><td>ใช่</td></tr>
+<tr><td><b>PostgreSQL</b></td><td>ฐานข้อมู: ข้อความ, ผู้ใช้, ชุมชน และในการต้งค่าท่ีแนะนำ, การต้งค่าของเซิร์ฟเวอร์. เวอร์ชัน 15 หรือใหม่กว่.</td><td>ใช่</td></tr>
+<tr><td><b>พื้่นท่ีจัดเก็บไฟล์</b></td><td>ไฟล์ท่ีอปัโหลด, ภาพ และแอปท่ีติดตั้ง: บริการท่ีเข้ากันได้กับ S3 (ไฟล์ compose รัน RustFS) หรือไดเรกทอรีในเครื่อง.</td><td>ใช่</td></tr>
+<tr><td><b>Reverse proxy</b></td><td>HTTPS ท่ีอยู่หน้าเซิร์ฟเวอร์: โปรไฟล์ Caddy ของไฟล์ compose หรือ nginx ของคุณเอง.</td><td>สำหร้บ production</td></tr>
+<tr><td><b>บริการ GIF</b> (<code>gifs-server</code>)</td><td>GIF และสติ๊กเกอร์สำหร้บ GIF picker, จากแคตตาล็อกของคุณเอง. ใช้ Tenor API.</td><td>ไม่</td></tr>
+<tr><td><b>Push proxy</b></td><td>ส่งการแจ้้งเตือนไปยังแอปมือถือผ่่าน Apple และ Google.</td><td>สำหร้บการแจ้้งเตือนมือถือ</td></tr>
+<tr><td><b>rtcd</b>, <b>เซิร์ฟเวอร์ TURN</b></td><td>เซิร์ฟเวอร์มีเดียแยกสำหร้บการโทรหลายครั้ง, และ relay สำหร้บคนท่ีอยู่หลังไฟร์วอลล์ท่ีเข้มงวด.</td><td>ไม่</td></tr>
+<tr><td><b>AI endpoints</b></td><td>โมเดลท่ีอยู่หลัง AI agents, การถอดเสียงการโทร, การอ่านออกเสียง และการแปล: ผู้ให้บริการคลาวด์หรือเซิร์ฟเวอร์ท่ีคุณรัน.</td><td>ไม่</td></tr>
+</tbody>
+</table>
+<p>Antimatter ไมมีไลเซ่นส์และไมมีเวอร์ชันท่ีต้องจ่าย: single sign-on, LDAP, high availability, compliance exports, data retention และฟีเจอร์อ่นๆ ท่ี Mattermost สำรองไว้สำหร้บแผนท่ีต้องจ่าย ล้วนรวมอยู่แลว.</p>
+
+<h2 id="requirements">ข้อกำหนด</h2>
+<ul>
+<li>เซิร์ฟเวอร์ Linux, <code>amd64</code> หรือ <code>arm64</code>, พร้อม 2 CPU cores และ 4 GB ของหน่วยความจำหรือมากกว่ สำหร้บคนหลักร้อย, และพื้่นท่ีบนดิสก์สำหร้บไฟล์ท่ีคนอปัโหลด.</li>
+<li>Docker Engine พร้อม Compose plugin (<code>docker compose</code>), สำหร้บการติดตั้งท่ีแนะนำ.</li>
+<li>สำหร้บ production: ชื่อดอมเมนท่ีชี้ไปยังเซิร์ฟเวอร์, และพอร์ต 80 และ 443 ท่ีเปิิดสำหร้บ HTTPS.</li>
+<li>สำหร้บการโทร: พอร์ต 8443, UDP และ TCP, ท่ีคนท่ีโทรสามารถเข้าถึงได้.</li>
+<li>สำหร้บอีเมล: เซิร์ฟเวอร์ SMTP ท่ี Antimatter สามารถส่งผ่่านได้.</li>
+</ul>
+
+<h2 id="quick-start">เร่ิมตั้นอย่างเร็ว</h2>
+<pre><code>mkdir antimatter &amp;&amp; cd antimatter
+curl -fsSLO https://antimatter.chat/compose.yaml
+cat &gt; .env &lt;&lt;EOF
+SITE_URL=http://localhost:8065
+POSTGRES_PASSWORD=$(openssl rand -hex 24)
+S3_SECRET_KEY=$(openssl rand -hex 24)
+GIFS_API_KEY=$(openssl rand -hex 24)
+EOF
+docker compose up -d</code></pre>
+<p>จากนั้นเปิด URL ของไซต์และสร้างบัญชีของคุณ: บัญชีแรกจะกลายเป็นผู้ดูแลระบบ <a href="{{root}}docs/admins/install.html">การติดตั้ง</a> อธิบายแต่ละขั้นตอนและวิธีการติดตั้งอื่น ๆ</p>
+
+<h2 id="in-this-guide">ในคู่มือนี้</h2>
+<ul>
+<li><a href="{{root}}docs/admins/install.html">การติดตั้ง</a>: Docker Compose, ภาพ, อาร์ไคฟ์เวอร์ชัน, ผู้ดูแลระบบคนแรก</li>
+<li><a href="{{root}}docs/admins/configuration.html">การตั้งค่า</a>: การตั้งค่าในฐานข้อมูลหรือไฟล์, ตัวแปรสภาพแวดล้อม <code>AM_</code>, คอนโซลระบบ, <code>amctl</code>, โลก</li>
+<li><a href="{{root}}docs/admins/https.html">โดเมนและ HTTPS</a>: URL ของไซต์, Caddy, nginx, ที่อยู่ไคลเอนต์</li>
+<li><a href="{{root}}docs/admins/calls.html">การโทรและเสียง</a>: พอร์ต, NAT, TURN, rtcd, การถอดเสียงและคำบรรยาย</li>
+<li><a href="{{root}}docs/admins/email-push.html">อีเมลและ Push</a>: SMTP, ตัวแทน Push และแอปมือถือ</li>
+<li><a href="{{root}}docs/admins/apps.html">แอปที่รวมมา</a>: แอปใดที่เปิดอยู่, การตั้งค่าของพวกมัน, การติดตั้งแอปอื่น</li>
+<li><a href="{{root}}docs/admins/ai.html">AI</a>: โมเดลสำหรับเอเจนต์, เสียง และการแปล, และข้อมูลไปอยู่ที่ไหน</li>
+<li><a href="{{root}}docs/admins/authentication.html">การเข้าสู่ระบบและบัญชี</a>: การสมัคร, รหัสผ่าน, MFA, การเข้าสู่ระบบแบบเดียว (SSO), LDAP, แขก, เซสชัน</li>
+<li><a href="{{root}}docs/admins/backups-upgrades.html">การสำรองข้อมูลและการอัปเกรด</a>: การสำรองข้อมูล, การกู้คืน, การอัปเกรด, การย้ายจาก Mattermost</li>
+<li><a href="{{root}}docs/admins/operations.html">การดำเนินงาน</a>: การตรวจสอบ, การขยายขนาด, การเก็บรักษาข้อมูล, การปฏิบัติตามกฎระเบียบ, การแก้ปัญหา</li>
+<li><a href="{{root}}docs/admins/security.html">ความปลอดภัย</a>: รายการตรวจสอบเพื่อความปลอดภัยและการเชื่อมต่อจากภายนอก</li>
+</ul>
+<p>ต้องการจัดการชุมชนแทนที่จะเป็นเซิร์ฟเวอร์ (ช่อง, บทบาท, การดูแล)? ดู <a href="{{root}}docs/communities/index.html">การจัดการชุมชน</a> ต้องการสร้างการบูรณาการ? ดู <a href="{{root}}docs/developers/index.html">การสร้างบน Antimatter</a></p>
+
+<h2 id="first-hour">ชั่วโมงแรกของคุณ</h2>
+<ol>
+<li>ติดตั้ง และสร้างบัญชีผู้ดูแลระบบทันที</li>
+<li>วางเซิร์ฟเวอร์ไว้เบื้องหลัง HTTPS บนโดเมนของตัวเอง</li>
+<li>ตั้งค่า SMTP และส่งอีเมลทดสอบ</li>
+<li>เปิดพอร์ตสำหรับการโทร และปิดโหมดทดสอบของแอปการโทร</li>
+<li>กำหนดว่าใครสามารถสมัครได้ และเปิดใช้งาน MFA</li>
+<li>ตรวจสอบการเชื่อมต่อจากภายนอกใน <a href="{{root}}docs/admins/security.html#outbound">ความปลอดภัย</a></li>
+<li>ตั้งค่าการสำรองข้อมูลรายวัน</li>
+</ol>
+
+<h2 id="help">การขอความช่วยเหลือ</h2>
+<p>ถามคำถามใน<a href="https://github.com/AntimatterChat/community/discussions">การอภิปรายของชุมชน</a> และรายงานบั๊กใน<a href="https://github.com/AntimatterChat/community/issues/new/choose">รีพอสิทอรีของชุมชน</a> รายงานปัญหาความปลอดภัยเป็นการส่วนตัว ตามที่<a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">นโยบายความปลอดภัย</a>อธิบายไว้</p>

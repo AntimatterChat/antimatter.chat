@@ -1,0 +1,169 @@
+title: Webhooks
+description: Antimatter's incoming and outgoing webhooks: creating them, their payloads and responses, message attachments and cards, overriding the name and icon, with examples.
+guide: developers
+order: 3
+nav: Webhooks
+lead: An incoming webhook lets another system post into a channel by sending JSON to a secret URL. An outgoing webhook does the opposite: it sends messages that start with a trigger word to your URL, and posts what you answer.
+---
+<h2 id="where">Where to manage webhooks</h2>
+<p>Open your avatar at the top right, then <b>Integrations</b>. The integrations pages of the current community list <b>Incoming webhooks</b> and <b>Outgoing webhooks</b>. Each webhook belongs to one community.</p>
+<p>By default, community admins and system admins can create webhooks. A system admin can give the right to other roles in the permission settings of the System Console. A system admin can also turn each kind off in <b>System Console › Integrations › Integration Management</b>: <b>Enable Incoming Webhooks</b> and <b>Enable Outgoing Webhooks</b> are both on by default.</p>
+<figure><img src="{{root}}assets/img/shots/integrations.webp" alt="A channel with messages from a CI bot and from GitHub, shown as cards with fields, pipeline stages and a button"><figcaption>Integration messages drawn as cards: fields, pipeline stages and an action button.</figcaption></figure>
+
+<h2 id="incoming">Create an incoming webhook</h2>
+<ol>
+<li>In <b>Integrations</b>, choose <b>Incoming webhooks</b>, then <b>Add Incoming Webhook</b>.</li>
+<li>Fill in a <b>Title</b> and a <b>Description</b>: they only show on the integrations pages.</li>
+<li>Pick the <b>Channel</b> the messages go to by default. For a private channel, you must be a member of it.</li>
+<li>Tick <b>Lock to this channel</b> if senders must not be able to post elsewhere.</li>
+<li>Optionally set a <b>Username</b> and a <b>Profile Picture</b> URL for its messages (see <a href="#identity">Name and icon</a>).</li>
+<li>Choose <b>Save</b>. Copy the URL shown: <code>https://chat.example.com/hooks/&lt;key&gt;</code>.</li>
+</ol>
+<div class="callout warn">The URL is the only secret: anyone who has it can post in the channel. Keep it out of public repositories, and delete the webhook if it leaks.</div>
+<p>With the API: <code>POST /api/v4/hooks/incoming</code> with <code>{"channel_id", "display_name", "description", "username", "icon_url", "channel_locked"}</code>; the response's <code>id</code> is the key. From the command line: <code>amctl webhook create-incoming --channel &lt;channel id&gt; --user &lt;user&gt; --display-name "CI"</code>.</p>
+
+<h2 id="incoming-send">Send a message to an incoming webhook</h2>
+<pre><code>curl -X POST https://chat.example.com/hooks/xgh5ycrx1jf7mbs9w8z4c8e7ho \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Deploy of **api 2.4.0** finished :white_check_mark:"}'</code></pre>
+<p>The server answers <code>200</code> with the body <code>ok</code>. It also accepts <code>application/x-www-form-urlencoded</code> with the JSON in a <code>payload</code> field, as Slack's webhooks do, so tools made for Slack usually work unchanged.</p>
+<table>
+<thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>The message, in Markdown. Required unless there are <code>attachments</code>. A text longer than the server's message limit is split into several messages.</td></tr>
+<tr><td><code>channel</code></td><td>Another channel of the webhook's community, by name (<code>ops-alerts</code> or <code>#ops-alerts</code>), or <code>@username</code> for a direct message from the webhook's owner. Refused when the webhook is locked to its channel.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code>, <code>icon_emoji</code></td><td>The name and picture to show, when the server allows overrides.</td></tr>
+<tr><td><code>attachments</code></td><td>Message attachments, drawn as cards (below).</td></tr>
+<tr><td><code>props</code></td><td>Extra properties stored on the message, for apps that read them.</td></tr>
+<tr><td><code>type</code></td><td>A custom post type, such as <code>custom_poll</code>, for an app that draws it. Types starting with <code>system_</code> are refused.</td></tr>
+<tr><td><code>root_id</code></td><td>The ID of a thread's first message, to reply in that thread.</td></tr>
+<tr><td><code>priority</code></td><td>Message priority, for example <code>{"priority": "urgent"}</code>.</td></tr>
+<tr><td><code>silent</code></td><td><code>true</code> sends the message without push notifications.</td></tr>
+</tbody>
+</table>
+<p>Messages shown under an overridden name carry a <b>BOT</b> tag next to it, so people can tell them from real accounts. Webhook messages never trigger outgoing webhooks.</p>
+
+<h2 id="identity">Name and icon</h2>
+<p>A webhook posts as the person who created it, unless the server allows overrides. Two settings in <b>System Console › Integrations › Integration Management</b>, both off by default, change that:</p>
+<ul>
+<li><b>Enable integrations to override usernames</b> (<code>ServiceSettings.EnablePostUsernameOverride</code>): the webhook's <b>Username</b> or the request's <code>username</code> is shown instead; without either, the name is <code>webhook</code>.</li>
+<li><b>Enable integrations to override profile picture icons</b> (<code>ServiceSettings.EnablePostIconOverride</code>): the webhook's <b>Profile Picture</b>, or the request's <code>icon_url</code> or <code>icon_emoji</code>, is shown.</li>
+</ul>
+<p>A value in the request wins over the one saved on the webhook.</p>
+
+<h2 id="attachments">Attachments</h2>
+<p>Attachments add structured content below the text. They follow Slack's message attachment format:</p>
+<pre><code>{
+  "text": "Build failed on `main`",
+  "attachments": [{
+    "fallback": "main #1902 failed",
+    "color": "#d24b4e",
+    "author_name": "GitHub Actions",
+    "author_icon": "https://chat.example.com/static/ci.png",
+    "title": "main #1902 failed",
+    "title_link": "https://ci.example.com/runs/1902",
+    "text": "Commit `0f4d8e2` by Jonas Weber",
+    "fields": [
+      {"title": "Branch", "value": "zephyr-3.7", "short": true},
+      {"title": "Duration", "value": "3m 40s", "short": true}
+    ],
+    "footer": "Lumen CI",
+    "ts": 1760000000
+  }]
+}</code></pre>
+<table>
+<thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>fallback</code></td><td>Plain text for places that can't show the card, such as notifications.</td></tr>
+<tr><td><code>color</code></td><td>The colour bar: a hex colour, or <code>good</code>, <code>warning</code>, <code>danger</code>.</td></tr>
+<tr><td><code>pretext</code></td><td>Text above the card.</td></tr>
+<tr><td><code>author_name</code>, <code>author_link</code>, <code>author_icon</code></td><td>A small header line.</td></tr>
+<tr><td><code>title</code>, <code>title_link</code></td><td>The card's title, optionally a link.</td></tr>
+<tr><td><code>text</code></td><td>The card's body, in Markdown.</td></tr>
+<tr><td><code>fields</code></td><td>A list of <code>{"title", "value", "short"}</code>; <code>short</code> fields sit side by side.</td></tr>
+<tr><td><code>image_url</code>, <code>thumb_url</code></td><td>A large image below, or a small one at the side.</td></tr>
+<tr><td><code>footer</code>, <code>footer_icon</code>, <code>ts</code></td><td>A footer line and a time (Unix seconds).</td></tr>
+<tr><td><code>actions</code></td><td>Buttons and menus: see <a href="{{root}}docs/developers/bots.html#interactive">Interactive messages</a>.</td></tr>
+</tbody>
+</table>
+
+<h2 id="cards">Cards: stages and charts</h2>
+<p>Antimatter adds two fields to attachments, drawn by the default interface:</p>
+<ul>
+<li><code>stages</code>: a pipeline's steps as pills, up to 20. Each is <code>{"name", "status"}</code>, with a status of <code>passed</code>, <code>failed</code>, <code>running</code>, <code>pending</code>, <code>skipped</code> or <code>canceled</code>.</li>
+<li><code>chart</code>: a small line chart of recent values, <code>{"values": [2 to 200 numbers], "threshold": number, "label": "…"}</code>. The threshold is drawn as a dashed line, for an alert's limit.</li>
+</ul>
+<pre><code>{
+  "attachments": [{
+    "color": "danger",
+    "title": "main #1902 failed",
+    "stages": [
+      {"name": "build", "status": "failed"},
+      {"name": "unit", "status": "skipped"},
+      {"name": "publish", "status": "skipped"}
+    ]
+  }, {
+    "color": "warning",
+    "title": "API latency above 400 ms",
+    "chart": {"values": [210, 230, 260, 390, 450, 470], "threshold": 400, "label": "p95 latency, ms"}
+  }]
+}</code></pre>
+<p>The classic interface and other clients ignore these two fields, so put the essentials in <code>text</code> or <code>fields</code> too.</p>
+
+<h2 id="outgoing">Create an outgoing webhook</h2>
+<p>An outgoing webhook watches the <b>public</b> channels of a community. When a message's first word matches one of its trigger words, Antimatter sends the message to your URL.</p>
+<ol>
+<li>In <b>Integrations</b>, choose <b>Outgoing webhooks</b>, then <b>Add Outgoing Webhook</b>.</li>
+<li>Fill in the <b>Title</b> and <b>Description</b>.</li>
+<li>Choose the <b>Content Type</b> of the request: <code>application/x-www-form-urlencoded</code> or <code>application/json</code>.</li>
+<li>Pick a <b>Channel</b>, enter <b>Trigger Words (One Per Line)</b>, or both. With a channel and no trigger words, every message of that channel is sent. With both, the message must match both.</li>
+<li>Under <b>Trigger When</b>, choose <b>First word matches a trigger word exactly</b> or <b>First word starts with a trigger word</b>.</li>
+<li>Enter the <b>Callback URLs (One Per Line)</b>. Each URL gets every matching message.</li>
+<li>Optionally set the <b>Username</b> and <b>Profile Picture</b> used for replies.</li>
+<li>Choose <b>Save</b> and copy the token shown. Your service uses it to check that requests come from your server.</li>
+</ol>
+<p>With the API: <code>POST /api/v4/hooks/outgoing</code> with <code>{"team_id", "channel_id", "trigger_words", "trigger_when", "callback_urls", "content_type", "display_name"}</code> (<code>trigger_when</code>: 0 for an exact match, 1 for "starts with").</p>
+<div class="callout">If your service is on a private network, a system admin must allow its address in <b>Allow untrusted internal connections to</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>). The server doesn't call private addresses otherwise.</div>
+
+<h2 id="outgoing-request">The outgoing request</h2>
+<p>Antimatter sends a POST with these fields, as JSON or form-encoded depending on the content type:</p>
+<pre><code>{
+  "token": "6kd1ofo5ojr5zgu5ipfipybgnc",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "channel_id": "…",
+  "channel_name": "ops-alerts",
+  "timestamp": 1760010000000,
+  "user_id": "…",
+  "user_name": "priya",
+  "post_id": "…",
+  "text": "deploy api 2.4.0",
+  "trigger_word": "deploy",
+  "file_ids": ""
+}</code></pre>
+<p>Compare <code>token</code> with the webhook's token before doing anything. In the form-encoded version, <code>timestamp</code> is in seconds rather than milliseconds. The server waits for your answer for as long as <b>Integration request timeout</b> allows (30 seconds by default, <code>ServiceSettings.OutgoingIntegrationRequestsTimeout</code>).</p>
+
+<h2 id="outgoing-response">Reply to an outgoing webhook</h2>
+<p>To post a reply, answer with JSON. To post nothing, answer with an empty body.</p>
+<pre><code>{
+  "text": "Deploying **api 2.4.0** to staging…",
+  "response_type": "comment",
+  "username": "deploy-bot",
+  "icon_url": "https://chat.example.com/static/deploy.png"
+}</code></pre>
+<ul>
+<li><code>text</code> and <code>attachments</code>: the reply. Without either, nothing is posted.</li>
+<li><code>response_type</code>: <code>comment</code> posts the reply in the triggering message's thread; otherwise it goes to the channel.</li>
+<li><code>username</code>, <code>icon_url</code>: shown when the server allows overrides; the webhook's own values are used otherwise.</li>
+<li><code>props</code>, <code>type</code>, <code>priority</code>: as for incoming webhooks.</li>
+</ul>
+<p>The reply is posted as the webhook's creator, under the overridden name when there is one. For anything longer than a quick answer, answer at once and post later with an incoming webhook or the API.</p>
+
+<h2 id="troubleshooting">When a webhook doesn't work</h2>
+<ul>
+<li><b>501 from the hook URL</b>: incoming webhooks are turned off on the server.</li>
+<li><b>400 "Failed to decode the payload…"</b>: the JSON is invalid, or the form field isn't named <code>payload</code>. <b>"No text specified."</b> means the request has neither <code>text</code> nor <code>attachments</code>.</li>
+<li><b>403</b>: the webhook is locked to another channel, or its owner can no longer read the channel.</li>
+<li><b>An outgoing webhook never fires</b>: the channel is private, the trigger is not the first word, or the message came from a webhook.</li>
+<li><b>Logs</b>: with <b>Enable Webhook Debugging</b> on (<code>LogSettings.EnableWebhookDebugging</code>), and the log level at <code>DEBUG</code>, the server logs the payloads of failed incoming requests. Failed outgoing calls are logged as <code>Outgoing Webhook POST failed</code>.</li>
+</ul>

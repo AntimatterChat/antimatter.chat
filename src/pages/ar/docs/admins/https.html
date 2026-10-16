@@ -1,0 +1,161 @@
+title: النطاق، وHTTPS، والوكلاء العكسيون
+description: قدِّم Antimatter على نطاقك الخاص عبر HTTPS، باستخدام ملف Caddy المرفق أو وكيل nginx العكسي الخاص بك، و اضبط عنوان الموقع وعناوين العملاء بشكل صحيح.
+guide: admins
+order: 4
+nav: النطاق وHTTPS
+lead: ضع Antimatter على اسم نطاق مع HTTPS، باستخدام ملف Caddy في ملف compose أو وكيل عكسي خاص بك، و اضبط عنوان الموقع وعناوين العملاء بشكل صحيح.
+source: 69e8779d356e
+---
+<h2 id="site-url">عنوان الموقع</h2>
+<p>عنوان الموقع (<code>ServiceSettings.SiteURL</code>) هو العنوان الذي يستخدمه الأشخاص للوصول إلى Antimatter، مثل <code>https://chat.example.com</code>. يستخدمه الخادم في الروابط داخل رسائل البريد الإلكتروني والإشعارات، وفي إعادة التوجيهات عند تسجيل الدخول (OAuth، OpenID Connect، SAML)، ولتطبيقات الجوال وسطح المكتب، وللتحقق من مصدر الطلبات. اضبطه على العنوان الموجود في شريط عنوان المتصفح بالضبط: المخطط، والنطاق، والمنفذ إن لم يكن الافتراضي، دون شرطة مائلة في النهاية.</p>
+<ul>
+<li>عبر ملف compose الخاص بالموقع: <code>SITE_URL</code> في <code>.env</code>.</li>
+<li>في أي مكان آخر: <code>AM_SERVICESETTINGS_SITEURL</code>، أو <b>وحدة التحكم بالنظام › البيئة › خادم الويب › عنوان URL للموقع</b>.</li>
+</ul>
+<p>إذا كان عنوان الموقع خاطئاً، سيفشل تسجيل الدخول عبر مزوّد الهوية، وستشير الروابط في رسائل البريد الإلكتروني إلى المكان الخاطئ، وقد لا تتمكن التطبيقات من الاتصال. بعد تغيير النطاق، حدّثه هنا وفي عناوين إعادة التوجيه لكل مزوّد هوية.</p>
+
+<h2 id="caddy">HTTPS باستخدام ملف Caddy المرفق</h2>
+<p>يتضمن ملف <code>compose.yaml</code> الخاص بالموقع خدمة <a href="https://caddyserver.com">Caddy</a> في ملف <code>https</code>. تحصل على شهادة من Let's Encrypt، وتجدها تلقائياً، وتعيد توجيه HTTP إلى HTTPS، وتحوّل كل شيء، بما في ذلك websockets، إلى Antimatter.</p>
+<ol>
+<li>وجّه سجل DNS (A، وAAAA لـ IPv6) لنطاقك إلى الخادم.</li>
+<li>افتح المنافذ 80/tcp، 443/tcp و443/udp (HTTP/3) في جدار الحماية. يجب أن يتمكن Let's Encrypt من الوصول إلى المنفذ 80 أو 443 من الإنترنت.</li>
+<li>أضف النطاق إلى <code>.env</code> واضبط عنوان الموقع:
+<pre><code>echo "DOMAIN=chat.example.com" &gt;&gt; .env
+sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env</code></pre></li>
+<li>ابدأ باستخدام الملف:
+<pre><code>docker compose --profile https up -d</code></pre></li>
+</ol>
+<p>أضف <code>--profile https</code> إلى كل أمر <code>docker compose up</code> لاحقاً، أو ضع <code>COMPOSE_PROFILES=https</code> في <code>.env</code> حتى يتضمن الأمر العادي <code>docker compose up -d</code> الملف. يحتفظ Caddy بشهاداته في مجلد <code>https</code>.</p>
+<p>يبقى منفذ Antimatter الخاص به منشوراً على المضيف (<code>HTTP_PORT</code>، 8065 افتراضياً). مع وجود Caddy في المقدمة، احتفظ به للخادم نفسه فقط:</p>
+<pre><code>echo "HTTP_PORT=127.0.0.1:8065" &gt;&gt; .env
+docker compose --profile https up -d</code></pre>
+<p>يصل Caddy إلى Antimatter عبر الشبكة الداخلية <code>edge</code>، وليس عبر ذلك المنفذ، لذا لا يغيّر هذا شيئاً لمستخدميك.</p>
+
+<h2 id="nginx">باستخدام وكيل عكسي خاص بك (nginx)</h2>
+<p>إذا كان الخادم يعمل بالفعل بـ nginx أو وكيل آخر، فبقي ملف تعريف <code>https</code> معطّلًا وجعل الوكيل يشير إلى منفذ Antimatter 8065. يجب أن يقوم الوكيل بما يلي:</p>
+<ul>
+<li>تمرير ترقية websocket (تُبقي تطبيق الويب وتطبيقات الجوال اتصال websocket مفتوحًا على <code>/api/v4/websocket</code>، وتفتح بعض التطبيقات اتصالاتها الخاصة)؛</li>
+<li>قبول أجسام الطلبات بحجم لا يقل عن أكبر عملية رفع (<b>الحد الأقصى لحجم الملف</b>، 100 ميغابايت افتراضيًا)؛</li>
+<li>إبقاء الاتصالات طويلة العمر مفتوحة (اتصالات websocket، عمليات الرفع والتنزيل الكبيرة)؛</li>
+<li>تمرير ترويسة <code>Host</code> وعنوان العميل.</li>
+</ul>
+<p>كتلة خادم كاملة، مُعدّلة من قالب الإنتاج في antimatter-docker. استبدل النطاق ومسارات الشهادة:</p>
+<pre><code>upstream antimatter {
+    server 127.0.0.1:8065;
+    keepalive 64;
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+proxy_cache_path /var/cache/nginx/antimatter levels=1:2 keys_zone=antimatter_cache:10m
+                 max_size=3g inactive=120m use_temp_path=off;
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name chat.example.com;
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name chat.example.com;
+
+    ssl_certificate     /etc/ssl/chat.example.com/fullchain.pem;
+    ssl_certificate_key /etc/ssl/chat.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:AntimatterSSL:10m;
+    ssl_session_tickets off;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # At least FileSettings.MaxFileSize (100 MB by default).
+    client_max_body_size 100M;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade           $http_upgrade;
+    proxy_set_header Connection        $connection_upgrade;
+    proxy_buffers 256 16k;
+    proxy_buffer_size 16k;
+
+    location ~ ^/api/v[0-9]+/(users/)?websocket$ {
+        client_body_timeout 60s;
+        send_timeout 300s;
+        lingering_timeout 5s;
+        proxy_connect_timeout 90s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 90s;
+        proxy_pass http://antimatter;
+    }
+
+    location / {
+        proxy_read_timeout 600s;
+        proxy_cache antimatter_cache;
+        proxy_cache_revalidate on;
+        proxy_cache_min_uses 2;
+        proxy_cache_use_stale timeout;
+        proxy_cache_lock on;
+        proxy_pass http://antimatter;
+    }
+}</code></pre>
+<p>تحقق من الملف باستخدام <code>nginx -t</code> وطبّقه باستخدام <code>systemctl reload nginx</code>. يرسل الخادم <code>X-Content-Type-Options</code> و<code>Referrer-Policy</code> و<code>Permissions-Policy</code> و<code>X-Frame-Options</code> بنفسه؛ HSTS فقط هو ما يتولاه الوكيل. ارفع قيمة <code>max-age</code> بمجرد بدء عمل HTTPS، وأضف <code>includeSubDomains</code> فقط إذا كانت جميع النطاقات الفرعية تستخدم HTTPS.</p>
+<p>عند استخدام Docker Compose وnginx على المضيف، يشير <code>upstream</code> المذكور أعلاه إلى المنفذ المنشور 8065. انشره على <code>127.0.0.1</code> فقط (<code>HTTP_PORT=127.0.0.1:8065</code>)، حتى لا يتجاوز أحد الوكيل.</p>
+<p>يحتوي مستودع antimatter-docker على إعداد كامل مع nginx في حاوية وLet's Encrypt عبر certbot، في <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">deploy/compose</a>.</p>
+
+<h3>وكلاء آخرون</h3>
+<p>يعمل أي وكيل إذا استوفى النقاط الأربع المذكورة أعلاه. لا تمرّ مكالمات الصوت والvideo عبر الوكيل أبدًا: فهي تستخدم منفذها الخاص، راجع <a href="{{root}}docs/admins/calls.html">المكالمات والصوت</a>.</p>
+
+<h2 id="client-address">عناوين العملاء خلف وكيل</h2>
+<p>خلف وكيل، يبدو أن كل طلب يأتي من الوكيل. لتسجيل عنوان العميل الفعلي، طبّق حدود المعدل لكل عميل واستخدم تصفية عناوين IP، وأخبر الخادم بأي ترويسة تحمل العنوان، وبأي وكلاء يمكنه الوثوق. لا يوجد حقل في وحدة التحكم بالنظام لأي من هذين الإعدادين: اضبطهما في <code>config.json</code> أو باستخدام متغيرات.</p>
+<table>
+<thead><tr><th>المفتاح والمتغير</th><th>الافتراضي</th><th>وظيفته</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.TrustedProxyIPHeader</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER</code></td><td>فارغ: يستخدم الخادم عنوان الاتصال</td><td>الترويسات التي تحمل عنوان العميل، مثل <code>X-Forwarded-For</code>. يُستخدم أول ترويسة موجودة في الطلب.</td></tr>
+<tr><td><code>ServiceSettings.TrustedProxyIPs</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code></td><td>فارغ</td><td>عناوين أو نطاقات CIDR لوكلائك، مثل <code>172.29.71.0/28</code>. تُحتسب الترويسات فقط للطلبات التي تأتي من أحد هذه الوكلاء.</td></tr>
+</tbody>
+</table>
+<p>في المتغيّر، افصل بين عدة قيم بمسافات: <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>. يرفض الخادم أي تكوين يحتوي على إدراج في <code>TrustedProxyIPs</code> لا يكون عنوان IP ولا نطاق CIDR.</p>
+<h3>كيف يجد الخادم عنوان العميل</h3>
+<p>يضيف كل وكيل (proxy) العنوان الذي استلم منه الطلب إلى يمين <code>X-Forwarded-For</code>. يبقى ما أرسله العميل في الترويسة نفسه على اليسار. لذلك يقرأ الخادم الترويسة من اليمين، ويتخطى عناوين وكلاءك الموثوقين، ويتخذ أول عنوان آخر كعنوان العميل. لا يستطيع العميل اختيار عنوانه بإرسال ترويسته الخاصة.</p>
+<ul>
+<li>خلف وكيل واحد، يمنح <code>TrustedProxyIPHeader</code> وحده العنوان الصحيح: يتخذ الخادم العنوان الأيمن في الترويسة. يسجّل تحذيرًا عند الإقلاع حتى تضبط أيضًا <code>TrustedProxyIPs</code>. بدونه، يستطيع أي شخص يصل إلى المنفذ 8065 مباشرةً ضبط الترويسة، لذا انشر هذا المنفذ على <code>127.0.0.1</code> أو على شبكة خاصة فقط.</li>
+<li>خلف عدة وكلاء، على سبيل المثال CDN أو موازن أحمال أمام وكيلك الخاص، اذكرهم جميعًا في <code>TrustedProxyIPs</code>. وإلا سيتخذ الخادم عنوان الوكيل الخارجي كعنوان العميل.</li>
+<li>يستطيع الوكيل استبدال الترويسة بالعنوان الذي يراه، كما يفعل مثال nginx أعلاه (<code>X-Forwarded-For $remote_addr</code>)، أو الإضافة إليها (nginx's <code>$proxy_add_x_forwarded_for</code>). كلاهما يعمل.</li>
+</ul>
+<h3>العناوين التي يجب ذكرها</h3>
+<p>اذكر العنوان الذي تأتي منه طلبات الوكيل، كما يراه Antimatter.</p>
+<ul>
+<li>مع ملف compose الخاص بالموقع وCaddy، تم ذلك بالفعل: يصل Caddy إلى Antimatter عبر شبكة <code>edge</code>، ويضبط ملف compose <code>TrustedProxyIPHeader</code> على <code>X-Forwarded-For</code> و<code>TrustedProxyIPs</code> على نطاق تلك الشبكة، <code>EDGE_SUBNET</code> (<code>172.29.71.0/28</code> ما لم تغيّره في <code>.env</code>). غيّر <code>EDGE_SUBNET</code> إذا كان يتداخل مع إحدى شبكاتك.</li>
+<li>التكوين الإنتاجي في antimatter-docker يفعل الشيء نفسه لوعاء nginx الخاص به، باستخدام <code>FRONTEND_SUBNET</code>.</li>
+<li>مع nginx على المضيف وAntimatter في Docker، تصل الطلبات إلى Antimatter عبر المنفذ المنشور، عادةً من عنوان البوابة لشبكة مشروع compose (<code>docker network inspect</code> يعرضه). اضبط <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code> على ذلك العنوان في <code>compose.override.yaml</code>.</li>
+<li>بدون Docker، ومع nginx على نفس المضيف، يكون العنوان <code>127.0.0.1</code> (و<code>::1</code> إذا كان nginx يتصل عبر IPv6).</li>
+</ul>
+
+<h2 id="builtin-tls">TLS دون وكيل</h2>
+<p>يمكن للخادم أيضًا تقديم HTTPS بنفسه، في <b>وحدة التحكم بالنظام › البيئة › خادم الويب</b>: ضبط <b>أمان الاتصال</b> على TLS (<code>ServiceSettings.ConnectionSecurity</code>)، مع <b>ملف شهادة TLS</b> و<b>ملف مفتاح TLS</b> (<code>ServiceSettings.TLSCertFile</code>، <code>ServiceSettings.TLSKeyFile</code>)، أو <b>استخدام Let’s Encrypt</b> (<code>ServiceSettings.UseLetsEncrypt</code>). يجب أن يستمع الخادم بعد ذلك إلى المنفذ 443 (<b>عنوان الاستماع</b>، <code>ServiceSettings.ListenAddress</code>، <code>:8065</code> افتراضيًا)، ويعيد <code>ServiceSettings.Forward80To443</code> توجيه المنفذ 80. من الأسهل تشغيل وكيل عكسي وتجديده، وهو ما يفترضه هذا الدليل.</p>
+
+<h2 id="timeouts">مهلات الخادم وحجم الطلب</h2>
+<p>إعدادات خادم الويب الخاص بالخادم نفسه، في <b>وحدة التحكم بالنظام › البيئة › خادم الويب</b>:</p>
+<table>
+<thead><tr><th>الإعداد</th><th>المفتاح</th><th>الافتراضي</th></tr></thead>
+<tbody>
+<tr><td><b>عنوان الاستماع</b></td><td><code>ServiceSettings.ListenAddress</code></td><td><code>:8065</code></td></tr>
+<tr><td><b>مهلة القراءة</b></td><td><code>ServiceSettings.ReadTimeout</code></td><td>300 ثانية</td></tr>
+<tr><td><b>مهلة الكتابة</b></td><td><code>ServiceSettings.WriteTimeout</code></td><td>300 ثانية</td></tr>
+<tr><td>مهلة الخمول (لا يوجد حقل في وحدة التحكم بالنظام)</td><td><code>ServiceSettings.IdleTimeout</code></td><td>60 ثانية</td></tr>
+<tr><td><b>الحد الأقصى لحجم الحمولة (بايت)</b></td><td><code>ServiceSettings.MaximumPayloadSizeBytes</code></td><td>انظر <a href="{{root}}docs/admins/security.html">الأمان</a></td></tr>
+</tbody>
+</table>
+<p>حافظ على مهلات الوكيل نفسه على الأقل بنفس طول هذه المهلات للطلبات العادية، وعلى حجم الجسم على الأقل <b>الحد الأقصى لحجم الملف</b>.</p>

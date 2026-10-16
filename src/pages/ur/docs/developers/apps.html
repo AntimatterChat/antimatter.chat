@@ -1,0 +1,313 @@
+title: ایپس (پلگ انز) لکھنا
+description: Antimatter ایپ (پلگ ان) کیسے لکھیں: بंडل کی ترتیب اور plugin.json، سرور ہکس اور API، ویب ایپ رجسٹری، Fusion انٹرفیس کی معاونت، ترتیبات، کیوے ویلیو اسٹور، ترجمے، پیکنگ اور انسٹالیشن۔
+guide: developers
+order: 6
+nav: ایپس لکھنا
+lead: ایپس Antimatter کو اندر سے خصوصیات فراہم کرتی ہیں: Go میں سرور کا حصہ جو سرور میں ہک ہوتا ہے، اور React میں ویب ایپ کا حصہ جو مینو، پینلز، پیغام کے اقسام اور صفحات شامل کرتا ہے۔ یہ صفحہ دکھاتا ہے کہ ایک ایپ کیسے ترتیب دی جاتی ہے، جہاں شامل شدہ Polls ایپ کو مثال کے طور پر استعمال کیا گیا ہے، اور Antimatter کے Fusion انٹرفیس میں کیا تبدیلیاں آتی ہیں۔
+source: d9c132cac759
+---
+<h2 id="overview">ایپ کیسے کام کرتی ہے</h2>
+<ul>
+<li><b>سرور کا حصہ</b> ایک Go پروگرام ہے۔ سرور اسے ایک الگ پروسیس کے طور پر شروع کرتا ہے اور اس کے ساتھ RPC کے ذریعے بات چیت کرتا ہے: یہ ایپ کے <b>ہکس</b> کو کال کرتا ہے (ایک پیغام پوسٹ ہونے والا ہے، ایک کمانڈ چلائی گئی ہے…)، اور ایپ سرور کے <b>پلگ ان API</b> کو کال کرتی ہے (پوسٹ بنائیں، صارف پڑھیں، ڈیٹا محفوظ کریں…)۔ یہ <code>/plugins/&lt;app id&gt;/</code> کے تحت HTTP روٹس بھی فراہم کر سکتی ہے۔</li>
+<li><b>ویب ایپ کا حصہ</b> ایک JavaScript بंडل ہے جو ویب ایپ کے ساتھ براؤزر میں لوڈ ہوتا ہے۔ یہ <b>رجسٹری</b> کے ساتھ React اجزاء اور کال بیکس رجسٹر کرتا ہے: مینو میں بٹن، پینل، یا پیغام کے کسی قسم کو ڈرا کرنے کا طریقہ۔</li>
+<li>دونوں حصے اختیاری ہیں۔ ایک ایپ <code>.tar.gz</code> بंडل کے طور پر انسٹال ہوتی ہے، اور سسٹم ایڈمنز اسے فعال، غیر فعال اور ترتیب دیتے ہیں۔</li>
+</ul>
+<div class="callout warn">سرور کا حصہ سرور کے ڈیٹا تک مکمل رسائی کے ساتھ چلتا ہے۔ ایپ کو اس طرح سمجھیں جیسے آپ سرور پر ڈپلوائے ہونے والا کوڈ۔</div>
+<p>Antimatter Mattermost کے لیے لکھی گئی ایپس کو چلاتا ہے، اور اس کے برعکس بھی، بشرطیکہ ایپ صرف ان ہکس کا استعمال کرے جو دونوں میں موجود ہیں۔ دیکھیں <a href="#antimatter-hooks">صرف Antimatter کے ہکس</a>۔</p>
+
+<h2 id="layout">بंडل کی ترتیب</h2>
+<p>کوئی الگ اسٹارٹر ٹیمپلیٹ موجود نہیں ہے: ایک چھوٹی شامل شدہ ایپ جیسے <a href="https://github.com/AntimatterChat/antimatter-plugin-polls">antimatter-plugin-polls</a> یا <a href="https://github.com/AntimatterChat/antimatter-plugin-todo">antimatter-plugin-todo</a> سے شروع کریں، اور اس کا ID اور کوڈ تبدیل کریں۔ Polls کی ترتیب اس طرح ہے:</p>
+<pre><code>antimatter-plugin-polls/
+├── plugin.json            the manifest
+├── Makefile               build, test, bundle, deploy
+├── build/                 the manifest and pluginctl helper tools (Go), setup.mk
+├── assets/icon.svg        files shipped with the bundle
+├── go.mod
+├── server/
+│   ├── main.go            plugin.ClientMain(&amp;Plugin{})
+│   ├── plugin.go          the Plugin type, OnActivate, ServeHTTP
+│   ├── manifest.go        generated from plugin.json
+│   ├── api.go, command.go, hooks.go, store.go …
+│   └── dist/              compiled binaries, one per platform
+└── webapp/
+    ├── package.json, webpack.config.js, tsconfig.json
+    ├── i18n/              en.json and one file per language
+    ├── src/index.tsx      registers the app with the web app
+    ├── src/manifest.ts    generated from plugin.json
+    ├── src/translations.ts
+    └── dist/main.js       the bundle</code></pre>
+<p>اختیاری: ایک <code>public/</code> فولڈر، جو <code>/plugins/&lt;app id&gt;/public/</code> پر جیسا ہے فراہم کیا جاتا ہے۔</p>
+
+<h2 id="manifest">plugin.json</h2>
+<pre><code>{
+  "id": "com.example.weather",
+  "name": "Weather",
+  "description": "Forecasts in the chat.",
+  "homepage_url": "https://github.com/example/weather",
+  "support_url": "https://github.com/example/weather/issues",
+  "icon_path": "assets/icon.svg",
+  "version": "1.0.0",
+  "min_server_version": "12.0.0",
+  "server": {
+    "executables": {
+      "linux-amd64": "server/dist/plugin-linux-amd64",
+      "linux-arm64": "server/dist/plugin-linux-arm64",
+      "darwin-amd64": "server/dist/plugin-darwin-amd64",
+      "darwin-arm64": "server/dist/plugin-darwin-arm64",
+      "windows-amd64": "server/dist/plugin-windows-amd64.exe"
+    }
+  },
+  "webapp": {"bundle_path": "webapp/dist/main.js"},
+  "settings_schema": {"settings": []}
+}</code></pre>
+<ul>
+<li><code>id</code>: منفرد اور مستقل؛ ایک ریورس ڈومین نام عام طور پر استعمال ہوتا ہے۔ یہ روٹس، محفوظ شدہ ترتیبات اور WebSocket ایونٹس کے نام مقرر کرتا ہے۔</li>
+<li><code>version</code>: سیمنٹک ورژن۔ شامل شدہ ایپس اسے <code>plugin.json</code> سے باہر چھوڑ دیتی ہیں؛ ان کا بلڈ ٹول اسے تازہ ترین <code>v*</code> git ٹیگ سے لیتا ہے۔</li>
+<li><code>min_server_version</code>: Antimatter <code>12.0.0</code> رپورٹ کرتا ہے۔</li>
+<li><code>settings_schema</code>: سسٹم کنسول میں ایپ کی ترتیبات کی صفحہ (دیکھیں <a href="#settings">ترتیبات</a>)۔</li>
+</ul>
+<p><code>make apply</code> مانی فیسٹ کو <code>server/manifest.go</code> اور <code>webapp/src/manifest.ts</code> میں کاپی کرتا ہے؛ <code>make manifest-check</code> اس کی تصدیق کرتا ہے۔</p>
+
+<h2 id="server">سرور کا حصہ</h2>
+<p>سرور کا حصہ Mattermost ایپس کے جیسا ہی Go ماڈیول، <code>github.com/mattermost/mattermost/server/public</code>، Go ماڈیول پروکسی سے امپورٹ کرتا ہے۔ اس کا <code>main</code> صرف ایپ کو شروع کرتا ہے:</p>
+<pre><code>package main
+
+import "github.com/mattermost/mattermost/server/public/plugin"
+
+func main() {
+	plugin.ClientMain(&amp;Plugin{})
+}</code></pre>
+<p><code>Plugin</code> ٹائپ <code>plugin.MattermostPlugin</code> کو ایمبیڈ کرتا ہے، جس سے اسے <code>p.API</code> ملتا ہے، اور وہ ہکس (hooks) کو نافذ کرتا ہے جو اسے درکار ہیں:</p>
+<pre><code>type Plugin struct {
+	plugin.MattermostPlugin
+	router *mux.Router
+}
+
+func (p *Plugin) OnActivate() error {
+	p.router = p.newRouter()
+	return p.API.RegisterCommand(&amp;model.Command{
+		Trigger:          "weather",
+		AutoComplete:     true,
+		AutoCompleteDesc: "Show the forecast",
+		AutoCompleteHint: "[city]",
+	})
+}
+
+func (p *Plugin) ExecuteCommand(c *plugin.Context, args *model.CommandArgs) (*model.CommandResponse, *model.AppError) {
+	city := strings.TrimSpace(strings.TrimPrefix(args.Command, "/weather"))
+	return &amp;model.CommandResponse{
+		ResponseType: model.CommandResponseTypeEphemeral,
+		Text:         "Forecast for " + city + ": sunny",
+	}, nil
+}
+
+func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Request) {
+	p.router.ServeHTTP(w, r)
+}</code></pre>
+<h3>عام ہکس</h3>
+<table>
+<thead><tr><th>ہک</th><th>کب چلتا ہے</th></tr></thead>
+<tbody>
+<tr><td><code>OnActivate</code>, <code>OnDeactivate</code></td><td>جب ایپ کو فعال یا غیر فعال کیا جائے، اور جب سرور شروع ہو یا بند ہو۔ <code>OnActivate</code> میں کمانڈز اور بوٹس رجسٹر کریں۔</td></tr>
+<tr><td><code>OnConfigurationChange</code></td><td>جب اس کی ترتیبات تبدیل ہوں؛ انہیں <code>p.API.LoadPluginConfiguration(&amp;cfg)</code> کے ذریعے لوڈ کریں۔</td></tr>
+<tr><td><code>ServeHTTP</code></td><td><code>/plugins/&lt;app id&gt;/…</code> کی درخواستیں۔ جب درخواست سائنڈ ان صارف سے آتی ہے تو سرور <code>Mattermost-User-Id</code> ہیڈر سیٹ کرتا ہے؛ اس کے بغیر درخواستوں کو مسترد کریں، مگر یہ سوائے اس کے کہ وہ عوامی ہونے کا مقصد رکھتی ہوں۔</td></tr>
+<tr><td><code>ExecuteCommand</code></td><td>ایپ نے رجسٹر کی ہوئی کمانڈ چلا دی گئی۔</td></tr>
+<tr><td><code>MessageWillBePosted</code>, <code>MessageWillBeUpdated</code></td><td>پیغام محفوظ ہونے سے پہلے: تبدیل شدہ پوسٹ واپس کریں، یا اسے مسترد کرنے کی وجہ دیں۔</td></tr>
+<tr><td><code>MessageHasBeenPosted</code>, <code>MessageHasBeenUpdated</code>, <code>MessageHasBeenDeleted</code></td><td>بعد ازاں، جانبی اثرات کے لیے۔</td></tr>
+<tr><td><code>ReactionHasBeenAdded</code>, <code>ReactionHasBeenRemoved</code></td><td>ردعمل۔</td></tr>
+<tr><td><code>UserHasJoinedChannel</code>, <code>UserHasLeftChannel</code>, <code>UserHasJoinedTeam</code>, <code>UserHasLeftTeam</code>, <code>ChannelHasBeenCreated</code></td><td>رکنیت اور چینلز میں تبدیلیاں۔ ٹیم ایک کمیونٹی ہے۔</td></tr>
+<tr><td><code>FileWillBeUploaded</code></td><td>فائل محفوظ ہونے سے پہلے: اسے تبدیل کریں یا مسترد کریں۔</td></tr>
+<tr><td><code>OnPluginClusterEvent</code></td><td>کلسٹر کے دوسرے سرور پر موجود اسی ایپ سے پیغام۔</td></tr>
+</tbody>
+</table>
+<p>مکمل فہرست، بالکل درست سائنچرز کے ساتھ، <code>server/public/plugin/hooks.go</code> میں ہے؛ API <code>server/public/plugin/api.go</code> میں ہے۔ <code>pluginapi</code> پیکیج (<code>server/public/pluginapi</code>) API کو دوستانہ ہیلپرز میں لفٹ کرتا ہے۔</p>
+<h3>مفید API کالز</h3>
+<ul>
+<li><code>CreatePost</code>، <code>UpdatePost</code>، <code>SendEphemeralPost</code>: ایپ کے بوٹ کے طور پر یا کسی صارف کے طور پر پوسٹ کریں۔</li>
+<li><code>EnsureBotUser(&amp;model.Bot{Username, DisplayName})</code>: ایپ کا بوٹ ایک بار بنائیں اور اس کا ID حاصل کریں۔</li>
+<li><code>PublishWebSocketEvent("poll_updated", payload, &amp;model.WebsocketBroadcast{ChannelId: id})</code>: ویب ایپ کو ایونٹ بھیجیں۔ یہ <code>custom_&lt;app id&gt;_poll_updated</code> کے طور پر پہنچتا ہے۔</li>
+<li><code>OpenInteractiveDialog</code>: <a href="{{root}}docs/developers/bots.html#dialogs">ڈائیلاگ</a> کھولیں۔</li>
+<li><code>LogInfo</code>، <code>LogError</code> اور اسی طرح کے: سرور لاگ میں لکھیں، ایپ کے ID کے ساتھ ٹیگ شدہ۔</li>
+<li><code>GetUser</code>، <code>GetChannel</code>، <code>HasPermissionToChannel</code>: کسی صارف کے لیے عمل کرنے سے پہلے چیک کریں کہ کس کو کیا کرنے کی اجازت ہے۔</li>
+</ul>
+<p>ایپ کلسٹر کے ہر سرور پر چلتی ہے۔ اسٹیٹ کو کیو وی اسٹور یا ڈیٹا بیس میں رکھیں، صرف میموری میں نہیں۔</p>
+
+<h2 id="kv">ڈیٹا کا ذخیرہ</h2>
+<p>ہر ایپ کے لیے سرور کے ڈیٹا بیس میں اپنا الگ کیو وی اسٹور ہوتا ہے:</p>
+<ul>
+<li><code>KVSet(key, value)</code>, <code>KVGet(key)</code>, <code>KVDelete(key)</code>: ویلیوز بائٹس ہوتی ہیں، عموماً JSON۔ کیز زیادہ سے زیادہ 150 حروف کے ہو سکتے ہیں۔</li>
+<li><code>KVSetWithExpiry(key, value, seconds)</code>: ویلیو اس وقت کے بعد غائب ہو جاتی ہے۔</li>
+<li><code>KVCompareAndSet(key, old, new)</code> اور <code>KVSetWithOptions</code> کے ساتھ <code>Atomic</code>: جب کئی درخواستیں یا سرورز ایک ہی کی پر لکھتے ہوں تو محفوظ اپڈیٹس۔ پولز اس طریقے سے ہر ووٹ محفوظ کرتا ہے اور تصادم پر دوبارہ کوشش کرتا ہے۔</li>
+<li><code>KVList(page, perPage)</code>: کیز، صفحہ بہ صفحہ۔</li>
+</ul>
+
+<h2 id="webapp">ویب ایپ کا حصہ</h2>
+<p>بندل <code>window.registerPlugin</code> کے ذریعے ایک کلاس رجسٹر کرتا ہے۔ اس کا <code>initialize</code> رجسٹری اور Redux اسٹور وصول کرتا ہے:</p>
+<pre><code>import manifest from './manifest';
+
+class Plugin {
+    initialize(registry, store) {
+        registry.registerTranslations((locale) =&gt; translationsFor(locale));
+        registry.registerPostTypeComponent('custom_poll', PollPost);
+        registry.registerWebSocketEventHandler(`custom_${manifest.id}_poll_updated`, (msg) =&gt; {
+            store.dispatch(pollUpdated(JSON.parse(msg.data.poll)));
+        });
+        registry.registerReconnectHandler(() =&gt; store.dispatch(reloadPolls()));
+    }
+}
+
+window.registerPlugin(manifest.id, new Plugin());</code></pre>
+<ul>
+<li><b>مشترک لائبریریاں۔</b> ویب ایپ React، ReactDOM، Redux، React Redux اور React Intl فراہم کرتی ہے: انہیں webpack <code>externals</code> (<code>React</code>, <code>ReactDOM</code>, <code>Redux</code>, <code>ReactRedux</code>, <code>ReactIntl</code>) کے طور پر درج کریں، اپنے کاپیوں کو بندل کرنے کے بجائے۔ Polls کے <code>webpack.config.js</code> کو دیکھیں۔</li>
+<li><b>اپنے سرور حصے کو کال کرنا۔</b> <code>${window.basename}/plugins/&lt;app id&gt;/…</code> کو <code>Client4.getOptions()</code> (جو <code>mattermost-redux/client</code> سے آتا ہے) کے آپشنز کے ساتھ Fetch کریں: یہ وہ ہیڈرز ہیں جو سرور کو براؤزر سے آنے والی درخواست کو قبول کرنے کے لیے درکار ہوتی ہیں۔</li>
+<li><b>آپ کا اپنا اسٹیٹ۔</b> <code>registerReducer</code> ایک ریڈیوسر شامل کرتا ہے، جو <code>state['plugins-&lt;app id&gt;']</code> کے تحت محفوظ ہوتا ہے۔</li>
+<li><b>ٹائپس۔</b> Antimatter کے اضافی رجسٹری طریقے Mattermost کے شائع شدہ ٹائپس میں شامل نہیں ہیں: Polls <code>webapp/src/types/host.ts</code> میں وہ رجسٹری اعلان کرتا ہے جسے استعمال کرتا ہے۔</li>
+</ul>
+<p>رجسٹری کے طریقے اور ان کے پیرامیٹرز کوڈ میں دستاویزات کے طور پر موجود ہیں، <code>webapp/fusion/src/plugins/registry.ts</code> (Fusion) اور <code>webapp/channels/src/plugins/registry.ts</code> (classic) میں۔</p>
+
+<h2 id="fusion">Fusion انٹرفیس کی معاونت</h2>
+<p>Antimatter کے دو ویب انٹرفیس ہیں: Fusion، جو ڈیفالٹ ہے، اور کلاسیکی۔ دونوں ایک جیسے ایپ بندلز لوڈ کرتے ہیں اور ایک جیسی رجسٹری رکھتے ہیں، لیکن Fusion کئی چیزیں خود بناتا ہے اور پلگ ان اجزاء کو اپنی طرز پر رکھتا ہے۔ اپنی ایپ کو دونوں میں ٹیسٹ کریں۔</p>
+<h3>انٹرفیس کی شناخت</h3>
+<p>کسی بھی ایپ کے لوڈ ہونے سے پہلے، دونوں انٹرفیس <code>window.antimatterWebUI</code> کو <code>'fusion'</code> یا <code>'classic'</code> پر سیٹ کرتے ہیں، اور اسی ویلیو کو صفحے کے روٹ عنصر پر <code>data-am-web-ui</code> کے طور پر۔ Mattermost پر، نہ تو یہ سیٹ ہوتا ہے۔</p>
+<pre><code>export function isFusionUI(): boolean {
+    return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
+}</code></pre>
+<p>بندل شدہ ایپس اس کے ذریعے مختلف انداز میں ڈرائے کرتی ہیں۔ پولز اپنی پول کارڈز اور تخلیق کے ڈائیلاگ کو فیوژن کے انداز میں ڈرائے کرتی ہے، اور فیوژن میں <code>/poll</code> کے لیے اپنا الگ ڈائیلاگ کھولتی ہے۔ کالز اور وائس چینلز سائیڈ بار اور ٹوسٹ کمپوننٹس کو چھوڑ دیتی ہیں، جو فیوژن اپنی کال انٹرفیس کے ساتھ تبدیل کر دیتا ہے۔ ایجنٹس ایپ اپنے AI ایکشنز کو ہاور ٹول بار کے بجائے میسج مینیو کے ذریعہ (submenu) میں رکھتی ہے۔ فیوژن کی اپنی CSS classes (جو <code>am-</code> سے شروع ہوتی ہیں) اور اس کا ڈائیلاگ لیئر (<code>am-layer</code> عنصر) وہ چیزیں ہیں جن کا ان ایپس نے انٹرفیس کو مماثل بنانے کے لیے استعمال کیا ہے؛ یہ کوئی دستاویزی شدہ یا مستحکم API نہیں ہیں۔</p>
+<h3>جہاں فیوژن پلگ ان کمپوننٹس دکھاتا ہے</h3>
+<table>
+<thead><tr><th>رجسٹری طریقہ</th><th>فیوژن میں کہاں ظاہر ہوتا ہے</th></tr></thead>
+<tbody>
+<tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>ایپ ریل، یعنی دائیں کنارے پر آئیکنز کی کالم، جو آپ کے ایواٹار اور <b>Antimatter کے بارے میں</b> بٹن کے درمیان ہے۔ چینل ہیڈر کے بٹن بھی اسی جگہ آتے ہیں، چینل ہیڈر میں نہیں۔ جب سسٹم ایڈمن <b>ایپس بار غیر فعال کریں</b> (<code>ExperimentalSettings.DisableAppBar</code>، پہلے سے غیر فعال) کو آن کر دیتا ہے تو یہ چھپ جاتا ہے۔</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>دائیں جانب پینل۔ لوگ اس کے کنارے کو کھینچ کر اس کا سائز بدل سکتے ہیں۔ اگر ایپ ایک پروڈکٹ بھی ہو تو پینل میں <b>مکمل صفحے کے طور پر کھولیں</b> کا آپشن موجود ہوتا ہے۔</td></tr>
+<tr><td><code>registerChannelHeaderIcon</code></td><td>چینل ہیڈر میں آئیکنز، کال بٹنز کے بعد؛ فونز پر ہیڈر کے <b>مزید</b> میو میں۔</td></tr>
+<tr><td><code>registerCallButtonAction</code></td><td>چینل ہیڈر کا کال بٹن؛ کئی پرووائڈرز <b>کال کرنے کے دیگر طریقے</b> میو کو شیئر کرتے ہیں۔</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>پیغام کا <b>مزید اقدامات</b> (⋯) میو، <b>پیغام کے اقدامات</b> سب میو میں؛ سلسلے کے پینل کے <b>سلسلے کے اقدامات</b> میو میں بھی، <b>مزید اقدامات</b> کے تحت۔</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>انہی مینیوز کا اپنا الگ ذیلی مینیو، ایپ کے نام اور آئیکن کے ساتھ۔</td></tr>
+<tr><td><code>registerPostActionComponent</code></td><td>میسج ہاور ٹول بار، ⋯ بٹن سے پہلے۔</td></tr>
+<tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>میسج خود: اس کا باڈی، اس کے متن کے نیچے، اس کے وقت کے بعد، اور لنک پری ویوز کی جگہ۔</td></tr>
+<tr><td><code>registerChannelHeaderMenuAction</code></td><td>چینل کا <b>چینل کے اختیارات</b> میو (سائیڈ بار میں چینل پر ⋯، یا رائٹ کلک)، پلگ آئیکن والے آئٹمز کے طور پر۔</td></tr>
+<tr><td><code>registerMainMenuAction</code></td><td>کمیونٹی میو (چینل لسٹ کے اوپر کمیونٹی کا نام)، <b>مزید اقدامات</b> کے تحت، ایپ کے لحاظ سے گروپ شدہ۔</td></tr>
+<tr><td><code>registerSidebarBrowseOrAddChannelMenuAction</code></td><td>کمیونٹی میو، <b>چینل بنائیں</b> اور <b>زمرہ بنائیں</b> کے بعد۔</td></tr>
+<tr><td><code>registerFileUploadMethod</code></td><td>کمپوزر کا <b>+</b> میو (<b>پیغام میں شامل کریں</b>)، <b>فائل اپ لوڈ کریں</b> کے بعد۔</td></tr>
+<tr><td><code>registerPostEditorActionComponent</code></td><td>کمپوزر کا فارمیٹنگ بار، جب فارمیٹنگ دکھائی جائے۔</td></tr>
+<tr><td><code>registerAIActionMenuItemComponent</code></td><td>کمپوزر کا <b>AI</b> مینیو۔</td></tr>
+<tr><td><code>registerFileDropdownMenuAction</code>, <code>registerFilePreviewComponent</code></td><td>فائل کا آپشنز مینیو، اور فائل پری ویو۔</td></tr>
+<tr><td><code>registerUserSettings</code></td><td><b>پروفائل اور ترتیبات</b>، <b>پلگ انز</b> ہیڈنگ کے تحت ہر ایپ کے لیے ایک ٹیب۔</td></tr>
+<tr><td><code>registerChannelSettingsTab</code></td><td>چینل کی ترتیبات ڈائیلاگ، <b>ایپس</b> ہیڈنگ کے تحت۔</td></tr>
+<tr><td><code>registerPopoverUserAttributesComponent</code>, <code>registerPopoverUserActionsComponent</code></td><td>پروفائل کارڈ، جو آپ کو نام یا ایواٹار پر کلک کرنے پر دکھائی دیتا ہے۔</td></tr>
+<tr><td><code>registerLeftSidebarHeaderComponent</code>, <code>registerSidebarChannelLinkLabelComponent</code>, <code>registerChannelIconOverride</code>, <code>registerBottomTeamSidebarComponent</code></td><td>کمیونٹی کے چینلز کی فہرست کا اوپری حصہ، چینل کے نام کے ساتھ، چینل کی آئیکن کے ساتھ، اور بائیں جانب کمیونٹی ریل کا نچلا حصہ۔</td></tr>
+<tr><td><code>registerChannelIntro</code>, <code>registerChannelIntroButtonAction</code>, <code>registerChannelToastComponent</code>, <code>registerNewMessagesSeparatorActionComponent</code>, <code>registerChannelComposerBannerComponent</code>, <code>registerComposerPlaceholder</code></td><td>کسی چینل کی تاریخ کا آغاز، پیغامات کی فہرست کا اوپری حصہ، غیر پڑھا لائن، کمپوزر کے اوپر، اور کمپوزر کا پلیس ہولڈر۔</td></tr>
+<tr><td><code>registerChannelTypeOption</code></td><td><b>چینل بنائیں</b> ڈائیلاگ کے چینل کے اقسام۔</td></tr>
+<tr><td><code>registerSearchComponents</code></td><td>چینل ہیڈر کا تلاش خانہ: ایپ اسکوپس اس وقت ظاہر ہوتے ہیں جب یہ خالی ہو۔</td></tr>
+<tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>Antimatter کے بارے میں</b> (ایپ ریل کا نچلا حصہ)، <b>مدد</b> کے تحت۔</td></tr>
+<tr><td><code>registerProduct</code></td><td>پروڈکٹ کے URL پر مکمل صفحات، <b>Antimatter کے بارے میں</b> میں <b>مصنوعات</b> کے تحت لسٹ شدہ۔ پروڈکٹ صفحات کلاسیک پیج فریم برقرار رکھتے ہیں۔</td></tr>
+<tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, ہکس جیسے <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>کلاسیک انٹرفیس کی طرح کام کریں۔</td></tr>
+<tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>سسٹم کنسول، جو دونوں انٹرفیسز میں کلاسیک ہے۔</td></tr>
+</tbody>
+</table>
+<h3>Fusion جو چیزیں ظاہر یا چلا نہیں کرتا</h3>
+<ul>
+<li><code>registerPostDropdownMenuComponent</code> (پیغام کے مینیو میں ایک کمپوننٹ)، <code>registerPostCardTypeComponent</code> (پیغام کا کارڈ دائیں جانب پینل میں) اور <code>registerProductSwitcherMenuItem</code> Fusion کے مرکزی ویوز میں ظاہر نہیں ہوتے۔ پہلے کے بجائے <code>registerPostDropdownMenuAction</code> استعمال کریں۔</li>
+<li><code>registerMessageWillBeUpdatedHook</code> Fusion میں پیغام کے ترمیم کے وقت نہیں چلتا۔ ترمیمات کو سرور پر <code>MessageWillBeUpdated</code> ہک کے ذریعے چیک کریں۔</li>
+<li><code>registerActionAfterChannelCreation</code> صرف کلاسیک چینل تخلیق ڈائیلاگ سے چلتا ہے، جسے Fusion اپنے <b>چینل بنائیں</b> ڈائیلاگ میں <b>مزید اختیارات…</b> سے کھولتا ہے۔</li>
+<li>ایپ بار کمپوننٹس ان کے <code>supportedProductIds</code> سے قطع نظر ظاہر ہوتے ہیں۔</li>
+<li><code>registerNeedsTeamRoute</code> اور <code>registerCustomRoute</code> سے آنے والے روٹس کلاسیک پیج فریم برقرار رکھتے ہیں، جیسے پروڈکٹس۔</li>
+</ul>
+
+<h2 id="antimatter-hooks">ہکس جو صرف Antimatter میں ہیں</h2>
+<p>یہ رجسٹری طریقے Mattermost پر موجود نہیں ہیں۔ کال کرنے سے پہلے چیک کریں کہ طریقہ موجود ہے، تاکہ ایپ وہاں بھی کام کرے:</p>
+<pre><code>if (typeof registry.registerComposerMenuItem === 'function') {
+    registry.registerComposerMenuItem({
+        text: 'Create a poll',
+        icon: &lt;i className='icon icon-chart-bar'/&gt;,
+        fusionIcon: 'poll',
+        action: ({channelId, rootId}) =&gt; openPollCreation(channelId, rootId),
+    });
+} else {
+    registry.registerChannelHeaderButtonAction(icon, (channel) =&gt; openPollCreation(channel.id), 'Create a poll', 'Create a poll');
+}</code></pre>
+<table>
+<thead><tr><th>طریقہ</th><th>یہ کیا شامل کرتا ہے</th></tr></thead>
+<tbody>
+<tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>پیغام باکس کے <b>+</b> مینیو میں ایک آئٹم، دونوں انٹرفیسز میں۔ <code>action</code> کو <code>{channelId, rootId}</code> ملتا ہے۔</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>پیغام کے خانے کے ایموجی پکڑ کے ایک ٹیب، جیسے GIFs یا اسٹیکرز۔ Fusion میں، <code>order</code> کی قدر 10 سے کم والے ٹیبز، Emoji ٹیب سے پہلے آتے ہیں۔ یہ کمپوننٹ <code>channelId</code>، <code>rootId</code>، <code>filter</code>، <code>onFilterChange</code>، <code>onSelectDone</code>، <code>insertText</code> اور <code>isFusion</code> وصول کرتا ہے۔</td></tr>
+<tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>چینل ہیڈر اور پیغامات کے درمیان ایک پینل، جن چینلز کے لیے <code>matcher(state, channel)</code> منتخب کرتا ہے۔ یہ پیغامات اور کمپوزر کو چھپا سکتا ہے (<code>setMessagesVisible</code>)، جیسا کہ وائس چینلز کرتے ہیں۔</td></tr>
+<tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>سائیڈ بار میں چینل کے نیچے ایک قطار، جیسے اس کی کال میں موجود افراد۔ یہ <code>channel</code> وصول کرتا ہے۔</td></tr>
+<tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>صرف Fusion: <b>انضمامات</b> صفحات پر ایک اندراج، کسٹم ایموجی کے ساتھ۔ GIF ایپ وہاں اپنے کسٹم GIF اور اسٹیکرز شامل کرتی ہے۔</td></tr>
+</tbody>
+</table>
+<p><code>fusionIcon</code> Fusion کے آئیکن سیٹ میں سے ایک آئیکن کا نام ہے (مثلاً <code>poll</code>، <code>sticker</code>، <code>calendar</code> یا <code>image</code>؛ دیکھیں <code>webapp/fusion/src/fusion/components/icon</code>)۔ Fusion اسے <code>icon</code> کی جگہ دکھاتا ہے، تاکہ یہ آئیٹم دوسروں کے مطابق ہو۔</p>
+
+<h2 id="settings">ترتیبات</h2>
+<p><code>plugin.json</code> میں <code>settings_schema</code> <b>سسٹم کنسول › پلگ انز</b> میں ایپ کا صفحہ بیان کرتا ہے:</p>
+<pre><code>"settings_schema": {
+  "header": "Forecasts come from the weather service below.",
+  "settings": [
+    {"key": "ServiceURL", "display_name": "Service URL", "type": "text", "default": "https://api.example.com"},
+    {"key": "Units", "display_name": "Units", "type": "dropdown", "default": "metric",
+     "options": [{"display_name": "Celsius", "value": "metric"}, {"display_name": "Fahrenheit", "value": "imperial"}]},
+    {"key": "EnableAlerts", "display_name": "Severe weather alerts", "type": "bool", "default": false,
+     "help_text": "Post alerts in the channels that follow a city."}
+  ]
+}</code></pre>
+<p>ترتیبات کی اقسام: <code>bool</code>، <code>text</code>، <code>longtext</code>، <code>number</code>، <code>dropdown</code>، <code>radio</code>، <code>generated</code> (ایک رینڈم سیکرٹ)، <code>username</code>، اور <code>custom</code> (جو ایک کمپوننٹ سے بنایا جاتا ہے جو ویب ایپ حصہ <code>registerAdminConsoleCustomSetting</code> کے ساتھ رجسٹر کرتا ہے)۔ ترتیبات کو <code>sections</code> میں گروپ کیا جا سکتا ہے۔</p>
+<p>سرور کا حصہ انہیں ایک سٹرکٹ میں پڑھتا ہے جس کے فیلڈز کیز کے مطابق ہوتے ہیں:</p>
+<pre><code>type configuration struct {
+	ServiceURL   string
+	Units        string
+	EnableAlerts bool
+}
+
+func (p *Plugin) OnConfigurationChange() error {
+	var cfg configuration
+	if err := p.API.LoadPluginConfiguration(&amp;cfg); err != nil {
+		return err
+	}
+	p.setConfiguration(&amp;cfg)
+	return nil
+}</code></pre>
+<p>ایڈمنز انہیں کنفیگریشن میں بھی سیٹ کر سکتے ہیں، <code>PluginSettings.Plugins.&lt;app id&gt;</code> کے تحت، چھوٹے حروف میں کیز کے ساتھ (دیکھیں <a href="{{root}}docs/admins/configuration.html#amctl">ایڈمن گائیڈ</a>)۔</p>
+
+<h2 id="translations">ترجمے</h2>
+<p>Antimatter کو 37 زبانوں میں ترجمہ کیا گیا ہے، اور شامل ایپس بھی۔ ویب ایپ کا حصہ اسے اس طرح کرتا ہے:</p>
+<ol>
+<li>ہر سٹرنگ کو React Intl کے ساتھ لکھیں، ایک ID اور اس کے انگریزی متن کے ساتھ: <code>&lt;FormattedMessage id='polls.create' defaultMessage='Create a poll'/&gt;</code> یا <code>defineMessages</code>۔ IDs کو اپنی ایپ کے نام سے پیش کریں۔</li>
+<li>انگریزی سٹرنگز کو <code>webapp/i18n/en.json</code> میں نکالیں (شامل ایپس <code>formatjs extract</code> استعمال کرتی ہیں)۔</li>
+<li>اس کے ساتھ ہر زبان کے لیے ایک فائل شامل کریں، ایک ہی IDs کے ساتھ: <code>fr.json</code>، <code>de.json</code>، <code>pt-BR.json</code>، <code>zh-CN.json</code>…</li>
+<li>انہیں ویب ایپ کو دیں، جو صارف کی زبان پوچھتی ہے:
+<pre><code>import fr from '../i18n/fr.json';
+import ptBR from '../i18n/pt-BR.json';
+
+const catalogs = {fr, 'pt-BR': ptBR};
+
+export function translationsFor(locale) {
+    return catalogs[locale] || catalogs[locale.split('-')[0]] || {};
+}
+
+registry.registerTranslations(translationsFor);</code></pre></li>
+</ol>
+<p>اگر کوئی سٹرنگ موجود نہ ہو تو اس کی انگریزی <code>defaultMessage</code> استعمال ہوتی ہے۔ ان سٹرنگز کے لیے جو سرور حصہ بھیجتا ہے (کمانڈ کے جوابات، بوٹ پیغامات)، <code>pluginapi/i18n</code> پیکج بنڈل میں شامل ترجمہ فائلز (مثلاً <code>assets/i18n</code>) لوڈ کرتا ہے اور ہر صارف کی زبان میں لوکلائزر فراہم کرتا ہے۔</p>
+
+<h2 id="build">بنائیں، انسٹال کریں اور ڈیبگ کریں</h2>
+<p>آپ کو Go اور Node.js (ایپ کے <code>.nvmrc</code> میں دی گئی ورژن) درکار ہیں۔ ایپ کے فولڈر میں:</p>
+<table>
+<thead><tr><th>کمانڈ</th><th>یہ کیا کرتا ہے</th></tr></thead>
+<tbody>
+<tr><td><code>make dist</code></td><td>ہر پلیٹ فارم کے لیے سرور حصہ اور ویب ایپ حصہ بناتا ہے، اور بنڈل کو <code>dist/&lt;app id&gt;-&lt;version&gt;.tar.gz</code> میں لکھتا ہے۔</td></tr>
+<tr><td><code>make test</code></td><td>Go اور JavaScript ٹیسٹ چلاتا ہے۔</td></tr>
+<tr><td><code>make check-style</code></td><td>کوڈ کو لِنٹ کرتا ہے (golangci-lint, ESLint) اور TypeScript کی قسموں کی جانچ کرتا ہے۔</td></tr>
+<tr><td><code>make deploy</code></td><td>بناتا ہے، پھر سرور پر بنڈل کو انسٹال اور فعال کرتا ہے۔</td></tr>
+<tr><td><code>make watch</code>, <code>make deploy-from-watch</code></td><td>پہلا ہر بار آپ کے سیو کرنے پر ویب ایپ حصہ دوبارہ بناتا ہے؛ دوسرا جو کچھ بنایا اسے بنڈل کر کے سرور پر انسٹال کرتا ہے۔</td></tr>
+<tr><td><code>make enable</code>, <code>make disable</code>, <code>make reset</code></td><td>سرور پر ایپ کو فعال، غیر فعال یا دوبارہ شروع کریں۔</td></tr>
+<tr><td><code>make logs</code>, <code>make logs-watch</code></td><td>سرور لاگ میں ایپ کی لائنز دکھائیں۔</td></tr>
+<tr><td><code>make attach</code></td><td>چل رہے سرور حصے کے ساتھ Delve ڈیبگر کو منسلک کرتا ہے (پہلے <code>AM_DEBUG=1</code> کے ساتھ بنائیں)۔</td></tr>
+</tbody>
+</table>
+<p><code>make deploy</code> اور دیگر سرور کمانڈز جب ایک مقامی موڈ سوکیٹ پاتے ہیں (<code>/var/tmp/antimatter_local.socket</code>، یا <code>AM_LOCALSOCKETPATH</code>) تو اسے استعمال کرتے ہیں: انہیں مقامی موڈ آن ہو کر سرور کی مشین پر چلائیں۔ ورنہ وہ <code>MM_SERVICESETTINGS_SITEURL</code> سے دیے گئے سرور پر <code>AM_ADMIN_TOKEN</code>، یا <code>AM_ADMIN_USERNAME</code> اور <code>AM_ADMIN_PASSWORD</code> کے ساتھ سائن ان کرتے ہیں۔ بلڈ ٹولز ابھی سائٹ URL کے لیے <code>AM_</code> نام نہیں پڑھتے۔</p>
+<h3>بنڈل کو دستی طور پر انسٹال کریں</h3>
+<ul>
+<li>سسٹم ایڈمن <code>AM_PLUGINSETTINGS_ENABLEUPLOADS=true</code> کے ساتھ اپ لوڈز کی اجازت دیتا ہے (ڈیفالٹ طور پر بند؛ سسٹم کنسول میں کوئی سوئچ نہیں ہے)۔</li>
+<li>پھر <b>سسٹم کنسول › پلگ انز › پلگ ان مینجمنٹ › پلگ ان اپ لوڈ کریں</b>، یا <code>amctl plugin add weather.tar.gz</code> کے بعد <code>amctl plugin enable com.example.weather</code>۔</li>
+<li>اگر سروسرور پر <b>پلگ ان سائنچر کو لازمی قرار دیں</b> آن ہے، تو یہ صرف ان باندلز کو قبول کرتا ہے جو اس کے اعتماد کے ساتھ سائن شدہ ہوں؛ دیکھیں <a href="{{root}}docs/admins/apps.html#other-apps">دیگر ایپس کی تنصیب</a>۔</li>
+</ul>
+<div class="callout">ڈویلپمنٹ سرور پر تیز دہائیوں کے لیے، سرور پر <code>AM_SERVICESETTINGS_ENABLEDEVELOPER=true</code> سیٹ کریں: اس صورت میں غلطیاں اپنے تفصیلی معلومات کے ساتھ آتی ہیں۔ بنڈل شدہ ایپس کے Makefiles صرف تب آپ کے پلیٹ فارم کے لیے سرور حصہ بناتے ہیں جب آپ کے شیل میں <code>MM_SERVICESETTINGS_ENABLEDEVELOPER</code> سیٹ ہو۔</div>

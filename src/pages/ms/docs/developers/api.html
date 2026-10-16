@@ -1,0 +1,164 @@
+title: API REST
+description: API REST Antimatter: URL asas, token akses peribadi, token sesi dan OAuth, sumber utama, paginasi, ralat, had kadar, aliran peristiwa WebSocket dan pustaka klien.
+guide: developers
+order: 2
+nav: API REST
+lead: Semua yang dilakukan oleh aplikasi Antimatter melalui API HTTP yang sama, jadi skrip anda juga boleh melakukannya. Halaman ini menerangkan cara pengesahan, sumber yang paling kerap digunakan, rupa respons dan ralat, serta cara mengikuti peristiwa secara langsung melalui WebSocket.
+source: f4b8c83efdba
+---
+<h2 id="basics">Asas</h2>
+<ul>
+<li><b>URL Asas</b>: <code>https://chat.example.com/api/v4</code>. Semua titik akhir di bawah adalah relatif kepadanya.</li>
+<li><b>Format</b>: JSON masuk dan keluar, kecuali muat naik fail (multipart). Hantar <code>Content-Type: application/json</code>.</li>
+<li><b>ID</b>: setiap objek mempunyai <code>id</code> 26 aksara. Masa adalah milisaat sejak epoch Unix (<code>create_at</code>, <code>update_at</code>, <code>delete_at</code>; 0 bermaksud "tidak dipadam").</li>
+<li><b>Komuniti adalah pasukan</b>: API memanggilnya <code>teams</code>, dengan <code>team_id</code>.</li>
+<li><b>diri anda</b>: di mana-mana laluan yang mengambil <code>user_id</code>, <code>me</code> bermaksud pengguna yang log masuk, seperti dalam <code>GET /users/me</code>.</li>
+</ul>
+<p>Senarai penuh titik akhir terdapat dalam kod pelayan: laluan diisytiharkan dalam <code>server/channels/api4/*.go</code> dan jenis dalam <code>server/public/model</code>. Penerangan OpenAPI dalam folder <code>api/v4/source</code> repositori meliputi titik akhir yang diwarisi daripada Mattermost, bukan penambahan Antimatter.</p>
+
+<h2 id="auth">Pengesahan</h2>
+<p>Setiap permintaan, kecuali log masuk dan beberapa titik akhir awam, memerlukan token dalam pengepala <code>Authorization</code>:</p>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" https://chat.example.com/api/v4/users/me</code></pre>
+<p>Tiga jenis token diterima di sana: token akses peribadi, token sesi dan token akses OAuth. <code>Authorization: Token …</code> juga diterima. Token dalam strung pertanyaan (<code>?access_token=</code>) hanya diterima untuk token akses OAuth.</p>
+
+<h3>Token akses peribadi (disyorkan untuk skrip)</h3>
+<p>Token akses peribadi bertindak sebagai anda, tidak tamat melainkan anda memberikan tarikh tamat, dan boleh dicabut pada bila-bila masa. Token akses peribadi adalah luar oleh lalai:</p>
+<ol>
+<li>Pentadbir sistem mengaktifkan <b>Dayakan Token Akses Peribadi</b> dalam <b>Konsol Sistem › Integrasi › Pengurusan Integrasi</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, <code>AM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS</code>).</li>
+<li>Untuk setiap individu yang boleh mencipta token, seorang pentadbir sistem membuka <b>Konsol Sistem › Pengurusan Pengguna › Pengguna</b>, memilih <b>Urus peranan</b> dalam menu individu tersebut dan menanda <b>Benarkan akaun ini menjana token akses peribadi</b>. Pentadbir sistem sentiasa boleh mencipta token ini.</li>
+<li>Individu tersebut membuka avatar mereka di bahagian kanan atas, kemudian <b>Profil &amp; tetapan › Keselamatan</b>. Di bawah <b>Token akses peribadi</b>, mereka menerangkan tujuan token tersebut dan memilih <b>Cipta token</b>. Token tersebut hanya dipaparkan sekali: salinnya.</li>
+</ol>
+<p>Melalui API: <code>POST /users/{user_id}/tokens</code> dengan <code>{"description": "backup script", "expires_at": 0}</code> (<code>expires_at</code> dalam milisaat; 0 untuk tiada). Medan <code>token</code> dalam respons adalah rahsia; <code>id</code> yang digunakan untuk membatalkannya (<code>POST /users/tokens/revoke</code> dengan <code>{"token_id": "…"}</code>). Dari baris arahan: <code>amctl token generate &lt;user&gt; &lt;description&gt;</code>.</p>
+<p>Pentadbir sistem boleh menetapkan had tempoh hayat token dengan <b>Tempoh Hayat Maksimum Token Akses Peribadi (hari)</b> pada halaman Konsol Sistem yang sama.</p>
+
+<h3>Token sesi</h3>
+<p>Log masuk dengan kata laluan akan mengembalikan token sesi dalam pengepala respons <code>Token</code>, sejenis sesi yang sama yang digunakan oleh aplikasi:</p>
+<pre><code>curl -i -X POST https://chat.example.com/api/v4/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login_id": "maya", "password": "…"}'</code></pre>
+<p>Tambah <code>"token": "123456"</code> untuk akaun dengan pengesahan dua faktor. Sesi tamat tempoh mengikut tetapan sesi pelayan, dan titik akhir log masuk had kadar (5 permintaan setiap saat). <code>POST /users/logout</code> menamatkan sesi.</p>
+<div class="callout">Pelayar web mengautentikasi dengan cookie. Permintaan yang diautentikasi melalui cookie juga mesti menghantar pengepala <code>X-CSRF-Token</code> untuk apa-apa selain GET; token dalam pengepala <code>Authorization</code> tidak memerlukan pengepala CSRF.</div>
+
+<h3>Aplikasi OAuth 2.0</h3>
+<p>Untuk membolehkan orang lain log masuk ke aplikasi anda dengan akaun Antimatter mereka, daftar aplikasi OAuth 2.0. Antimatter kemudian menjadi penderia OAuth:</p>
+<ol>
+<li><b>Aktifkan Pempamer Perkhidmatan OAuth 2.0</b> mesti dihidupkan (<b>Konsol Sistem › Integrasi › Pengurusan Integrasi</b>, <code>ServiceSettings.EnableOAuthServiceProvider</code>, dihidupkan secara lalai).</li>
+<li>Seseorang yang mempunyai hak untuk mengurus aplikasi OAuth (pentadbir sistem secara lalai) membuka avatar mereka, kemudian <b>Integrasi › Aplikasi OAuth 2.0</b>, dan menambah aplikasi dengan URL panggil balik. Mereka akan mendapat ID klien dan rahsia klien.</li>
+<li>Aplikasi anda menghantar pengguna ke <code>https://chat.example.com/oauth/authorize</code> dengan <code>response_type=code</code>, <code>client_id</code>, <code>redirect_uri</code> dan <code>state</code>. PKCE dengan <code>code_challenge_method=S256</code> disokong.</li>
+<li>Ia menukar kod di <code>POST https://chat.example.com/oauth/access_token</code> (<code>grant_type=authorization_code</code>, kemudian <code>refresh_token</code> untuk memperbaharui), dan memanggil API dengan <code>Authorization: Bearer &lt;access token&gt;</code>.</li>
+</ol>
+<p>Pengguna boleh melihat aplikasi yang mereka benarkan dalam <b>Profil &amp; tetapan › Keselamatan › Aplikasi yang anda benarkan</b>.</p>
+
+<h2 id="resources">Sumber utama</h2>
+<table>
+<thead><tr><th>Apa</th><th>Titik akhir</th></tr></thead>
+<tbody>
+<tr><td>Anda dan pengguna lain</td><td><code>GET /users/me</code>, <code>GET /users/{user_id}</code>, <code>GET /users/username/{username}</code>, <code>POST /users/ids</code> (senarai ID), <code>POST /users/search</code>, <code>GET /users?in_team=…&amp;in_channel=…</code></td></tr>
+<tr><td>Komuniti</td><td><code>GET /users/me/teams</code>, <code>GET /teams/{team_id}</code>, <code>GET /teams/name/{name}</code>, <code>PUT /teams/{team_id}/patch</code>, <code>GET /teams/{team_id}/members</code>, <code>POST /teams/{team_id}/members</code></td></tr>
+<tr><td>Saluran</td><td><code>GET /users/me/teams/{team_id}/channels</code>, <code>GET /teams/name/{team}/channels/name/{channel}</code>, <code>POST /channels</code>, <code>POST /channels/direct</code> (dua ID pengguna), <code>POST /channels/group</code>, <code>POST /channels/{channel_id}/members</code></td></tr>
+<tr><td>Mesej (hantaran)</td><td><code>POST /posts</code>, <code>GET /posts/{post_id}</code>, <code>PUT /posts/{post_id}/patch</code>, <code>DELETE /posts/{post_id}</code>, <code>GET /channels/{channel_id}/posts</code>, <code>GET /posts/{post_id}/thread</code>, <code>POST /teams/{team_id}/posts/search</code></td></tr>
+<tr><td>Reaksi</td><td><code>POST /reactions</code> dengan <code>{"user_id", "post_id", "emoji_name"}</code>, <code>DELETE /users/{user_id}/posts/{post_id}/reactions/{emoji_name}</code></td></tr>
+<tr><td>Fail</td><td><code>POST /files</code> (multipart: <code>channel_id</code> dan <code>files</code>), kemudian letakkan ID yang dikembalikan dalam <code>file_ids</code> hantaran; <code>GET /files/{file_id}</code></td></tr>
+<tr><td>Keutamaan</td><td><code>GET /users/me/preferences</code>, <code>PUT /users/me/preferences</code></td></tr>
+<tr><td>Integrasi</td><td><code>/hooks/incoming</code>, <code>/hooks/outgoing</code>, <code>/commands</code>, <code>/bots</code>, <code>/oauth/apps</code> (lihat halaman berikut)</td></tr>
+<tr><td>Pelayan</td><td><code>GET /system/ping</code> (kesihatan, tidak perlu token), <code>GET /config/client?format=old</code> (tetapan yang dilihat oleh klien)</td></tr>
+</tbody>
+</table>
+
+<h3>Hantar mesej</h3>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "message": "Backup finished: **42 GB** in 3 min"}'</code></pre>
+<p>Mesej menggunakan Markdown. Tambahkan <code>"root_id"</code> (hantaran pertama dalam benang) untuk balas dalam benang, <code>"file_ids"</code> untuk fail dan <code>"props"</code> untuk lampiran dan tambahan lain (lihat <a href="{{root}}docs/developers/webhooks.html#attachments">Lampiran</a>).</p>
+
+<h3>Cari ID saluran</h3>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" \
+  https://chat.example.com/api/v4/teams/name/lumen-labs/channels/name/ops-alerts</code></pre>
+<p>Nama tersebut ialah nama dalam pautan saluran: <code>/lumen-labs/channels/ops-alerts</code>.</p>
+
+<h2 id="pagination">Pembahagian halaman</h2>
+<p>Titik akhir senarai menerima <code>page</code> (mula dari 0) dan <code>per_page</code> (60 secara lalai, maksimum 200). Terus minta halaman seterusnya sehingga halaman yang dikembalikan lebih pendek daripada <code>per_page</code>.</p>
+<p>Mesej dalam saluran (<code>GET /channels/{channel_id}/posts</code>) juga mengambil <code>since</code> (masa: semua yang berubah sejak itu), atau <code>before</code> dan <code>after</code> (ID mesej). Ia dikembalikan sebagai senarai mesej: <code>{"order": [IDs, newest first], "posts": {ID: post}, "next_post_id", "prev_post_id"}</code>.</p>
+
+<h2 id="errors">Ralat</h2>
+<p>Ralat menggunakan kod status HTTP biasa (400 input tidak sah, 401 tidak log masuk, 403 tidak dibenarkan, 404 tidak dijumpai, 501 ciri dimatikan) dan badan JSON:</p>
+<pre><code>{
+  "id": "api.context.permissions.app_error",
+  "message": "You do not have the appropriate permissions.",
+  "detailed_error": "",
+  "request_id": "jz8zm5nunpbt8f3gpqsz5dq6so",
+  "status_code": 403
+}</code></pre>
+<p>Gunakan <code>id</code> dalam kod anda: <code>message</code> diterjemahkan ke dalam bahasa pengguna. <code>detailed_error</code> kosong melainkan pelayan berjalan dalam mod pembangun (<code>ServiceSettings.EnableDeveloper</code>). Quotekan <code>request_id</code> kepada pentadbir pelayan: ia terdapat dalam log.</p>
+
+<h2 id="rate-limits">Had kadar</h2>
+<p>Had kadar dimatikan secara lalai. Apabila pentadbir sistem menghidupkannya (<b>Konsol Sistem › Persekitaran › Had Kadar</b>), setiap klien mendapat 10 permintaan per saat dengan pecutan 100 secara lalai, dikira mengikut alamat IP atau pengguna. Respons membawa <code>X-RateLimit-Limit</code>, <code>X-RateLimit-Remaining</code> dan <code>X-RateLimit-Reset</code>; melebihi had, pelayan menjawab <code>429</code> dengan pengepala <code>Retry-After</code> dalam saat. Sesetengah hujung, seperti log masuk, mempunyai had mereka sendiri tanpa mengira tetapan.</p>
+<p>Tulis skrip yang menunggu dan cuba semula pada 429, dan elakkan pengimbasan: ikuti WebSocket sebaliknya.</p>
+
+<h2 id="websocket">Aliran peristiwa WebSocket</h2>
+<p>Sambungkan ke <code>wss://chat.example.com/api/v4/websocket</code>. Autentikasi sama ada dengan pengepala <code>Authorization: Bearer</code> pada permintaan sambungan, atau dengan menghantar ini sebagai mesej pertama:</p>
+<pre><code>{"seq": 1, "action": "authentication_challenge", "data": {"token": "…"}}</code></pre>
+<p>Pelayan menghantar peristiwa <code>hello</code>, kemudian peristiwa untuk semua yang anda dibenarkan melihat:</p>
+<pre><code>{
+  "event": "posted",
+  "data": {"channel_id": "…", "channel_type": "O", "post": "{\"id\":\"…\",\"message\":\"Hello\",…}"},
+  "broadcast": {"channel_id": "…", "team_id": "", "user_id": "", "omit_users": null},
+  "seq": 4
+}</code></pre>
+<p>Perhatikan bahawa <code>data.post</code> ialah mesej sebagai strung JSON. Peristiwa biasa: <code>posted</code>, <code>post_edited</code>, <code>post_deleted</code>, <code>reaction_added</code>, <code>reaction_removed</code>, <code>typing</code>, <code>status_change</code>, <code>user_added</code>, <code>direct_added</code>. Aplikasi menghantar peristiwa mereka sendiri, dinamakan <code>custom_&lt;app id&gt;_&lt;event&gt;</code>.</p>
+<p>Anda juga boleh menghantar tindakan, setiap satu dengan <code>seq</code> yang meningkat: <code>user_typing</code> dengan <code>{"channel_id", "parent_id"}</code>, atau <code>get_statuses</code>. Sambung semula apabila sambungan terputus, dan dapatkan apa yang terlepas dengan <code>since</code> (lihat <a href="#pagination">Pembahagian</a>).</p>
+<p>Antimatter menambah peristiwa ini: <code>community_attributes_updated</code>, <code>member_timeouts_updated</code>, <code>post_put_on_top</code>, <code>post_removed_from_top</code>, <code>server_categories_updated</code>, <code>channel_overrides_updated</code> dan <code>category_overrides_updated</code>.</p>
+
+<h2 id="clients">Pustaka klien</h2>
+<ul>
+<li><b>Pergi</b>: <code>model.Client4</code> dalam <code>server/public/model</code> (import <code>github.com/mattermost/mattermost/server/public/model</code>). <code>model.NewAPIv4Client(url)</code>, kemudian <code>client.SetToken(token)</code>; <code>model.NewWebSocketClient4(wsURL, token)</code> mengikut peristiwa. Salinan Antimatter menambah kaedah untuk pintunya sendiri, seperti <code>UpdateMessageRequest</code>, <code>PutPostOnTop</code> dan <code>ExportChannel</code>.</li>
+<li><b>TypeScript</b>: kelas <code>Client4</code> daripada <code>@mattermost/client</code>, dalam <code>webapp/platform/client</code>, dengan jenisnya dalam <code>webapp/platform/types</code>. Salinan dalam repositori Antimatter merangkumi pintu Antimatter; pakej yang diterbitkan oleh Mattermost pada npm tidak merangkuminya.</li>
+</ul>
+<pre><code>package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/mattermost/mattermost/server/public/model"
+)
+
+func main() {
+	client := model.NewAPIv4Client("https://chat.example.com")
+	client.SetToken("…")
+	post, _, err := client.CreatePost(context.Background(), &amp;model.Post{
+		ChannelId: "…",
+		Message:   "Hello from Go",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("posted", post.Id)
+}</code></pre>
+
+<h2 id="antimatter">Apa yang Antimatter tambah kepada API</h2>
+<p>Pintu dan medan ini tidak wujud pada pelayan Mattermost. Kesemuanya memerlukan sesi.</p>
+<table>
+<thead><tr><th>Pintu</th><th>Fungsinya</th></tr></thead>
+<tbody>
+<tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> laluan yang sama<br><code>PATCH</code>, <code>DELETE …/fields/{field_id}</code></td><td>Atribut komuniti: medan profil yang ditakrifkan oleh pentadbir komuniti untuk ahlinya (setinggi 20). Ahli boleh membacanya; pentadbir komuniti mencipta dan mengubahnya.</td></tr>
+<tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> laluan yang sama<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>Nilai atribut seorang ahli, sebagai <code>{field_id: value}</code>. Ahli menetapkan nilai mereka sendiri (kecuali yang dikawal oleh pentadbir); pentadbir menetapkan nilai sesiapa sahaja. Carian mengambil <code>{"user_ids": [...]}</code> (setinggi 200).</td></tr>
+<tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>Had masa: <code>{"until": time, "reason": "…"}</code> menghalang seseorang daripada memuat naik, bertindak balas dan memuat naik dalam komuniti sehingga masa itu (setinggi 28 hari); <code>"until": 0</code> membatalkannya. Pandangan moderasi menunjukkan bila mereka menyertai dan berapa banyak mereka memuat naik baru-baru ini.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Mesej yang dikekalkan di bahagian atas saluran (setinggi 10). <code>{"duration": ms}</code>, setinggi 30 hari; 0 mengekalkannya sehingga dibuang. Memerlukan kebenaran untuk memuat naik dalam saluran.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>Bertindak atas permintaan mesej anda sendiri: <code>{"action": "accept"}</code>, <code>"dismiss"</code>, atau <code>"request"</code> untuk meletakkan perbualan semula antara permintaan. Mengembalikan ahli saluran anda.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>Apa yang boleh dilakukan oleh sesuatu peranan atau individu dalam saluran, dan peranan mana yang boleh melihat saluran yang dikawal oleh peranan.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>Kategori saluran bersama komuniti, dan pengecualian yang terpakai untuk setiap saluran dalam kategori tersebut.</td></tr>
+<tr><td><code>GET /groups/{group_id}/team_role</code><br><code>PUT …/team_role/permissions</code></td><td>Keizinan yang diberikan oleh peranan komuniti.</td></tr>
+<tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>Menguji peraturan autolink komuniti pada teks.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>Memuat turun mesej saluran sebagai CSV (sehingga 50,000), untuk mereka yang boleh membaca saluran tersebut.</td></tr>
+<tr><td><code>GET /posts/{post_id}/speech</code></td><td>Mesej yang dibacakan sebagai audio apabila teks-kepada-suara diset.</td></tr>
+</tbody>
+</table>
+<h3>Medan baharu</h3>
+<ul>
+<li><b>Komuniti</b> (<code>Team</code>, dan <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (semua orang berada dalam setiap saluran yang boleh mereka lihat, seperti dalam Discord), <code>default_channel_id</code> (tempat pendaratan orang baharu; kosong bermaksud Town Square), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> dan <code>autolinks</code> (keduanya rentetan JSON).</li>
+<li><b>Balas dalaman</b>: hantaran dengan <code>"props": {"reply_to": "&lt;post id&gt;"}</code> mengutip mesej tersebut dari saluran yang sama. Tambah <code>"reply_to_mention": false</code> untuk tidak memaklumkan pengarangnya. Pelayan mengisi <code>metadata.reply_to</code> dengan penerangan ringkas tentang mesej yang dikutip.</li>
+<li><b>Spoiler</b>: <code>"props": {"spoiler": true}</code> menyembunyikan teks dan fail hantaran sehingga pembaca memilih untuk melihatnya.</li>
+<li><b>Abai dan halang</b> adalah tetapan: kategori <code>user_block</code>, dinamakan mengikut ID orang lain, dengan nilai <code>ignore</code> atau <code>block</code>. Sama ada mesej terus menunggu sebagai permintaan terdapat dalam <code>notify_props.dm_request</code> ahli saluran anda (<code>pending</code>, <code>accepted</code> atau <code>dismissed</code>).</li>
+<li><b>Lampiran mesej</b> boleh membawa <code>stages</code> dan <code>chart</code>: lihat <a href="{{root}}docs/developers/webhooks.html#cards">Kad</a>.</li>
+</ul>

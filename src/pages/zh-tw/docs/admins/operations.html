@@ -1,0 +1,85 @@
+title: 營運
+description: 執行 Antimatter 的日常營運：健康檢查、指標與監控、Metrics 應用程式、支援套件、搜尋與擴展、高可用性、資料保留、合規匯出與稽核日誌，以及常見問題的修復。
+guide: admins
+order: 11
+nav: 營運
+lead: 監控伺服器、提升其承載能力、決定資料保留期限，並修復管理員最常遇到的問題。
+source: 32577b38c3db
+---
+<h2 id="health">健康檢查</h2>
+<ul>
+<li><code>amctl --local system status</code>（在容器內：<code>docker compose exec antimatter amctl --local system status</code>）。Docker 映像檔的健康檢查會每 30 秒執行一次，因此 <code>docker compose ps</code> 會顯示 <code>healthy</code> 或 <code>unhealthy</code>。</li>
+<li><code>GET /api/v4/system/ping</code> 無需登入即可回應，適用於外部監控或負載平衡器：<code>curl -fsS https://chat.example.com/api/v4/system/ping</code>。</li>
+<li><code>antimatter db ping</code> 會使用已設定的參數檢查資料庫是否可連線。</li>
+<li><b>系統控制台 › 報告 › 系統統計</b> 顯示使用者、貼文與工作階段數量，而 <b>工作區最佳化</b> 則列出需要檢視的設定問題。</li>
+</ul>
+
+<h2 id="metrics">指標</h2>
+<p>伺服器可發布 Prometheus 指標：請求速率與持續時間、websocket 連線、資料庫與快取使用量、工作、外掛程式掛鉤等。在 <b>系統控制台 › 環境 › 效能監控</b> 中啟用：</p>
+<table>
+<thead><tr><th>設定</th><th>金鑰與變數</th><th>預設值</th></tr></thead>
+<tbody>
+<tr><td><b>啟用效能監控</b></td><td><code>MetricsSettings.Enable</code>, <code>AM_METRICSSETTINGS_ENABLE</code></td><td>關閉</td></tr>
+<tr><td><b>監聽位址</b></td><td><code>MetricsSettings.ListenAddress</code>, <code>AM_METRICSSETTINGS_LISTENADDRESS</code></td><td><code>:8067</code></td></tr>
+<tr><td><b>啟用客戶端效能監控</b></td><td><code>MetricsSettings.EnableClientMetrics</code></td><td>開啟：瀏覽器與應用程式會報告其自身的計時數據</td></tr>
+</tbody>
+</table>
+<p>Prometheus 接著會抓取 <code>http://&lt;server&gt;:8067/metrics</code>。每個指標會以其 Mattermost 名稱（<code>mattermost_…</code>）和 Antimatter 名稱（<code>antimatter_…</code>）發布，因此現有的 Mattermost 儀表板仍可正常運作。應用程式會發布各自的指標，例如 Agents 應用程式位於 <code>/plugins/mattermost-ai/metrics</code>。</p>
+<p>指標埠口無需登入：請將其保留在私人網路中。該站點的 compose 檔案未發布此埠口；若要從主機抓取，請在 <code>antimatter</code> 服務的 <code>ports</code> 中加入 <code>"127.0.0.1:8067:8067"</code>。</p>
+<h3>Metrics 應用程式</h3>
+<p>若未部署 Prometheus 伺服器，Metrics 應用程式（預設為停用，請參閱<a href="{{root}}docs/admins/apps.html">內建應用程式</a>）會將相同的指標收集到 Antimatter 內部的輕量級時間序列資料庫中：每 60 秒收集一次，保留 15 天。該應用程式啟動時會開啟指標端點。其在<b>系統控制台 › 擴充程式</b>中的頁面會顯示資料庫大小，並允許您下載資料轉儲，以便自行分析或附在錯誤報告中；最新一天的資料也會加入支援套件中。</p>
+
+<h2 id="support-packet">支援套件</h2>
+<p>支援套件是一個 zip 檔案，包含診斷問題所需的資訊：版本、統計數據、已移除機密資訊的設定、應用程式與工作清單、資料庫結構、近期日誌與效能分析報告。您可以使用 <code>amctl system supportpacket</code> 指令產生，或在系統控制台的側邊欄頂端選單中操作（<b>商業性支援</b>，接著可選擇要包含的內容）。分享前請先閱讀內容：雖然不包含訊息，但會包含社群、使用者與設定的名稱。</p>
+
+<h2 id="scaling">效能與擴展性</h2>
+<p>一台配備 2 個 CPU 核心與 4 GB 記憶體的伺服器可服務數百人。在增加伺服器之前，請先檢視以下項目：</p>
+<ul>
+<li><b>資料庫。</b>PostgreSQL 承擔了大部分的工作：請提供快速的儲存空間與記憶體。讀取複本可分擔讀取負載（<code>SqlSettings.DataSourceReplicas</code>，為連線 URL 清單）。</li>
+<li><b>搜尋。</b>預設情況下，訊息是在資料庫中進行搜尋。對於大型伺服器，Elasticsearch 或 OpenSearch 可接管搜尋與索引功能：<b>系統控制台 › 環境 › Elasticsearch</b>（<code>ElasticsearchSettings</code>：<b>後端類型</b> 選擇 Elasticsearch 或 OpenSearch、<b>伺服器連線地址</b>、憑證，然後啟用索引、建立索引，並啟用搜尋）。</li>
+<li><b>通話。</b>通話媒體是最重的負載。請將其移至 rtcd 伺服器：請參閱<a href="{{root}}docs/admins/calls.html#rtcd">通話與語音</a>。</li>
+<li><b>開啟的檔案。</b>每位連線的使用者都會保持一個 websocket 開啟。antimatter-docker 的生產環境 compose 檔案已將限制提高至 49152（<code>ulimits: nofile</code>）；請在 systemd 中執行相同操作（<code>LimitNOFILE</code>）。</li>
+<li><b>日誌。</b>將 <code>LogSettings.ConsoleLevel</code> 降低為 <code>INFO</code> 或 <code>WARN</code>：<code>DEBUG</code> 在繁忙的伺服器上會記錄大量資訊。</li>
+</ul>
+<h3>高可用性</h3>
+<p>多部 Antimatter 伺服器可以透過負載平衡器組成叢集，且無需授權。這些伺服器必須共用相同的 PostgreSQL 資料庫、相同的 S3 檔案儲存空間，以及資料庫中的設定（<code>AM_CONFIG</code>）。在 <b>系統控制台 › 環境 › 高可用性</b>（<code>ClusterSettings</code>）中：開啟 <b>啟用高可用性模式</b>（<code>ClusterSettings.Enable</code>），為每個節點設定相同的 <b>叢集名稱</b>（<code>ClusterSettings.ClusterName</code>），並讓節點能透過 gossip 埠號 <b>8074</b>（TCP 和 UDP）（<code>ClusterSettings.GossipPort</code>）互相通訊。節點會透過資料庫找到彼此。負載平衡器必須支援 WebSocket。在叢集環境中進行通話時，請使用 rtcd。</p>
+
+<h2 id="retention">資料保留</h2>
+<p>預設情況下，Antimatter 會永久保留所有訊息和檔案。若要自動刪除舊資料，請前往 <b>系統控制台 › 規範 › 資料保留政策</b>：</p>
+<ul>
+<li><b>全域保留政策</b> 會為整個伺服器設定 <b>頻道與私人訊息保留</b> 和 <b>檔案保留</b>：選擇 <b>永久保留</b>，或指定小時、天數或年數（<code>DataRetentionSettings.EnableMessageDeletion</code>、<code>MessageRetentionHours</code>、<code>EnableFileDeletion</code>、<code>FileRetentionHours</code>）。</li>
+<li><b>自訂保留政策</b> 可為選定的社群和頻道設定不同的保留期限。</li>
+<li>刪除作業會每天在您指定的時間執行（<code>DataRetentionSettings.DeletionJobStartTime</code>，預設為 UTC <code>02:00</code>）。<b>立即執行刪除作業</b>可立即執行，而<b>政策記錄檔</b>則列出每次執行所移除的內容。</li>
+</ul>
+<div class="callout warn">已刪除的訊息和檔案將從資料庫和檔案儲存空間中永久移除。在啟用政策前，請先確認保留期限，並記住您的備份在過期前仍會保留已刪除的資料。</div>
+
+<h2 id="compliance">合規性報告匯出與稽核記錄</h2>
+<ul>
+<li><b>系統控制台 › 規範 › 合規性報告匯出</b> 每天匯出所有訊息與檔案（<b>啟用合規性報告匯出</b>、<code>MessageExportSettings.EnableExport</code>，預設為關閉；<b>法遵報告匯出時間</b>、預設為 <code>01:00</code>），格式為檔案系統可讀取的 CSV、Actiance XML 或 Global Relay（zip 檔案，或透過 SMTP 送出的 EML）。<code>amctl compliance-export</code> 可從命令列執行並下載匯出檔案。</li>
+<li><b>法遵監控</b>（<code>ComplianceSettings</code>）會將每日報告寫入目錄。這是較舊的機制；建議改用合規性報告匯出。</li>
+<li><b>稽核日誌</b>（Beta 版，<code>ExperimentalAuditSettings</code>）會將管理與安全事件（登入、權限與設定變更）記錄到獨立的檔案中。</li>
+<li><b>自訂服務條款</b>會要求所有人在使用 Antimatter 前接受您的條款，且在您修改條款後再次要求接受。</li>
+</ul>
+
+<h2 id="troubleshooting">常見問題</h2>
+<h3>「無法連線至伺服器」，或訊息只有在重新載入後才出現</h3>
+<p>WebSocket 無法穿透。請確認反向代理是否傳遞 <code>Upgrade</code> 與 <code>Connection</code> 標頭（請參閱 <a href="{{root}}docs/admins/https.html#nginx">nginx 範例</a>），並確保網站 URL 與瀏覽器中的地址完全一致，包括 <code>https</code>。</p>
+<h3>上傳失敗，顯示「413 Request Entity Too Large」</h3>
+<p>代理拒絕了該大小。請將其限制提高至至少與 <b>系統控制台 › 環境 › 檔案儲存</b> 中的 <b>最大檔案大小</b>（<code>FileSettings.MaxFileSize</code>，預設為 100 MB）相同（例如 nginx 的 <code>client_max_body_size</code>）。</p>
+<h3>使用者無法開始通話，或加入後聽不到聲音</h3>
+<p>如果只有管理員能開始通話，請關閉通話的 <b>測試模式</b>。如果使用者加入後聽不到聲音，可能是媒體埠被封鎖，或伺服器宣告了錯誤的地址：請開啟 8443 UDP 和 TCP 埠，並在 NAT 後方設定 <b>ICE Host Override</b>。在同時封鎖這兩種通訊協定的網路中，使用者需要 TURN 伺服器。請參閱 <a href="{{root}}docs/admins/calls.html">通話與語音</a>。</p>
+<h3>GIF 選擇器是空的</h3>
+<p>請檢查 <b>系統控制台 › 擴充程式 › GIFs</b> 中的 <b>GIF 服務 URL</b>（使用網站的 compose 檔案時為 <code>http://gifs:8080/v2</code>）和 <b>API 金鑰</b>（<code>.env</code> 中的 <code>GIFS_API_KEY</code>），並確認 <code>gifs</code> 服務正在執行：<code>docker compose ps gifs</code>。</p>
+<h3>收不到電子郵件</h3>
+<p>請使用 <b>系統控制台 › 環境 › SMTP</b> 中的 <b>測試連線</b>，檢查 <b>通知信寄件人地址</b> 是否仍為 <code>test@example.com</code>，並在日誌中搜尋 <code>smtp</code> 或 <code>mail</code>。</p>
+<h3>應用程式顯示「啟動失敗」</h3>
+<p>請在日誌中查找其 ID（<code>docker compose logs antimatter | grep &lt;app id&gt;</code>）。在擴充程式管理中停用再啟用該應用程式以重新啟動它。</p>
+<h3>伺服器無法啟動</h3>
+<p>請閱讀其日誌的結尾。最常見的原因是資料庫無法連線（使用 <code>antimatter db ping</code> 檢查 <code>AM_SQLSETTINGS_DATASOURCE</code>）、資料庫遷移失敗（還原升級前備份並回報錯誤），或監聽埠已被佔用。</p>
+<h3>管理員帳號被鎖定</h3>
+<p>從伺服器端，本地模式不需要密碼：</p>
+<pre><code>docker compose exec antimatter amctl --local user change-password admin --password 'a-new-password'
+docker compose exec antimatter amctl --local user resetmfa admin
+docker compose exec antimatter amctl --local roles system-admin admin</code></pre>
+<h3>回報錯誤</h3>
+<p>在 <a href="https://github.com/AntimatterChat/community/issues/new/choose">Antimatter 社群儲存庫</a> 中開啟一個問題，並附上版本、安裝方式、您執行的操作以及相關的日誌內容。請依 <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">安全政策</a> 的說明，私下回報安全性問題。</p>

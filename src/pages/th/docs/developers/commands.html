@@ -1,0 +1,122 @@
+title: คำสั่งสแลช
+description: คำสั่งสแลชแบบกำหนดเองใน Antimatter: การสร้าง, คำขอที่บริการของคุณได้รับ, รูปแบบของคำตอบ, คำตอบแบบชั่วคราวและแบบแสดงในช่อง, คำตอบแบบหน่วงเวลา และการเติมอัตโนมัติ
+guide: developers
+order: 4
+nav: คำสั่งสแลช
+lead: คำสั่งสแลชแบบกำหนดเองช่วยให้ผู้ใช้พิมพ์ /something ในช่องข้อความเพื่อเรียกใช้บริการของคุณ Antimatter จะส่งคำสั่งไปยัง URL ของคุณและแสดงคำตอบของคุณ ซึ่งอาจแสดงเฉพาะแก่ผู้ใช้คนนั้นหรือแสดงแก่ทุกคนในช่อง
+source: 24dbc9730e62
+---
+<h2 id="how">หลักการทำงานของคำสั่งสแลช</h2>
+<ol>
+<li>ผู้ใช้พิมพ์ <code>/weather Paris</code> และส่งข้อความ ข้อความนี้จะไม่ถูกโพสต์</li>
+<li>Antimatter ส่งคำขอ HTTP ไปยัง URL ของคำสั่ง พร้อมข้อมูลว่าใครเป็นผู้พิมพ์, พิมพ์ที่ไหน, และข้อความหลังคำสั่ง</li>
+<li>บริการของคุณต้องตอบกลับภายในเวลาหมดอายุของคำขอ (30 วินาทีโดยค่าเริ่มต้น) ด้วยข้อความ</li>
+<li>Antimatter แสดงคำตอบ: เฉพาะแก่ผู้ใช้คนนั้น (ephemeral) หรือในช่องสำหรับทุกคน</li>
+</ol>
+<p>คำสั่งจะสังกัดชุมชน และคำสั่ง (trigger word) ต้องไม่ซ้ำกันภายในชุมชนนั้น คำสั่งที่มีมาให้แล้ว เช่น <code>/join</code>, <code>/msg</code> หรือ <code>/away</code> ไม่สามารถถูกแทนที่ได้ แอป (ปลั๊กอิน) สามารถลงทะเบียนคำสั่งได้ด้วย ดู <a href="{{root}}docs/developers/apps.html#server">ส่วนเซิร์ฟเวอร์</a></p>
+
+<h2 id="create">สร้างคำสั่ง</h2>
+<p>คำสั่งสแลชแบบกำหนดเองเปิดใช้อยู่แล้ว (ใน <b>คอนโซลระบบ › อินทิเกรชัน › การจัดการอินทิเกรชัน</b> ที่ <b>เปิดใช้งานคำสั่งสแลชแบบกำหนดเอง</b>, <code>ServiceSettings.EnableCommands</code>) ผู้ดูแลทิมและผู้ดูแลระบบสามารถสร้างคำสั่งเหล่านี้อยู่แล้ว</p>
+<ol>
+<li>คลิ๊กที่ไอคอนโปรไฟล์ของคุณที่มุมขวาบน แล้วเลืก <b>อินทิเกรชัน › คำสั่งสแลช</b> แล้วเลืก <b>เพิ่มคำสั่งสแลช</b></li>
+<li>กรอก <b>ชื่อ</b> และ <b>คำอธิบาย</b> (ท่ีจะแสดงในหน้ าอินทิเกรชัน)</li>
+<li>กรอก <b>คำสั่ง</b> โดยไม่มีสั่ญลักษณ์ / และไม่มีวรรคคั่น เช่น <code>weather</code></li>
+<li>กรอก <b>URL คำขอ</b> และเลืก <b>เมธอดคำขอ</b>: <b>POST</b> (ค่าเริ่มต้น) หรือ <b>GET</b></li>
+<li>กำหนด <b>ชื่อผู้ใช้สำหรบตอบกลับ</b> และ <b>ไอคอนของคำตอบ</b> (ถ้าตองการ) ค่าเหล่านี้อาจใช้ได้เฉพาะเมือเซิร์ฟเวอร์อนุญาตให้อินทิเกรชันเปลี่นชื่อและไอคอน (ดู <a href="{{root}}docs/developers/webhooks.html#identity">ชื่อและไอคอน</a>)</li>
+<li>ทำเครื่อก <b>กรอกให่เต็มอัตโนมัติ</b> เพื่อบันทึกคำสั่งให่แสดงเมือผู้ใช้พิมพ์ <code>/</code> พร้อม <b>คำใบ้สำหรบเติมอัตโนมัติ</b> (พารามิเตอร์ของคำสั่ง เช่น <code>[city]</code>) และ <b>คำอธิบายสำหรบเติมอัตโนมัติ</b></li>
+<li>เลืก <b>บันทึก</b> แล้วคัดลอกโทเคนท่ีแสดง เซิร์ฟเวอร์ของคุณจะใช้โทเคนนี้เพื่อกำหนดว่าคำขอมาจากเซิร์ฟเวอร์ของคุณ</li>
+</ol>
+<p>ด้วย API: <code>POST /api/v4/commands</code> พร้อม <code>{"team_id", "trigger", "url", "method": "P", "display_name", "description", "auto_complete": true, "auto_complete_hint", "auto_complete_desc", "username", "icon_url"}</code> โดย method คือ <code>P</code> สำหรับ POST หรือ <code>G</code> สำหรับ GET <code>PUT /api/v4/commands/{command_id}/regen_token</code> จะสร้างโทเคนใหม่</p>
+
+<h2 id="request">คำขอที่บริการของคุณได้รับ</h2>
+<p>คำสั่ง POST จะส่ง body แบบ form-encoded (<code>application/x-www-form-urlencoded</code>) ส่วนคำสั่ง GET จะส่งฟิลด์เดียวกันใน query string โทเคนยังอยู่ใน header <code>Authorization: Token &lt;token&gt;</code> ด้วย</p>
+<table>
+<thead><tr><th>ฟิลด์</th><th>ค่า</th></tr></thead>
+<tbody>
+<tr><td><code>token</code></td><td>โทเคนของคำสั่ง ตรวจสอบทุกครั้งที่มีคำขอ</td></tr>
+<tr><td><code>command</code></td><td>trigger พร้อมเครื่องหมายสแลช เช่น <code>/weather</code></td></tr>
+<tr><td><code>text</code></td><td>ข้อความทั้งหมดหลัง trigger เช่น <code>Paris</code></td></tr>
+<tr><td><code>user_id</code>, <code>user_name</code></td><td>ผู้ที่ใช้คำสั่ง</td></tr>
+<tr><td><code>channel_id</code>, <code>channel_name</code></td><td>ตำแหน่งที่ใช้คำสั่ง</td></tr>
+<tr><td><code>team_id</code>, <code>team_domain</code></td><td>ID และชื่อ URL ของชุมชน</td></tr>
+<tr><td><code>root_id</code></td><td>เธรด เมื่อใช้คำสั่งในกล่องตอบกลับของเธรด</td></tr>
+<tr><td><code>trigger_id</code></td><td>เปิดให้คำตอบของคุณเปิดไดอะล็อก (ดู <a href="{{root}}docs/developers/bots.html#dialogs">Dialogs</a>) ได้ มีอายุสั้นเท่านั้น</td></tr>
+<tr><td><code>response_url</code></td><td>URL สำหรับโพสต์คำตอบเพิ่มเติมภายหลัง (ดู <a href="#delayed">Delayed answers</a>)</td></tr>
+<tr><td><code>user_mentions</code>, <code>user_mentions_ids</code>, <code>channel_mentions</code>, <code>channel_mentions_ids</code></td><td>บุคคลและช่องสาธารณะที่ถูกเมนชันในข้อความ (ถ้ามี)</td></tr>
+</tbody>
+</table>
+<div class="callout">ต้องตั้งค่า <b>Site URL</b> ของเซิร์ฟเวอร์ให้คำสั่งแบบกำหนดเองทำงานได้: Antimatter จะสร้าง <code>response_url</code> จากค่านี้</div>
+
+<h2 id="response">การตอบกลับ</h2>
+<p>ตอบกลับด้วย <code>200</code> พร้อม JSON (<code>Content-Type: application/json</code>):</p>
+<pre><code>{
+  "response_type": "in_channel",
+  "text": "Paris: 18 °C, light rain",
+  "attachments": []
+}</code></pre>
+<table>
+<thead><tr><th>ฟิลด์</th><th>ความหมาย</th></tr></thead>
+<tbody>
+<tr><td><code>response_type</code></td><td><code>ephemeral</code> (ค่าเริ่มต้น): เฉพาะผู้ใช้คำสั่งเท่านั้นที่เห็นคำตอบ และจะไม่ถูกเก็บไว้หลังรีโหลด <code>in_channel</code>: คำตอบจะถูกโพสต์ในช่อง</td></tr>
+<tr><td><code>text</code>, <code>attachments</code></td><td>ข้อความ เช่นเดียวกับเว็บฮุค: ข้อความ Markdown และ <a href="{{root}}docs/developers/webhooks.html#attachments">ไฟล์แนบ</a> รวมถึงปุ่มและเมนู</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code></td><td>ชื่อและรูปภาพที่จะแสดง (เมื่ออนุญาตให้ override ได้) การตั้งค่าของคำสั่งเองจะมีผลเหนือกว่าค่าเหล่านี้</td></tr>
+<tr><td><code>channel_id</code></td><td>โพสต์คำตอบในช่องอื่น ซึ่งผู้ใช้ต้องเป็นสมาชิกของช่องนั้น</td></tr>
+<tr><td><code>goto_location</code></td><td>URL ที่จะเปิดเมื่อคำสั่งทำงานเสร็จ</td></tr>
+<tr><td><code>props</code>, <code>type</code></td><td>คุณสมบัติเพิ่มเติมและประเภทโพสต์แบบกำหนดเอง เช่นเดียวกับเว็บฮุค</td></tr>
+<tr><td><code>extra_responses</code></td><td>คำตอบเพิ่มเติม แต่ละคำตอบมีฟิลด์เดียวกัน โพสต์หลังคำตอบแรก</td></tr>
+<tr><td><code>skip_slack_parsing</code></td><td><code>true</code> จะเก็บข้อความไว้ตามเดิม โดยไม่แปลงลิงก์และเมนชันแบบ Slack</td></tr>
+</tbody>
+</table>
+<p>การตอบกลับที่ไม่ใช่ JSON จะแสดงเป็นข้อความ ephemeral โดยใช้ body เป็นข้อความ <code>204 No Content</code> จะไม่แสดงอะไร สถานะใด ๆ นอกช่วง 200–299 จะแสดงข้อผิดพลาดให้ผู้ใช้</p>
+
+<h2 id="example">ตัวอย่างบริการ</h2>
+<p>บริการคำสั่งขั้นต่ำใน Python โดยใช้เพียง standard library:</p>
+<pre><code>import hmac
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
+
+TOKEN = "the token shown when you saved the command"
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        form = {key: values[0] for key, values in parse_qs(body).items()}
+        if not hmac.compare_digest(form.get("token", ""), TOKEN):
+            self.send_response(401)
+            self.end_headers()
+            return
+        answer = {
+            "response_type": "ephemeral",
+            "text": f"Hello @{form['user_name']}, you asked for: {form.get('text', '')}",
+        }
+        data = json.dumps(answer).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(data)
+
+HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()</code></pre>
+<p>เมือเซิร์ฟเวอร์ทำงานบนท่ีท่ีในเนทเวิร์คภายใน ผู้ดูแลระบบตองอนุญาตให่เช่ือมตอใน <b>อนุญาติการเช่ือมต่อนภายในท่ีไม่ไว้วางใจถิง</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>)</p>
+
+<h2 id="delayed">การตอบกลับแบบหน่วงเวลา</h2>
+<p>สำหรับงานที่ใช้เวลานานกว่าค่า timeout ให้ตอบกลับทันที (เช่น ด้วยข้อความชั่วคราวว่า "กำลังดำเนินการอยู่…") จากนั้นจึง POST คำตอบจริงไปยัง <code>response_url</code> ซึ่งรับ JSON ในรูปแบบเดียวกับคำตอบ และสามารถใช้ได้สูงสุด 5 ครั้งภายใน 30 นาทีหลังคำสั่ง</p>
+<pre><code>curl -X POST "$RESPONSE_URL" -H 'Content-Type: application/json' \
+  -d '{"response_type": "in_channel", "text": "Report ready: https://reports.example.com/42"}'</code></pre>
+
+<h2 id="run">รันคำสั่งผ่าน API</h2>
+<p>สคริปต์และบอทสามารถรันคำสั่งใดก็ได้ ไม่ว่าจะเป็นคำสั่งในตัวหรือคำสั่งกำหนดเอง เสมือนว่าผู้ใช้พิมพ์คำสั่งนั้น:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/commands/execute \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "command": "/weather Paris"}'</code></pre>
+<p><code>GET /api/v4/teams/{team_id}/commands/autocomplete</code> แสดงรายการคำสั่งที่ผู้ใช้สามารถเติมอัตโนมัติได้ในชุมชน</p>
+
+<h2 id="autocomplete">การเติมอัตโนมัติ</h2>
+<p>คำสั่งที่สร้างจากหน้าการเชื่อมต่อจะเติมอัตโนมัติพร้อม trigger, hint และคำอธิบาย คำสั่งที่แอปลงทะเบียนไว้สามารถอธิบายคำสั่งย่อยและอาร์กิวเมนต์อย่างละเอียดด้วย <code>AutocompleteData</code> จาก <code>model.NewAutocompleteData(trigger, hint, helpText)</code>:</p>
+<ul>
+<li><code>AddCommand(sub)</code> เพิ่มคำสั่งย่อย ซึ่งก็เป็น <code>AutocompleteData</code> เช่นกัน</li>
+<li><code>AddTextArgument(helpText, hint, pattern)</code> เพิ่มข้อความอิสระ</li>
+<li><code>AddStaticListArgument(helpText, required, items)</code> เสนอรายการคงที่ของ <code>AutocompleteListItem{Item, Hint, HelpText}</code></li>
+<li><code>AddDynamicListArgument(helpText, url, required)</code> ขอคำแนะนำจากแอปของคุณเมื่อผู้ใช้กำลังพิมพ์ URL คือ route ของแอปของคุณ เช่น <code>/plugins/com.example.weather/cities</code> ซึ่งจะได้รับข้อมูลผู้ใช้ ช่อง และชุมชน และคืนค่าเป็น JSON list ของ <code>{"Item", "Hint", "HelpText"}</code></li>
+</ul>
+<p>รูปแบบ <code>Named…</code> (เช่น <code>AddNamedTextArgument</code> และอื่นๆ) เพิ่มแฟลก <code>--name value</code> ทั้งสองอินเทอร์เฟซเว็บจะแสดงคำแนะนำเหล่านี้</p>

@@ -1,0 +1,126 @@
+title: Puhelut ja ääni
+description: Määritä Antimatterin puhelut ja äänikanavat: mediaportti, NAT ja STUN, TURN, testitila, video, ulkoinen rtcd-palvelin, transkriptio ja live-titrat omalla puheentunnistusmallillasi sekä tallennukset.
+guide: admins
+order: 5
+nav: Puhelut ja ääni
+lead: Puhelut ja äänikanavat lähettävät äänen, videon ja näytön jakamisen suoraan palvelimelle omalla portillaan. Tämä sivu käsittelee verkkotason, asetuksen, jotka kannattaa tarkistaa asennuksen jälkeen, sekä transkription, jossa käytät itse ajamaasi puheentunnistusmallia.
+source: 16057458346f
+---
+<h2 id="overview">Miten puhelut toimivat</h2>
+<p>Puhelut toimittaa <b>Puhelut</b>-sovellus (tunnus <code>com.mattermost.calls</code>), joka on asennettu ja otettu käyttöön oletuksena. Äänikanavat (<b>Äänikanavat</b>-sovellus, <code>antimatter-next</code>-kuva) ovat pysyviä puheluhuoneita, jotka perustuvat Puhelut-sovellukseen: ne vaativat, että Puhelut on otettu käyttöön, ja käyttävät samoja asetuksia, portteja ja palvelimia.</p>
+<p>Puhelut-sovellus ajaa mediapalvelimen Antimatterin sisällä. Web-sovellus, työpöytäsovellus ja mobiilisovellukset yhdistyvät siihen WebRTC:llä:</p>
+<ul>
+<li>signalointi kulkee normaalin web-yhteyden kautta (HTTPS-välityspalvelin);</li>
+<li><b>media</b> (ääni, video, näytön jakaminen) ei kulje: se lähetetään suoraan palvelimelle puheluporttiin, oletuksena <b>8443 UDP ja TCP</b>.</li>
+</ul>
+<p>Asetukset löytyvät kohdasta <b>Järjestelmäkonsoli › Liiteohjelmat › Puhelut</b>. Jokainen asetus voidaan myös määrittää <code>AM_CALLS_</code>-ympäristömuuttujalla <code>antimatter</code>-palvelussa, jolloin se ohittaa Järjestelmäkonsolin ja lukitsee asetuksen siellä. Myös vanhat <code>MM_CALLS_</code>-nimet toimivat.</p>
+
+<h2 id="after-install">Tarkista nämä asennuksen jälkeen</h2>
+<ol>
+<li><b>Ava puheluportti.</b> Salli 8443/udp ja 8443/tcp palvelimen ja pilvipalveluntarjoajasi palomuurissa.</li>
+<li><b>Sammuta testitila.</b> <b>Testitila</b> (<code>DefaultEnabled</code>) on oletuksena päällä: vain järjestelmän ylläpitäjät voivat aloittaa puheluita kanavissa, jotta voit tarkistaa, että puhelut toimivat, ennen kuin kaikki käyttävät niitä. Aseta se arvoon <b>Pois</b> kohdassa <b>Järjestelmäkonsoli › Liiteohjelmat › Puhelut</b> tai aseta <code>AM_CALLS_DEFAULT_ENABLED=true</code>.</li>
+<li><b>Päätä, käytetäänkö videota.</b> <b>Ota video puhelut suorissa viesteissä käyttöön (kokeellinen)</b> (<code>EnableVideo</code>, <code>AM_CALLS_ENABLE_VIDEO</code>) on oletuksena pois. Kun se on pois, kukaan ei voi kytkeä kameraa päälle, ei edes äänikanavissa. Kun se on päällä, kamerat toimivat suorien viestien puheluissa ja äänikanavissa (ellei Äänikanavat-sovelluksen <b>Salli video äänikanavissa</b> ole pois).</li>
+<li><b>NAT-taustalla, aseta julkinen osoite</b> (seuraava osio).</li>
+</ol>
+
+<h2 id="network">Portit, NAT ja STUN</h2>
+<table>
+<thead><tr><th>Asetus</th><th>Muuttuja</th><th>Oletusarvo</th></tr></thead>
+<tbody>
+<tr><td><b>RTC-palvelimen portti (UDP)</b></td><td><code>AM_CALLS_UDP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>RTC-palvelimen portti (TCP)</b></td><td><code>AM_CALLS_TCP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>RTC-palvelimen osoite (UDP)</b>, <b>(TCP)</b></td><td><code>AM_CALLS_UDP_SERVER_ADDRESS</code>, <code>AM_CALLS_TCP_SERVER_ADDRESS</code></td><td>tyhjä: kaikki osoitteet</td></tr>
+<tr><td><b>ICE-isäntäosoitteen ohitus</b></td><td><code>AM_CALLS_ICE_HOST_OVERRIDE</code></td><td>tyhjä: löydetään STUN-palvelimen kautta</td></tr>
+<tr><td><b>ICE-isäntäportin ohitus</b></td><td><code>AM_CALLS_ICE_HOST_PORT_OVERRIDE</code></td><td>tyhjä: palvelimen portti</td></tr>
+<tr><td><b>ICE-palvelimien asetukset</b></td><td><code>AM_CALLS_ICE_SERVERS_CONFIGS</code></td><td><code>[{"urls":["stun:stun.cloudflare.com:3478"]}]</code></td></tr>
+<tr><td><b>(Kokeellinen) IPv6-tuen käyttöönotto</b></td><td>(Järjestelmäkonsoli)</td><td>Ei käytössä</td></tr>
+</tbody>
+</table>
+<p>Porttien tulee olla välillä 80–49151. Sivuston compose-tiedostossa muuta <code>CALLS_PORT</code>-muuttujan arvoa <code>.env</code>-tiedostossa: se asettaa molemmat muuttujat ja julkaisee portin, samalla numerolla isäntäkoneella ja kontissa. Asiakkaat yrittävät ensin UDP:ta ja siirtyvät TCP:hen samalla portilla, jos UDP ei toimi.</p>
+<h3>Mihin osoitteeseen asiakkaat lähettävät median</h3>
+<p>Palvelin kertoo jokaiselle asiakkaalle osoitteen, johon median tulee lähettää (ns. "host candidate"). Oletuksena se löytää julkisen osoitteen kysymällä STUN-palvelimelta, joka on julkinen palvelu, joka vastaa osoitteella ja portilla, josta pyyntö tuli. Oletusarvona on Cloudflaren julkinen STUN-palvelin <code>stun:stun.cloudflare.com:3478</code>. Palvelin ei ole ainoa, joka käyttää sitä: jokainen asiakas, joka liittyy puhelimeen, kysyy myös omasta julkisesta osoitteestaan. STUN-palvelin näkee vain IP-osoitteet ja portit, ei koskaan puheluiden ääntä, videota tai viestejä.</p>
+<p>Palvelin, jossa on tallennettu Mattermostin STUN-palvelin (<code>stun.global.calls.mattermost.com</code>) <b>ICE-palvelimien asetuksiin</b>, esimerkiksi siirryttäessä Mattermostista, käyttää sen sijaan Cloudflaren palvelinta. Tallennettua asetusta ei muuteta.</p>
+<p>Aseta osoite itse, jos:</p>
+<ul>
+<li>palvelin on NAT-taustalla tai sillä on useita julkisia osoitteita: aseta <b>ICE-isäntäosoitteen ohitus</b> julkiseksi IP-osoitteeksi (tai isännänimeksi, joka ratkeaa siihen);</li>
+<li>NAT karttaa eri julkisen portin porttiin 8443: aseta myös <b>ICE-isäntäportin ohitus</b> kyseiseksi julkiseksi portiksi;</li>
+<li>palvelimella ei ole Internet-yhteyttä, tai et halua palvelimen eikä asiakkaiden ottavan yhteyttä ulkoiseen STUN-palvelimeen: aseta <b>ICE-isäntäosoitteen ohitus</b> ja tyhjennä STUN-lista arvolla <code>AM_CALLS_ICE_SERVERS_CONFIGS=[]</code>. Kun <b>ICE-isäntäosoitteen ohitus</b> on asetettu, palvelin ei enää kysy osoitettaan STUN-palvelimelta; tyhjä lista estää asiakkaita kysymästä osoitettaan.</li>
+</ul>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ICE_HOST_OVERRIDE: 203.0.113.10
+      AM_CALLS_ICE_SERVERS_CONFIGS: "[]"</code></pre>
+<p>Jotta STUN-palvelu pysyy kolmannen osapuolen ulkopuolella, aja oma STUN-palvelin (TURN-palvelin, kuten coturn, vastaa myös STUN-pyyntöihin) ja lisää se <b>ICE-palvelimien asetuksiin</b> alla olevan TURN-esimerkin tapaan.</p>
+<p>Vain paikallisverkossa käytä palvelimen LAN-osoitetta. Käynnitä palvelin uudelleen, kun olet muuttanut portteja, osoitteita tai ICE-asetuksia, tai poista Calls-sovellus käytöstä ja ota se uudelleen käyttöön: mediaserveri asetetaan, kun sovellus käynnistyy.</p>
+
+<h2 id="turn">TURN, tiukkojen palomuurien kanssa</h2>
+<p>Jotkut verkot estävät sekä UDP-liikenteen että poistuvat yhteydet epätavallisiin TCP-portteihin. Tällaisten verkkojen käyttäjät tarvitsevat TURN-palvelimen, joka välittää median portin kautta, johon heillä on pääsy (usein 443). Antimatter ei sisällä TURN-palvelinta; aja TURN-palvelin, kuten coturn, ja lisää se <b>ICE Servers Configurations</b>-asetukseen, joka on JSON-lista:</p>
+<pre><code>[
+  {"urls": ["stun:turn.example.com:3478"]},
+  {"urls": ["turn:turn.example.com:3478?transport=udp", "turns:turn.example.com:443?transport=tcp"]}
+]</code></pre>
+<ul>
+<li>Yhteisen salasan (coturnin <code>use-auth-secret</code>) kanssa aseta sama salasana <b>TURN Static Auth Secret</b>-asetukseen (<code>AM_CALLS_TURN_STATIC_AUTH_SECRET</code>): palvelin antaa jokaiselle asiakkaalle lyhytaikaiset tunnistetiedot, jotka ovat voimassa <b>TURN Credentials Expiration (minutes)</b> -ajan (oletusarvo 240 minuuttia).</li>
+<li>Kiinteiden tunnistetietojen tapauksessa lisää TURN-tietueeseen <code>"username"</code> ja <code>"credential"</code> -kentät.</li>
+<li><b>Server Side TURN</b> (oletus: pois) käyttää TURN-palvelimia myös palvelimen aloittamiin yhteyksiin.</li>
+</ul>
+
+<h2 id="general">Muut puhelinasetukset</h2>
+<table>
+<thead><tr><th>Asetus</th><th>Muuttuja</th><th>Oletusarvo</th><th>Toiminto</th></tr></thead>
+<tbody>
+<tr><td><b>Max call participants</b></td><td><code>AM_CALLS_MAX_CALL_PARTICIPANTS</code></td><td>0 (ei rajoitusta)</td><td>Yhden puhelun suurin osallistujamäärä.</td></tr>
+<tr><td><b>Allow screen sharing</b></td><td>(Järjestelmäkonsoli)</td><td>on</td><td>Sallii osallistujien jakaa näytönsä.</td></tr>
+<tr><td><b>Enable call ringing</b></td><td><code>AM_CALLS_ENABLE_RINGING</code></td><td>on</td><td>Soittaa suoran tai ryhmäviestin muille osallistujille, kun puhelu alkaa siellä.</td></tr>
+<tr><td><b>Enable simulcast for screen sharing (Experimental)</b></td><td>(Järjestelmäkonsoli)</td><td>Ei käytössä</td><td>Lähettaa näytön jakamisen useilla laadutasoilla.</td></tr>
+<tr><td><b>Enable AV1 codec for screen sharing (Experimental)</b></td><td>(Järjestelmäkonsoli)</td><td>Ei käytössä</td><td>Ohitetaan, kun simulcast on käytössä.</td></tr>
+</tbody>
+</table>
+<p>Voice Channels -liiteohjelmassa on kaksi asetusta, jotka löytyvät kohdasta <b>System Console › Plugins › Voice Channels</b>: <b>Join when opening a voice channel</b> (oletus: käytössä) ja <b>Allow video in voice channels</b> (oletus: käytössä, mutta ks. video yllä). Yhteisön ylläpitäjät muuttavat kanavan äänikanavaksi sen asetuksissa.</p>
+<div class="callout">Puheluiden poistamiseksi käytöstä kokonaan, poista Calls-liiteohjelman käytöstä kohdasta <b>System Console › Plugins › Plugin Management</b> tai aseta <code>AM_CALLS_DISABLE=true</code>. Äänikanavat lakkaavat silloin toimimasta.</div>
+
+<h2 id="rtcd">Suuremmat palvelimet: ulkoinen rtcd</h2>
+<p>Oletuksena yksi Antimatter-palvelin käsittelee kaiken puheluiden median. Useiden yhtäaikaisien puheluiden tai median pitämisen keskustelupalvelin ulkopuolella takia Calls-sovellus voi siirtää median erilliseen mediaserveriin <b>rtcd</b>:iin (Mattermostin avoimen lähdekoodin <code>rtcd</code>, versio 0.17 tai uudempi). Määritä <b>RTCD-palvelin-URL</b> (<code>AM_CALLS_RTCD_SERVICE_URL</code>), esimerkiksi <code>https://rtcd.example.com</code>: silloin kaikki puhelut kulkevat sen kautta, ja asiakkaat lähettävät median rtcd:n omaan porttiin Antimatterin sijaan. Tunnustiedot voi antaa <code>AM_CALLS_RTCD_CLIENT_ID</code> ja <code>AM_CALLS_RTCD_AUTH_KEY</code> -muuttujilla; ilman niitä sovellus rekisteröi itsensä rtcd:ään. Lisenssiä ei tarvita. Calls-sovellus näyttää ylläpitäjille varoituksen, joka suosittelee rtcd:ää, jos palvelimella on usein yli 50 henkilöä puheluissa yhtä aikaa.</p>
+
+<h2 id="transcription">Transkriptio ja live-titrat</h2>
+<p>Antimatter voi transkriboita puheluita puheentunnistusmallilla, jonka ajat itse, ja näyttää live-titraat, kun ihmiset puhuvat. Antimatter käyttää mitä tahansa palvelinta, joka tarjoaa OpenAI-yhteensopivan <code>/v1/audio/transcriptions</code>-päätepisteen, kuten Whisper-palvelinta omassa verkossasi. Antimatterin lisäpalvelua ei tarvita.</p>
+<h3>Näin se toimii</h3>
+<ul>
+<li>Puhelun isäntä käynnistää transkription valitsemalla <b>Transkriboi puhelu</b> -kohdan puhelinhallinnasta. <b>Transkriptio käynnissä</b> -merkki ilmoittaa tästä kaikille.</li>
+<li>Jokaisen osallistujan sovellus kuuntelee omaa mikrofoniaan, leikkaa puheen lyhyiksi paloiksi (enintään 12 sekuntia, ei koskaan mykistettynä) ja lähettää ne Antimatteriin, joka välittää ne puheentunnistuspalvelimellesi.</li>
+<li>Kun live-titrat ovat päällä, jokaisen palan teksti näytetään osallistujille titratena heti.</li>
+<li>Kun transkriptio lopetetaan tai puhelu päättyy, Calls-botti lähettää transkription tekstitiedostona ja WebVTT-alikirjoitustiedostona puhelun ketjuun (äänikanavissa kanavaan).</li>
+<li>Kun <b>Yhteenveto transkriptioista</b> on päällä, Agents-sovelluksen oletusagentti lähettää myös yhteenvetoon ketjuun (ks. <a href="{{root}}docs/admins/ai.html">AI</a>).</li>
+</ul>
+<figure><img src="{{root}}assets/img/shots/transcript.webp" alt="A call's thread: the Calls bot has posted the transcript as a text file, and an AI agent has posted a summary below it."><figcaption>Puhelun jälkeen transkriptio ja sen yhteenveto puhelun ketjussa.</figcaption></figure>
+<h3>Asetukset</h3>
+<p>Määritä nämä <code>antimatter</code>-palveluun:</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ENABLE_TRANSCRIPTIONS: "true"
+      AM_CALLS_TRANSCRIBE_API: openai
+      AM_CALLS_TRANSCRIBE_API_OPEN_AIURL: http://stt.internal:8000/v1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL: whisper-1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY: ""
+      AM_CALLS_ENABLE_LIVE_CAPTIONS: "true"
+      AM_CALLS_LIVE_CAPTIONS_LANGUAGE: en</code></pre>
+<table>
+<thead><tr><th>Asetus</th><th>Muuttuja</th><th>Mikä syötetään</th></tr></thead>
+<tbody>
+<tr><td><b>Ota puheluiden transkriptio käyttöön (Beta)</b></td><td><code>AM_CALLS_ENABLE_TRANSCRIPTIONS</code></td><td><code>true</code></td></tr>
+<tr><td><b>Puheluiden transkriptio-API</b></td><td><code>AM_CALLS_TRANSCRIBE_API</code></td><td><code>openai</code> (näytetään nimellä "OpenAI-compatible API (no job service)")</td></tr>
+<tr><td><b>PUHEENTUNNISTUS-API-URL</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AIURL</code></td><td>API:n perus-URL, mukaan lukien <code>/v1</code>.</td></tr>
+<tr><td><b>PUHEENTUNNISTUS-MALLI</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL</code></td><td>Mallin nimi, sellaisena kuin API sen tuntee, esimerkiksi <code>whisper-1</code>. Pakollinen.</td></tr>
+<tr><td><b>PUHEENTUNNISTUS-API-AVAIN</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY</code></td><td>Lähetetään bearer-tokenina. Jätä tyhjäksi, jos API ei vaadi avainta.</td></tr>
+<tr><td><b>Ota live-titrat käyttöön (beta)</b></td><td><code>AM_CALLS_ENABLE_LIVE_CAPTIONS</code></td><td><code>true</code> titrajen näyttämiseksi puhelun aikana.</td></tr>
+<tr><td><b>Live-titrajen kieli</b></td><td><code>AM_CALLS_LIVE_CAPTIONS_LANGUAGE</code></td><td>Puhuttu kieli kahden merkin koodina (oletus <code>en</code>). Arvo lähetetään myös puhe-tunnistus-API:lle transkriptioita varten, joten aseta se vaikka titrat eivät olisi käytössä.</td></tr>
+<tr><td><b>Yhteenveto transkriptioista</b></td><td><code>AM_CALLS_SUMMARIZE_TRANSCRIPTIONS</code></td><td><code>true</code> tekoälyn luoman yhteenveton saamiseksi puhelun jälkeen.</td></tr>
+</tbody>
+</table>
+<div class="callout">Järjestelmäkonsolissa transkriptioasetukset näkyvät vasta, kun <b>Ota puheluntallenteet käyttöön</b> on päällä, vaikka tällainen transkriptio ei vaadi tallennetta. Yllä mainittujen muuttujien avulla voit välttää tämän. Älä ota tallenteita käyttöön yhdessä <code>openai</code>-transkriptioinnin kanssa: tallenteen käynnistys yrittäisi silloin käynnistää job-service-transkriptioinnin ja epäonnistuisi.</div>
+<p>Kaikkien, jotka puhuvat transkriptioinnin ollessa päällä, ääni lähetetään sinun määrittämälle puhe-tunnistuspalvelimelle, ja transkriptio julkaistaan kanavassa, jossa kaikki voivat lukea sen. Kerro käyttäjillesi tästä ja pidä palvelin omassa verkossasi, jos puhelut ovat luottamuksellisia.</p>
+
+<h2 id="recordings">Tallenteet</h2>
+<p>Puheluiden tallentaminen (ja transkriptioinnin suorittaminen sisäänrakennetulla <code>whisper.cpp</code>- tai Azure-transkriptioinnilla) tapahtuu erillään, joita job-palvelu käynnistää. Kyseessä on Mattermostin avoimen lähdekoodin <code>calls-offloader</code>, jonka asennat itse Antimatterin viereen. Asetukset ovat <b>Ota puheluntallenteet käyttöön</b> (<code>AM_CALLS_ENABLE_RECORDINGS</code>, oletus: pois), <b>Job-palvelun URL</b> (<code>AM_CALLS_JOB_SERVICE_URL</code>), <b>Puheluntallenteen enimmäiskesto</b> (oletus 60 minuuttia, 15–180) ja <b>Puheluntallenteen laatu</b> (matala, keskitaso tai korkea; oletus: keskitaso). Lisenssiä ei tarvita. Pelkkien transkriptioiden ja titrajen osalta yllä oleva puhe-tunnistusasetus on yksinkertaisempi: se ei vaadi job-palvelua.</p>

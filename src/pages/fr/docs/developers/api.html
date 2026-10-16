@@ -1,0 +1,164 @@
+title: L'API REST
+description: L'API REST d'Antimatter : l'URL de base, les jetons d'accès personnels, les jetons de session et OAuth, les principales ressources, la pagination, les erreurs, les limites de débit, le flux d'événements WebSocket et les bibliothèques clientes.
+guide: developers
+order: 2
+nav: API REST
+lead: Tout ce que les applications Antimatter font passe par la même API HTTP, vos scripts peuvent donc en faire autant. Cette page explique comment s'authentifier, les ressources que vous utiliserez le plus, l'aspect des réponses et des erreurs, et comment suivre les événements en direct via WebSocket.
+source: f4b8c83efdba
+---
+<h2 id="basics">Bases</h2>
+<ul>
+<li><b>URL de base</b> : <code>https://chat.example.com/api/v4</code>. Tous les points de terminaison ci-dessous sont relatifs à celle-ci.</li>
+<li><b>Format</b> : JSON en entrée et en sortie, à l'exception des envois de fichiers (multipart). Envoyez <code>Content-Type: application/json</code>.</li>
+<li><b>Identifiants</b> : chaque objet possède un <code>id</code> de 26 caractères. Les dates sont en millisecondes depuis l'époque Unix (<code>create_at</code>, <code>update_at</code>, <code>delete_at</code> ; 0 signifie « non supprimé »).</li>
+<li><b>Les communautés sont des équipes</b> : l'API les appelle <code>teams</code>, avec un <code>team_id</code>.</li>
+<li><b>Vous-même</b> : partout où un chemin prend un <code>user_id</code>, <code>me</code> désigne l'utilisateur connecté, comme dans <code>GET /users/me</code>.</li>
+</ul>
+<p>La liste complète des points de terminaison se trouve dans le code du serveur : les routes sont déclarées dans <code>server/channels/api4/*.go</code> et les types dans <code>server/public/model</code>. La description OpenAPI dans le dossier <code>api/v4/source</code> du dépôt couvre les points de terminaison hérités de Mattermost, et non les ajouts d'Antimatter.</p>
+
+<h2 id="auth">Authentification</h2>
+<p>Chaque requête, à l'exception de la connexion et de quelques points de terminaison publics, nécessite un jeton dans l'en-tête <code>Authorization</code> :</p>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" https://chat.example.com/api/v4/users/me</code></pre>
+<p>Trois types de jetons y sont acceptés : jetons d'accès personnels, jetons de session et jetons d'accès OAuth. <code>Authorization: Token …</code> est également accepté. Les jetons dans la chaîne de requête (<code>?access_token=</code>) ne sont acceptés que pour les jetons d'accès OAuth.</p>
+
+<h3>Jetons d'accès personnels (recommandés pour les scripts)</h3>
+<p>Un jeton d'accès personnel agit en votre nom, n'expire pas à moins que vous ne lui donniez une date d'expiration, et peut être révoqué à tout moment. Les jetons d'accès personnels sont désactivés par défaut :</p>
+<ol>
+<li>Un admin système active <b>Activer les jetons d'accès personnel</b> dans <b>Console système › Intégrations › Gestion des intégrations</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, <code>AM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS</code>).</li>
+<li>Pour chaque personne pouvant créer des jetons, un administrateur système ouvre <b>Console système › Gestion des utilisateurs › Utilisateurs</b>, choisit <b>Gérer les rôles</b> dans le menu de la personne et coche <b>Permettre à ce compte de générer des jetons d'accès personnels</b>. Les administrateurs système peuvent toujours les créer.</li>
+<li>La personne ouvre son avatar en haut à droite, puis <b>Profil et paramètres › Sécurité</b>. Sous <b>Jetons d'accès personnel</b>, elle décrit l'usage du jeton et choisit <b>Créer un nouveau jeton</b>. Le jeton n'est affiché qu'une seule fois : copiez-le.</li>
+</ol>
+<p>Via l'API : <code>POST /users/{user_id}/tokens</code> avec <code>{"description": "backup script", "expires_at": 0}</code> (<code>expires_at</code> en millisecondes ; 0 pour aucune). Le champ <code>token</code> de la réponse est le secret ; son <code>id</code> est ce que vous utilisez pour le révoquer (<code>POST /users/tokens/revoke</code> avec <code>{"token_id": "…"}</code>). Depuis la ligne de commande : <code>amctl token generate &lt;user&gt; &lt;description&gt;</code>.</p>
+<p>Un admin système peut limiter la durée de validité des jetons avec <b>Durée de validité maximale des jetons d’accès personnels (jours) </b> sur la même page de la Console système.</p>
+
+<h3>Jetons de session</h3>
+<p>La connexion avec un mot de passe renvoie un jeton de session dans l'en-tête de réponse <code>Token</code>, le même type de session utilisé par les applications :</p>
+<pre><code>curl -i -X POST https://chat.example.com/api/v4/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login_id": "maya", "password": "…"}'</code></pre>
+<p>Ajoutez <code>"token": "123456"</code> pour un compte avec authentification multifacteur. Les sessions expirent selon les paramètres de session du serveur, et le point de terminaison de connexion est limité en débit (5 requêtes par seconde). <code>POST /users/logout</code> met fin à la session.</p>
+<div class="callout">Les navigateurs s'authentifient avec un cookie. Une requête authentifiée par le cookie doit également envoyer l'en-tête <code>X-CSRF-Token</code> pour tout ce qui n'est pas une requête GET ; un jeton dans l'en-tête <code>Authorization</code> n'a pas besoin d'en-tête CSRF.</div>
+
+<h3>Applications OAuth 2.0</h3>
+<p>Pour permettre aux personnes de se connecter à votre application avec leur compte Antimatter, enregistrez une application OAuth 2.0. Antimatter est alors le fournisseur OAuth :</p>
+<ol>
+<li><b>Activer le fournisseur de service OAuth 2.0</b> doit être activé (<b>Console système › Intégrations › Gestion des intégrations</b>, <code>ServiceSettings.EnableOAuthServiceProvider</code>, activé par défaut).</li>
+<li>Une personne ayant le droit de gérer les applications OAuth (les administrateurs système par défaut) ouvre son avatar, puis <b>Intégrations › Applications OAuth 2.0</b>, et ajoute l'application avec ses URL de rappel. Elle obtient un identifiant de client et un secret de client.</li>
+<li>Votre application redirige les utilisateurs vers <code>https://chat.example.com/oauth/authorize</code> avec <code>response_type=code</code>, <code>client_id</code>, <code>redirect_uri</code> et <code>state</code>. PKCE avec <code>code_challenge_method=S256</code> est pris en charge.</li>
+<li>Elle échange le code via <code>POST https://chat.example.com/oauth/access_token</code> (<code>grant_type=authorization_code</code>, puis <code>refresh_token</code> pour le renouveler), et appelle l'API avec <code>Authorization: Bearer &lt;access token&gt;</code>.</li>
+</ol>
+<p>Les utilisateurs voient les applications qu'ils ont autorisées dans <b>Profil et paramètres › Sécurité › Applications autorisées</b>.</p>
+
+<h2 id="resources">Ressources principales</h2>
+<table>
+<thead><tr><th>Élément</th><th>Points d'accès</th></tr></thead>
+<tbody>
+<tr><td>Vous et les autres utilisateurs</td><td><code>GET /users/me</code>, <code>GET /users/{user_id}</code>, <code>GET /users/username/{username}</code>, <code>POST /users/ids</code> (une liste d'identifiants), <code>POST /users/search</code>, <code>GET /users?in_team=…&amp;in_channel=…</code></td></tr>
+<tr><td>Communautés</td><td><code>GET /users/me/teams</code>, <code>GET /teams/{team_id}</code>, <code>GET /teams/name/{name}</code>, <code>PUT /teams/{team_id}/patch</code>, <code>GET /teams/{team_id}/members</code>, <code>POST /teams/{team_id}/members</code></td></tr>
+<tr><td>Canaux</td><td><code>GET /users/me/teams/{team_id}/channels</code>, <code>GET /teams/name/{team}/channels/name/{channel}</code>, <code>POST /channels</code>, <code>POST /channels/direct</code> (deux identifiants d'utilisateur), <code>POST /channels/group</code>, <code>POST /channels/{channel_id}/members</code></td></tr>
+<tr><td>Messages</td><td><code>POST /posts</code>, <code>GET /posts/{post_id}</code>, <code>PUT /posts/{post_id}/patch</code>, <code>DELETE /posts/{post_id}</code>, <code>GET /channels/{channel_id}/posts</code>, <code>GET /posts/{post_id}/thread</code>, <code>POST /teams/{team_id}/posts/search</code></td></tr>
+<tr><td>Réactions</td><td><code>POST /reactions</code> avec <code>{"user_id", "post_id", "emoji_name"}</code>, <code>DELETE /users/{user_id}/posts/{post_id}/reactions/{emoji_name}</code></td></tr>
+<tr><td>Fichiers</td><td><code>POST /files</code> (multipart : <code>channel_id</code> et <code>files</code>), puis placez les identifiants renvoyés dans <code>file_ids</code> du message ; <code>GET /files/{file_id}</code></td></tr>
+<tr><td>Préférences</td><td><code>GET /users/me/preferences</code>, <code>PUT /users/me/preferences</code></td></tr>
+<tr><td>Intégrations</td><td><code>/hooks/incoming</code>, <code>/hooks/outgoing</code>, <code>/commands</code>, <code>/bots</code>, <code>/oauth/apps</code> (voir les pages suivantes)</td></tr>
+<tr><td>Serveur</td><td><code>GET /system/ping</code> (état de santé, aucun jeton requis), <code>GET /config/client?format=old</code> (les paramètres visibles par les clients)</td></tr>
+</tbody>
+</table>
+
+<h3>Publier un message</h3>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "message": "Backup finished: **42 GB** in 3 min"}'</code></pre>
+<p>Les messages sont au format Markdown. Ajoutez <code>"root_id"</code> (le premier message d'un fil de discussion) pour répondre dans un fil, <code>"file_ids"</code> pour les fichiers et <code>"props"</code> pour les pièces jointes et autres éléments supplémentaires (voir <a href="{{root}}docs/developers/webhooks.html#attachments">Pièces jointes</a>).</p>
+
+<h3>Trouver l'identifiant d'un canal</h3>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" \
+  https://chat.example.com/api/v4/teams/name/lumen-labs/channels/name/ops-alerts</code></pre>
+<p>Les noms sont ceux présents dans le lien du canal : <code>/lumen-labs/channels/ops-alerts</code>.</p>
+
+<h2 id="pagination">Pagination</h2>
+<p>Les points d'accès de liste acceptent <code>page</code> (à partir de 0) et <code>per_page</code> (60 par défaut, 200 au maximum). Continuez à demander la page suivante jusqu'à ce qu'une page renvoyée soit plus courte que <code>per_page</code>.</p>
+<p>Les messages d'un canal (<code>GET /channels/{channel_id}/posts</code>) acceptent également <code>since</code> (un horodatage : tout ce qui a changé depuis) ou <code>before</code> et <code>after</code> (un identifiant de message). Ils sont renvoyés sous forme de liste de messages : <code>{"order": [IDs, newest first], "posts": {ID: post}, "next_post_id", "prev_post_id"}</code>.</p>
+
+<h2 id="errors">Erreurs</h2>
+<p>Les erreurs utilisent les codes d'état HTTP habituels (400 entrée invalide, 401 non authentifié, 403 non autorisé, 404 introuvable, 501 fonction désactivée) et un corps JSON :</p>
+<pre><code>{
+  "id": "api.context.permissions.app_error",
+  "message": "You do not have the appropriate permissions.",
+  "detailed_error": "",
+  "request_id": "jz8zm5nunpbt8f3gpqsz5dq6so",
+  "status_code": 403
+}</code></pre>
+<p>Utilisez <code>id</code> dans votre code : <code>message</code> est traduit dans la langue de l'utilisateur. <code>detailed_error</code> est vide sauf si le serveur fonctionne en mode développeur (<code>ServiceSettings.EnableDeveloper</code>). Citez <code>request_id</code> à l'admin du serveur : il figure dans les journaux.</p>
+
+<h2 id="rate-limits">Limites de débit</h2>
+<p>La limitation de débit est désactivée par défaut. Lorsqu'un admin système l'active (<b>Console système › Environnement › Limitation de débit</b>), chaque client reçoit 10 requêtes par seconde avec des rafales de 100 par défaut, comptées par adresse IP ou par utilisateur. Les réponses contiennent <code>X-RateLimit-Limit</code>, <code>X-RateLimit-Remaining</code> et <code>X-RateLimit-Reset</code> ; au-delà de la limite, le serveur répond <code>429</code> avec un en-tête <code>Retry-After</code> en secondes. Certains points d'accès, comme l'authentification, ont leur propre limite quelle que soit la configuration.</p>
+<p>Écrivez des scripts qui attendent et réessaient en cas de 429, et évitez le sondage : suivez plutôt le WebSocket.</p>
+
+<h2 id="websocket">Le flux d'événements WebSocket</h2>
+<p>Connectez-vous à <code>wss://chat.example.com/api/v4/websocket</code>. Authentifiez-vous soit avec l'en-tête <code>Authorization: Bearer</code> sur la requête de connexion, soit en envoyant ceci comme premier message :</p>
+<pre><code>{"seq": 1, "action": "authentication_challenge", "data": {"token": "…"}}</code></pre>
+<p>Le serveur envoie un événement <code>hello</code>, puis un événement pour tout ce que vous êtes autorisé à voir :</p>
+<pre><code>{
+  "event": "posted",
+  "data": {"channel_id": "…", "channel_type": "O", "post": "{\"id\":\"…\",\"message\":\"Hello\",…}"},
+  "broadcast": {"channel_id": "…", "team_id": "", "user_id": "", "omit_users": null},
+  "seq": 4
+}</code></pre>
+<p>Notez que <code>data.post</code> est le message au format JSON. Événements courants : <code>posted</code>, <code>post_edited</code>, <code>post_deleted</code>, <code>reaction_added</code>, <code>reaction_removed</code>, <code>typing</code>, <code>status_change</code>, <code>user_added</code>, <code>direct_added</code>. Les applications émettent leurs propres événements, nommés <code>custom_&lt;app id&gt;_&lt;event&gt;</code>.</p>
+<p>Vous pouvez également envoyer des actions, chacune avec un <code>seq</code> croissant : <code>user_typing</code> avec <code>{"channel_id", "parent_id"}</code>, ou <code>get_statuses</code>. Reconnectez-vous lorsque la connexion est interrompue, et récupérez ce que vous avez manqué avec <code>since</code> (voir <a href="#pagination">Pagination</a>).</p>
+<p>Antimatter ajoute les événements suivants : <code>community_attributes_updated</code>, <code>member_timeouts_updated</code>, <code>post_put_on_top</code>, <code>post_removed_from_top</code>, <code>server_categories_updated</code>, <code>channel_overrides_updated</code> et <code>category_overrides_updated</code>.</p>
+
+<h2 id="clients">Bibliothèques client</h2>
+<ul>
+<li><b>Aller à</b> : <code>model.Client4</code> dans <code>server/public/model</code> (importer <code>github.com/mattermost/mattermost/server/public/model</code>). <code>model.NewAPIv4Client(url)</code>, puis <code>client.SetToken(token)</code> ; <code>model.NewWebSocketClient4(wsURL, token)</code> suit les événements. La copie d'Antimatter ajoute des méthodes pour ses propres points d'entrée, telles que <code>UpdateMessageRequest</code>, <code>PutPostOnTop</code> et <code>ExportChannel</code>.</li>
+<li><b>TypeScript</b> : la classe <code>Client4</code> de <code>@mattermost/client</code>, dans <code>webapp/platform/client</code>, avec ses types dans <code>webapp/platform/types</code>. La copie dans le dépôt d'Antimatter inclut les points de terminaison d'Antimatter ; le package publié sur npm par Mattermost ne les inclut pas.</li>
+</ul>
+<pre><code>package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/mattermost/mattermost/server/public/model"
+)
+
+func main() {
+	client := model.NewAPIv4Client("https://chat.example.com")
+	client.SetToken("…")
+	post, _, err := client.CreatePost(context.Background(), &amp;model.Post{
+		ChannelId: "…",
+		Message:   "Hello from Go",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("posted", post.Id)
+}</code></pre>
+
+<h2 id="antimatter">Ce qu'Antimatter ajoute à l'API</h2>
+<p>Ces points de terminaison et champs n'existent pas sur un serveur Mattermost. Tous nécessitent une session.</p>
+<table>
+<thead><tr><th>Point de terminaison</th><th>Fonction</th></tr></thead>
+<tbody>
+<tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> même chemin<br><code>PATCH</code>, <code>DELETE …/fields/{field_id}</code></td><td>Attributs de la communauté : les champs de profil définis par les administrateurs d'une communauté pour ses membres (jusqu'à 20). Les membres peuvent les lire ; les administrateurs de la communauté les créent et les modifient.</td></tr>
+<tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> même chemin<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>Les valeurs d'attributs d'un membre, sous la forme <code>{field_id: value}</code>. Les membres définissent les leurs (sauf ceux gérés par les administrateurs) ; les administrateurs définissent celles de n'importe qui. La recherche prend <code>{"user_ids": [...]}</code> (jusqu'à 200).</td></tr>
+<tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>Délais d'attente : <code>{"until": time, "reason": "…"}</code> empêche quelqu'un de publier, réagir et envoyer des fichiers dans la communauté jusqu'à cette date (au maximum 28 jours) ; <code>"until": 0</code> lève la restriction. La vue de modération indique quand ils ont rejoint et combien ils ont publié récemment.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Messages maintenus en haut d'un canal (jusqu'à 10). <code>{"duration": ms}</code>, au maximum 30 jours ; 0 les maintient jusqu'à leur suppression. Nécessite le droit de publier dans le canal.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>Agit sur votre propre demande de message : <code>{"action": "accept"}</code>, <code>"dismiss"</code> ou <code>"request"</code> pour remettre une conversation parmi les demandes. Retourne votre membre de canal.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>Ce qu'un rôle ou une personne peut faire dans un canal, et les rôles qui voient un canal restreint par rôle.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>Les catégories de canaux partagées par la communauté, ainsi que les modifications qui s'appliquent à tous les canaux d'une catégorie.</td></tr>
+<tr><td><code>GET /groups/{group_id}/team_role</code><br><code>PUT …/team_role/permissions</code></td><td>Les autorisations accordées par un rôle de la communauté.</td></tr>
+<tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>Teste les règles de liens automatiques de la communauté sur un texte.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>Télécharge les messages d'un canal au format CSV (jusqu'à 50 000), pour les personnes pouvant lire le canal.</td></tr>
+<tr><td><code>GET /posts/{post_id}/speech</code></td><td>Le message lu à voix haute, sous forme audio, lorsque la synthèse vocale est configurée.</td></tr>
+</tbody>
+</table>
+<h3>Nouveaux champs</h3>
+<ul>
+<li><b>Communautés</b> (<code>Team</code>, et <code>PUT /teams/{team_id}/patch</code>) : <code>all_channels_membership</code> (tout le monde est membre de chaque canal qu'il peut voir, comme dans Discord), <code>default_channel_id</code> (où atterrissent les nouveaux ; vide signifie Town Square), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> et <code>autolinks</code> (les deux sont des chaînes JSON).</li>
+<li><b>Réponses en ligne</b> : un message avec <code>"props": {"reply_to": "&lt;post id&gt;"}</code> cite ce message du même canal. Ajoutez <code>"reply_to_mention": false</code> pour ne pas notifier son auteur. Le serveur remplit <code>metadata.reply_to</code> avec une brève description du message cité.</li>
+<li><b>Spoilers</b> : <code>"props": {"spoiler": true}</code> masque le texte et les fichiers d'un message jusqu'à ce que le lecteur choisisse de les voir.</li>
+<li><b>Ignorer et bloquer</b> sont des préférences : catégorie <code>user_block</code>, nommée d'après l'identifiant de l'autre personne, avec la valeur <code>ignore</code> ou <code>block</code>. Savoir si un message personnel attend en tant que demande se trouve dans <code>notify_props.dm_request</code> de votre membre de canal (<code>pending</code>, <code>accepted</code> ou <code>dismissed</code>).</li>
+<li><b>Les pièces jointes de messages</b> peuvent contenir des <code>stages</code> et un <code>chart</code> : voir <a href="{{root}}docs/developers/webhooks.html#cards">Cartes</a>.</li>
+</ul>

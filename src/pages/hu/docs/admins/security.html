@@ -1,0 +1,107 @@
+title: Biztonság
+description: Antimatter-szerver megerősítése: mely portokat kell kitenni, titkok, sebességkorlátozás, IP-szűrés, feltöltési korlátok, magánéletvédelmi beállítások és felhasználói letiltás, munkamenetek, a szerver külső szolgáltatásokkal való kapcsolatai, valamint a sebezhetőségek bejelentése.
+guide: admins
+order: 12
+nav: Biztonság
+lead: Ellenőrzőlista az Antimatter-szerver megerősítéséhez: mit kell kitenni, mely korlátokat és magánéletvédelmi beállításokat érdemes átnézni, mely külső szolgáltatásokkal lép kapcsolatba a szerver, és hogyan lehet biztonsági problémát bejelenteni.
+source: dbe2371ecf30
+---
+<h2 id="exposure">Mit kell kitenni</h2>
+<table>
+<thead><tr><th>Port</th><th>Szolgáltatás</th><th>Kitettség</th></tr></thead>
+<tbody>
+<tr><td>443/tcp, 443/udp, 80/tcp</td><td>HTTPS proxy (Caddy vagy nginx)</td><td>Nyilvános: ez a mód, ahogy az emberek eljutnak az Antimatterhez.</td></tr>
+<tr><td>8443/udp és 8443/tcp</td><td>Hívási média</td><td>Nyilvános, ha a hálózaton kívülről is használnak hívásokat.</td></tr>
+<tr><td>8065/tcp</td><td>Az Antimatter webes szervere</td><td>Csak a proxyhoz: kösse ki a <code>127.0.0.1</code> címen (<code>HTTP_PORT=127.0.0.1:8065</code>).</td></tr>
+<tr><td>8067/tcp</td><td>Metriki</td><td>Csak privát hálózaton, ha engedélyezve van. Nincs bejelentkezés.</td></tr>
+<tr><td>8074/tcp és udp</td><td>Klaszter-gossip</td><td>Csak klasztercsomópontok között.</td></tr>
+<tr><td>5432, 9000, 8080, 8066</td><td>PostgreSQL, fájl-tárhely, GIF-szolgáltatás, push proxy</td><td>Soha. A compose-fájlok belső hálózaton tartják őket, ki nem publikált porttal.</td></tr>
+</tbody>
+</table>
+<p>A weboldal compose-fájla minden konténert <code>no-new-privileges</code> opcióval futtat, az Antimattert nem jogosult felhasználóként futtatja egy distroless képen, a GIF-szolgáltatást pedig csak olvasható fájlrendszerrel. Az adatbázis, a tárhely és a GIF-szolgáltatás egy internet-hozzáférés nélküli hálózaton helyezkedik el.</p>
+
+<h2 id="checklist">Ellenőrzőlista telepítés után</h2>
+<ol>
+<li>Létrehozza az első adminisztrátori fiókot, mielőtt bárki más elérné a szervert (<a href="{{root}}docs/admins/install.html#first-admin">Telepítés</a>).</li>
+<li>Az Antimattert csak HTTPS-en keresztül szolgálja ki, és a weboldal URL-jét beállítja a <code>https://</code> címre (<a href="{{root}}docs/admins/https.html">Domen és HTTPS</a>).</li>
+<li>A <code>.env</code>, <code>config.json</code> és a TLS-kulcsok csak root (vagy a szerver felhasználója) által olvashatók maradnak: <code>chmod 600 .env</code>.</li>
+<li>Döntse el, hogy ki hozhat létre fiókot, és ne engedélyezze a <b>Nyílt szerver engedélyezése</b> beállítást, hacsak a közösség nem nyilvános. Amint az e-mail működik, kapcsolja be az <b>E-mail ellenőrzés megkövetelése</b> beállítást (<a href="{{root}}docs/admins/authentication.html">Bejelentkezés és fiókok</a>).</li>
+<li>Kapcsolja be a többfaktoros hitelesítést, és az adminisztrátori fiókoknál legalább kötelezővé tegye, vagy használja a hitelesítő szolgáltatóét.</li>
+<li>Nézze át az alábbi külső kapcsolatokat, különösen a Hívások alapértelmezett STUN-szerverét.</li>
+<li>Készítsen mentést, és tesztelje a visszaállítást (<a href="{{root}}docs/admins/backups-upgrades.html">Mentések és frissítések</a>).</li>
+<li>Tartsa naprakész a képeket: a biztonsági javítások az új képekkel érkeznek.</li>
+</ol>
+
+<h2 id="rate-limiting">Sebességkorlátozás</h2>
+<p>A szerver korlátozhatja, hogy egy-egy kliens hány API-lekérdezést küldhet. Ez alapértelmezetten kikapcsolva van. A <b>Rendszerkonzol › Környezet › Sebességkorlátozás</b> menüben:</p>
+<table>
+<thead><tr><th>Beállítás</th><th>Kulcs</th><th>Alapérték</th></tr></thead>
+<tbody>
+<tr><td><b>Sebességkorlátozás engedélyezése</b></td><td><code>RateLimitSettings.Enable</code></td><td>ki</td></tr>
+<tr><td><b>Maximális lekérdezések másodpercenként</b></td><td><code>RateLimitSettings.PerSec</code></td><td>10</td></tr>
+<tr><td><b>Maximális burst méret</b></td><td><code>RateLimitSettings.MaxBurst</code></td><td>100</td></tr>
+<tr><td><b>Memória tároló méret</b></td><td><code>RateLimitSettings.MemoryStoreSize</code></td><td>10 000 kliens követése</td></tr>
+<tr><td><b>Távoli cím szerinti különböző sebességkorlátozás</b></td><td><code>RateLimitSettings.VaryByRemoteAddr</code></td><td>bekapcsolva</td></tr>
+<tr><td><b>Különböző sebességkorlátozás felhasználónkként</b></td><td><code>RateLimitSettings.VaryByUser</code></td><td>ki</td></tr>
+<tr><td><b>Különböző sebességkorlátozás a HTTP fejléc alapján</b></td><td><code>RateLimitSettings.VaryByHeader</code></td><td>üres</td></tr>
+</tbody>
+</table>
+<p>Proxy mögött a cím szerinti korlátozás csak akkor működik, ha a szerver ismeri a kliensek címét (<code>ServiceSettings.TrustedProxyIPHeader</code> és <code>ServiceSettings.TrustedProxyIPs</code>, lásd: <a href="{{root}}docs/admins/https.html#client-address">Klienscímek proxy mögött</a>). Egyébként minden kérés a proxytól érkezik, és mindenki egy közös korlátot oszt meg. Ez ugyanígy vonatkozik az IP-szűrésekre és az ellenőrzési naplókban szereplő címekre is.</p>
+<p>A bejelentkezési kísérletek külön korlátozva vannak: a <b>Bejelentkezési kísérletek maximális száma</b> (10) beállítás után, ha ennyi hibás jelszó következik egymás után, a fiók zárolva lesz.</p>
+
+<h2 id="ip-filtering">IP-szűrés</h2>
+<p>A <b>Rendszerkonzol › Oldal beállítások › IP-szűrés</b> menüben IP-cím alapján korlátozható a szerverhez való hozzáférés, engedélyezési és tilalmi szabályokkal (mindegyik cím vagy CIDR-határolt tartomány). Ha a <b>IP-szűrés engedélyezése</b> be van kapcsolva, azok, akiknek a címe egy tilalmi szabályt illeszt, vagy akiknek nincs engedélyezési szabálya, ha vannak engedélyezési szabályok, nem férnek hozzá a szerverhez. Az oldal elutasítja azokat a szabályokat, amelyek a saját címét blokkolnák. Proxy mögött először állítsa be a kliens címeit (<a href="{{root}}docs/admins/https.html#client-address">Kliens címek proxy mögött</a>), különben minden kérés a proxytól érkezőnek tűnik.</p>
+
+<h2 id="uploads">Feltöltések és fájlmegosztás</h2>
+<table>
+<thead><tr><th>Beállítás</th><th>Hely</th><th>Alapérték</th></tr></thead>
+<tbody>
+<tr><td><b>Maximális fájl méret</b> (<code>FileSettings.MaxFileSize</code>)</td><td>Környezet › Fájl tárolás</td><td>100 MB. A proxy kérés méretének korlátja legalább ennyi legyen.</td></tr>
+<tr><td><b>Maximális terhelési méret (bájt)</b> (<code>ServiceSettings.MaximumPayloadSizeBytes</code>)</td><td>Környezet › Web-szerver</td><td>300 000: a legnagyobb API-kérés, kivéve a fájlfeltöltéseket</td></tr>
+<tr><td><b>Fájl megosztás engedélyezése</b> (<code>FileSettings.EnableFileAttachments</code>)</td><td>Helyi beállítások › Fájlmegosztás és letöltés</td><td>bekapcsolva</td></tr>
+<tr><td><b>Fájl feltöltés engedélyezése mobilon</b>, <b>Fájl letöltés engedélyezése mobilon</b></td><td>Helyi beállítások › Fájlmegosztás és letöltés</td><td>bekapcsolva</td></tr>
+<tr><td><b>Nyilvános fájl linkek engedélyezése</b> (<code>FileSettings.EnablePublicLink</code>)</td><td>Helyi beállítások › Közös linkek</td><td>kikapcsolva: ha be van kapcsolva, a felhasználók olyan linkkel oszthatnak meg fájlt, amely bejelentkezés nélkül is működik</td></tr>
+<tr><td><b>SVG-k engedélyezése</b> (<code>ServiceSettings.EnableSVGs</code>)</td><td>Helyi beállítások › Bejegyzések</td><td>új szerveren kikapcsolva: ha be van kapcsolva, az SVG-képek a szövegbe ágyazva jelennek meg</td></tr>
+</tbody>
+</table>
+<p>Az Antimatter nem vizsgálja a feltöltött fájlokat kártevőprogramok szempontjából.</p>
+
+<h2 id="privacy">Adatvédelmi beállítások</h2>
+<p>A <b>Rendszerkonzol › Oldal beállítások › Felhasználók és csapatok</b> menüben:</p>
+<table>
+<thead><tr><th>Beállítás</th><th>Kulcs</th><th>Alapérték</th><th>Mire szolgál</th></tr></thead>
+<tbody>
+<tr><td><b>E-mail cím megjelenítése</b></td><td><code>PrivacySettings.ShowEmailAddress</code></td><td>bekapcsolva</td><td>Ki, a felhasználók e-mailcímei mindenki számára rejtve maradnak, kivéve az adminisztrátoroktól. Nyilvános szervereken állítsd ki.</td></tr>
+<tr><td><b>Teljes név megjelenítése</b></td><td><code>PrivacySettings.ShowFullName</code></td><td>bekapcsolva</td><td>Ki, a teljes nevek rejtve maradnak, helyettük a felhasználónevek jelennek meg.</td></tr>
+<tr><td><b>Ignorálás, blokkolás és üzenekérés engedélyezése</b></td><td><code>PrivacySettings.EnableUserBlocking</code></td><td>bekapcsolva</td><td>Lásd alább.</td></tr>
+<tr><td><b>Engedélyezze a felhasználóknak, hogy a közvetlen csatornákat ezzel nyissák meg</b></td><td><code>TeamSettings.RestrictDirectMessage</code></td><td>Bármelyik felhasználó az Antimatter szerveren</td><td>Vagy <b>A csapat bármely tagja</b>: csak azok, akik ugyanahhoz a közösséghez tartoznak.</td></tr>
+</tbody>
+</table>
+<h3>Figyelmen kívül hagyás, blokkolás és üzenekérések</h3>
+<p>Ha az <b>Ignorálás, blokkolás és üzenekérés engedélyezése</b> be van kapcsolva (ez az alapértelmezés), a felhasználók ignorálhatják és blokkolhatják egymást, valamint választhatják, hogy ismeretlen személyektől érkező közvetlen üzeneteiket üzenekérésként kapják meg, amelyek nem küldenek értesítést, amíg nem fogadják el. Ez nyilvános közösségeknek illik. Munkahelyi környezetben, ahol a kollégáknak mindig elérhetőnek kell lenniük egymásnak, kapcsolja ki (<code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING=false</code>): ekkor semmi sem lesz kikényszerítve, de a felhasználók által készített listák és beállítások megmaradnak, és újra érvénybe lépnek, ha visszakapcsolja.</p>
+
+<h2 id="sessions">Munkamenetek és tokenek</h2>
+<ul>
+<li>Munkamenet-hosszok és tétlenségi időtúllépés: lásd <a href="{{root}}docs/admins/authentication.html#sessions">Bejelentkezés és fiókok</a>. A rövidebb munkamenetek azt jelentik, hogy egy elveszett laptop vagy telefon rövidebb ideig marad bejelentkezve.</li>
+<li>A(z) <b>Személyes hozzáférési tokenek engedélyezése</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, alapértelmezés szerint kikapcsolva) lehetővé teszi, hogy a felhasználók API-tokeneket hozzanak létre; a(z) <b>Személyes hozzáférési token maximális élettartama (nap)</b> korlátozza őket. Mindkettő a(z) <b>Rendszerkonzol › Integrációk › Integrációkezelés</b> alatt található.</li>
+<li>Ha egyszerre mindenkit ki szeretnél jelenteni, például egy gyanús biztonsági incidens után: a(z) <b>Összes munkamenet visszavonása</b> a(z) <b>Rendszerkonzol › Felhasználókezelés › Felhasználók</b> alatt.</li>
+</ul>
+
+<h2 id="outbound">Kapcsolat külső szolgáltatásokkal</h2>
+<p>Az Antimatter nem létesít kapcsolatot a Mattermost, Inc. által üzemeltetett szolgáltatásokkal. Nem küld telemetria-adatokat, hibajelentéseket vagy biztonsági frissítések ellenőrzéseit, és nem kér le termékközleményeket. Ha egy Mattermost-ból átvitt konfiguráció még mindig hivatkozik valamelyik Mattermost-szolgáltatásra (push-szolgáltatásai, alkalmazáskereskedése, közleményei vagy hívásokhoz használt STUN-szervere), a szerver nem lép kapcsolatba velük: ezek a címek figyelmen kívül maradnak.</p>
+<p>A szerver és az alkalmazások csak azokat a funkciókat használják, amelyekhez szükségesek, és csak az általad beállított szolgáltatásokkal létesítenek kapcsolatot:</p>
+<table>
+<thead><tr><th>Funkció</th><th>Kapcsolat</th><th>Alapértelmezés szerint</th></tr></thead>
+<tbody>
+<tr><td>Hívások: nyilvános címek megtalálása STUN-nal. A szerver és minden, aki csatlakozik a híváshoz, küld egy kérést, amely a STUN-szervernek megmutatja a felhasználó IP-címét és portját.</td><td>A Cloudflare nyilvános STUN-szervere, <code>stun.cloudflare.com</code></td><td>be, amíg a Hívások app engedélyezve van. Módosításához lásd: <a href="{{root}}docs/admins/calls.html#network">Hívások</a>.</td></tr>
+<tr><td>Link előnézetek: a szerver letölti az üzenetekben szereplő linkekre mutató oldalakat (<b>Weboldal link előnézet engedélyezése</b>, <code>ServiceSettings.EnableLinkPreviews</code>)</td><td>azok a weboldalak, amire mások hivatkoznak</td><td>be. Kikapcsolható a <code>AM_SERVICESETTINGS_ENABLELINKPREVIEWS=false</code> beállítással.</td></tr>
+<tr><td>Push-értesítések a mobilalkalmazásba</td><td>saját push proxy (<a href="{{root}}docs/admins/email-push.html#push">Push-értesítések</a>)</td><td>ki, amíg be nem állítja a címét</td></tr>
+<tr><td>távoli app piactér (<code>PluginSettings.EnableRemoteMarketplace</code>)</td><td>a beállított <b>Piactér URL</b></td><td>ki, és nincs beállított cím</td></tr>
+<tr><td>E-mail</td><td>SMTP-szerver</td><td>az alapértelmezett szerver a <code>localhost</code></td></tr>
+<tr><td>Egyszeri bejelentkezés, AI-modellek, beszéd-felismerés és fordítás, kimenő webhookok, valamint appok, például Mail, Naptár, GitHub, GitLab vagy Jira</td><td>azok a szolgáltatások, amelyeket beállít</td><td>ki, amíg be nem állítja őket</td></tr>
+</tbody>
+</table>
+<p>Alapértelmezés szerint a szerver nem csatlakozik privát és loopback címekre ezekhez (link előnézetek, webhooks, alkalmazások), így egy üzenet vagy integráció nem használható a belső hálózathoz való hozzáférésre. A(z) <b>Nem megbízható belső kapcsolatok engedélyezése ide</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>, a(z) <b>Rendszerkonzol › Környezet › Fejlesztő</b> alatt) mezőbe add meg a belső hostokat, amelyekhez csatlakozhat; a webhely compose fájlja a(z) <code>gifs</code> értéket tartalmazza itt.</p>
+
+<h2 id="report">Sebezhetőség bejelentése</h2>
+<p>Biztonsági problémákat privát módon jelentse be, ahogy a(z) <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">Antimatter biztonsági irányelv</a> ismerteti, ne nyilvános issues-ban.</p>

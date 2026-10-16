@@ -1,0 +1,105 @@
+title: Back-ups en upgrades
+description: Maak een back-up van en herstel een Antimatter-server (database, opslag van bestanden, configuratie), upgrade deze veilig, verplaats een Mattermost-server naar Antimatter en exporteer of importeer gegevens.
+guide: admins
+order: 10
+nav: Back-ups en upgrades
+lead: Wat u moet back-uppen, hoe u het herstelt op een nieuwe host, hoe u een upgrade uitvoert en hoe u een Mattermost-server of een enkele community verplaatst naar Antimatter.
+source: b0797af8b6e7
+---
+<h2 id="what">Wat u moet back-uppen</h2>
+<table>
+<thead><tr><th>Wat</th><th>Met het compose-bestand van de site</th><th>Met een releasearchief</th></tr></thead>
+<tbody>
+<tr><td>De database: berichten, gebruikers, communities, kanalen en, met het compose-bestand van de site, de configuratie</td><td>volume <code>antimatter_postgres</code>, via <code>pg_dump</code></td><td>uw PostgreSQL-database</td></tr>
+<tr><td>Geüploade bestanden, afbeeldingen en geïnstalleerde apps</td><td>volume <code>antimatter_files</code> (de S3-opslag)</td><td><code>FileSettings.Directory</code>, standaard <code>./data/</code></td></tr>
+<tr><td>Het configuratiebestand</td><td>(in de database)</td><td><code>config/config.json</code></td></tr>
+<tr><td>GIF’s en stickers</td><td>volume <code>antimatter_gifs</code></td><td>de gegevensmap van de GIF-service</td></tr>
+<tr><td>Geheimen</td><td><code>.env</code> (en <code>compose.override.yaml</code>)</td><td>uw omgevingsbestand</td></tr>
+</tbody>
+</table>
+<p>De database en de bestanden horen bij elkaar: back-up ze tegelijk en bewaar kopieën op een andere locatie dan de server. Volume-namen beginnen met de projectnaam van compose, <code>antimatter</code> (<code>docker volume ls</code> toont ze).</p>
+
+<h2 id="backup">Back-uppen</h2>
+<p>Voer dit uit vanuit de map van <code>compose.yaml</code>. Als u Antimatter eerst stopt, krijgt u een volledig consistente kopie; een back-up die wordt gemaakt terwijl het draait, is meestal prima, maar bestanden die tijdens de back-up worden geüpload, kunnen er ontbreken.</p>
+<pre><code>stamp=$(date +%Y%m%d-%H%M%S)
+mkdir -p backups
+docker compose stop antimatter
+# Database
+docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
+    &gt; "backups/antimatter-db-$stamp.dump"
+# File storage and GIF service
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
+        alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
+done
+docker compose start antimatter
+# Secrets
+cp .env "backups/env-$stamp"</code></pre>
+<p>Voer dit via cron uit voor dagelijkse back-ups en kopieer de <code>backups/</code>-map naar een andere machine. Bewaar de kopieën van <code>.env</code> net zo veilig als de server: ze bevatten de wachtwoorden ervan.</p>
+<p>Wilt u de geüploade bestanden object voor object kopiëren (bijvoorbeeld naar een andere S3-opslag), gebruik dan het AWS command-line tool van de <code>bucket</code>-service:</p>
+<pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
+    "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
+<p>Met een releasearchief back-upt u de database met <code>pg_dump -Fc</code> en de <code>data/</code>- en <code>config/</code>-mappen met uw gebruikelijke tools.</p>
+
+<h2 id="restore">Herstellen op een nieuwe host</h2>
+<p>Plaats <code>compose.yaml</code>, het bewaarde <code>.env</code> en de back-ups in een nieuwe map, en:</p>
+<pre><code>stamp=20261016-030000          # the backup to restore
+docker compose create           # creates the volumes, starts nothing
+docker compose up -d postgres
+docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
+    &lt; "backups/antimatter-db-$stamp.dump"
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
+        alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
+done
+docker compose up -d</code></pre>
+<p>Gebruik dezelfde <code>.env</code>: de opslag en de database moeten de wachtwoorden behouden die ze hadden. Als de nieuwe host een ander adres heeft, werk dan <code>SITE_URL</code> (en <code>DOMAIN</code>) bij.</p>
+<p>Test uw back-ups door ze af en toe te herstellen op een andere machine.</p>
+
+<h2 id="upgrade">Upgrade</h2>
+<ol>
+<li>Maak een back-up.</li>
+<li>Wijzig de imagetag in <code>.env</code> (<code>ANTIMATTER_IMAGE</code>), als u er een vastzet, zoals aanbevolen.</li>
+<li>Haal op en herstart:
+<pre><code>docker compose pull
+docker compose up -d
+docker compose logs -f antimatter</code></pre></li>
+</ol>
+<p>Bij het starten verhoogt de server het databasisschema (volg dit in het logboek; bij een grote server kan dit enkele minuten duren) en installeert de nieuwere versies van de ingebouwde apps uit het image. Bij een releasearchief: stop de server, vervang alles behalve <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> en <code>client/plugins/</code> door de inhoud van het nieuwe archief, en start de server opnieuw.</p>
+<div class="callout warn">Upgrades gaan alleen vooruit. Zodra een nieuwere server de database heeft geüpgraded, kan een oudere versie deze niet meer gebruiken: om terug te gaan, herstel de back-up die vóór de upgrade is gemaakt. Hetzelfde geldt voor het terugkeren van <code>antimatter-next</code> naar <code>antimatter</code>.</div>
+<h3>Versies</h3>
+<p>De server van Antimatter rapporteert de versie van de Mattermost-lijn waaraan het is gebaseerd (momenteel 12.0.0). De images worden opnieuw gebouwd vanuit de <code>main</code>-takken: <code>antimatter-next</code> elke nacht (tags <code>nightly-&lt;YYYYMMDD&gt;</code>) en beide images bij elke wijziging (tags <code>sha-&lt;commit&gt;</code>). Kies een van deze tags, upgrade bewust en houd de vorige tag bij zodat u weet welke back-up daarbij hoort.</p>
+<h3>Hoofdversies van PostgreSQL</h3>
+<p>Het compose-bestand gebruikt <code>postgres:17-alpine</code>. Antimatter vereist PostgreSQL 15 of nieuwer. Een nieuwe hoofdversie van PostgreSQL kan de datamap van de vorige versie niet lezen: om over te stappen, dump de database, start de nieuwe versie op een nieuwe volume en herstel de dump daarin.</p>
+
+<h2 id="mattermost">Overstappen van Mattermost</h2>
+<p>Antimatter gebruikt het databasisschema van Mattermost en voegt eigen tabellen toe, waardoor het de PostgreSQL-database en bestanden van een Mattermost-server kan overnemen. Probeer dit eerst op een kopie:</p>
+<ol>
+<li>Maak een back-up van de Mattermost-database, de opslag van de bestanden (<code>data/</code> of S3-bak) en <code>config.json</code>, en stop daarna Mattermost.</li>
+<li>Herstel de database in de PostgreSQL van Antimatter, of wijs Antimatter naar een kopie ervan (<code>AM_SQLSETTINGS_DATASOURCE</code>).</li>
+<li>Kopieer de bestanden naar de opslag van Antimatter, waarbij u de paden behoudt: naar de <code>antimatter</code>-bak met een S3-hulpmiddel, of naar <code>data/</code> met een releasearchief.</li>
+<li>Herbruik uw instellingen: kopieer <code>config.json</code>, of verplaats het naar de database met <code>amctl --local config migrate</code> (zie <a href="{{root}}docs/admins/configuration.html">Configuratie</a>). Uw <code>MM_</code>-omgevingsvariabelen blijven werken; hernoem ze naar <code>AM_</code> wanneer het handig is.</li>
+<li>Start Antimatter en volg de logboekmeldingen terwijl de database wordt bijgewerkt. Controleer vervolgens <b>Systeemconsole › Plugins › Plugin Beheer</b>. Antimatter installeert eigen versies van Calls, Playbooks, Kanban (Borden), Agents en integraties wanneer deze nieuwer zijn dan de geïnstalleerde versie. Als Mattermost een nieuwere versie van een van deze apps had, verwijder die app en herstart Antimatter, zodat de eigen build wordt geïnstalleerd.</li>
+<li>Stel pushmeldingen opnieuw in met uw eigen push-proxy: Antimatter stuurt nooit meldingen naar de pushdiensten van Mattermost, of het nu test- of gehoste diensten zijn, omdat deze alleen worden bezorgd aan de eigen apps van Mattermost. Zolang u <b>Push Notificatie Server</b> niet wijzigt, stuurt de server geen pushmeldingen (zie <a href="{{root}}docs/admins/email-push.html#push">Pushmeldingen</a>).</li>
+</ol>
+<p>Antimatter maakt geen verbinding met services die door Mattermost, Inc. worden beheerd (zie <a href="{{root}}docs/admins/security.html#outbound">Verbindingen met externe services</a>), zelfs als uw configuratie er nog steeds naar verwijst:</p>
+<ul>
+<li>een pushmeldingsserver bij Mattermost blijft in de instellingen staan, maar wordt nooit gebruikt;</li>
+<li>De adressen van Mattermost voor de appmarktplaats (<b>Marktplaats URL</b>) en voor productmededelingen worden geleegd;</li>
+<li>de Calls-app gebruikt de publieke STUN-server van Cloudflare in plaats van die van Mattermost, zonder de opgeslagen instelling te wijzigen (zie <a href="{{root}}docs/admins/calls.html#network">Calls</a>);</li>
+<li>de controle op beveiligingsupdates en het crashrapport zijn verwijderd, evenals de bijbehorende instellingen in de Systeemconsole (<b>Beveiligingsmeldingen inschakelen</b>, <b>Diagnostiek en foutrapportage inschakelen</b>) en de pagina <b>Mededelingen</b>.</li>
+</ul>
+<p>De socket voor de lokale modus is nu <code>/var/tmp/antimatter_local.socket</code>; <code>amctl</code> probeert ook de oude <code>/var/tmp/mattermost_local.socket</code>. Mattermost ondersteunt alleen nog PostgreSQL in de recente versies, en dat geldt ook voor Antimatter: verplaats eerst een MySQL-database naar PostgreSQL. Als u na het upgraden van de database door Antimatter terugkeert naar Mattermost, moet u uw Mattermost-backup herstellen.</p>
+
+<h2 id="export-import">Data exporteren en importeren</h2>
+<p>Het bulkexportformaat verplaatst data tussen servers: de hele server, bepaalde communities of bepaalde kanalen, inclusief bijlagen, profielfoto's en aangepaste emoji's, indien gewenst.</p>
+<pre><code># on the source server
+amctl export create --team-name design --include-profile-pictures
+amctl export list
+amctl export download &lt;export file&gt; design.zip
+# on the destination server
+amctl import upload design.zip
+amctl import list available
+amctl import process &lt;uploaded file&gt; --imported-users active</code></pre>
+<p>Volg de taken met <code>amctl export job list</code> en <code>amctl import job list</code>. Voor een export van een community of kanaal is <code>--imported-users</code> verplicht: <code>active</code> als de gebruikers naar deze server verhuizen, <code>inactive</code> bij een import naar een server waar ze al een account hebben, zodat accounts die zijn aangemaakt op basis van onzekere matches uitgeschakeld blijven totdat een beheerder ze controleert. <code>--destination-team-name</code> importeert naar een bestaande community. Exporten en importen worden standaard 30 dagen bewaard in de opslag van de server (<code>ExportSettings.Directory</code>, <code>ImportSettings.Directory</code>).</p>
+<p>Op de server zelf doen <code>antimatter export bulk</code> en <code>antimatter import bulk --apply</code> hetzelfde vanuit bestanden, zonder de API.</p>

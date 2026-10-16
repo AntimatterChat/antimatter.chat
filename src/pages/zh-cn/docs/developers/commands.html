@@ -1,0 +1,122 @@
+title: 斜杠命令
+description: Antimatter 中的自定义斜杠命令：创建方法、您的服务接收到的请求、响应格式、临时回复与频道内回复、延迟回复以及自动补全。
+guide: developers
+order: 4
+nav: 斜杠命令
+lead: 自定义斜杠命令允许用户在消息框中输入 /something 来调用您的服务。Antimatter 会将命令发送到您的 URL，并显示您的回复，该回复仅对该用户可见，或对整个频道可见。
+source: 24dbc9730e62
+---
+<h2 id="how">斜杠命令的工作原理</h2>
+<ol>
+<li>某人输入 <code>/weather Paris</code> 并发送。该文本不会被发布。</li>
+<li>Antimatter 向命令的 URL 发送 HTTP 请求，包含输入者、位置以及触发词后的文本。</li>
+<li>您的服务在请求超时时间内（默认为 30 秒）以消息形式回复。</li>
+<li>Antimatter 显示回复：仅对该用户可见（临时回复）或在频道内对所有人可见。</li>
+</ol>
+<p>命令属于某个社区，且触发词在该社区内是唯一的。内置命令（如 <code>/join</code>、<code>/msg</code> 或 <code>/away</code>）无法被替换。应用（插件）也可以注册命令；请参阅 <a href="{{root}}docs/developers/apps.html#server">服务器部分</a>。</p>
+
+<h2 id="create">创建命令</h2>
+<p>自定义斜杠命令默认开启（位于 <b>系统控制台 › 集成 › 集成管理</b> 中的 <b>启用自定义斜杠命令</b>，<code>ServiceSettings.EnableCommands</code>）。社区管理员和系统管理员默认可以创建它们。</p>
+<ol>
+<li>打开右上角的头像，然后选择 <b>集成 › 斜杠命令</b>，接着选择 <b>添加斜杠命令</b>。</li>
+<li>填写 <b>标题</b> 和 <b>描述</b>（显示在集成页面上）。</li>
+<li>输入 <b>命令触发词</b>，不带斜杠且不含空格，例如 <code>weather</code>。</li>
+<li>输入<b>请求 URL</b>，并选择<b>请求方式</b>：<b>POST</b>（默认）或 <b>GET</b>。</li>
+<li>可选设置<b>回复用户名</b>和<b>回复图标</b>。它们仅在服务器允许集成覆盖名称和图标时使用（参见<a href="{{root}}docs/developers/webhooks.html#identity">名称和图标</a>）。</li>
+<li>勾选 <b>自动补全</b>，以便在用户输入 <code>/</code> 时列出该命令，并提供 <b>自动补全提示</b>（其参数，如 <code>[city]</code>）和 <b>自动补全描述</b>。</li>
+<li>选择 <b>保存</b>，并复制显示的令牌。您的服务使用它来验证请求是否来自您的服务器。</li>
+</ol>
+<p>使用 API：<code>POST /api/v4/commands</code>，参数为 <code>{"team_id", "trigger", "url", "method": "P", "display_name", "description", "auto_complete": true, "auto_complete_hint", "auto_complete_desc", "username", "icon_url"}</code>。方法可以是 <code>P</code>（POST）或 <code>G</code>（GET）。<code>PUT /api/v4/commands/{command_id}/regen_token</code> 用于生成新的令牌。</p>
+
+<h2 id="request">您的服务收到的请求</h2>
+<p>POST 命令发送表单编码的主体（<code>application/x-www-form-urlencoded</code>）；GET 命令将相同的字段放在查询字符串中。令牌也位于 <code>Authorization: Token &lt;token&gt;</code> 请求头中。</p>
+<table>
+<thead><tr><th>字段</th><th>值</th></tr></thead>
+<tbody>
+<tr><td><code>token</code></td><td>该命令的令牌。请在每个请求中验证它。</td></tr>
+<tr><td><code>command</code></td><td>带有斜杠的触发词，例如 <code>/weather</code>。</td></tr>
+<tr><td><code>text</code></td><td>触发词之后的所有内容，例如 <code>Paris</code>。</td></tr>
+<tr><td><code>user_id</code>, <code>user_name</code></td><td>执行者。</td></tr>
+<tr><td><code>channel_id</code>, <code>channel_name</code></td><td>执行位置。</td></tr>
+<tr><td><code>team_id</code>, <code>team_domain</code></td><td>工作区的 ID 和 URL 名称。</td></tr>
+<tr><td><code>root_id</code></td><td>话题，当命令在话题的回复框中执行时。</td></tr>
+<tr><td><code>trigger_id</code></td><td>允许您的回复打开对话框（参见 <a href="{{root}}docs/developers/bots.html#dialogs">对话框</a>）。它仅在短时间内有效。</td></tr>
+<tr><td><code>response_url</code></td><td>用于稍后发布更多回复的 URL（参见 <a href="#delayed">延迟回复</a>）。</td></tr>
+<tr><td><code>user_mentions</code>, <code>user_mentions_ids</code>, <code>channel_mentions</code>, <code>channel_mentions_ids</code></td><td>文本中提及的人员和公共频道（如果有的话）。</td></tr>
+</tbody>
+</table>
+<div class="callout">必须设置服务器的 <b>站点 URL</b> 才能运行自定义命令：Antimatter 会基于它构建 <code>response_url</code>。</div>
+
+<h2 id="response">响应</h2>
+<p>使用 JSON 返回 <code>200</code>（<code>Content-Type: application/json</code>）：</p>
+<pre><code>{
+  "response_type": "in_channel",
+  "text": "Paris: 18 °C, light rain",
+  "attachments": []
+}</code></pre>
+<table>
+<thead><tr><th>字段</th><th>含义</th></tr></thead>
+<tbody>
+<tr><td><code>response_type</code></td><td><code>ephemeral</code>（默认值）：只有执行命令的人能看到回复，且刷新后不会保留。<code>in_channel</code>：回复将发布在频道中。</td></tr>
+<tr><td><code>text</code>, <code>attachments</code></td><td>消息内容，与 Webhook 相同：Markdown 文本和 <a href="{{root}}docs/developers/webhooks.html#attachments">附件</a>，包括按钮和菜单。</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code></td><td>要显示的名称和图片（如果允许覆盖）。命令自身的设置优先于这些设置。</td></tr>
+<tr><td><code>channel_id</code></td><td>将回复发布到另一个频道，执行者必须是该频道的成员。</td></tr>
+<tr><td><code>goto_location</code></td><td>命令执行完毕后要打开的 URL。</td></tr>
+<tr><td><code>props</code>, <code>type</code></td><td>额外属性和自定义帖子类型，与 Webhook 相同。</td></tr>
+<tr><td><code>extra_responses</code></td><td>更多回复，每个回复具有相同的字段，在第一条回复之后发布。</td></tr>
+<tr><td><code>skip_slack_parsing</code></td><td><code>true</code> 保持文本原样，不转换 Slack 风格的链接和提及。</td></tr>
+</tbody>
+</table>
+<p>非 JSON 的响应将作为临时消息显示，正文作为其文本。<code>204 No Content</code> 不显示任何内容。任何 200–299 之外的状态码都会向用户显示错误。</p>
+
+<h2 id="example">示例服务</h2>
+<p>一个仅使用标准库的 Python 最小命令服务：</p>
+<pre><code>import hmac
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
+
+TOKEN = "the token shown when you saved the command"
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        form = {key: values[0] for key, values in parse_qs(body).items()}
+        if not hmac.compare_digest(form.get("token", ""), TOKEN):
+            self.send_response(401)
+            self.end_headers()
+            return
+        answer = {
+            "response_type": "ephemeral",
+            "text": f"Hello @{form['user_name']}, you asked for: {form.get('text', '')}",
+        }
+        data = json.dumps(answer).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(data)
+
+HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()</code></pre>
+<p>如果该服务运行在私有网络地址上，系统管理员必须在<b>允许不受信任的内部连接到</b>（<code>ServiceSettings.AllowedUntrustedInternalConnections</code>）中允许它。</p>
+
+<h2 id="delayed">延迟响应</h2>
+<p>对于耗时超过超时时间的工作，请立即回复（例如发送一条临时消息“正在处理中……”），然后将实际响应 POST 到 <code>response_url</code>。它接受与响应相同的 JSON，并且可以在命令执行后的 30 分钟内最多使用 5 次。</p>
+<pre><code>curl -X POST "$RESPONSE_URL" -H 'Content-Type: application/json' \
+  -d '{"response_type": "in_channel", "text": "Report ready: https://reports.example.com/42"}'</code></pre>
+
+<h2 id="run">通过 API 运行命令</h2>
+<p>脚本和机器人可以像用户输入一样运行任何命令，无论是内置命令还是自定义命令：</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/commands/execute \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "command": "/weather Paris"}'</code></pre>
+<p><code>GET /api/v4/teams/{team_id}/commands/autocomplete</code> 列出用户在社区中可以自动补全的命令。</p>
+
+<h2 id="autocomplete">自动补全</h2>
+<p>在集成页面创建命令时，系统会根据其触发词、提示和描述进行自动补全。由应用注册的命令可以使用 <code>AutocompleteData</code> 详细描述其子命令和参数，例如 <code>model.NewAutocompleteData(trigger, hint, helpText)</code>：</p>
+<ul>
+<li><code>AddCommand(sub)</code> 添加一个子命令，该子命令本身也是一个 <code>AutocompleteData</code>。</li>
+<li><code>AddTextArgument(helpText, hint, pattern)</code> 添加自由文本参数。</li>
+<li><code>AddStaticListArgument(helpText, required, items)</code> 提供一个固定的 <code>AutocompleteListItem{Item, Hint, HelpText}</code> 列表。</li>
+<li><code>AddDynamicListArgument(helpText, url, required)</code> 在用户输入时向您的应用请求建议。该 URL 是您应用的一个路由，例如 <code>/plugins/com.example.weather/cities</code>。它接收用户、频道和社区信息，并返回一个 JSON 列表，包含 <code>{"Item", "Hint", "HelpText"}</code>。</li>
+</ul>
+<p><code>Named…</code> 变体（如 <code>AddNamedTextArgument</code> 等）用于添加 <code>--name value</code> 标志。两种 Web 界面都会显示这些建议。</p>

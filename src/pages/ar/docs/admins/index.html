@@ -1,0 +1,75 @@
+title: تشغيل خادم
+description: دليل مديري الأنظمة الذين يقومون بتثبيت وتشغيل Antimatter: ما الذي يتكون منه النشر، وما الذي تحتاجه، ومن أين تبدأ.
+guide: admins
+order: 1
+nav: نظرة عامة
+lead: هذا الدليل مخصص لمديري الأنظمة الذين يقومون بتثبيت وتشغيل خادم Antimatter. يفترض الدليل أنك على دراية بنظام Linux وDocker والوكلاء العكسيين (reverse proxies)، لكنك غير مطلع على Antimatter.
+source: bf9ad573ed07
+---
+<h2 id="parts">مكونات النشر</h2>
+<p>Antimatter هو تطبيق دردشة جماعية ذاتي الاستضافة، وهو فرع (fork) من Mattermost. يتكون النشر الكامل من الأجزاء التالية. فقط الثلاثة الأولى هي إلزامية.</p>
+<table>
+<thead><tr><th>المكوّن</th><th>وظيفته</th><th>إلزامي</th></tr></thead>
+<tbody>
+<tr><td><b>خادم Antimatter</b></td><td>برنامج Go واحد (<code>antimatter</code>) يقدّم التطبيق الويب وواجهة برمجة التطبيقات (API) وWebSockets على المنفذ 8065، ويشغّل التطبيقات المدمجة (الإضافات)، وينقل وسائط المكالمات على المنفذ 8443. يُدار هذا الخادم عبر أداة سطر الأوامر <code>amctl</code>.</td><td>نعم</td></tr>
+<tr><td><b>PostgreSQL</b></td><td>قاعدة البيانات: الرسائل، المستخدمون، المجتمعات، وفي الإعداد الموصى به، إعدادات الخادم. الإصدار 15 أو أحدث.</td><td>نعم</td></tr>
+<tr><td><b>تخزين الملفات</b></td><td>الملفات المرفوعة، الصور، والتطبيقات المثبتة: خدمة متوافقة مع S3 (ملف compose يشغّل RustFS)، أو مجلد محلي.</td><td>نعم</td></tr>
+<tr><td><b>وكيل عكسي</b></td><td>HTTPS أمام الخادم: ملف Caddy في ملف compose، أو nginx الخاص بك.</td><td>لإنتاج</td></tr>
+<tr><td><b>خدمة GIF</b> (<code>gifs-server</code>)</td><td>ملفات GIF والملصقات لمُنتقي GIF، من كتالوجك الخاص. تتحدث هذه الخدمة عبر واجهة برمجة تطبيقات Tenor.</td><td>لا</td></tr>
+<tr><td><b>وكيل دفع</b></td><td>يحوّل الإشعارات إلى التطبيق المحمول عبر Apple وGoogle.</td><td>للإشعارات المحمولة</td></tr>
+<tr><td><b>rtcd</b>, <b>خادم TURN</b></td><td>خادم وسائط منفصل للعديد من المكالمات، ونقطة إعادة توجيه (relay) للأشخاص الموجودين خلف جدران حماية صارمة.</td><td>لا</td></tr>
+<tr><td><b>نقاط نهاية الذكاء الاصطناعي</b></td><td>النماذج خلف وكلاء الذكاء الاصطناعي، النسخ النصي للمكالمات، القراءة الصوتية والترجمة: مزود سحابي أو خوادم تشغّلها بنفسك.</td><td>لا</td></tr>
+</tbody>
+</table>
+<p>Antimatter لا يحتوي على ترخيص مدفوع ولا نسخة مدفوعة: تسجيل الدخول الموحّد، LDAP، التوفر العالي، تصديرات الامتثال، الاحتفاظ بالبيانات، والميزات الأخرى التي يحتفظ بها Mattermost لخططه المدفوعة، كلها متضمنة.</p>
+
+<h2 id="requirements">المتطلبات</h2>
+<ul>
+<li>خادم Linux، <code>amd64</code> أو <code>arm64</code>، مع 2 نواة CPU و4 جيجابايت من الذاكرة أو أكثر لعدة مئات من الأشخاص، ومساحة تخزينية للملفات التي يرفعها المستخدمون.</li>
+<li>Docker Engine مع إضافة Compose (<code>docker compose</code>)، للتثبيت الموصى به.</li>
+<li>لإنتاج: اسم نطاق يشير إلى الخادم، والمنفذين 80 و443 مفتوحين لـ HTTPS.</li>
+<li>للمكالمات: المنفذ 8443، UDP وTCP، قابل للوصول من قبل الأشخاص الذين يتصلون.</li>
+<li>لإرسال البريد الإلكتروني: خادم SMTP يمكن لـ Antimatter الإرسال من خلاله.</li>
+</ul>
+
+<h2 id="quick-start">بدء سريع</h2>
+<pre><code>mkdir antimatter &amp;&amp; cd antimatter
+curl -fsSLO https://antimatter.chat/compose.yaml
+cat &gt; .env &lt;&lt;EOF
+SITE_URL=http://localhost:8065
+POSTGRES_PASSWORD=$(openssl rand -hex 24)
+S3_SECRET_KEY=$(openssl rand -hex 24)
+GIFS_API_KEY=$(openssl rand -hex 24)
+EOF
+docker compose up -d</code></pre>
+<p>ثم افتح عنوان الموقع وأنشئ حسابك: يصبح الحساب الأول مدير النظام. يشرح <a href="{{root}}docs/admins/install.html">التثبيت</a> كل خطوة وطرق التثبيت الأخرى.</p>
+
+<h2 id="in-this-guide">في هذا الدليل</h2>
+<ul>
+<li><a href="{{root}}docs/admins/install.html">التثبيت</a>: Docker Compose، الصور، أرشيف الإصدار، والمدير الأول.</li>
+<li><a href="{{root}}docs/admins/configuration.html">الإعدادات</a>: الإعدادات في قاعدة البيانات أو ملف، متغيرات البيئة <code>AM_</code>، وحدة التحكم بالنظام، <code>amctl</code>، والسجلات.</li>
+<li><a href="{{root}}docs/admins/https.html">النطاق وHTTPS</a>: عنوان الموقع، Caddy، nginx، وعناوين العملاء.</li>
+<li><a href="{{root}}docs/admins/calls.html">المكالمات والصوت</a>: المنافذ، NAT، TURN، rtcd، والنسخ النصي والتسميات التوضيحية.</li>
+<li><a href="{{root}}docs/admins/email-push.html">البريد الإلكتروني والإشعارات</a>: SMTP، وكيل الإشعارات، وتطبيق الهاتف المحمول.</li>
+<li><a href="{{root}}docs/admins/apps.html">التطبيقات المدمجة</a>: التطبيقات المفعّلة، إعداداتها، وتثبيت تطبيقات أخرى.</li>
+<li><a href="{{root}}docs/admins/ai.html">الذكاء الاصطناعي</a>: النماذج للوكلاء، الصوت، والترجمة، وما هي البيانات التي تُرسل إلى أين.</li>
+<li><a href="{{root}}docs/admins/authentication.html">تسجيل الدخول والحسابات</a>: التسجيل، كلمات المرور، المصادقة متعددة العوامل، تسجيل الدخول الموحّد، LDAP، الضيوف، والجلسات.</li>
+<li><a href="{{root}}docs/admins/backups-upgrades.html">النسخ الاحتياطي والترقيات</a>: النسخ الاحتياطي، الاستعادة، الترقية، والنقل من Mattermost.</li>
+<li><a href="{{root}}docs/admins/operations.html">التشغيل</a>: المراقبة، التوسع، الاحتفاظ بالبيانات، الامتثال، واستكشاف الأخطاء وإصلاحها.</li>
+<li><a href="{{root}}docs/admins/security.html">الأمان</a>: قائمة التحقق من التقوية والاتصالات الخارجية.</li>
+</ul>
+<p>هل تدير مجتمعًا بدلاً من خادم (قنوات، أدوار، إشراف)؟ راجع <a href="{{root}}docs/communities/index.html">إدارة مجتمع</a>. هل تبني تكاملات؟ راجع <a href="{{root}}docs/developers/index.html">البناء على Antimatter</a>.</p>
+
+<h2 id="first-hour">ساعتك الأولى</h2>
+<ol>
+<li>ثبّت التطبيق، وأنشئ حساب المدير فورًا.</li>
+<li>ضع الخادم خلف HTTPS على نطاق خاص به.</li>
+<li>اضبط SMTP وأرسل بريدًا تجريبيًا.</li>
+<li>افتح منفذ المكالمات، وأوقف وضع الاختبار في تطبيق المكالمات.</li>
+<li>حدد من يمكنه التسجيل، وفعّل المصادقة متعددة العوامل.</li>
+<li>راجع الاتصالات الخارجية في <a href="{{root}}docs/admins/security.html#outbound">الأمان</a>.</li>
+<li>اضبط نسخًا احتياطيًا يوميًا.</li>
+</ol>
+
+<h2 id="help">الحصول على المساعدة</h2>
+<p>اطرح أسئلتك في <a href="https://github.com/AntimatterChat/community/discussions">مناقشات المجتمع</a>، وأبلغ عن الأخطاء البرمجية في <a href="https://github.com/AntimatterChat/community/issues/new/choose">مستودع المجتمع</a>. أبلغ عن المشكلات الأمنية بشكل خاص، كما يوضح <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">سياسة الأمان</a>.</p>

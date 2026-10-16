@@ -1,0 +1,107 @@
+title: Sikkerhet
+description: Herd en Antimatter-tjener: hvilke porter som skal eksponeres, hemmeligheter, ratelimiting, IP-filtering, opplastingsgrenser, personverninnstillinger og blokkering av brukere, økter, tilkoblingene tjeneren gjør til eksterne tjenester, og hvordan du melder fra om en sårbarhet.
+guide: admins
+order: 12
+nav: Sikkerhet
+lead: En sjekkliste for å herde en Antimatter-tjener: hva som skal eksponeres, grenser og personverninnstillinger som bør gjennomgås, eksterne tjenester tjeneren kontakter, og hvordan du melder fra om et sikkerhetsproblem.
+source: dbe2371ecf30
+---
+<h2 id="exposure">Hva som skal eksponeres</h2>
+<table>
+<thead><tr><th>Port</th><th>Tjeneste</th><th>Eksponering</th></tr></thead>
+<tbody>
+<tr><td>443/tcp, 443/udp, 80/tcp</td><td>HTTPS-proxyen din (Caddy eller nginx)</td><td>Offentlig: dette er hvordan folk når Antimatter.</td></tr>
+<tr><td>8443/udp og 8443/tcp</td><td>Samtalemedier</td><td>Offentlig, hvis folk bruker samtaler fra utenfor nettverket ditt.</td></tr>
+<tr><td>8065/tcp</td><td>Antimatters webtjener</td><td>Kun til proxyen: publiser den på <code>127.0.0.1</code> (<code>HTTP_PORT=127.0.0.1:8065</code>).</td></tr>
+<tr><td>8067/tcp</td><td>Målepunkter</td><td>Kun privat nettverk, når aktivert. Ingen pålogging.</td></tr>
+<tr><td>8074/tcp og udp</td><td>Cluster-gossip</td><td>Kun mellom cluster-noder.</td></tr>
+<tr><td>5432, 9000, 8080, 8066</td><td>PostgreSQL, filopplagring, GIF-tjeneste, push-proxy</td><td>Aldri. Compose-filene holder dem på interne nettverk uten publisert port.</td></tr>
+</tbody>
+</table>
+<p>Nettsidens compose-fil kjører også alle containere med <code>no-new-privileges</code>, kjører Antimatter som en uprivilegert bruker på et distroless-bilde, og kjører GIF-tjenesten med et skrivebeskyttet filsystem. Databasen, lagringen og GIF-tjenesten ligger på et nettverk uten internetttilgang.</p>
+
+<h2 id="checklist">Sjekkliste etter installasjon</h2>
+<ol>
+<li>Opprett den første administratorkontoen før noen andre kan nå tjeneren (<a href="{{root}}docs/admins/install.html#first-admin">Installasjon</a>).</li>
+<li>Server Antimatter kun over HTTPS, og sett nettside-URLen til <code>https://</code>-adressen (<a href="{{root}}docs/admins/https.html">Domene og HTTPS</a>).</li>
+<li>Hold <code>.env</code>, <code>config.json</code> og TLS-nøkler lesbare kun for root (eller tjenerens bruker): <code>chmod 600 .env</code>.</li>
+<li>Bestem hvem som kan opprette kontoer, hold <b>Aktiver åpen server</b> slått av med mindre samfunnet er offentlig, og slå på <b>Krev e-postverifisering</b> når e-post fungerer (<a href="{{root}}docs/admins/authentication.html">Pålogging og kontoer</a>).</li>
+<li>Slå på multifaktorautentisering, og gjennomsnitt den minst for administratorer, eller bruk identitetsleverandørens.</li>
+<li>Gjennomgå de eksterne tilkoblingene nedenfor, spesielt STUN-tjeneren Samtaler bruker som standard.</li>
+<li>Sikkerhetskopier, og test en gjenoppretting (<a href="{{root}}docs/admins/backups-upgrades.html">Sikkerhetskopier og oppgraderinger</a>).</li>
+<li>Hold bildene oppdaterte: sikkerhetsrettinger kommer med nye bilder.</li>
+</ol>
+
+<h2 id="rate-limiting">Ratelimiting</h2>
+<p>Serveren kan begrense hvor mange API-forespørsler hver klient kan gjøre. Dette er slått av som standard. I <b>Systemkonsoll › Miljø › Hastighetsbegrensning</b>:</p>
+<table>
+<thead><tr><th>Innstilling</th><th>Nøkkel</th><th>Standard</th></tr></thead>
+<tbody>
+<tr><td><b>Aktiver hastighetsbegrensning</b></td><td><code>RateLimitSettings.Enable</code></td><td>av</td></tr>
+<tr><td><b>Maksimalt antall forespørsler per sekund</b></td><td><code>RateLimitSettings.PerSec</code></td><td>10</td></tr>
+<tr><td><b>Maksimal burst-størrelse</b></td><td><code>RateLimitSettings.MaxBurst</code></td><td>100</td></tr>
+<tr><td><b>Størrelse på minnelageret</b></td><td><code>RateLimitSettings.MemoryStoreSize</code></td><td>10000 clients tracked</td></tr>
+<tr><td><b>Varier ratelimiting etter fjernadresse</b></td><td><code>RateLimitSettings.VaryByRemoteAddr</code></td><td>på</td></tr>
+<tr><td><b>Varier ratelimiting etter bruker</b></td><td><code>RateLimitSettings.VaryByUser</code></td><td>av</td></tr>
+<tr><td><b>Varier ratelimiting etter HTTP-hode</b></td><td><code>RateLimitSettings.VaryByHeader</code></td><td>tom</td></tr>
+</tbody>
+</table>
+<p>Bak en proxy fungerer begrensninger basert på adresse bare hvis serveren kjenner hver klients adresse (<code>ServiceSettings.TrustedProxyIPHeader</code> og <code>ServiceSettings.TrustedProxyIPs</code>, se <a href="{{root}}docs/admins/https.html#client-address">Client addresses behind a proxy</a>). Ellers ser det ut som om alle forespørsler kommer fra proxyen, og alle deler én grense. Det samme gjelder IP-filtering og adressene i revisjonsloggene.</p>
+<p>Påloggingsforsøk begrenses separat: <b>Maks antall påloggingsforsøk</b> (10) låser en konto etter dette antallet feilpassord.</p>
+
+<h2 id="ip-filtering">IP-filtering</h2>
+<p><b>Systemkonsoll › Nettstedsoppsett › IP-filtrering</b> begrenser tilgang til serveren basert på IP-adresse, med tillat- og nekt-regler (hver med en adresse eller et CIDR-område). Med <b>Slå på IP-filtering</b> slått på, kan personer hvis adresse samsvarer med en nekt-regel, eller ingen tillat-regel når det finnes tillat-regler, ikke nå serveren. Siden avviker regler som ville blokkert din egen adresse. Bak en proxy, må du først sette opp klientadresser (<a href="{{root}}docs/admins/https.html#client-address">Klientadresser bak en proxy</a>): ellers ser det ut som om alle forespørsler kommer fra proxyen.</p>
+
+<h2 id="uploads">Opplasting og fildeling</h2>
+<table>
+<thead><tr><th>Innstilling</th><th>Hvor</th><th>Standard</th></tr></thead>
+<tbody>
+<tr><td><b>Maksimal filstørrelse</b> (<code>FileSettings.MaxFileSize</code>)</td><td>Environment › File Storage</td><td>100 MB. Hold proxyens grense for forespørselsstørrelse på minst dette.</td></tr>
+<tr><td><b>Maksimalt laststørrelse (byte)</b> (<code>ServiceSettings.MaximumPayloadSizeBytes</code>)</td><td>Environment › Web Server</td><td>300000: den største API-forespørselen bortsett fra filopplastinger</td></tr>
+<tr><td><b>Tillat fildeling</b> (<code>FileSettings.EnableFileAttachments</code>)</td><td>Site Configuration › File Sharing and Downloads</td><td>på</td></tr>
+<tr><td><b>Tillat filopplasting på mobil</b>, <b>Tillat nedlasting av filer på mobil</b></td><td>Site Configuration › File Sharing and Downloads</td><td>på</td></tr>
+<tr><td><b>Aktiver offentlige fil-lenker</b> (<code>FileSettings.EnablePublicLink</code>)</td><td>Site Configuration › Public Links</td><td>av: når slått på, kan personer dele en fil med en lenke som fungerer uten innlogging</td></tr>
+<tr><td><b>Aktiver SVG</b> (<code>ServiceSettings.EnableSVGs</code>)</td><td>Site Configuration › Posts</td><td>av på en ny server: når slått på, vises SVG-bilder i teksten</td></tr>
+</tbody>
+</table>
+<p>Antimatter skanner ikke opplastinger for skadeprogrammer.</p>
+
+<h2 id="privacy">Personverninnstillinger</h2>
+<p>I <b>Systemkonsoll › Nettstedsoppsett › Brukere og team</b>:</p>
+<table>
+<thead><tr><th>Innstilling</th><th>Nøkkel</th><th>Standard</th><th>Hva det gjør</th></tr></thead>
+<tbody>
+<tr><td><b>Vis e-postadresse</b></td><td><code>PrivacySettings.ShowEmailAddress</code></td><td>på</td><td>Avslått. Medlemmenes e-postadresser er skjult for alle bortsett fra administratorer. Slå av dette på offentlige servere.</td></tr>
+<tr><td><b>Vis fullt navn</b></td><td><code>PrivacySettings.ShowFullName</code></td><td>på</td><td>Avslått. Fullt navn er skjult, og brukernavn vises i stedet.</td></tr>
+<tr><td><b>Aktiver ignorering, blokkering og meldingsforespørsler</b></td><td><code>PrivacySettings.EnableUserBlocking</code></td><td>på</td><td>Se nedenfor.</td></tr>
+<tr><td><b>Tillat brukere å åpne Direktemeldingskanaler med</b></td><td><code>TeamSettings.RestrictDirectMessage</code></td><td>Alle brukere på Antimatter-serveren</td><td>Eller <b>Alle medlemmer i teamet</b>: bare personer som deler et samfunn.</td></tr>
+</tbody>
+</table>
+<h3>Ignorer, blokkering og meldingsforespørsler</h3>
+<p>Når <b>Aktiver ignorering, blokkering og meldingsforespørsler</b> er slått på (standard), kan brukere ignorere og blokkere hverandre, og velge å motta direktemeldinger fra ukjente personer som meldingsforespørsler. Disse gir ikke varsel før de er godkjent. Dette passer for offentlige samfunn. På en arbeidsplass der kolleger alltid må kunne nå hverandre, slår du av funksjonen (<code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING=false</code>): ingenting håndheves lenger, men listene og valgene brukerne har gjort, beholdes, og gjelder igjen hvis du slår den på på nytt.</p>
+
+<h2 id="sessions">Sesjoner og nøkler</h2>
+<ul>
+<li>Sesjonslengde og tidsavbrudd for inaktivitet: se <a href="{{root}}docs/admins/authentication.html#sessions">Innlogging og kontoer</a>. Kortere sesjoner betyr at en tapt laptop eller telefon forblir pålogget i kortere tid.</li>
+<li><b>Aktiver personlige tilgangstokens</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, av) lar brukere opprette API-tokens, mens <b>Maksimal levetid for personlige tilgangstoken (dager)</b> setter en øvre grense for disse. Begge innstillingene finnes under <b>Systemkonsoll › Integrasjoner › Integrasjonsadministrasjon</b>.</li>
+<li>For å logge alle ut samtidig, for eksempel etter en mistenkt sikkerhetsbrudd: <b>Trekke tilbake alle økter</b> under <b>Systemkonsoll › Brukeradministrasjon › Brukere</b>.</li>
+</ul>
+
+<h2 id="outbound">Tilkoblinger til eksterne tjenester</h2>
+<p>Antimatter kontakter ingen tjenester drevet av Mattermost, Inc. Den sender ingen telemetri, krasjrapporter eller sikkerhetsoppdateringskontroller, og henter ingen produktvarsler. En konfigurasjon overført fra Mattermost som fortsatt nevner en av Mattermosts tjenester (dens push-tjenester, dens appmarked, dens varsler eller dens STUN-server for samtaler) får ikke serveren til å kontakte dem: disse adressene ignoreres.</p>
+<p>Serveren og appene kobler seg til andre eksterne tjenester bare for funksjonene som krever dem, og til tjenestene du konfigurerer:</p>
+<table>
+<thead><tr><th>Funksjon</th><th>Kontakter</th><th>Som standard</th></tr></thead>
+<tbody>
+<tr><td>Samtaler: å finne offentlige adresser med STUN. Serveren og hver person som går med i en samtale sender en forespørsel, som viser STUN-serveren IP-adressen og porten deres.</td><td>Cloudflares offentlige STUN-server, <code>stun.cloudflare.com</code></td><td>på, mens Samtale-appen er aktivert. For å endre dette, se <a href="{{root}}docs/admins/calls.html#network">Samtaler</a>.</td></tr>
+<tr><td>Forhåndsvisning av lenker: serveren henter sidene som er lenket til i meldinger (<b>Aktiver forhåndsvisning av nettsidelenker</b>, <code>ServiceSettings.EnableLinkPreviews</code>)</td><td>nettsidene folk lenker til</td><td>på. Slå av med <code>AM_SERVICESETTINGS_ENABLELINKPREVIEWS=false</code>.</td></tr>
+<tr><td>Skjermvarsler til mobilappen</td><td>din egen skjermvarselproxy (<a href="{{root}}docs/admins/email-push.html#push">Skjermvarsler</a>)</td><td>av, inntil du setter adressen</td></tr>
+<tr><td>Den eksterne appmarkedsplassen (<code>PluginSettings.EnableRemoteMarketplace</code>)</td><td>den <b>Markeds-URL</b>en du har angitt</td><td>av, og ingen adresse</td></tr>
+<tr><td>E-post</td><td>SMTP-serveren din</td><td>standardserveren er <code>localhost</code></td></tr>
+<tr><td>Enkel pålogging, AI-modeller, tale-til-tekst og oversettelse, utgående webhooks og apper som E-post, Kalender, GitHub, GitLab eller Jira</td><td>tjenestene du konfigurerer</td><td>av, inntil du konfigurerer dem</td></tr>
+</tbody>
+</table>
+<p>Som standard nekter serveren å koble til private og loopback-adresser for disse (forhåndsvisning av lenker, webhooks, apper), slik at en melding eller en integrasjon ikke kan brukes for å nå det interne nettverket. List opp de interne vertene den kan nå i <b>Tillat upålitelige interne tilkoblinger til</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>, i <b>Systemkonsoll › Miljø › Utvikler</b>); nettstedets compose-fil lister <code>gifs</code> der.</p>
+
+<h2 id="report">Rapportering av sårbarhet</h2>
+<p>Rapporter sikkerhetsproblemer privat, som forklart i <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">Antimatters sikkerhetspolitikk</a>, ikke i offentlige saker.</p>

@@ -1,0 +1,122 @@
+title: Comandes amb barra
+description: Comandes amb barra personalitzades a Antimatter: com crear-les, la sol·licitud que rep el teu servei, el format de la resposta, les respostes efímeres i en el canal, les respostes amb retard i l'autocompletar.
+guide: developers
+order: 4
+nav: Comandes amb barra
+lead: Una comanda amb barra personalitzada permet als usuaris escriure /algalot a la caixa de missatges per cridar el teu servei. Antimatter envia la comanda a la teva URL i mostra la teva resposta, ja sigui només a la persona o a tot el canal.
+source: 24dbc9730e62
+---
+<h2 id="how">Com funciona una comanda amb barra</h2>
+<ol>
+<li>Algú escriu <code>/weather Paris</code> i l'envia. El text no es publica.</li>
+<li>Antimatter envia una sol·licitud HTTP a l'URL de la comanda, amb qui l'ha escrita, on i el text després de la paraula activadora.</li>
+<li>El teu servei respon dins del temps límit de la sol·licitud (30 segons per defecte) amb un missatge.</li>
+<li>Antimatter mostra la resposta: només a aquesta persona (efímera) o al canal per a tothom.</li>
+</ol>
+<p>Les comandes pertanyen a una comunitat, i una paraula activadora és única dins d'aquesta. Les comandes integrades com <code>/join</code>, <code>/msg</code> o <code>/away</code> no es poden substituir. Les aplicacions (plugins) també poden registrar comandes; consulta <a href="{{root}}docs/developers/apps.html#server">La part del servidor</a>.</p>
+
+<h2 id="create">Crea una comanda</h2>
+<p>Les comandes amb barra personalitzades estan activades per defecte (<b>Activa les comandes amb barra personalitzades</b> a <b>Consola del sistema › Integracions › Gestió d'integracions</b>, <code>ServiceSettings.EnableCommands</code>). Els administradors de comunitat i els administradors del sistema poden crear-les per defecte.</p>
+<ol>
+<li>Obre el teu avatar a la part superior dreta, després <b>Integracions › Comandes amb barra</b>, i després <b>Afegeix una comanda amb barra</b>.</li>
+<li>Omple el <b>Títol</b> i la <b>Descripció</b> (es mostren a les pàgines d'integracions).</li>
+<li>Introdueix la <b>Paraula activadora de la comanda</b>, sense barra i sense espais, per exemple <code>weather</code>.</li>
+<li>Introdueix l'<b>URL de sol·licitud</b> i tria el <b>Mètode de sol·licitud</b>: <b>POST</b> (per defecte) o <b>GET</b>.</li>
+<li>Opcionalment, estableix un <b>Nom d’usuari de la resposta</b> i una <b>Icona de resposta</b>. Només s'utilitzen quan el servidor permet que les integracions substituïssin noms i icones (consulta <a href="{{root}}docs/developers/webhooks.html#identity">Nom i icona</a>).</li>
+<li>Marca <b>Autocompletar</b> per llistar la comanda quan la gent escriu <code>/</code>, amb una <b>Indicació d’autocompletar</b> (els seus arguments, com ara <code>[city]</code>) i una <b>Descripció d’autocompletar</b>.</li>
+<li>Tria <b>Desa</b> i copia el token que es mostra. El teu servei l'utilitza per verificar que les sol·licituds provenen del teu servidor.</li>
+</ol>
+<p>Mitjançant l'API: <code>POST /api/v4/commands</code> amb <code>{"team_id", "trigger", "url", "method": "P", "display_name", "description", "auto_complete": true, "auto_complete_hint", "auto_complete_desc", "username", "icon_url"}</code>. El mètode és <code>P</code> per a POST o <code>G</code> per a GET. <code>PUT /api/v4/commands/{command_id}/regen_token</code> emet un nou token.</p>
+
+<h2 id="request">La sol·licitud que rep el teu servei</h2>
+<p>Una comanda POST envia un cos codificat en format de formulari (<code>application/x-www-form-urlencoded</code>); una comanda GET envia els mateixos camps a la cadena de consulta. El token també es troba a la capçalera <code>Authorization: Token &lt;token&gt;</code>.</p>
+<table>
+<thead><tr><th>Camp</th><th>Valor</th></tr></thead>
+<tbody>
+<tr><td><code>token</code></td><td>El token de la comanda. Comprova'l en cada sol·licitud.</td></tr>
+<tr><td><code>command</code></td><td>El desencadenant amb la seva barra, per exemple <code>/weather</code>.</td></tr>
+<tr><td><code>text</code></td><td>Tot el que hi ha després del desencadenant, per exemple <code>Paris</code>.</td></tr>
+<tr><td><code>user_id</code>, <code>user_name</code></td><td>Qui l'ha executat.</td></tr>
+<tr><td><code>channel_id</code>, <code>channel_name</code></td><td>On s'ha executat.</td></tr>
+<tr><td><code>team_id</code>, <code>team_domain</code></td><td>L'identificador i el nom de l'URL de la comunitat.</td></tr>
+<tr><td><code>root_id</code></td><td>El fil, quan s'ha executat a la caixa de resposta d'un fil.</td></tr>
+<tr><td><code>trigger_id</code></td><td>Permet que la teva resposta obri un diàleg (vegeu <a href="{{root}}docs/developers/bots.html#dialogs">Diàlegs</a>). Només és vàlid durant un temps breu.</td></tr>
+<tr><td><code>response_url</code></td><td>Una URL per publicar més respostes més endavant (vegeu <a href="#delayed">Respostes amb retard</a>).</td></tr>
+<tr><td><code>user_mentions</code>, <code>user_mentions_ids</code>, <code>channel_mentions</code>, <code>channel_mentions_ids</code></td><td>Les persones i els canals públics mencionats al text, si n'hi ha.</td></tr>
+</tbody>
+</table>
+<div class="callout">L'<b>URL del lloc web</b> del servidor ha d'estar configurada perquè les comandes personalitzades puguin executar-se: Antimatter construeix <code>response_url</code> a partir d'aquesta.</div>
+
+<h2 id="response">La resposta</h2>
+<p>Respon amb <code>200</code> i JSON (<code>Content-Type: application/json</code>):</p>
+<pre><code>{
+  "response_type": "in_channel",
+  "text": "Paris: 18 °C, light rain",
+  "attachments": []
+}</code></pre>
+<table>
+<thead><tr><th>Camp</th><th>Significat</th></tr></thead>
+<tbody>
+<tr><td><code>response_type</code></td><td><code>ephemeral</code> (el valor per defecte): només la persona que ha executat la comanda veu la resposta, i no es conserva després d'una recàrrega. <code>in_channel</code>: la resposta es publica al canal.</td></tr>
+<tr><td><code>text</code>, <code>attachments</code></td><td>El missatge, com per als webhooks: text en Markdown i <a href="{{root}}docs/developers/webhooks.html#attachments">adjunts</a>, inclosos botons i menús.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code></td><td>El nom i la imatge a mostrar, quan es permeten substitucions. La configuració pròpia de la comanda té prioritat sobre aquests.</td></tr>
+<tr><td><code>channel_id</code></td><td>Publica la resposta en un altre canal, del qual la persona ha de ser membre.</td></tr>
+<tr><td><code>goto_location</code></td><td>Una URL per obrir un cop s'ha executat la comanda.</td></tr>
+<tr><td><code>props</code>, <code>type</code></td><td>Propietats addicionals i un tipus de publicació personalitzat, com per als webhooks.</td></tr>
+<tr><td><code>extra_responses</code></td><td>Més respostes, cadascuna amb els mateixos camps, publicades després de la primera.</td></tr>
+<tr><td><code>skip_slack_parsing</code></td><td><code>true</code> manté el text tal com és, sense convertir els enllaços i les mencions d'estil Slack.</td></tr>
+</tbody>
+</table>
+<p>Una resposta que no és JSON es mostra com un missatge efímer amb el cos com a text. <code>204 No Content</code> no mostra res. Qualsevol estat fora de l'interval 200–299 mostra un error a la persona.</p>
+
+<h2 id="example">Servei d'exemple</h2>
+<p>Un servei de comanda mínim en Python, amb només la biblioteca estàndard:</p>
+<pre><code>import hmac
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
+
+TOKEN = "the token shown when you saved the command"
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        form = {key: values[0] for key, values in parse_qs(body).items()}
+        if not hmac.compare_digest(form.get("token", ""), TOKEN):
+            self.send_response(401)
+            self.end_headers()
+            return
+        answer = {
+            "response_type": "ephemeral",
+            "text": f"Hello @{form['user_name']}, you asked for: {form.get('text', '')}",
+        }
+        data = json.dumps(answer).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(data)
+
+HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()</code></pre>
+<p>Si el servei s'executa en una adreça de xarxa privada, un administrador del sistema ha de permetre-ho a <b>Permet connexions internes no fiables a</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>).</p>
+
+<h2 id="delayed">Respostes amb retard</h2>
+<p>Per a tasques que trugen més temps que el límit de temps, respon de seguida (per exemple, amb un missatge efímer «Hi estic treballant…») i, a continuació, envia la resposta real a <code>response_url</code> mitjançant una sol·licitud POST. Rep el mateix JSON que la resposta i funciona fins a 5 vegades en 30 minuts des de la comanda.</p>
+<pre><code>curl -X POST "$RESPONSE_URL" -H 'Content-Type: application/json' \
+  -d '{"response_type": "in_channel", "text": "Report ready: https://reports.example.com/42"}'</code></pre>
+
+<h2 id="run">Executa una comanda amb la API</h2>
+<p>Els scripts i els bots poden executar qualsevol comanda, integrada o personalitzada, com si l'haguessin teclejada:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/commands/execute \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "command": "/weather Paris"}'</code></pre>
+<p><code>GET /api/v4/teams/{team_id}/commands/autocomplete</code> llista les comandes que les persones poden autocompletar en una comunitat.</p>
+
+<h2 id="autocomplete">Autocompletat</h2>
+<p>Les comandes creades a les pàgines d'integracions s'autocompleten amb el seu desencadenador, la pista i la descripció. Les comandes registrades per les aplicacions poden descriure en detall les seves subcomandes i arguments amb <code>AutocompleteData</code>, des de <code>model.NewAutocompleteData(trigger, hint, helpText)</code>:</p>
+<ul>
+<li><code>AddCommand(sub)</code> afegeix una subcomanda, que també és un <code>AutocompleteData</code>.</li>
+<li><code>AddTextArgument(helpText, hint, pattern)</code> afegeix text lliure.</li>
+<li><code>AddStaticListArgument(helpText, required, items)</code> ofereix una llista fixa de <code>AutocompleteListItem{Item, Hint, HelpText}</code>.</li>
+<li><code>AddDynamicListArgument(helpText, url, required)</code> demana a la teva aplicació suggeriments mentre les persones escriuen. L'URL és una ruta de la teva aplicació, com ara <code>/plugins/com.example.weather/cities</code>. Rep l'usuari, el canal i la comunitat, i retorna una llista JSON de <code>{"Item", "Hint", "HelpText"}</code>.</li>
+</ul>
+<p>Les variants <code>Named…</code> (<code>AddNamedTextArgument</code> i altres) afegeixen banderes <code>--name value</code>. Ambdues interfícies web mostren aquestes suggerències.</p>

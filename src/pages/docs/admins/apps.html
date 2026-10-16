@@ -1,0 +1,140 @@
+title: Bundled apps
+description: The apps that come with Antimatter (Kanban, Calls, Voice channels, Notes, Whiteboard, GIFs, Agents and the others): which are on by default, how to enable and disable them, their admin settings, and how to install other apps.
+guide: admins
+order: 7
+nav: Bundled apps
+lead: Antimatter's Docker images come with a set of apps (plugins, in the System Console). This page lists them, says which are on after installing, and covers the settings each one needs from an administrator.
+---
+<h2 id="list">The bundled apps</h2>
+<p>Apps are listed as <b>Plugins</b> in the System Console. They are in the image (in <code>/antimatter/prepackaged_plugins</code>), signed with the Antimatter app signing key, so they install without an Internet connection.</p>
+<table>
+<thead><tr><th>App</th><th>App id</th><th>Image</th><th>On after installing</th></tr></thead>
+<tbody>
+<tr><td>Agents (AI)</td><td><code>mattermost-ai</code></td><td>both</td><td>yes</td></tr>
+<tr><td>Calls</td><td><code>com.mattermost.calls</code></td><td>both</td><td>yes</td></tr>
+<tr><td>Kanban</td><td><code>focalboard</code></td><td>both</td><td>yes</td></tr>
+<tr><td>Playbooks</td><td><code>playbooks</code></td><td>both</td><td>yes</td></tr>
+<tr><td>GitHub</td><td><code>github</code></td><td>both</td><td>no</td></tr>
+<tr><td>GitLab</td><td><code>com.github.manland.mattermost-plugin-gitlab</code></td><td>both</td><td>no</td></tr>
+<tr><td>Jira</td><td><code>jira</code></td><td>both</td><td>no</td></tr>
+<tr><td>Metrics</td><td><code>com.mattermost.mattermost-plugin-metrics</code></td><td>both</td><td>no</td></tr>
+<tr><td>Voice Channels</td><td><code>com.antimatterchat.voice-channels</code></td><td><code>antimatter-next</code></td><td>yes</td></tr>
+<tr><td>Polls</td><td><code>com.antimatterchat.polls</code></td><td><code>antimatter-next</code></td><td>yes</td></tr>
+<tr><td>Notes</td><td><code>com.antimatterchat.notes</code></td><td><code>antimatter-next</code></td><td>yes</td></tr>
+<tr><td>Whiteboard</td><td><code>com.antimatterchat.whiteboard</code></td><td><code>antimatter-next</code></td><td>yes</td></tr>
+<tr><td>Mail</td><td><code>com.antimatterchat.mail</code></td><td><code>antimatter-next</code></td><td>yes</td></tr>
+<tr><td>Calendar</td><td><code>com.antimatterchat.calendar</code></td><td><code>antimatter-next</code></td><td>yes</td></tr>
+<tr><td>GIFs</td><td><code>com.antimatterchat.gifs</code></td><td><code>antimatter-next</code></td><td>yes</td></tr>
+<tr><td>Memes</td><td><code>memes</code></td><td><code>antimatter-next</code></td><td>no</td></tr>
+<tr><td>Todo</td><td><code>com.mattermost.plugin-todo</code></td><td><code>antimatter-next</code></td><td>no</td></tr>
+</tbody>
+</table>
+<p>Apps that are on by default are installed at each start if they aren't yet, or upgraded if the image has a newer version. If you turn one off, it stays off: the default only applies to apps the configuration doesn't mention yet. Apps that keep their Mattermost id (Agents, Calls, Kanban, Playbooks and the integrations) are Antimatter's own builds.</p>
+
+<h2 id="manage">Enable, disable and configure apps</h2>
+<p>Go to <b>System Console › Plugins › Plugin Management</b>. Under <b>Installed Plugins</b>, each app has <b>Enable</b> or <b>Disable</b>, <b>Settings</b> and <b>Remove</b>, and shows its state (Running, Not running, Failed to start…). Each app with settings also has its own page under <b>System Console › Plugins</b>.</p>
+<p>The bundled apps that are off by default are installed from the image's own copy: open <b>App Marketplace</b> from the product menu, find the app and click <b>Install</b>, then enable it in Plugin Management. From the command line:</p>
+<pre><code>docker compose exec antimatter amctl --local plugin marketplace install github
+docker compose exec antimatter amctl --local plugin enable github</code></pre>
+<p>Other commands: <code>amctl plugin list</code>, <code>amctl plugin disable &lt;id&gt;</code>, <code>amctl plugin delete &lt;id&gt;</code>.</p>
+<h3>Enable apps through the configuration</h3>
+<p>Which apps are on is the setting <code>PluginSettings.PluginStates</code>, a map of app ids. You can merge entries into it with <code>amctl</code>; with <b>Enable Automatic Prepackaged Plugins</b> on (the default), an enabled bundled app is installed at the next start:</p>
+<pre><code>docker compose exec -T antimatter amctl --local config patch /dev/stdin &lt;&lt;'EOF'
+{"PluginSettings": {"PluginStates": {"com.mattermost.plugin-todo": {"Enable": true}}}}
+EOF
+docker compose restart antimatter</code></pre>
+<p>This is also how to install Todo, which is not offered in the Marketplace dialog. The variable <code>AM_PLUGINSETTINGS_PLUGINSTATES</code> also works, but it replaces the whole map: list every app you want on.</p>
+<h3>App settings</h3>
+<p>App settings are stored under <code>PluginSettings.Plugins.&lt;app id&gt;</code>, with keys in lower case. Change them in the app's System Console page, or with <code>amctl config patch</code> as shown in <a href="{{root}}docs/admins/configuration.html#amctl">Configuration</a>. <code>AM_PLUGINSETTINGS_PLUGINS</code> replaces the settings of every app at once and locks them all, so avoid it.</p>
+
+<h2 id="gifs">GIFs</h2>
+<p>The GIFs app adds a GIF and sticker tab to the emoji picker, backed by Antimatter's GIF service (<code>gifs-server</code>), which speaks the Tenor API. The site's compose file runs the service and configures the app through variables. Its settings, in <b>System Console › Plugins › GIFs</b>:</p>
+<table>
+<thead><tr><th>Setting</th><th>Variable (fallback)</th><th>Default</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><b>GIF service URL</b></td><td><code>AM_GIFS_SERVICE_URL</code></td><td>empty</td><td>The service's API base, for example <code>http://gifs:8080/v2</code>. GIFs are off while it is empty.</td></tr>
+<tr><td><b>API key</b></td><td><code>AM_GIFS_API_KEY</code></td><td>empty</td><td>One of the service's <code>AM_GIFS_API_KEYS</code>.</td></tr>
+<tr><td><b>Upload key</b></td><td><code>AM_GIFS_UPLOAD_KEY</code></td><td>empty</td><td>One of the service's <code>AM_GIFS_UPLOAD_KEYS</code>. Lets people add GIFs and stickers. Empty turns uploads off.</td></tr>
+<tr><td><b>Who can add GIFs and stickers</b></td><td></td><td>admins</td><td>System administrators only, or everyone.</td></tr>
+<tr><td><b>Enable stickers</b></td><td></td><td>on</td><td>Shows the sticker tab.</td></tr>
+<tr><td><b>Content filter</b></td><td></td><td>medium</td><td>high, medium, low or off.</td></tr>
+<tr><td><b>Serve the media through Antimatter</b></td><td></td><td>on</td><td>Browsers load GIFs from Antimatter, which fetches them from the service. Keep it on when the service is only on your internal network.</td></tr>
+<tr><td><b>Media URL</b></td><td></td><td>the service's <code>/media/</code></td><td>Where the media are, when served directly.</td></tr>
+<tr><td><b>Cache size (MB)</b></td><td></td><td>64 MB</td><td>Memory cache of the app.</td></tr>
+</tbody>
+</table>
+<p>For this app, the variables are only fallbacks: a value set in the System Console wins over them. If the GIF picker stays empty, check the service URL and the API key on that page.</p>
+<p>While the GIFs app is set up, its tab replaces the built-in Giphy picker (<b>System Console › Integrations › GIF › Enable GIF Picker</b>, <code>ServiceSettings.EnableGifPicker</code>).</p>
+<h3>The GIF service</h3>
+<p>The service keeps everything in its data directory (<code>/data</code>, the <code>gifs</code> volume): a search index and the media. Its main variables:</p>
+<table>
+<thead><tr><th>Variable</th><th>Default</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>AM_GIFS_API_KEYS</code></td><td>none</td><td>Comma-separated API keys. <b>Without a key, the API is open to anyone who reaches it.</b> Several keys let you rotate them.</td></tr>
+<tr><td><code>AM_GIFS_UPLOAD_KEYS</code></td><td>none</td><td>Keys allowed to upload. No uploads without one.</td></tr>
+<tr><td><code>AM_GIFS_RATE_LIMIT</code></td><td><code>20</code></td><td>Requests per second per client (API key and address); <code>0</code> turns it off. The compose file sets 0, because all of Antimatter's requests share one key and address.</td></tr>
+<tr><td><code>AM_GIFS_LISTEN</code></td><td><code>:8080</code></td><td>Listen address.</td></tr>
+<tr><td><code>AM_GIFS_PUBLIC_URL</code></td><td>from requests</td><td>External URL, if you expose the service.</td></tr>
+<tr><td><code>AM_GIFS_TRUST_PROXY</code></td><td><code>false</code></td><td>Trust <code>X-Forwarded-*</code> headers, behind a proxy only.</td></tr>
+<tr><td><code>AM_GIFS_UPLOAD_MAX_MB</code></td><td><code>16</code></td><td>Largest uploaded file.</td></tr>
+</tbody>
+</table>
+<p>To add your own GIFs in bulk, import them with a manifest, from a directory mounted into a one-off container:</p>
+<pre><code>docker compose run --rm -v "$PWD/my-gifs:/import:ro" gifs import -manifest /import/manifest.json</code></pre>
+<p>To re-import the starter stickers after an upgrade: <code>docker compose run --rm gifs stickers</code>. The manifest format and the other commands are in the <a href="https://github.com/AntimatterChat/gifs-server">gifs-server README</a>.</p>
+
+<h2 id="mail-calendar">Mail and Calendar</h2>
+<p>Mail and Calendar connect each person to their own mailbox (IMAP and SMTP) and their own calendar (CalDAV). People enter their server and password in the app; passwords are stored encrypted. You don't configure mail or calendar servers for them, but you decide what they may connect to:</p>
+<table>
+<thead><tr><th>App</th><th>Setting</th><th>Default</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td>Mail, Calendar</td><td><b>Allow mail servers on private networks</b>, <b>Allow calendar servers on private networks</b> (<code>AllowPrivateNetworks</code>)</td><td>off</td><td>Off, the server refuses to connect to loopback, private and link-local addresses, so the apps can't be used to reach your internal network. Turn it on if your mail or calendar server is on a private address.</td></tr>
+<tr><td>Mail, Calendar</td><td><b>Allow unencrypted connections</b> (<code>AllowInsecureConnections</code>)</td><td>off</td><td>Off, connections must use TLS (Mail: TLS or STARTTLS; Calendar: HTTPS).</td></tr>
+<tr><td>Mail</td><td><b>Unread check interval (minutes)</b> (<code>UnreadCheckMinutes</code>)</td><td>2 minutes</td><td>How often unread counts are checked when the mail server can't push them.</td></tr>
+<tr><td>Mail</td><td><b>Largest message size (MB)</b> (<code>MaxMessageSizeMB</code>)</td><td>25 MB</td><td>Size limit of messages sent and read.</td></tr>
+<tr><td>Calendar</td><td><b>Send reminders</b> (<code>EnableReminders</code>)</td><td>on</td><td>The Calendar bot sends a direct message before events (10 minutes before, for events without their own alarm).</td></tr>
+</tbody>
+</table>
+<p>To let people sign in to Gmail or Microsoft 365 mailboxes with their account instead of a password, create an OAuth client and fill in the Mail app's Google or Microsoft fields:</p>
+<ul>
+<li><b>Google</b>: a Web OAuth client with the Gmail API and the scope <code>https://mail.google.com/</code>.</li>
+<li><b>Microsoft</b>: an Entra ID app with the delegated permissions <code>IMAP.AccessAsUser.All</code>, <code>SMTP.Send</code>, <code>offline_access</code>, <code>openid</code>, <code>email</code> and <code>profile</code>. The tenant is <code>common</code> by default.</li>
+<li>In both, the redirect URI is <code>https://chat.example.com/plugins/com.antimatterchat.mail/oauth/callback</code> (your site URL).</li>
+</ul>
+
+<h2 id="kanban-notes">Kanban, Notes, Whiteboard, Polls and Playbooks</h2>
+<ul>
+<li><b>Kanban</b> (<code>focalboard</code>) is at <code>/kanban</code> (old <code>/boards</code> links redirect there). Its only setting, <b>Enable Publicly-Shared Boards</b> (<code>EnablePublicSharedBoards</code>, off), lets board editors share a board with anyone who has the link, without signing in.</li>
+<li><b>Notes</b> and <b>Polls</b> have no settings.</li>
+<li><b>Whiteboard</b>: system administrators can upload shape libraries (Excalidraw <code>.excalidrawlib</code> files, up to 5 MB each) for the whole server in its settings page. Community admins manage their own community's libraries.</li>
+<li><b>Playbooks</b> has a few settings, mostly experimental features; the defaults suit most servers.</li>
+<li><b>Memes</b>: <b>Who can add meme templates</b> (everyone by default, or admins).</li>
+<li><b>Todo</b> has no server settings.</li>
+</ul>
+
+<h2 id="integrations">GitHub, GitLab and Jira</h2>
+<p>These apps link Antimatter to your code hosting and issue tracker. Each needs an OAuth application on the other side and a webhook pointing back at Antimatter. Enable the app, then run its setup command in any channel, which guides you step by step: <code>/github setup</code>, <code>/gitlab setup</code> or <code>/jira setup</code>.</p>
+<table>
+<thead><tr><th>App</th><th>OAuth redirect URL</th><th>Webhook URL</th></tr></thead>
+<tbody>
+<tr><td>GitHub</td><td><code>https://chat.example.com/plugins/github/oauth/complete</code></td><td><code>https://chat.example.com/plugins/github/webhook</code></td></tr>
+<tr><td>GitLab</td><td><code>https://chat.example.com/plugins/com.github.manland.mattermost-plugin-gitlab/oauth/complete</code></td><td><code>https://chat.example.com/plugins/com.github.manland.mattermost-plugin-gitlab/webhook</code></td></tr>
+<tr><td>Jira</td><td colspan="2"><code>/jira instance install server &lt;url&gt;</code> or <code>/jira instance install cloud-oauth &lt;url&gt;</code>; <code>/jira webhook</code> prints the webhook URLs.</td></tr>
+</tbody>
+</table>
+<div class="callout warn">Leave <b>Use Preregistered OAuth Application</b> off in the GitHub and GitLab apps: it relies on a Mattermost service Antimatter doesn't have, and the app refuses to start with it on. Register your own OAuth application.</div>
+<p>The GitHub and GitLab apps generate their webhook secret and encryption key on first save. The GitHub app can be limited to organisations (<code>GithubOrg</code>) and the GitLab app to a group (<code>GitlabGroup</code>); for GitHub Enterprise or a self-hosted GitLab, set its base URL.</p>
+
+<h2 id="metrics">Metrics</h2>
+<p>The Metrics app collects the server's performance metrics into a small time-series database inside Antimatter, so you can download them or include them in a support packet without running Prometheus. When it starts, it turns on the server's metrics endpoint (<code>MetricsSettings.Enable</code>). See <a href="{{root}}docs/admins/operations.html">Operations</a>.</p>
+
+<h2 id="other-apps">Installing other apps</h2>
+<p>Antimatter runs Mattermost apps (plugins). Three ways to add one:</p>
+<ul>
+<li><b>From a remote marketplace.</b> <b>Enable Remote Marketplace</b> (<code>PluginSettings.EnableRemoteMarketplace</code>) is off by default, and <b>Marketplace URL</b> (<code>PluginSettings.MarketplaceURL</code>) is empty: Antimatter doesn't use Mattermost's marketplace, and ignores its address if a configuration from Mattermost still has it. To list the apps of a marketplace server you trust, turn the setting on and set its URL. That marketplace's builds of apps Antimatter ships (Calls, Playbooks, Kanban and the others) are hidden, so they can't replace Antimatter's: <b>Allow Marketplace Builds of Antimatter Plugins</b> (<code>PluginSettings.AllowMarketplaceToReplaceAntimatterPlugins</code>) is off by default.</li>
+<li><b>By uploading a bundle</b> (<code>.tar.gz</code>). Uploads are off by default and have no System Console switch: set <code>AM_PLUGINSETTINGS_ENABLEUPLOADS=true</code>, then use <b>Upload Plugin</b> in Plugin Management, or <code>amctl --local plugin add app.tar.gz</code>.</li>
+<li><b>From a URL</b>: <code>amctl plugin install-url &lt;url&gt;</code>, also with uploads on.</li>
+</ul>
+<p>Antimatter checks app signatures against the keys it trusts: the Antimatter key, the key Mattermost, Inc. signs its published apps with (so a Mattermost app you download yourself installs) and any key you add in <code>PluginSettings.SignaturePublicKeyFiles</code>. With <b>Require Plugin Signature</b> (<code>PluginSettings.RequirePluginSignature</code>, off by default) on, unsigned apps are refused and uploads are disabled.</p>
+<div class="callout warn">An app runs inside the server with full access to its data. Install only apps you trust.</div>
+<p>Some apps made for Mattermost's paid editions check for a Mattermost licence themselves and refuse to run; Antimatter doesn't pretend to have one for them.</p>

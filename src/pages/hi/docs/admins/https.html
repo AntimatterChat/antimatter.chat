@@ -1,0 +1,161 @@
+title: डोमेन, HTTPS और रिवर्स प्रॉक्सी
+description: अपने डोमेन पर Antimatter को HTTPS के माध्यम से सर्व करें, बंडल्ड Caddy प्रोफ़ाइल या अपने nginx रिवर्स प्रॉक्सी के साथ, और साइट URL और क्लाइंट एड्रेस सही से सेट करें।
+guide: admins
+order: 4
+nav: डोमेन और HTTPS
+lead: Caddy प्रोफ़ाइल या अपने रिवर्स प्रॉक्सी का उपयोग करके Antimatter को HTTPS के साथ एक डोमेन नाम पर रखें, और साइट URL और क्लाइंट एड्रेस सही करें।
+source: 69e8779d356e
+---
+<h2 id="site-url">साइट URL</h2>
+<p>साइट URL (<code>ServiceSettings.SiteURL</code>) वह पता है जिसके माध्यम से लोग Antimatter तक पहुँचते हैं, जैसे <code>https://chat.example.com</code>। सर्वर इसका उपयोग ईमेल और सूचनओं में लिंक, साइन-इन रीडायरेक्ट (OAuth, OpenID Connect, SAML), मोबाइल और डेस्कटॉप ऐप्स, और अनुरोधों के स्रोत की जाँच के लिए करता है। इसे ब्राउज़र के एड्रेस बार में दिए गए पते के बिल्कुल समान सेट करें: स्कीम, डोमेन और डिफ़ॉल्ट न होने पर पोर्ट, बिना अंत में स्लैश के।</p>
+<ul>
+<li>साइट के compose फ़ाइल के साथ: <code>.env</code> में <code>SITE_URL</code>।</li>
+<li>कहीं और: <code>AM_SERVICESETTINGS_SITEURL</code>, या <b>सिस्टम कंसोल › पर्यार्वण › वेब सरवर › साइट URL</b>।</li>
+</ul>
+<p>यदि साइट URL गलत है, तो पहचान प्रदाता (identity provider) के साथ साइन-इन विफल हो जाता है, ईमेल में लिंक गलत जगह पर इशारा करते हैं, और ऐप्स कनेक्ट नहीं कर पाते हैं। डोमेन बदलने के बाद, इसे यहाँ और हर पहचान प्रदाता के रीडायरेक्ट URL में अपडेट करें।</p>
+
+<h2 id="caddy">बंडल्ड Caddy प्रोफ़ाइल के साथ HTTPS</h2>
+<p>साइट की <code>compose.yaml</code> में <code>https</code> प्रोफ़ाइल में <a href="https://caddyserver.com">Caddy</a> सर्विस शामिल है। यह Let's Encrypt से प्रमाणपत्र प्राप्त करता है, इसे स्वतः नवीनीकृत करता है, HTTP को HTTPS में रीडायरेक्ट करता है, और सब कुछ, वेबसॉकेट समेत, Antimatter को फॉरवर्ड करता है।</p>
+<ol>
+<li>अपने डोमेन का DNS रिकॉर्ड (A, और IPv6 के लिए AAAA) सर्वर की ओर इशारा करें।</li>
+<li>फ़ायरवॉल में पोर्ट 80/tcp, 443/tcp और 443/udp (HTTP/3) खोलें। Let's Encrypt को इंटरनेट से पोर्ट 80 या 443 तक पहुँचना चाहिए।</li>
+<li>डोमेन को <code>.env</code> में जोड़ें और साइट URL सेट करें:
+<pre><code>echo "DOMAIN=chat.example.com" &gt;&gt; .env
+sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env</code></pre></li>
+<li>प्रोफ़ाइल के साथ शुरू करें:
+<pre><code>docker compose --profile https up -d</code></pre></li>
+</ol>
+<p>बाद के हर <code>docker compose up</code> में <code>--profile https</code> जोड़ें, या <code>.env</code> में <code>COMPOSE_PROFILES=https</code> रखें ताकि साधारण <code>docker compose up -d</code> इसे शामिल करे। Caddy अपने प्रमाणपत्र <code>https</code> वॉल्यूम में रखता है।</p>
+<p>Antimatter का अपना पोर्ट होस्ट पर प्रकाशित रहता है (<code>HTTP_PORT</code>, डिफ़ॉल्ट रूप से 8065)। Caddy के आगे होने पर, इसे केवल सर्वर के लिए ही रखें:</p>
+<pre><code>echo "HTTP_PORT=127.0.0.1:8065" &gt;&gt; .env
+docker compose --profile https up -d</code></pre>
+<p>Caddy Antimatter तक आंतरिक <code>edge</code> नेटवर्क के माध्यम से पहुँचता है, उस पोर्ट के माध्यम से नहीं, इसलिए यह आपके उपयोगकर्ताओं के लिए कुछ भी नहीं बदलता।</p>
+
+<h2 id="nginx">अपने रिवर्स प्रॉक्सी (nginx) के साथ</h2>
+<p>यदि सर्वर पर पहले से ही nginx या कोई अन्य प्रॉक्सी चल रहा है, तो <code>https</code> प्रोफ़ाइल बंद रखें और प्रॉक्सी को Antimatter के पोर्ट 8065 पर निर्देशित करें। प्रॉक्सी को निम्नलिखित कार्य करने होंगे:</p>
+<ul>
+<li>वेबसॉकेट अपग्रेड पास करना (वेब ऐप और मोबाइल ऐप्स <code>/api/v4/websocket</code> पर एक वेबसॉकेट खुला रखते हैं, और कुछ ऐप्स अपने स्वयं के वेबसॉकेट खोलते हैं);</li>
+<li>अधिकातम अपलोड (100 MB, डिफ़ॉल्ट रूप से) के कम से कम बड़े रिक्वेस्ट बॉडी स्वीकार करें (<b>अधिकातम फ़ाइल आकार</b>);</li>
+<li>लंबे समय तक चलने वाले कनेक्शन खुले रखना (वेबसॉकेट, बड़े अपलोड और डाउनलोड);</li>
+<li><code>Host</code> हेडर और क्लाइंट का पता पास करना।</li>
+</ul>
+<p>antimatter-docker में प्रोडक्शन टेम्पलेट से अनुकूलित एक पूर्ण सर्वर ब्लॉक। डोमेन और सर्टिफिकेट पथों को बदलें:</p>
+<pre><code>upstream antimatter {
+    server 127.0.0.1:8065;
+    keepalive 64;
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+proxy_cache_path /var/cache/nginx/antimatter levels=1:2 keys_zone=antimatter_cache:10m
+                 max_size=3g inactive=120m use_temp_path=off;
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name chat.example.com;
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name chat.example.com;
+
+    ssl_certificate     /etc/ssl/chat.example.com/fullchain.pem;
+    ssl_certificate_key /etc/ssl/chat.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:AntimatterSSL:10m;
+    ssl_session_tickets off;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # At least FileSettings.MaxFileSize (100 MB by default).
+    client_max_body_size 100M;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade           $http_upgrade;
+    proxy_set_header Connection        $connection_upgrade;
+    proxy_buffers 256 16k;
+    proxy_buffer_size 16k;
+
+    location ~ ^/api/v[0-9]+/(users/)?websocket$ {
+        client_body_timeout 60s;
+        send_timeout 300s;
+        lingering_timeout 5s;
+        proxy_connect_timeout 90s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 90s;
+        proxy_pass http://antimatter;
+    }
+
+    location / {
+        proxy_read_timeout 600s;
+        proxy_cache antimatter_cache;
+        proxy_cache_revalidate on;
+        proxy_cache_min_uses 2;
+        proxy_cache_use_stale timeout;
+        proxy_cache_lock on;
+        proxy_pass http://antimatter;
+    }
+}</code></pre>
+<p>फ़ाइल की जाँच <code>nginx -t</code> से करें और इसे लागू करने के लिए <code>systemctl reload nginx</code> चलाएँ। सर्वर स्वयं <code>X-Content-Type-Options</code>, <code>Referrer-Policy</code>, <code>Permissions-Policy</code> और <code>X-Frame-Options</code> भेजता है; केवल HSTS प्रॉक्सी पर निर्भर करता है। एक बार जब HTTPS काम करे, तो इसकी <code>max-age</code> बढ़ाएँ, और <code>includeSubDomains</code> केवल तभी जोड़ें यदि सभी सबडोमेन HTTPS का उपयोग कर रहे हैं।</p>
+<p>Docker Compose और होस्ट पर nginx के साथ, ऊपर दिया गया <code>upstream</code> प्रकाशित पोर्ट 8065 पर निर्देशित करता है। इसे केवल <code>127.0.0.1</code> पर प्रकाशित करें (<code>HTTP_PORT=127.0.0.1:8065</code>), ताकि कोई भी प्रॉक्सी को बायपास न कर सके।</p>
+<p>antimatter-docker रिपॉज़िटरी में nginx के साथ एक पूर्ण सेटअप है, जो एक कंटेनर में है और certbot के माध्यम से Let's Encrypt का उपयोग करता है, <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">deploy/compose</a> में।</p>
+
+<h3>अन्य प्रॉक्सी</h3>
+<p>यदि कोई भी प्रॉक्सी ऊपर दिए गए चार बिंदुओं को पूरा करता है, तो वह काम करेगा। ऑडियो और वीडियो कॉल कभी प्रॉक्सी से नहीं गुजरते: वे अपने स्वयं के पोर्ट का उपयोग करते हैं, देखें <a href="{{root}}docs/admins/calls.html">Calls and voice</a>।</p>
+
+<h2 id="client-address">प्रॉक्सी के पीछे क्लाइंट पते</h2>
+<p>प्रॉक्सी के पीछे, हर अनुरोध प्रॉक्सी से आता प्रतीत होता है। वास्तविक क्लाइंट पते को लॉग करने, क्लाइंट के अनुसार रेट लिमिट लागू करने और IP फ़िल्टरिंग का उपयोग करने के लिए, सर्वर को बताएं कि कौन सा हेडर पते को ले जाता है, और किन प्रॉक्सी पर विश्वास किया जा सकता है। इनमें से किसी सेटिंग के लिए System Console में कोई फ़ील्ड नहीं है: इन्हें <code>config.json</code> में या वेरिएबल्स के साथ सेट करें।</p>
+<table>
+<thead><tr><th>की और वेरिएबल</th><th>डिफ़ॉल्ट</th><th>यह क्या करता है</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.TrustedProxyIPHeader</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER</code></td><td>खाली: सर्वर कनेक्शन के पते का उपयोग करता है</td><td>हेडर जो क्लाइंट का पता ले जाते हैं, उदाहरण के लिए <code>X-Forwarded-For</code>। अनुरोध में मौजूद पहला हेडर उपयोग किया जाता है।</td></tr>
+<tr><td><code>ServiceSettings.TrustedProxyIPs</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code></td><td>खाली</td><td>आपके प्रॉक्सी के पते या CIDR रेंज, उदाहरण के लिए <code>172.29.71.0/28</code>। हेडर केवल उन अनुरोधों के लिए मान्य हैं जो इनमें से किसी एक से आते हैं।</td></tr>
+</tbody>
+</table>
+<p>एक वेरिएबल में, कई मानों को स्पेस से अलग करें: <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>। सर्वर एक कॉन्फ़िगरेशन को अस्वीकार कर देता है जिसमें <code>TrustedProxyIPs</code> में कोई एंट्री हो जो न तो IP एड्रेस हो और न CIDR रेंज।</p>
+<h3>सर्वर क्लाइंट का एड्रेस कैसे खोजता है</h3>
+<p>हर प्रॉक्सी <code>X-Forwarded-For</code> के दाईं ओर उस एड्रेस को जोड़ता है जिससे उसे रिक्वेस्ट मिला। क्लाइंट ने हेडर में जो भेजा था, वह बाईं ओर रह जाता है। इसलिए सर्वर हेडर को दाईं ओर से पढ़ता है, अपने विश्वसनीय प्रॉक्सी के एड्रेस छोड़ देता है, और पहला अन्य एड्रेस क्लाइंट का मानता है। क्लाइंट अपने हेडर भेजकर अपना एड्रेस चुन नहीं सकता।</p>
+<ul>
+<li>एक प्रॉक्सी के पीछे, <code>TrustedProxyIPHeader</code> अकेला सही एड्रेस देता है: सर्वर हेडर के सबसे दाईं ओर के एड्रेस को लेता है। जब तक आप <code>TrustedProxyIPs</code> भी सेट नहीं करते, स्टार्टअप पर यह एक वार्निंग लॉग करता है। इसके बिना, जो भी सीधे पोर्ट 8065 तक पहुँचता है, वह हेडर सेट कर सकता है, इसलिए उस पोर्ट को केवल <code>127.0.0.1</code> या एक निजी नेटवर्क पर पब्लिश करें।</li>
+<li>कई प्रॉक्सी के पीछे, उदाहरण के लिए आपके अपने प्रॉक्सी के सामने एक CDN या लोड बैलेंसर, सभी को <code>TrustedProxyIPs</code> में सूचीबद्ध करें। अन्यथा सर्वर बाहरी प्रॉक्सी का एड्रेस क्लाइंट का मान लेगा।</li>
+<li>प्रॉक्सी हेडर को उस एड्रेस से बदल सकता है जो वह देखता है, जैसा कि ऊपर दिए गए nginx उदाहरण में किया गया है (<code>X-Forwarded-For $remote_addr</code>), या उसे जोड़ सकता है (nginx का <code>$proxy_add_x_forwarded_for</code>)। दोनों काम करते हैं।</li>
+</ul>
+<h3>कौन से एड्रेस सूचीबद्ध करें</h3>
+<p>उस एड्रेस को सूचीबद्ध करें जिससे प्रॉक्सी के रिक्वेस्ट आते हैं, जैसा कि Antimatter उसे देखता है।</p>
+<ul>
+<li>साइट के compose फ़ाइल और Caddy के साथ, यह पहले से हो चुका है: Caddy <code>edge</code> नेटवर्क के माध्यम से Antimatter तक पहुँचता है, और compose फ़ाइल <code>TrustedProxyIPHeader</code> को <code>X-Forwarded-For</code> और <code>TrustedProxyIPs</code> को उस नेटवर्क की रेंज, <code>EDGE_SUBNET</code> (<code>172.29.71.0/28</code>, यदि आपने <code>.env</code> में इसे नहीं बदला है) सेट करती है। यदि <code>EDGE_SUBNET</code> आपके किसी नेटवर्क से ओवरलैप करता है, तो उसे बदलें।</li>
+<li>antimatter-docker में प्रोडक्शन सेटअप अपने nginx कंटेनर के लिए <code>FRONTEND_SUBNET</code> के साथ वही करता है।</li>
+<li>यदि होस्ट पर nginx है और Antimatter Docker में है, तो रिक्वेस्ट Antimatter तक पब्लिश किए गए पोर्ट के माध्यम से पहुँचते हैं, आमतौर पर compose प्रोजेक्ट के नेटवर्क के गेटवे एड्रेस से (<code>docker network inspect</code> इसे दिखाता है)। <code>compose.override.yaml</code> में <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code> को उस एड्रेस सेट करें।</li>
+<li>Docker के बिना, यदि nginx उसी होस्ट पर है, तो यह <code>127.0.0.1</code> होता है (और यदि nginx IPv6 के माध्यम से कनेक्ट करता है, तो <code>::1</code>।)</li>
+</ul>
+
+<h2 id="builtin-tls">प्रॉक्सी के बिना TLS</h2>
+<p>सरवर स्वयं HTTPS भी सर्व कर सकता है, <b>सिस्टम कंसोल › पर्यार्वण › वेब सरवर</b> में: <b>कनेक्शन सुरक्षा</b> को TLS (<code>ServiceSettings.ConnectionSecurity</code>) पर सेट करें, साथ में <b>TLS प्रमाणपत्र फ़ाइल</b> और <b>TLS कुंजी फ़ाइल</b> (<code>ServiceSettings.TLSCertFile</code>, <code>ServiceSettings.TLSKeyFile</code>), या <b>Let's Encrypt का उपयोग करें</b> (<code>ServiceSettings.UseLetsEncrypt</code>)। तब सरवर को पोर्ट 443 पर लिसन करना होगा (<b>लिसन एड्रेस</b>, <code>ServiceSettings.ListenAddress</code>, डिफ़ॉल्ट रूप से <code>:8065</code>), और <code>ServiceSettings.Forward80To443</code> पोर्ट 80 को रीडायरेक्ट करता है। रिवर्स प्रॉक्सी चलाना और नवीनीकरण करना आसान है, और यह गाइड इसी की मान लेता है।</p>
+
+<h2 id="timeouts">सर्वर टाइमआउट और रिक्वेस्ट साइज़</h2>
+<p>सरवर के अपने वेब सरवर की सेटिंग्स, <b>सिस्टम कंसोल › पर्यार्वण › वेब सरवर</b> में:</p>
+<table>
+<thead><tr><th>सेटिंग</th><th>कुंजी</th><th>डिफ़ॉल्ट</th></tr></thead>
+<tbody>
+<tr><td><b>लिसन एड्रेस</b></td><td><code>ServiceSettings.ListenAddress</code></td><td><code>:8065</code></td></tr>
+<tr><td><b>रीड टाइमआउट</b></td><td><code>ServiceSettings.ReadTimeout</code></td><td>300 सेकंड</td></tr>
+<tr><td><b>लिखने का टाइमआउट</b></td><td><code>ServiceSettings.WriteTimeout</code></td><td>300 सेकंड</td></tr>
+<tr><td>आइडल टाइमआउट (System Console में कोई फील्ड नहीं)</td><td><code>ServiceSettings.IdleTimeout</code></td><td>60 सेकंड</td></tr>
+<tr><td><b>अधिकातम पेयलॉड आकार (बाइट)</b></td><td><code>ServiceSettings.MaximumPayloadSizeBytes</code></td><td><a href="{{root}}docs/admins/security.html">सुरक्षा</a> देखें</td></tr>
+</tbody>
+</table>
+<p>सामान्य रिक्वेस्ट के लिए प्रॉक्सी के अपने टाइमआउट को इनसे कम से कम लंबा रखें, और उसका बॉडी साइज़ <b>अधिकातम फ़ाइल आकार</b> से कम से कम बड़ा रखें।</p>

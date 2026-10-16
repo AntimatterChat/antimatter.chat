@@ -1,0 +1,102 @@
+title: Bygning fra kildekode
+description: Sådan bygger du Antimatter fra kildekoden: Go-serveren, Fusion- og den klassiske webgrænseflade, en udviklingsserver, tests, releasearkiver, Docker-billedet samt desktop- og mobilapps.
+guide: developers
+order: 7
+nav: Bygning fra kildekode
+lead: Denne side forklarer, hvordan du bygger og kører Antimatter fra dens kildekode, enten for at arbejde med det eller for at lave dine egne builds. Den dækker serveren og webgrænsefladerne, som befinder sig i ét repository, og derefter Docker-billedet og appsene.
+source: dfdf67f34f6e
+---
+<h2 id="requirements">Det du skal bruge</h2>
+<ul>
+<li><b>Go</b> i den version, der er angivet i <code>server/go.mod</code> (1.26.7 ved skrivetidspunktet).</li>
+<li><b>Node.js og npm</b> i de versioner, der er angivet i <code>.nvmrc</code> og <code>webapp/package.json</code> (Node 24.11.1 med npm 11.6.2). Med <a href="https://mise.jdx.dev">mise</a> installerer repositoryets <code>mise.toml</code> den rigtige Node-version.</li>
+<li><b>Docker</b> med Compose: Udviklingsopsætningen kører PostgreSQL og et par andre tjenester i containere.</li>
+<li><b>make</b>, <b>git</b> og en Linux- eller macOS-maskine.</li>
+<li><b>Minde</b>: Bygning af webgrænsefladerne er den tunge del. Planlæg for 16 GB RAM; se <a href="#memory">Builds og minde</a>.</li>
+</ul>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter.git
+cd antimatter</code></pre>
+<p>Repositoryet indeholder serveren i <code>server/</code>, webgrænsefladerne i <code>webapp/</code> (Fusion i <code>webapp/fusion</code>, den klassiske i <code>webapp/channels</code>, fælles pakker i <code>webapp/platform</code>) og end-to-end-tests i <code>e2e-tests/</code>.</p>
+
+<h2 id="dev-server">Kør en udviklingsserver</h2>
+<pre><code>cd server
+make run</code></pre>
+<p><code>make run</code> starter udviklingscontainerne (PostgreSQL, Redis, en mail catcher og overvågningsværktøjer), kobler webapp-builds på plads, starter serveren i baggrunden med <code>go run</code> og starter webappens watcher, som bygger den klassiske grænseflade om, mens du redigerer den. Åbn <code>http://localhost:8065</code> og opret en konto: Den første bliver systemadministrator.</p>
+<table>
+<thead><tr><th>Kommando (i <code>server/</code>)</th><th>Hvad den gør</th></tr></thead>
+<tbody>
+<tr><td><code>make run-server</code>, <code>make run-client</code></td><td>Start kun serveren eller kun webappens watcher.</td></tr>
+<tr><td><code>make restart-server</code></td><td>Genstart serveren efter ændringer i Go-kode.</td></tr>
+<tr><td><code>make stop</code></td><td>Stop serveren, watcheren og containerne.</td></tr>
+<tr><td><code>make debug-server</code></td><td>Kør serveren under Delve-fejlfinderen.</td></tr>
+<tr><td><code>make run-cli ARGS="-version"</code></td><td>Kør en serverkommando.</td></tr>
+<tr><td><code>make config-reset</code></td><td>Nulstil <code>config/config.json</code> til standardværdierne.</td></tr>
+<tr><td><code>make clean</code>, <code>make nuke</code></td><td>Fjern buildfiler; <code>nuke</code> sletter også udviklingsdataene.</td></tr>
+</tbody>
+</table>
+<p>Udviklingsdatabasen er <code>postgres://mmuser:mostest_password@localhost/mattermost_test</code>, serverens standard datakilde. Vælg, hvilke containere der skal startes, med <code>ENABLED_DOCKER_SERVICES</code> i en <code>server/config.override.mk</code>-fil eller i din miljøvariabel (se <code>server/config.mk</code>).</p>
+
+<h2 id="webapp">Webgrænsefladerne</h2>
+<p>I <code>webapp/</code>:</p>
+<pre><code>npm install      # also builds the shared packages
+npm run build    # the classic interface, then Fusion</code></pre>
+<p>Bygningerne lander i <code>webapp/channels/dist</code> (klassisk) og <code>webapp/fusion/dist</code> (Fusion). <code>make client</code> i <code>server/</code> linker dem som <code>server/client</code> og <code>server/client-fusion</code>, hvor serveren serverer dem: klassisk under <code>/static/</code>, Fusion under <code>/static/fusion/</code>.</p>
+<ul>
+<li><code>npm run run</code> (eller <code>make run</code> i <code>webapp/</code>) overvåger og genbygger det klassiske grænseflade. Tilføj <code>WATCH_FUSION=true</code> for også at genbygge Fusion.</li>
+<li><code>npm run dev-server</code> (<code>make dev</code>) kører i stedet webpacks udviklingsserver: klassisk på port 9005, Fusion på port 9006.</li>
+<li>For at se enten den ene eller den anden grænseflade i browseren, tilføj <code>?webui=fusion</code> eller <code>?webui=classic</code> til enhver sides adresse.</li>
+</ul>
+
+<h2 id="tests">Tests og kontroller</h2>
+<table>
+<thead><tr><th>Command</th><th>Hvor</th><th>Hvad den gør</th></tr></thead>
+<tbody>
+<tr><td><code>make test-server</code></td><td><code>server/</code></td><td>Serverens testsuite, mod udviklingscontainere. Det tager lang tid.</td></tr>
+<tr><td><code>make test-server-quick</code></td><td><code>server/</code></td><td>Kun de korte tests.</td></tr>
+<tr><td><code>go test ./channels/app/... -run TestName</code></td><td><code>server/</code></td><td>Én pakke eller test, med containere i gang (<code>make start-docker</code>).</td></tr>
+<tr><td><code>make check-style</code></td><td><code>server/</code></td><td>go vet, golangci-lint og de øvrige Go-kontroller.</td></tr>
+<tr><td><code>make test</code></td><td><code>webapp/</code></td><td>Webappens enhedstests (Jest), i hver pakke.</td></tr>
+<tr><td><code>npm run test -- &lt;pattern&gt;</code></td><td><code>webapp/fusion</code></td><td>Nogle af Fusions tests.</td></tr>
+<tr><td><code>make check-style</code>, <code>make check-types</code></td><td><code>webapp/</code></td><td>ESLint og TypeScript.</td></tr>
+<tr><td><code>make i18n-extract</code></td><td><code>server/</code> og <code>webapp/</code></td><td>Opdaterer de engelske strengfiler, efter at du har tilføjet eller ændret strenge (se <a href="{{root}}docs/developers/contributing.html#translations">Oversættelser</a>).</td></tr>
+</tbody>
+</table>
+<p>Kør <code>make modules-tidy</code> i stedet for <code>go mod tidy</code> i <code>server/</code>.</p>
+
+<h2 id="release">Udgavearkiver</h2>
+<pre><code>cd webapp &amp;&amp; npm run build &amp;&amp; cd ..
+cd server
+make build-linux       # the antimatter and amctl binaries
+make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
+<p><code>make build</code> bygger webgrænsefladerne og Linux-binærerne i ét hug. Arkivet indeholder <code>bin/antimatter</code>, <code>bin/amctl</code>, en standard <code>config/config.json</code>, begge webgrænseflader, skabelonerne, skrifttyperne og oversættelserne. Andre platforme: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>. Arkiverne indeholder ikke de medfølgende apps; Docker-billedet gør det.</p>
+
+<h2 id="docker">Docker-billedet</h2>
+<p>Repositoryet <a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> bygger de udgivne billeder, serveren med dens apps, helt inde i Docker:</p>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter-docker.git
+cd antimatter-docker
+scripts/build-all.sh                     # from the main branches on GitHub
+SOURCES=local scripts/build-all.sh       # from your checkouts next to this folder
+VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatter app</code></pre>
+<p>Det kræver Docker med buildx, Python 3, git og gpg, ca. 16 GB RAM og 30 GB disk. Resultatet indlæses som <code>ghcr.io/antimatterchat/antimatter:dev</code>; prøv det med <code>ANTIMATTER_IMAGE=ghcr.io/antimatterchat/antimatter:dev docker compose -f compose.local.yml up -d</code>. <code>plugins.json</code> angiver apps og de byggede versioner, og repositoryets README forklarer varianterne.</p>
+<div class="callout warn"><code>build-all.sh</code> signer de medfølgende apps med Antimatters signeringsnøgle, og billedbygningen afviser apps uden signatur. Uden den private nøgle, som kun vedligeholderne har, kan du køre de første trin alene: <code>scripts/fetch-sources.sh</code>, <code>scripts/build-plugins.sh</code> (app-bundles i <code>out/plugins/</code>) og <code>scripts/build-server.sh</code> (serverarkiver i <code>out/server/</code>).</div>
+
+<h2 id="memory">Bygning og hukommelse</h2>
+<p>Webgrænsefladerne er store webpack-bygninger, og manglende hukommelse er den mest almindelige årsag til bygfejl.</p>
+<ul>
+<li><code>npm run build</code> bygger den klassiske grænseflade og Fusion efter hinanden, ikke sammen, for at holde toppen lav. Kør dem ikke parallelt selv.</li>
+<li>Minifieren starter én worker per procesor. På en maskine med mange kerner og lidt hukommelse, begræs de procesorer, bygningen kan se: <code>taskset -c 0-5 npm run build</code>.</li>
+<li>Hvis Node løber tør for heap, hæver du grænsen: <code>NODE_OPTIONS=--max-old-space-size=6144</code>. Docker-bygningen bruger denne værdi (<code>BUILD_NODE_OPTIONS</code> i <code>build.env</code>).</li>
+<li>Undgå at køre serverens fulde testsuite, en webbygning og en Docker-bygning samtidigt på en lille maskine.</li>
+</ul>
+
+<h2 id="apps">Appene</h2>
+<p>Hver app (plugin) har sit eget repository og Makefile; <code>make dist</code> bygger dens bundle. Se <a href="{{root}}docs/developers/apps.html#build">Byg, installer og fejlfind</a>.</p>
+<h3>Desktop-app</h3>
+<p><a href="https://github.com/AntimatterChat/desktop-app">Desktop-appen</a> er en Electron-app. Med Node.js 24 eller nyere:</p>
+<pre><code>npm install --allow-git=all
+npm run build          # development build, into dist/
+npm start              # run it
+npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
+<p>Bygningstidspunktsindstillinger, såsom servere der skal forudkonfigureres, findes i <code>src/common/config/buildConfig.ts</code>.</p>
+<h3>Mobilapp</h3>
+<p><a href="https://github.com/AntimatterChat/mobile-app">Mobilappen</a> er en React Native-app; dens README opfører kommandoerne (<code>npm run ios</code>, <code>npm run android</code>). For at bygge din egen kopi skal du også have dine egne signeringsnøgler, et Firebase-projekt til Android-notifikationer, en APNs-nøgle til iOS og en <a href="https://github.com/AntimatterChat/push-proxy">push-proxy</a>, der indeholder disse legitimationsoplysninger.</p>

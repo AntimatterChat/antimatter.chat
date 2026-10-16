@@ -1,0 +1,164 @@
+title: REST API
+description: REST API của Antimatter: URL gốc, token truy cập cá nhân, token phiên và OAuth, các tài nguyên chính, phân trang, lỗi, giới hạn tần suất, luồng sự kiện WebSocket và thư viện client.
+guide: developers
+order: 2
+nav: REST API
+lead: Mọi thao tác của các ứng dụng Antimatter đều đi qua cùng một HTTP API, vì vậy các script của bạn cũng có thể làm tương tự. Trang này giải thích cách xác thực, các tài nguyên bạn sẽ sử dụng thường xuyên nhất, cách các phản hồi và lỗi trông như thế nào, và cách theo dõi sự kiện trực tiếp qua WebSocket.
+source: f4b8c83efdba
+---
+<h2 id="basics">Cơ bản</h2>
+<ul>
+<li><b>URL gốc</b>: <code>https://chat.example.com/api/v4</code>. Tất cả các endpoint bên dưới đều là đường dẫn tương đối so với URL này.</li>
+<li><b>Định dạng</b>: JSON cho cả đầu vào và đầu ra, ngoại trừ việc tải tệp lên (multipart). Gửi <code>Content-Type: application/json</code>.</li>
+<li><b>ID</b>: mỗi đối tượng có một <code>id</code> gồm 26 ký tự. Thời gian được tính bằng mili giây kể từ Unix epoch (<code>create_at</code>, <code>update_at</code>, <code>delete_at</code>; 0 có nghĩa là "chưa bị xóa").</li>
+<li><b>Cộng đồng là nhóm</b>: API gọi chúng là <code>teams</code>, với một <code>team_id</code>.</li>
+<li><b>Bản thân bạn</b>: ở bất kỳ nơi nào đường dẫn nhận một <code>user_id</code>, <code>me</code> có nghĩa là người dùng đã đăng nhập, như trong <code>GET /users/me</code>.</li>
+</ul>
+<p>Danh sách đầy đủ các endpoint nằm trong mã nguồn của server: các route được khai báo trong <code>server/channels/api4/*.go</code> và các kiểu dữ liệu trong <code>server/public/model</code>. Mô tả OpenAPI trong thư mục <code>api/v4/source</code> của kho mã nguồn bao gồm các endpoint kế thừa từ Mattermost, không phải các phần bổ sung của Antimatter.</p>
+
+<h2 id="auth">Xác thực</h2>
+<p>Mọi yêu cầu, ngoại trừ đăng nhập và một số endpoint công khai, đều cần một token trong header <code>Authorization</code>:</p>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" https://chat.example.com/api/v4/users/me</code></pre>
+<p>Ba loại token được chấp nhận ở đó: token truy cập cá nhân, token phiên và token truy cập OAuth. <code>Authorization: Token …</code> cũng được chấp nhận. Token trong chuỗi truy vấn (<code>?access_token=</code>) chỉ được chấp nhận cho token truy cập OAuth.</p>
+
+<h3>Token truy cập cá nhân (khuyến nghị cho script)</h3>
+<p>Token truy cập cá nhân hoạt động thay mặt cho bạn, không hết hạn trừ khi bạn đặt ngày hết hạn, và có thể bị thu hồi bất cứ lúc nào. Token truy cập cá nhân bị tắt theo mặc định:</p>
+<ol>
+<li>Quản trị viên hệ thống bật <b>Bật Mã truy cập Cá nhân</b> trong <b>Bảng điều khiển Hệ thống › Tích Hợp › Quản lý tích hợp</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, <code>AM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS</code>).</li>
+<li>Đối với mỗi người có thể tạo token, quản trị viên hệ thống mở <b>Bảng điều khiển Hệ thống › Quản lý người dùng › Người dùng</b>, chọn <b>Quản lý vai trò</b> trong menu của người đó và đánh dấu <b>Cho phép tài khoản này tạo token truy cập cá nhân</b>. Quản trị viên hệ thống luôn có thể tạo token.</li>
+<li>Người dùng mở avatar ở góc trên bên phải, sau đó chọn <b>Hồ sơ &amp; cài đặt › Bảo mật</b>. Trong phần <b>Mã thông báo truy cập cá nhân</b>, họ mô tả mục đích sử dụng của mã thông báo và chọn <b>Tạo mã thông báo</b>. Mã thông báo chỉ được hiển thị một lần: hãy sao chép nó.</li>
+</ol>
+<p>Thông qua API: <code>POST /users/{user_id}/tokens</code> với <code>{"description": "backup script", "expires_at": 0}</code> (<code>expires_at</code> tính bằng mili giây; 0 nếu không có thời hạn). Trường <code>token</code> trong phản hồi là bí mật; trường <code>id</code> của nó được sử dụng để thu hồi token (<code>POST /users/tokens/revoke</code> với <code>{"token_id": "…"}</code>). Từ dòng lệnh: <code>amctl token generate &lt;user&gt; &lt;description&gt;</code>.</p>
+<p>Quản trị viên hệ thống có thể giới hạn thời hạn của token bằng cách sử dụng <b>Thời hạn tối đa của token truy cập cá nhân (ngày)</b> trên cùng trang Bảng điều khiển Hệ thống.</p>
+
+<h3>Token phiên</h3>
+<p>Đăng nhập bằng mật khẩu sẽ trả về một token phiên trong tiêu đề phản hồi <code>Token</code>, cùng loại phiên mà các ứng dụng sử dụng:</p>
+<pre><code>curl -i -X POST https://chat.example.com/api/v4/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login_id": "maya", "password": "…"}'</code></pre>
+<p>Thêm <code>"token": "123456"</code> cho một tài khoản có xác thực đa yếu tố. Các phiên sẽ hết hạn theo cài đặt phiên của máy chủ, và điểm cuối đăng nhập bị giới hạn tốc độ (5 yêu cầu mỗi giây). <code>POST /users/logout</code> sẽ kết thúc phiên.</p>
+<div class="callout">Trình duyệt xác thực bằng cookie. Yêu cầu được xác thực bằng cookie cũng phải gửi tiêu đề <code>X-CSRF-Token</code> cho mọi thao tác khác ngoài GET; token trong tiêu đề <code>Authorization</code> không cần tiêu đề CSRF.</div>
+
+<h3>Ứng dụng OAuth 2.0</h3>
+<p>Để cho phép người dùng đăng nhập vào ứng dụng của bạn bằng tài khoản Antimatter, hãy đăng ký một ứng dụng OAuth 2.0. Khi đó, Antimatter sẽ đóng vai trò là nhà cung cấp OAuth:</p>
+<ol>
+<li><b>Bật nhà cung cấp dịch vụ OAuth 2.0</b> phải được bật (<b>Bảng điều khiển Hệ thống › Tích hợp › Quản lý tích hợp</b>, <code>ServiceSettings.EnableOAuthServiceProvider</code>, mặc định là bật).</li>
+<li>Người có quyền quản lý các ứng dụng OAuth (mặc định là quản trị viên hệ thống) mở avatar của họ, sau đó chọn <b>Tích hợp › Ứng dụng OAuth 2.0</b>, và thêm ứng dụng cùng với các URL callback. Họ sẽ nhận được một ID client và một bí mật client.</li>
+<li>Ứng dụng của bạn gửi người dùng đến <code>https://chat.example.com/oauth/authorize</code> với <code>response_type=code</code>, <code>client_id</code>, <code>redirect_uri</code> và <code>state</code>. PKCE với <code>code_challenge_method=S256</code> được hỗ trợ.</li>
+<li>Nó đổi mã tại <code>POST https://chat.example.com/oauth/access_token</code> (<code>grant_type=authorization_code</code>, sau đó dùng <code>refresh_token</code> để làm mới), và gọi API với <code>Authorization: Bearer &lt;access token&gt;</code>.</li>
+</ol>
+<p>Người dùng xem các ứng dụng đã ủy quyền trong <b>Hồ sơ &amp; cài đặt › Bảo mật › Ứng dụng bạn đã ủy quyền</b>.</p>
+
+<h2 id="resources">Tài nguyên chính</h2>
+<table>
+<thead><tr><th>Nội dung</th><th>Điểm cuối</th></tr></thead>
+<tbody>
+<tr><td>Bạn và người khác</td><td><code>GET /users/me</code>, <code>GET /users/{user_id}</code>, <code>GET /users/username/{username}</code>, <code>POST /users/ids</code> (một danh sách ID), <code>POST /users/search</code>, <code>GET /users?in_team=…&amp;in_channel=…</code></td></tr>
+<tr><td>Cộng đồng</td><td><code>GET /users/me/teams</code>, <code>GET /teams/{team_id}</code>, <code>GET /teams/name/{name}</code>, <code>PUT /teams/{team_id}/patch</code>, <code>GET /teams/{team_id}/members</code>, <code>POST /teams/{team_id}/members</code></td></tr>
+<tr><td>Kênh</td><td><code>GET /users/me/teams/{team_id}/channels</code>, <code>GET /teams/name/{team}/channels/name/{channel}</code>, <code>POST /channels</code>, <code>POST /channels/direct</code> (hai ID người dùng), <code>POST /channels/group</code>, <code>POST /channels/{channel_id}/members</code></td></tr>
+<tr><td>Tin nhắn (bài đăng)</td><td><code>POST /posts</code>, <code>GET /posts/{post_id}</code>, <code>PUT /posts/{post_id}/patch</code>, <code>DELETE /posts/{post_id}</code>, <code>GET /channels/{channel_id}/posts</code>, <code>GET /posts/{post_id}/thread</code>, <code>POST /teams/{team_id}/posts/search</code></td></tr>
+<tr><td>Phản ứng</td><td><code>POST /reactions</code> với <code>{"user_id", "post_id", "emoji_name"}</code>, <code>DELETE /users/{user_id}/posts/{post_id}/reactions/{emoji_name}</code></td></tr>
+<tr><td>Tệp</td><td><code>POST /files</code> (multipart: <code>channel_id</code> và <code>files</code>), sau đó đặt các ID trả về vào <code>file_ids</code> của bài đăng; <code>GET /files/{file_id}</code></td></tr>
+<tr><td>Tùy chọn</td><td><code>GET /users/me/preferences</code>, <code>PUT /users/me/preferences</code></td></tr>
+<tr><td>Tích hợp</td><td><code>/hooks/incoming</code>, <code>/hooks/outgoing</code>, <code>/commands</code>, <code>/bots</code>, <code>/oauth/apps</code> (xem các trang tiếp theo)</td></tr>
+<tr><td>Máy chủ</td><td><code>GET /system/ping</code> (kiểm tra sức khỏe, không cần token), <code>GET /config/client?format=old</code> (các cài đặt mà client nhìn thấy)</td></tr>
+</tbody>
+</table>
+
+<h3>Đăng một tin nhắn</h3>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "message": "Backup finished: **42 GB** in 3 min"}'</code></pre>
+<p>Tin nhắn sử dụng Markdown. Thêm <code>"root_id"</code> (bài đăng đầu tiên của một chủ đề) để trả lời trong chủ đề, <code>"file_ids"</code> cho tệp và <code>"props"</code> cho tệp đính kèm và các phần bổ sung khác (xem <a href="{{root}}docs/developers/webhooks.html#attachments">Tệp đính kèm</a>).</p>
+
+<h3>Tìm ID của một kênh</h3>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" \
+  https://chat.example.com/api/v4/teams/name/lumen-labs/channels/name/ops-alerts</code></pre>
+<p>Tên là những tên trong liên kết của kênh: <code>/lumen-labs/channels/ops-alerts</code>.</p>
+
+<h2 id="pagination">Phân trang</h2>
+<p>Các điểm cuối danh sách nhận <code>page</code> (bắt đầu từ 0) và <code>per_page</code> (mặc định là 60, tối đa 200). Tiếp tục yêu cầu trang tiếp theo cho đến khi một trang trả về ngắn hơn <code>per_page</code>.</p>
+<p>Tin nhắn của một kênh (<code>GET /channels/{channel_id}/posts</code>) cũng nhận <code>since</code> (thời gian: mọi thay đổi kể từ đó), hoặc <code>before</code> và <code>after</code> (ID bài đăng). Kết quả trả về dưới dạng danh sách bài đăng: <code>{"order": [IDs, newest first], "posts": {ID: post}, "next_post_id", "prev_post_id"}</code>.</p>
+
+<h2 id="errors">Lỗi</h2>
+<p>Lỗi sử dụng các mã trạng thái HTTP thông thường (400 đầu vào không hợp lệ, 401 chưa đăng nhập, 403 không được phép, 404 không tìm thấy, 501 tính năng đã bị tắt) kèm theo thân JSON:</p>
+<pre><code>{
+  "id": "api.context.permissions.app_error",
+  "message": "You do not have the appropriate permissions.",
+  "detailed_error": "",
+  "request_id": "jz8zm5nunpbt8f3gpqsz5dq6so",
+  "status_code": 403
+}</code></pre>
+<p>Sử dụng <code>id</code> trong mã của bạn: <code>message</code> được dịch sang ngôn ngữ của người dùng. <code>detailed_error</code> sẽ trống trừ khi máy chủ chạy ở chế độ phát triển (<code>ServiceSettings.EnableDeveloper</code>). Cung cấp <code>request_id</code> cho quản trị viên của máy chủ: nó có trong nhật ký.</p>
+
+<h2 id="rate-limits">Giới hạn tần suất</h2>
+<p>Giới hạn tỷ lệ mặc định là tắt. Khi quản trị viên hệ thống bật tính năng này (<b>Bảng điều khiển Hệ thống › Môi trường › Giới hạn Tỷ lệ</b>), mỗi client mặc định được cấp 10 yêu cầu mỗi giây với mức đột biến lên đến 100, được tính theo địa chỉ IP hoặc theo người dùng. Phản hồi bao gồm các tiêu đề <code>X-RateLimit-Limit</code>, <code>X-RateLimit-Remaining</code> và <code>X-RateLimit-Reset</code>; khi vượt quá giới hạn, máy chủ trả về mã <code>429</code> kèm tiêu đề <code>Retry-After</code> tính bằng giây. Một số điểm cuối, chẳng hạn như đăng nhập, có giới hạn riêng bất kể cài đặt chung.</p>
+<p>Viết các script chờ và thử lại khi gặp 429, và tránh việc truy vấn lặp lại: hãy theo dõi WebSocket thay vào đó.</p>
+
+<h2 id="websocket">Dòng sự kiện WebSocket</h2>
+<p>Kết nối đến <code>wss://chat.example.com/api/v4/websocket</code>. Xác thực bằng tiêu đề <code>Authorization: Bearer</code> trong yêu cầu kết nối, hoặc bằng cách gửi điều này như tin nhắn đầu tiên:</p>
+<pre><code>{"seq": 1, "action": "authentication_challenge", "data": {"token": "…"}}</code></pre>
+<p>Máy chủ gửi sự kiện <code>hello</code>, sau đó gửi sự kiện cho mọi thứ mà bạn được phép xem:</p>
+<pre><code>{
+  "event": "posted",
+  "data": {"channel_id": "…", "channel_type": "O", "post": "{\"id\":\"…\",\"message\":\"Hello\",…}"},
+  "broadcast": {"channel_id": "…", "team_id": "", "user_id": "", "omit_users": null},
+  "seq": 4
+}</code></pre>
+<p>Lưu ý rằng <code>data.post</code> là tin nhắn dưới dạng chuỗi JSON. Các sự kiện phổ biến: <code>posted</code>, <code>post_edited</code>, <code>post_deleted</code>, <code>reaction_added</code>, <code>reaction_removed</code>, <code>typing</code>, <code>status_change</code>, <code>user_added</code>, <code>direct_added</code>. Các ứng dụng gửi sự kiện riêng của chúng, được đặt tên là <code>custom_&lt;app id&gt;_&lt;event&gt;</code>.</p>
+<p>Bạn cũng có thể gửi các hành động, mỗi hành động có một <code>seq</code> tăng dần: <code>user_typing</code> với <code>{"channel_id", "parent_id"}</code>, hoặc <code>get_statuses</code>. Kết nối lại khi kết nối bị ngắt, và lấy lại những gì bạn đã bỏ lỡ bằng <code>since</code> (xem <a href="#pagination">Phân trang</a>).</p>
+<p>Antimatter bổ sung các sự kiện sau: <code>community_attributes_updated</code>, <code>member_timeouts_updated</code>, <code>post_put_on_top</code>, <code>post_removed_from_top</code>, <code>server_categories_updated</code>, <code>channel_overrides_updated</code> và <code>category_overrides_updated</code>.</p>
+
+<h2 id="clients">Thư viện client</h2>
+<ul>
+<li><b>Bắt đầu</b>: <code>model.Client4</code> trong <code>server/public/model</code> (nhập <code>github.com/mattermost/mattermost/server/public/model</code>). Gọi <code>model.NewAPIv4Client(url)</code>, sau đó <code>client.SetToken(token)</code>; <code>model.NewWebSocketClient4(wsURL, token)</code> theo dõi các sự kiện. Bản sao của Antimatter bổ sung các phương thức cho các điểm cuối riêng của nó, chẳng hạn như <code>UpdateMessageRequest</code>, <code>PutPostOnTop</code> và <code>ExportChannel</code>.</li>
+<li><b>TypeScript</b>: lớp <code>Client4</code> của <code>@mattermost/client</code>, trong <code>webapp/platform/client</code>, với các kiểu dữ liệu trong <code>webapp/platform/types</code>. Bản sao trong kho lưu trữ của Antimatter bao gồm các endpoint của Antimatter; gói được phát hành trên npm bởi Mattermost thì không.</li>
+</ul>
+<pre><code>package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/mattermost/mattermost/server/public/model"
+)
+
+func main() {
+	client := model.NewAPIv4Client("https://chat.example.com")
+	client.SetToken("…")
+	post, _, err := client.CreatePost(context.Background(), &amp;model.Post{
+		ChannelId: "…",
+		Message:   "Hello from Go",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("posted", post.Id)
+}</code></pre>
+
+<h2 id="antimatter">Những gì Antimatter bổ sung vào API</h2>
+<p>Các endpoint và trường dữ liệu này không tồn tại trên máy chủ Mattermost. Tất cả đều yêu cầu phiên làm việc.</p>
+<table>
+<thead><tr><th>Endpoint</th><th>Chức năng</th></tr></thead>
+<tbody>
+<tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> cùng đường dẫn<br><code>PATCH</code>, <code>DELETE …/fields/{field_id}</code></td><td>Thuộc tính cộng đồng: các trường hồ sơ do quản trị viên của cộng đồng định nghĩa cho thành viên của cộng đồng đó (tối đa 20). Thành viên có thể đọc chúng; quản trị viên cộng đồng tạo và thay đổi chúng.</td></tr>
+<tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> cùng đường dẫn<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>Giá trị thuộc tính của một thành viên, dưới dạng <code>{field_id: value}</code>. Thành viên tự đặt giá trị của mình (trừ các trường do quản trị viên quản lý); quản trị viên có thể đặt giá trị cho bất kỳ ai. Tìm kiếm nhận <code>{"user_ids": [...]}</code> (tối đa 200).</td></tr>
+<tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>Hết thời gian: <code>{"until": time, "reason": "…"}</code> ngăn một người đăng bài, phản ứng và tải lên tệp trong cộng đồng cho đến thời điểm đó (tối đa 28 ngày); <code>"until": 0</code> để gỡ bỏ. Giao diện điều chế hiển thị thời điểm họ tham gia và số lượng bài đăng gần đây.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Các tin nhắn được giữ ở đầu kênh (tối đa 10). <code>{"duration": ms}</code>, tối đa 30 ngày; 0 để giữ cho đến khi bị xóa. Yêu cầu quyền đăng bài trong kênh.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>Thao tác trên yêu cầu tin nhắn của chính bạn: <code>{"action": "accept"}</code>, <code>"dismiss"</code>, hoặc <code>"request"</code> để đưa cuộc trò chuyện trở lại danh sách các yêu cầu. Trả về thành viên kênh của bạn.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>Những gì một vai trò hoặc một người có thể thực hiện trong một kênh, và những vai trò nào có thể xem một kênh bị chặn theo vai trò.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>Các danh mục kênh dùng chung của cộng đồng, và các ghi đè áp dụng cho mọi kênh trong một danh mục.</td></tr>
+<tr><td><code>GET /groups/{group_id}/team_role</code><br><code>PUT …/team_role/permissions</code></td><td>Các quyền mà một vai trò cộng đồng cấp.</td></tr>
+<tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>Kiểm tra các quy tắc liên kết tự động của cộng đồng trên một đoạn văn bản.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>Tải xuống các tin nhắn của một kênh dưới dạng CSV (tối đa 50.000), dành cho những người có thể đọc kênh đó.</td></tr>
+<tr><td><code>GET /posts/{post_id}/speech</code></td><td>Tin nhắn được đọc thành tiếng, dưới dạng âm thanh, khi chức năng chuyển văn bản thành giọng nói được cấu hình.</td></tr>
+</tbody>
+</table>
+<h3>Các trường mới</h3>
+<ul>
+<li><b>Cộng đồng</b> (<code>Team</code>, và <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (mọi người đều thuộc mọi kênh mà họ có thể xem, giống như trong Discord), <code>default_channel_id</code> (nơi người mới đến; nếu trống nghĩa là Town Square), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> và <code>autolinks</code> (cả hai đều là chuỗi JSON).</li>
+<li><b>Trả lời nội tuyến</b>: một bài đăng có <code>"props": {"reply_to": "&lt;post id&gt;"}</code> sẽ trích dẫn tin nhắn đó từ cùng kênh. Thêm <code>"reply_to_mention": false</code> để không gửi thông báo cho tác giả. Máy chủ sẽ điền <code>metadata.reply_to</code> với một mô tả ngắn về tin nhắn được trích dẫn.</li>
+<li><b>Ẩn nội dung nhạy cảm</b>: <code>"props": {"spoiler": true}</code> sẽ ẩn văn bản và tệp của một bài đăng cho đến khi người đọc chọn xem chúng.</li>
+<li><b>Bỏ qua và chặn</b> là các tùy chọn: danh mục <code>user_block</code>, đặt tên theo ID của người kia, với giá trị <code>ignore</code> hoặc <code>block</code>. Việc một tin nhắn trực tiếp có chờ như một yêu cầu hay không nằm trong <code>notify_props.dm_request</code> của thành viên kênh của bạn (<code>pending</code>, <code>accepted</code> hoặc <code>dismissed</code>).</li>
+<li><b>Tệp đính kèm của tin nhắn</b> có thể chứa <code>stages</code> và một <code>chart</code>: xem <a href="{{root}}docs/developers/webhooks.html#cards">Thẻ</a>.</li>
+</ul>

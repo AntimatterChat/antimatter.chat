@@ -1,0 +1,164 @@
+title: REST API
+description: REST API Antimatter: základní URL, osobní přístupové tokeny, session tokeny a OAuth, hlavní zdroje, stránkování, chyby, limity požadavků, WebSocket událostní proud a klientské knihovny.
+guide: developers
+order: 2
+nav: REST API
+lead: Vše, co aplikace Antimatter dělají, probíhá přes stejné HTTP API, takže to umí i vaše skripty. Tato stránka vysvětluje, jak se autentizovat, které zdroje budete nejčastěji používat, jak vypadají odpovědi a chyby a jak živě sledovat události přes WebSocket.
+source: f4b8c83efdba
+---
+<h2 id="basics">Základy</h2>
+<ul>
+<li><b>Základní URL</b>: <code>https://chat.example.com/api/v4</code>. Všechny níže uvedené koncové body jsou relativní vůči ní.</li>
+<li><b>Formát</b>: JSON na vstupu i výstupu, s výjimkou nahrávání souborů (multipart). Pošlete <code>Content-Type: application/json</code>.</li>
+<li><b>ID</b>: každý objekt má 26 znaků dlouhé <code>id</code>. Časy jsou v milisekundách od Unix epochu (<code>create_at</code>, <code>update_at</code>, <code>delete_at</code>; 0 znamená „nesmazáno“).</li>
+<li><b>Komunity jsou týmy</b>: API je nazývá <code>teams</code> a používá <code>team_id</code>.</li>
+<li><b>Sebou</b>: kdekoliv, kde cesta bere <code>user_id</code>, <code>me</code> znamená přihlášeného uživatele, např. <code>GET /users/me</code>.</li>
+</ul>
+<p>Úplný seznam koncových bodů najdete v kódu serveru: routy jsou deklarovány v <code>server/channels/api4/*.go</code> a typy v <code>server/public/model</code>. OpenAPI popis ve složce <code>api/v4/source</code> v repozitáři pokrývá koncové body zděděné z Mattermost, nikoli přídavky Antimatter.</p>
+
+<h2 id="auth">Autentizace</h2>
+<p>Každý požadavek, s výjimkou přihlášení a několika veřejných koncových bodů, vyžaduje token v hlavičce <code>Authorization</code>:</p>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" https://chat.example.com/api/v4/users/me</code></pre>
+<p>Přijímány jsou tři druhy tokenů: osobní přístupové tokeny, session tokeny a OAuth přístupové tokeny. Přijímá se i <code>Authorization: Token …</code>. Tokeny v dotazovém řetězci (<code>?access_token=</code>) se přijímají pouze pro OAuth přístupové tokeny.</p>
+
+<h3>Osobní přístupové tokeny (doporučeno pro skripty)</h3>
+<p>Osobní přístupový token jedná za vás, nevyprší, pokud mu nenastavíte datum vypršení, a lze ho kdykoli odvolat. Osobní přístupové tokeny jsou ve výchozím nastavení vypnuté:</p>
+<ol>
+<li>Systémový administrátor zapne <b>Povolit osobní přístupové tokeny</b> v <b>Systémová konzole › Integrace › Správa integrací</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, <code>AM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS</code>).</li>
+<li>Pro každého, kdo může vytvářet tokeny, systémový administrátor otevře <b>Systémová konzole › Správa uživatelů › Uživatelé</b>, v menu dané osoby zvolí <b>Spravovat role</b> a zaškrtně <b>Povolit tomuto účtu generovat osobní přístupové tokeny</b>. Systémoví administrátoři je mohou vždy vytvářet.</li>
+<li>Uživatel klikne na svůj avatar v pravém horním rohu a poté na <b>Profil a nastavení › Zabezpečení</b>. V sekci <b>Osobní přístupové tokeny</b> popíše, k čemu token slouží, a zvolí <b>Vytvořit token</b>. Token se zobrazí pouze jednou: zkopírujte ho.</li>
+</ol>
+<p>Přes API: <code>POST /users/{user_id}/tokens</code> s tělem <code>{"description": "backup script", "expires_at": 0}</code> (<code>expires_at</code> v milisekundách; 0 znamená bez expirace). Pole <code>token</code> v odpovědi je tajný klíč; jeho <code>id</code> použijete k jeho odvolání (<code>POST /users/tokens/revoke</code> s <code>{"token_id": "…"}</code>). Z příkazového řádku: <code>amctl token generate &lt;user&gt; &lt;description&gt;</code>.</p>
+<p>Systémový administrátor může omezit platnost tokenů pomocí <b>Maximální platnost osobního přístupového tokenu (dny)</b> na stejné stránce Systémové konzole.</p>
+
+<h3>Relační tokeny</h3>
+<p>Přihlášení heslem vrátí relační token v hlavičce odpovědi <code>Token</code>, což je stejný typ relace, který používají aplikace:</p>
+<pre><code>curl -i -X POST https://chat.example.com/api/v4/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login_id": "maya", "password": "…"}'</code></pre>
+<p>Pro účet s vícefaktorovou autentizací přidejte <code>"token": "123456"</code>. Relace expirují podle nastavení relací na serveru a koncový bod pro přihlášení je omezen rychlostí (5 požadavků za sekundu). <code>POST /users/logout</code> relaci ukončí.</p>
+<div class="callout">Prohlížeče se autentizují pomocí cookie. Požadavek autentizovaný cookie musí pro jakoukoli metodu kromě GET také odesílat hlavičku <code>X-CSRF-Token</code>; token v hlavičce <code>Authorization</code> hlavičku CSRF nevyžaduje.</div>
+
+<h3>OAuth 2.0 aplikace</h3>
+<p>Pokud chcete, aby se lidé mohli přihlásit do vaší aplikace svým účtem Antimatter, zaregistrujte OAuth 2.0 aplikaci. Antimatter pak slouží jako OAuth poskytovatel:</p>
+<ol>
+<li><b>Povolit službu OAuth 2.0</b> musí být zapnuto (<b>Systémová konzole › Integrace › Správa integrací</b>, <code>ServiceSettings.EnableOAuthServiceProvider</code>, výchozí stav je zapnuto).</li>
+<li>Někdo s právem spravovat OAuth aplikace (výchozí je systémový administrátor) otevře svou avatar, pak <b>Integrace › Aplikace OAuth 2.0</b> a přidá aplikaci se svými callback URL. Získá client ID a client secret.</li>
+<li>Vaše aplikace posílá uživatele na <code>https://chat.example.com/oauth/authorize</code> s parametry <code>response_type=code</code>, <code>client_id</code>, <code>redirect_uri</code> a <code>state</code>. Podporováno je PKCE s <code>code_challenge_method=S256</code>.</li>
+<li>Kód vymění na <code>POST https://chat.example.com/oauth/access_token</code> (nejdřív <code>grant_type=authorization_code</code>, pak <code>refresh_token</code> pro obnovu) a volá API s hlavičkou <code>Authorization: Bearer &lt;access token&gt;</code>.</li>
+</ol>
+<p>Uživatelé vidí aplikace, které autorizovali, v <b>Profil &amp; nastavení › Zabezpečení › Aplikace, které jste autorizovali</b>.</p>
+
+<h2 id="resources">Hlavní zdroje</h2>
+<table>
+<thead><tr><th>Co</th><th>Koncové body</th></tr></thead>
+<tbody>
+<tr><td>Vy a ostatní uživatelé</td><td><code>GET /users/me</code>, <code>GET /users/{user_id}</code>, <code>GET /users/username/{username}</code>, <code>POST /users/ids</code> (seznam ID), <code>POST /users/search</code>, <code>GET /users?in_team=…&amp;in_channel=…</code></td></tr>
+<tr><td>Komunity</td><td><code>GET /users/me/teams</code>, <code>GET /teams/{team_id}</code>, <code>GET /teams/name/{name}</code>, <code>PUT /teams/{team_id}/patch</code>, <code>GET /teams/{team_id}/members</code>, <code>POST /teams/{team_id}/members</code></td></tr>
+<tr><td>Kanály</td><td><code>GET /users/me/teams/{team_id}/channels</code>, <code>GET /teams/name/{team}/channels/name/{channel}</code>, <code>POST /channels</code>, <code>POST /channels/direct</code> (dva ID uživatelů), <code>POST /channels/group</code>, <code>POST /channels/{channel_id}/members</code></td></tr>
+<tr><td>Zprávy (příspěvky)</td><td><code>POST /posts</code>, <code>GET /posts/{post_id}</code>, <code>PUT /posts/{post_id}/patch</code>, <code>DELETE /posts/{post_id}</code>, <code>GET /channels/{channel_id}/posts</code>, <code>GET /posts/{post_id}/thread</code>, <code>POST /teams/{team_id}/posts/search</code></td></tr>
+<tr><td>Reakce</td><td><code>POST /reactions</code> s tělem <code>{"user_id", "post_id", "emoji_name"}</code>, <code>DELETE /users/{user_id}/posts/{post_id}/reactions/{emoji_name}</code></td></tr>
+<tr><td>Soubory</td><td><code>POST /files</code> (multipart: <code>channel_id</code> a <code>files</code>), pak vrácené ID vložte do pole <code>file_ids</code> příspěvku; <code>GET /files/{file_id}</code></td></tr>
+<tr><td>Preferenční nastavení</td><td><code>GET /users/me/preferences</code>, <code>PUT /users/me/preferences</code></td></tr>
+<tr><td>Integrace</td><td><code>/hooks/incoming</code>, <code>/hooks/outgoing</code>, <code>/commands</code>, <code>/bots</code>, <code>/oauth/apps</code> (viz následující stránky)</td></tr>
+<tr><td>Server</td><td><code>GET /system/ping</code> (stav, bez tokenu), <code>GET /config/client?format=old</code> (nastavení viditelná pro klienty)</td></tr>
+</tbody>
+</table>
+
+<h3>Odeslání zprávy</h3>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "message": "Backup finished: **42 GB** in 3 min"}'</code></pre>
+<p>Zprávy jsou v Markdownu. Pro odpověď ve vláknu přidejte <code>"root_id"</code> (ID prvního příspěvku vlákna), pro soubory <code>"file_ids"</code> a pro přílohy a další doplňky <code>"props"</code> (viz <a href="{{root}}docs/developers/webhooks.html#attachments">Přílohy</a>).</p>
+
+<h3>Najít ID kanálu</h3>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" \
+  https://chat.example.com/api/v4/teams/name/lumen-labs/channels/name/ops-alerts</code></pre>
+<p>Jména jsou ta, která najdete v odkazu na kanál: <code>/lumen-labs/channels/ops-alerts</code>.</p>
+
+<h2 id="pagination">Stránkování</h2>
+<p>Koncové body pro seznamy přijímají <code>page</code> (od 0) a <code>per_page</code> (výchozí 60, maximálně 200). Neustále žádejte další stránku, dokud se nevrátí stránka kratší než <code>per_page</code>.</p>
+<p>Zprávy kanálu (<code>GET /channels/{channel_id}/posts</code>) také přijímají parametr <code>since</code> (čas: vše, co se od té doby změnilo), nebo <code>before</code> a <code>after</code> (ID příspěvku). Odpověď je seznam příspěvků: <code>{"order": [IDs, newest first], "posts": {ID: post}, "next_post_id", "prev_post_id"}</code>.</p>
+
+<h2 id="errors">Chyby</h2>
+<p>Chyby používají běžné HTTP stavové kódy (400 nesprávný vstup, 401 neautorizováno, 403 zakázáno, 404 nenalezeno, 501 funkce vypnutá) a JSON tělo:</p>
+<pre><code>{
+  "id": "api.context.permissions.app_error",
+  "message": "You do not have the appropriate permissions.",
+  "detailed_error": "",
+  "request_id": "jz8zm5nunpbt8f3gpqsz5dq6so",
+  "status_code": 403
+}</code></pre>
+<p>Ve svém kódu používejte <code>id</code>: <code>message</code> je přeloženo do jazyka uživatele. <code>detailed_error</code> je prázdné, pokud server neběží v režimu vývojáře (<code>ServiceSettings.EnableDeveloper</code>). Uveďte <code>request_id</code> administrátorovi serveru: je v logu.</p>
+
+<h2 id="rate-limits">Omezení rychlosti</h2>
+<p>Omezení frekvence je výchozí vypnuté. Když systémový administrátor ho zapne (<b>Systémová konzole › Prostředí › Omezení frekvence</b>), každý klient má výchozí 10 požadavků za sekundu s bursty 100, počítáno podle IP adresy nebo podle uživatele. Odpovědi nesou <code>X-RateLimit-Limit</code>, <code>X-RateLimit-Remaining</code> a <code>X-RateLimit-Reset</code>; nad limitem server odpoví <code>429</code> s hlavičkou <code>Retry-After</code> v sekundách. Některé endpointy, jako je přihlášení, mají vlastní limit bez ohledu na nastavení.</p>
+<p>Píšte skripty, které čekají a při 429 se opakují, a vyhýbejte se dotazování: sledujte WebSocket.</p>
+
+<h2 id="websocket">WebSocketový tok událostí</h2>
+<p>Připojte se k <code>wss://chat.example.com/api/v4/websocket</code>. Autentizujte se buď hlavičkou <code>Authorization: Bearer</code> v požadavku na připojení, nebo odesláním tohoto jako první zprávy:</p>
+<pre><code>{"seq": 1, "action": "authentication_challenge", "data": {"token": "…"}}</code></pre>
+<p>Server pošle událost <code>hello</code>, pak událost pro vše, co máte právo vidět:</p>
+<pre><code>{
+  "event": "posted",
+  "data": {"channel_id": "…", "channel_type": "O", "post": "{\"id\":\"…\",\"message\":\"Hello\",…}"},
+  "broadcast": {"channel_id": "…", "team_id": "", "user_id": "", "omit_users": null},
+  "seq": 4
+}</code></pre>
+<p>Pozor, <code>data.post</code> je příspěvek jako JSON řetězec. Běžné události: <code>posted</code>, <code>post_edited</code>, <code>post_deleted</code>, <code>reaction_added</code>, <code>reaction_removed</code>, <code>typing</code>, <code>status_change</code>, <code>user_added</code>, <code>direct_added</code>. Aplikace posílají vlastní události, pojmenované <code>custom_&lt;app id&gt;_&lt;event&gt;</code>.</p>
+<p>Můžete také posílat akce, každá s rostoucím <code>seq</code>: <code>user_typing</code> s <code>{"channel_id", "parent_id"}</code>, nebo <code>get_statuses</code>. Připojte se znovu, když se připojení přeruší, a načtěte to, co jste přehlédli, pomocí <code>since</code> (viz <a href="#pagination">Stránkování</a>).</p>
+<p>Antimatter přidává tyto události: <code>community_attributes_updated</code>, <code>member_timeouts_updated</code>, <code>post_put_on_top</code>, <code>post_removed_from_top</code>, <code>server_categories_updated</code>, <code>channel_overrides_updated</code> a <code>category_overrides_updated</code>.</p>
+
+<h2 id="clients">Klientské knihovny</h2>
+<ul>
+<li><b>Jít</b>: <code>model.Client4</code> v <code>server/public/model</code> (import <code>github.com/mattermost/mattermost/server/public/model</code>). <code>model.NewAPIv4Client(url)</code>, pak <code>client.SetToken(token)</code>; <code>model.NewWebSocketClient4(wsURL, token)</code> sleduje události. Antimatter's copy adds methods for its own endpoints, such as <code>UpdateMessageRequest</code>, <code>PutPostOnTop</code> and <code>ExportChannel</code>.</li>
+<li><b>TypeScript</b>: třída <code>Client4</code> z balíčku <code>@mattermost/client</code> v <code>webapp/platform/client</code>, s typy v <code>webapp/platform/types</code>. Kopie v repozitáři Antimatteru obsahuje koncové body Antimatteru; balíček publikovaný na npm společností Mattermost je neobsahuje.</li>
+</ul>
+<pre><code>package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/mattermost/mattermost/server/public/model"
+)
+
+func main() {
+	client := model.NewAPIv4Client("https://chat.example.com")
+	client.SetToken("…")
+	post, _, err := client.CreatePost(context.Background(), &amp;model.Post{
+		ChannelId: "…",
+		Message:   "Hello from Go",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("posted", post.Id)
+}</code></pre>
+
+<h2 id="antimatter">Co Antimatter přidává do API</h2>
+<p>Tyto koncové body a pole neexistují na serveru Mattermost. Všechny vyžadují relaci.</p>
+<table>
+<thead><tr><th>Koncový bod</th><th>Co dělá</th></tr></thead>
+<tbody>
+<tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> stejná cesta<br><code>PATCH</code>, <code>DELETE …/fields/{field_id}</code></td><td>Komunitní atributy: pole profilu, která administrátoři komunity definují pro její členy (až 20). Členové je mohou číst; administrátoři komunity je vytvářejí a mění.</td></tr>
+<tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> stejná cesta<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>Hodnoty atributů člena ve formátu <code>{field_id: value}</code>. Člen si nastavuje své vlastní (kromě těch spravovaných administrátorem); administrátoři nastavují hodnoty pro kohokoli. Hledání přijímá <code>{"user_ids": [...]}</code> (až 200).</td></tr>
+<tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>Časové limity: <code>{"until": time, "reason": "…"}</code> brání uživateli v psaní, reagování a nahrávání v komunitě do daného času (maximálně 28 dní); <code>"until": 0</code> je zruší. Pohled na moderaci zobrazuje, kdy se uživatel připojil a kolik nedávno publikoval.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Zprávy připevněné na vrchol kanálu (až 10). <code>{"duration": ms}</code>, maximálně 30 dní; 0 je ponechá, dokud nebudou odstraněny. Vyžaduje oprávnění k psaní v kanálu.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>Působí na vaši vlastní žádost: <code>{"action": "accept"}</code>, <code>"dismiss"</code> nebo <code>"request"</code> pro vrácení konverzace mezi žádosti. Vrátí vašeho člena kanálu.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>Co může role nebo osoba v kanálu dělat a které role vidí kanál omezený na role.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>Sdílené kategorie kanálů komunity a přepsání, která se vztahují na všechny kanály v kategorii.</td></tr>
+<tr><td><code>GET /groups/{group_id}/team_role</code><br><code>PUT …/team_role/permissions</code></td><td>Oprávnění, která uděluje role komunity.</td></tr>
+<tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>Otestuje pravidla pro automatické odkazy komunity na text.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>Stáhne zprávy kanálu jako CSV (až 50 000) pro osoby, které mají v kanálu právo číst.</td></tr>
+<tr><td><code>GET /posts/{post_id}/speech</code></td><td>Zpráva přečtená nahlas jako audio, pokud je nastaveno převádění textu na řeč.</td></tr>
+</tbody>
+</table>
+<h3>Nová pole</h3>
+<ul>
+<li><b>Komunity</b> (<code>Team</code> a <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (každý je členem všech kanálů, které může vidět, podobně jako v Discordu), <code>default_channel_id</code> (kam noví uživatelé přistanou; prázdná hodnota znamená Town Square), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> a <code>autolinks</code> (oba jako JSON řetězce).</li>
+<li><b>Vložené odpovědi</b>: příspěvek s <code>"props": {"reply_to": "&lt;post id&gt;"}</code> cituje danou zprávu ze stejného kanálu. Přidejte <code>"reply_to_mention": false</code>, abyste autora neoznamovali. Server vyplní <code>metadata.reply_to</code> krátkým popisem citované zprávy.</li>
+<li><b>Varování před senzitivním obsahem</b>: <code>"props": {"spoiler": true}</code> skryje text a soubory příspěvku, dokdy čtenář nevybere, že je chce zobrazit.</li>
+<li><b>Ignorování a blokace</b> jsou preference: kategorie <code>user_block</code>, pojmenovaná podle ID druhé osoby, s hodnotou <code>ignore</code> nebo <code>block</code>. Zda přímá zpráva čeká jako žádost, je v <code>notify_props.dm_request</code> vašeho člena kanálu (<code>pending</code>, <code>accepted</code> nebo <code>dismissed</code>).</li>
+<li><b>Přílohy zpráv</b> mohou nést <code>stages</code> a <code>chart</code>: viz <a href="{{root}}docs/developers/webhooks.html#cards">Karty</a>.</li>
+</ul>

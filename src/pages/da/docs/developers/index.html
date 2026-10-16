@@ -1,0 +1,77 @@
+title: Bygning på Antimatter
+description: En guide til udviklere, der integrerer med Antimatter eller udvider det: REST API, webhooks, skråstregskommandoer, bots, apps (plugins), bygning fra kildekode og bidrag.
+guide: developers
+order: 1
+nav: Oversigt
+lead: Denne guide er til udviklere. Den dækker scripts og bots, der bruger API’et, integrationer bygget på webhooks og skråstregskommandoer, apps (plugins), der tilføjer funktioner til serveren og webappen, samt bygning af Antimatter fra kildekode for at bidrage til det.
+source: b60d529f2c61
+---
+<h2 id="ways">Måder at udvide Antimatter på</h2>
+<p>Vælg det letteste værktøj, der løser opgaven. De første fire kræver ingen adgang til selve serveren; apps kører inde i den.</p>
+<table>
+<thead><tr><th>Værktøj</th><th>Hvad den gør</th><th>Godt til</th></tr></thead>
+<tbody>
+<tr><td><a href="{{root}}docs/developers/api.html">REST API</a></td><td>Alt det, apps gør: beskeder, kanaler, personer, filer, indstillinger. En WebSocket sender hændelser, efterhånden som de sker.</td><td>Scripts, synkronisering med andre systemer, egne klienter.</td></tr>
+<tr><td><a href="{{root}}docs/developers/webhooks.html">Indgående webhooks</a></td><td>En hemmelig URL, der poster en besked til en kanal, når noget sender JSON til den.</td><td>Advarsler, CI-resultater, overvågning, notifikationer fra andre værktøjer.</td></tr>
+<tr><td><a href="{{root}}docs/developers/webhooks.html#outgoing">Udgående webhooks</a></td><td>Antimatter ringer til din URL, når en besked i en offentlig kanal starter med et udløsende ord, og poster dit svar.</td><td>Enkle chatdrevne automatiseringer.</td></tr>
+<tr><td><a href="{{root}}docs/developers/commands.html">Skråstregskommandoer</a></td><td>Folk indtaster <code>/something</code>; Antimatter kalder din URL og viser dit svar til dem eller til kanalen.</td><td>Opslag, handlinger startet fra chatten.</td></tr>
+<tr><td><a href="{{root}}docs/developers/bots.html">Bots</a></td><td>Konti lavet til programmer, med deres egne tokens, et <b>BOT</b>-mærke samt interaktive beskeder og dialoger.</td><td>Assistenter, notifikationer, alt det, der taler med folk.</td></tr>
+<tr><td><a href="{{root}}docs/developers/apps.html">Apps (plugins)</a></td><td>Kode, der kører inde i serveren (Go) og i webappen (React): hooks på hver besked, nye menuer, paneler, beskedtyper, sider.</td><td>Funktioner: afstemninger, notater, kalendere, integrationer, der kræver brugergrænsefladen.</td></tr>
+</tbody>
+</table>
+<p>I grænsefladen kalder folk plugins for "apps". Denne guide skriver "apps (plugins)" der, hvor begge ord hjælper, fordi koden, API’et og konfigurationen stadig siger "plugin".</p>
+
+<h2 id="compatibility">Kompatibilitet med Mattermost</h2>
+<p>Antimatter er en fork af Mattermost. Det meste, der virker med en Mattermost-server, virker også med Antimatter.</p>
+<h3>Hvad er det samme</h3>
+<ul>
+<li><b>REST API</b> under <code>/api/v4</code>, dens autenticering, dens WebSocket og dens fejlformat. Serveren rapporterer version <code>12.0.0</code>, så klienter og apps, der tjekker serverversionen, ser en nyere Mattermost.</li>
+<li><b>Webhooks og skråstregskommandoer</b>, herunder deres Slack-kompatible payloads.</li>
+<li><b>Server-plugin-API og hooks</b>: Antimatter har ikke ændret dem. Serverkode bygges mod samme Go-modul, <code>github.com/mattermost/mattermost/server/public</code>.</li>
+<li><b>Web app-plugin-registret</b>: alle <code>register…</code>-metoder i Mattermosts registret findes i begge af Antimatters webgrænseflader.</li>
+<li><b>Klientbiblioteker</b>: Go-klienten <code>model.Client4</code> og TypeScript-klienten <code>@mattermost/client</code> (se <a href="{{root}}docs/developers/api.html#clients">Klientbiblioteker</a>).</li>
+<li><b>Plugin-bundler</b>: en <code>.tar.gz</code> med et <code>plugin.json</code>-manifest. Plugins signeret med Mattermosts nøgle installeres, ligesom dem signeret med Antimatters.</li>
+</ul>
+<h3>Hvad der er anderledes</h3>
+<ul>
+<li><b>To webgrænseflader.</b> Den nye grænseflade, Fusion, er standard; den klassiske Mattermost-grænseflade er stadig tilgængelig. Fusion render de fleste plugin-komponenter, men placerer nogle af dem anderledes og udelader et par. En app kan se, hvilken grænseflade der kører. Se <a href="{{root}}docs/developers/apps.html#fusion">Understøttelse af Fusion-grænsefladen</a>.</li>
+<li><b>Ekstra API.</b> Antimatter tilføjer endpoints til sine egne funktioner: community-attributter, timeouts, beskeder øverst, beskedanmodninger, kanal- og kategori-overrides, kanaleksport og nye felter på communities. Se <a href="{{root}}docs/developers/api.html#antimatter">Hvad Antimatter tilføjer til API'et</a>.</li>
+<li><b>Ekstra beskedfunktioner.</b> Vedhæftninger til beskeder kan vise pipeline-trin og en lille graf; indlæg kan være inline-svar eller spoilers.</li>
+<li><b>Ekstra web app-hooks</b> til apps: et "+"-menupunkt i composer, emoji-picker-faner, et panel i kanalvisningen, en footer under kanaler i sidebjælken og et indslag på integrations-siderne. Se <a href="{{root}}docs/developers/apps.html#antimatter-hooks">Hooks som kun Antimatter har</a>.</li>
+<li><b>Ingen licenser.</b> Alle funktioner er tilgængelige uden en licensnøgle. Licens-, prøve- og enterprise-opgraderings-endpoints er fjernet; <code>GET /api/v4/license/client</code> er stadig tilgængelig for klienter, der beder om det. Nogle apps bygget til Mattermosts betalte udgaver tjekker selv for en licens og nægter at køre.</li>
+<li><b>Navne.</b> Teams kaldes communities i grænsefladen, men API'et og koden siger stadig <code>team</code>. Miljøvariabler bruger <code>AM_</code>-præfikset, kommandolinjeværktøjet er <code>amctl</code>, og serverbinæren er <code>antimatter</code>.</li>
+</ul>
+
+<h2 id="code">Hvor koden befinder sig</h2>
+<p>Alt er open source i organisationen <a href="https://github.com/AntimatterChat">AntimatterChat</a> på GitHub. Hvert repository arbejder på sin <code>main</code>-gren.</p>
+<table>
+<thead><tr><th>Repository</th><th>Indhold</th></tr></thead>
+<tbody>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter">antimatter</a></td><td>Serveren (Go, i <code>server/</code>), begge webgrænseflader (<code>webapp/fusion</code> og <code>webapp/channels</code>), TypeScript-klienten og <code>amctl</code>.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a></td><td>Docker-billederne, med de medfølgende apps, og compose-filerne.</td></tr>
+<tr><td><code>antimatter-plugin-*</code></td><td>Ét repository per medfølgende app: <a href="https://github.com/AntimatterChat/antimatter-plugin-polls">polls</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-todo">todo</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-notes">notes</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-whiteboard">whiteboard</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-calendar">calendar</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-mail">mail</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-gifs">gifs</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-memes">memes</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-voice-channels">voice-channels</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-calls">calls</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-boards">boards</a> (Kanban), <a href="https://github.com/AntimatterChat/antimatter-plugin-playbooks">playbooks</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-agents">agents</a> og <a href="https://github.com/AntimatterChat/antimatter-plugin-metrics">metrics</a>.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/gifs-server">gifs-server</a></td><td>Den selvhostede GIF- og sticker-tjeneste, der bruges af GIF-appen.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/desktop-app">desktop-app</a>, <a href="https://github.com/AntimatterChat/mobile-app">mobile-app</a>, <a href="https://github.com/AntimatterChat/push-proxy">push-proxy</a></td><td>Desktop- og mobil-appene samt tjenesten, der videresender push-notifikationer til telefoner.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter.chat">antimatter.chat</a></td><td>Denne hjemmeside og dens dokumentation.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/community">community</a></td><td>Issues og diskussioner for alle dele af Antimatter.</td></tr>
+</tbody>
+</table>
+
+<h2 id="first-steps">Før du går i gang</h2>
+<ul>
+<li><b>Få en testserver.</b> Den hurtigste metode er Docker-billedet: se <a href="{{root}}docs/admins/install.html">Installation af Antimatter</a>. Hvis du vil arbejde med selve Antimatter, se <a href="{{root}}docs/developers/building.html">Bygning fra kildekode</a>.</li>
+<li><b>Tjek, hvad serveren tillader.</b> Flere integrationsfunktioner er deaktiveret som standard og kræver en systemadministrator: personlige adgangstokens, bot-konti, overskrivning af brugernavne og ikoner samt upload af apps. Hver side angiver, hvilken indstilling der kræves.</li>
+<li><b>Kend din site-URL.</b> Eksemplerne bruger <code>https://chat.example.com</code>. Erstat den med din servers adresse.</li>
+</ul>
+
+<h2 id="in-this-guide">I denne guide</h2>
+<ul>
+<li><a href="{{root}}docs/developers/api.html">REST-API</a>: autentificering, hovedressourcer, paginering, fejl, rate limits, WebSocket, klientbiblioteker og Antimatters udvidelser.</li>
+<li><a href="{{root}}docs/developers/webhooks.html">Webhooks</a>: indgående og udgående webhooks, payloads, vedhæftninger og kort.</li>
+<li><a href="{{root}}docs/developers/commands.html">Skråstregskommandoer</a>: brugerdefinerede kommandoer, deres anmodninger og svar, autofuldførelse.</li>
+<li><a href="{{root}}docs/developers/bots.html">Bots og interaktive beskeder</a>: bot-konti, knapper, menuer og dialoger.</li>
+<li><a href="{{root}}docs/developers/apps.html">Skrivning af apps</a>: plugin-strukturen, serverhooks, webapp-registret, Fusion, indstillinger, lager, oversættelser og pakning.</li>
+<li><a href="{{root}}docs/developers/building.html">Bygning fra kildekode</a>: serveren, webgrænsefladerne, Docker-billedet og apps.</li>
+<li><a href="{{root}}docs/developers/contributing.html">Bidrag</a>: issues, pull requests, stil, oversættelser, sikkerhed og licenser.</li>
+</ul>
+<div class="callout">Spørgsmål er velkomne i <a href="https://github.com/AntimatterChat/community/discussions">fællesskabsdiskussionerne</a>. Rapportér fejl i <a href="https://github.com/AntimatterChat/community/issues">fællesskabsissues</a>.</div>

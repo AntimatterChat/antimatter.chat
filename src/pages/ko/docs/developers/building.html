@@ -1,0 +1,102 @@
+title: 소스에서 빌드하기
+description: Antimatter를 소스에서 빌드하는 방법: Go 서버, Fusion 및 클래식 웹 인터페이스, 개발 서버, 테스트, 릴리스 아카이브, Docker 이미지, 데스크톱 및 모바일 앱.
+guide: developers
+order: 7
+nav: 소스에서 빌드하기
+lead: 이 페이지는 Antimatter를 소스 코드에서 빌드하고 실행하는 방법을 설명하며, 개발 작업이나 자체 빌드를 생성하려는 경우를 위해 작성되었습니다. 하나의 저장소에 포함된 서버와 웹 인터페이스, 그리고 Docker 이미지와 앱을 다룹니다.
+source: dfdf67f34f6e
+---
+<h2 id="requirements">필요한 것</h2>
+<ul>
+<li><b>시작</b>, <code>server/go.mod</code>의 버전(작성 시점 기준 1.26.7).</li>
+<li><b>Node.js와 npm</b>, <code>.nvmrc</code>와 <code>webapp/package.json</code>에 명시된 버전(Node 24.11.1, npm 11.6.2). <a href="https://mise.jdx.dev">mise</a>를 사용하면 저장소의 <code>mise.toml</code>가 올바른 Node를 설치합니다.</li>
+<li><b>Docker</b>와 Compose: 개발 환경 설정은 PostgreSQL과 기타 몇 가지 서비스를 컨테이너에서 실행합니다.</li>
+<li><b>make</b>, <b>git</b>, 그리고 Linux 또는 macOS 머신.</li>
+<li><b>메모리</b>: 웹 인터페이스 빌드가 가장 부담이 큰 부분입니다. RAM 16GB를 권장하며, <a href="#memory">빌드와 메모리</a>를 참고하세요.</li>
+</ul>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter.git
+cd antimatter</code></pre>
+<p>저장소에는 <code>server/</code>에 서버, <code>webapp/</code>에 웹 인터페이스(Fusion은 <code>webapp/fusion</code>, 클래식은 <code>webapp/channels</code>, 공용 패키지는 <code>webapp/platform</code>), 그리고 <code>e2e-tests/</code>에 엔드투엔드 테스트가 포함되어 있습니다.</p>
+
+<h2 id="dev-server">개발 서버 실행</h2>
+<pre><code>cd server
+make run</code></pre>
+<p><code>make run</code>은 개발 컨테이너(PostgreSQL, Redis, 메일 캐처 및 모니터링 도구)를 시작하고, 웹 앱 빌드를 지정된 위치에 연결하며, <code>go run</code>을 사용하여 백그라운드에서 서버를 시작하고, 편집 시 클래식 인터페이스를 다시 빌드하는 웹 앱 워처를 시작합니다. <code>http://localhost:8065</code>를 열고 계정을 생성하세요: 첫 번째 계정이 시스템 관리자가 됩니다.</p>
+<table>
+<thead><tr><th>명령어(<code>server/</code> 내)</th><th>기능</th></tr></thead>
+<tbody>
+<tr><td><code>make run-server</code>, <code>make run-client</code></td><td>서버만 또는 웹 앱 워처만 시작합니다.</td></tr>
+<tr><td><code>make restart-server</code></td><td>Go 코드를 변경한 후 서버를 다시 시작합니다.</td></tr>
+<tr><td><code>make stop</code></td><td>서버, 워처 및 컨테이너를 중지합니다.</td></tr>
+<tr><td><code>make debug-server</code></td><td>Delve 디버거에서 서버를 실행합니다.</td></tr>
+<tr><td><code>make run-cli ARGS="-version"</code></td><td>서버 명령을 실행합니다.</td></tr>
+<tr><td><code>make config-reset</code></td><td><code>config/config.json</code>을 기본값으로 초기화합니다.</td></tr>
+<tr><td><code>make clean</code>, <code>make nuke</code></td><td>빌드 파일을 삭제합니다. <code>nuke</code>는 개발 데이터도 함께 삭제합니다.</td></tr>
+</tbody>
+</table>
+<p>개발 데이터베이스는 <code>postgres://mmuser:mostest_password@localhost/mattermost_test</code>이며, 서버의 기본 데이터 소스입니다. <code>server/config.override.mk</code> 파일이나 환경 변수( <code>server/config.mk</code> 참고)에서 <code>ENABLED_DOCKER_SERVICES</code>를 사용하여 시작할 컨테이너를 선택할 수 있습니다.</p>
+
+<h2 id="webapp">웹 인터페이스</h2>
+<p><code>webapp/</code> 내:</p>
+<pre><code>npm install      # also builds the shared packages
+npm run build    # the classic interface, then Fusion</code></pre>
+<p>빌드 산출물은 <code>webapp/channels/dist</code>(클래식)와 <code>webapp/fusion/dist</code>(Fusion)에 생성됩니다. <code>server/</code>에서 <code>make client</code>를 실행하면 각각 <code>server/client</code>와 <code>server/client-fusion</code>로 연결되며, 서버는 클래식 인터페이스를 <code>/static/</code> 아래, Fusion 인터페이스를 <code>/static/fusion/</code> 아래에서 제공합니다.</p>
+<ul>
+<li><code>npm run run</code>(또는 <code>webapp/</code>에서 <code>make run</code>)을 실행하면 클래식 인터페이스를 감시하여 다시 빌드합니다. <code>WATCH_FUSION=true</code>를 추가하면 Fusion도 함께 다시 빌드됩니다.</li>
+<li><code>npm run dev-server</code>(<code>make dev</code>)를 실행하면 webpack 개발 서버 대신 실행됩니다. 클래식은 포트 9005, Fusion은 포트 9006에서 실행됩니다.</li>
+<li>브라우저에서 두 인터페이스 중 하나를 보려면, 해당 페이지 주소에 <code>?webui=fusion</code> 또는 <code>?webui=classic</code>를 추가하세요.</li>
+</ul>
+
+<h2 id="tests">테스트 및 검사</h2>
+<table>
+<thead><tr><th>명령</th><th>위치</th><th>기능</th></tr></thead>
+<tbody>
+<tr><td><code>make test-server</code></td><td><code>server/</code></td><td>개발 컨테이너를 대상으로 하는 서버 테스트 스위트입니다. 실행에 상당한 시간이 소요됩니다.</td></tr>
+<tr><td><code>make test-server-quick</code></td><td><code>server/</code></td><td>짧은 테스트만 실행합니다.</td></tr>
+<tr><td><code>go test ./channels/app/... -run TestName</code></td><td><code>server/</code></td><td>컨테이너가 실행 중인 상태에서(<code>make start-docker</code>) 특정 패키지 또는 테스트를 실행합니다.</td></tr>
+<tr><td><code>make check-style</code></td><td><code>server/</code></td><td>go vet, golangci-lint 및 기타 Go 검사 항목을 실행합니다.</td></tr>
+<tr><td><code>make test</code></td><td><code>webapp/</code></td><td>모든 패키지에 대한 웹 앱 단위 테스트(Jest)를 실행합니다.</td></tr>
+<tr><td><code>npm run test -- &lt;pattern&gt;</code></td><td><code>webapp/fusion</code></td><td>Fusion의 일부 테스트를 실행합니다.</td></tr>
+<tr><td><code>make check-style</code>, <code>make check-types</code></td><td><code>webapp/</code></td><td>ESLint 및 TypeScript 검사를 실행합니다.</td></tr>
+<tr><td><code>make i18n-extract</code></td><td><code>server/</code> 및 <code>webapp/</code></td><td>문자열을 추가하거나 변경한 후 영어 문자열 파일을 업데이트합니다(자세한 내용은 <a href="{{root}}docs/developers/contributing.html#translations">번역</a> 참고).</td></tr>
+</tbody>
+</table>
+<p><code>server/</code>에서 <code>go mod tidy</code> 대신 <code>make modules-tidy</code>를 실행하세요.</p>
+
+<h2 id="release">릴리스 아카이브</h2>
+<pre><code>cd webapp &amp;&amp; npm run build &amp;&amp; cd ..
+cd server
+make build-linux       # the antimatter and amctl binaries
+make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
+<p><code>make build</code>를 실행하면 웹 인터페이스와 Linux 바이너리를 한 번에 빌드합니다. 아카이브에는 <code>bin/antimatter</code>, <code>bin/amctl</code>, 기본 <code>config/config.json</code>, 두 가지 웹 인터페이스, 템플릿, 폰트 및 번역 파일이 포함됩니다. 다른 플랫폼의 경우: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>. 아카이브에는 번들 앱이 포함되지 않지만, Docker 이미지에는 포함됩니다.</p>
+
+<h2 id="docker">Docker 이미지</h2>
+<p><a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> 저장소는 서버와 그 앱이 포함된 공개 이미지를 Docker 내부에서 완전히 빌드합니다:</p>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter-docker.git
+cd antimatter-docker
+scripts/build-all.sh                     # from the main branches on GitHub
+SOURCES=local scripts/build-all.sh       # from your checkouts next to this folder
+VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatter app</code></pre>
+<p>Docker buildx, Python 3, git, gpg가 필요하며, 약 16GB의 RAM과 30GB의 디스크 공간이 필요합니다. 생성된 이미지는 <code>ghcr.io/antimatterchat/antimatter:dev</code>로 로드되며, <code>ANTIMATTER_IMAGE=ghcr.io/antimatterchat/antimatter:dev docker compose -f compose.local.yml up -d</code>를 실행하여 테스트할 수 있습니다. <code>plugins.json</code>에는 빌드된 앱과 버전이 나열되어 있으며, 저장소의 README에서 변형(variants)에 대한 설명을 찾을 수 있습니다.</p>
+<div class="callout warn"><code>build-all.sh</code>는 번들된 앱에 Antimatter 서명 키를 적용하여 서명하며, 이미지 빌드는 서명되지 않은 앱을 거부합니다. 유지보수자만 보유한 해당 개인 키가 없다면, 첫 단계만 단독으로 실행하세요: <code>scripts/fetch-sources.sh</code>, <code>scripts/build-plugins.sh</code>(<code>out/plugins/</code>에 앱 번들 생성) 및 <code>scripts/build-server.sh</code>(<code>out/server/</code>에 서버 아카이브 생성).</div>
+
+<h2 id="memory">빌드 및 메모리</h2>
+<p>웹 인터페이스는 대규모 webpack 빌드이며, 메모리 부족은 가장 흔한 빌드 실패 원인입니다.</p>
+<ul>
+<li><code>npm run build</code>는 피크 메모리 사용량을 낮추기 위해 클래식 인터페이스와 Fusion을 순차적으로 빌드하며, 동시에 빌드하지 않습니다. 직접 병렬로 실행하지 마세요.</li>
+<li>미나이저는 프로세서당 워커를 하나씩 시작합니다. 코어가 많고 메모리가 적은 머신에서는 빌드가 인식하는 프로세서 수를 제한하세요: <code>taskset -c 0-5 npm run build</code>.</li>
+<li>Node가 힙 메모리를 초과하면 한도를 높여야 합니다: <code>NODE_OPTIONS=--max-old-space-size=6144</code>. Docker 빌드는 이 값을 사용합니다(<code>build.env</code>의 <code>BUILD_NODE_OPTIONS</code>).</li>
+<li>작은 머신에서는 서버 전체 테스트 스위트, 웹 빌드, Docker 빌드를 동시에 실행하지 마세요.</li>
+</ul>
+
+<h2 id="apps">앱</h2>
+<p>각 앱(플러그인)은 자체 저장소와 Makefile을 가지며, <code>make dist</code>를 실행하면 번들이 빌드됩니다. <a href="{{root}}docs/developers/apps.html#build">빌드, 설치 및 디버깅</a>을 참고하세요.</p>
+<h3>데스크톱 앱</h3>
+<p><a href="https://github.com/AntimatterChat/desktop-app">데스크톱 앱</a>은 Electron 앱입니다. Node.js 24 이상을 사용하세요:</p>
+<pre><code>npm install --allow-git=all
+npm run build          # development build, into dist/
+npm start              # run it
+npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
+<p>서버 사전 구성과 같은 빌드 시 설정은 <code>src/common/config/buildConfig.ts</code>에 있습니다.</p>
+<h3>모바일 앱</h3>
+<p><a href="https://github.com/AntimatterChat/mobile-app">모바일 앱</a>은 React Native 앱이며, README에 명령어(<code>npm run ios</code>, <code>npm run android</code>)가 나열되어 있습니다. 자체 복사본을 빌드하려면 자체 서명 키, Android 알림용 Firebase 프로젝트, iOS용 APNs 키, 그리고 해당 자격 증명을 보관하는 <a href="https://github.com/AntimatterChat/push-proxy">push proxy</a>도 필요합니다.</p>

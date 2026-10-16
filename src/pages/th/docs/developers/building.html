@@ -1,0 +1,102 @@
+title: การคอมไพล์จากซอร์สโค้ด
+description: วิธีคอมไพล์ Antimatter จากซอร์สโค้ด: เซิร์ฟเวอร์ Go, อินเทอร์เฟซเว็บ Fusion และแบบคลาสสิก, เซิร์ฟเวอร์สำหรับพัฒนา, การทดสอบ, อาร์ไคฟ์สำหรับปล่อยเวอร์ชัน, Docker image และแอปเดสก์ท็อปและมือถือ
+guide: developers
+order: 7
+nav: การคอมไพล์จากซอร์สโค้ด
+lead: หน้านี้จะอธิบายวิธีคอมไพล์และรัน Antimatter จากซอร์สโค้ด เพื่อใช้ในการพัฒนาหรือสร้างเวอร์ชันของคุณเอง ครอบคลุมทั้งเซิร์ฟเวอร์และอินเทอร์เฟซเว็บ ซึ่งอยู่ในรีพอสิทอรีเดียวกัน จากนั้นจึงเป็น Docker image และแอปพลิเคชัน
+source: dfdf67f34f6e
+---
+<h2 id="requirements">สิ่งที่คุณต้องมี</h2>
+<ul>
+<li><b>ไป</b> ในเวอร์ชันท่ีระบู้ใน <code>server/go.mod</code> (1.26.7 ณ เวลาท่ีเขียน)</li>
+<li><b>Node.js และ npm</b> ในเวอร์ชันที่ระบุใน <code>.nvmrc</code> และ <code>webapp/package.json</code> (Node 24.11.1 พร้อม npm 11.6.2) หากใช้ <a href="https://mise.jdx.dev">mise</a> ไฟล์ <code>mise.toml</code> ในรีพอสิทอรีจะติดตั้ง Node เวอร์ชันที่ถูกต้องให้อัตโนมัติ</li>
+<li><b>Docker</b> พร้อม Compose: การตั้งค่าสำหรับพัฒนาจะรัน PostgreSQL และบริการอื่นๆ อีกเล็กน้อยในคอนเทนเนอร์</li>
+<li><b>make</b>, <b>git</b> และเครื่องคอมพิวเตอร์ที่รันระบบปฏิบัติการ Linux หรือ macOS</li>
+<li><b>หน่วยความจำ</b>: การคอมไพล์อินเทอร์เฟซเว็บเป็นขั้นตอนที่ใช้ทรัพยากรมาก ควรเตรียม RAM ไว้ที่ 16 GB ดูข้อมูลเพิ่มเติมได้ที่ <a href="#memory">การคอมไพล์และหน่วยความจำ</a></li>
+</ul>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter.git
+cd antimatter</code></pre>
+<p>รีพอสิทอรีเก็บเซิร์ฟเวอร์ไว้ใน <code>server/</code>, อินเทอร์เฟซเว็บไว้ใน <code>webapp/</code> (Fusion อยู่ใน <code>webapp/fusion</code>, แบบคลาสสิกอยู่ใน <code>webapp/channels</code>, แพ็กเกจที่ใช้ร่วมกันอยู่ใน <code>webapp/platform</code>) และการทดสอบ end-to-end อยู่ใน <code>e2e-tests/</code></p>
+
+<h2 id="dev-server">การรันเซิร์ฟเวอร์สำหรับพัฒนา</h2>
+<pre><code>cd server
+make run</code></pre>
+<p><code>make run</code> จะเริ่มคอนเทนเนอร์สำหรับพัฒนา (PostgreSQL, Redis, เครื่องดักอีเมล และเครื่องมือตรวจสอบ), เชื่อมต่อไฟล์ที่คอมไพล์แล้วของเว็บแอปเข้าที่, รันเซิร์ฟเวอร์ในพื้นหลังด้วย <code>go run</code>, และเริ่มตัวเฝ้าดู (watcher) ของเว็บแอป ซึ่งจะคอมไพล์อินเทอร์เฟซแบบคลาสสิกใหม่ทุกครั้งที่คุณแก้ไขโค้ด เปิด <code>http://localhost:8065</code> และสร้างบัญชี: บัญชีแรกจะเป็นผู้ดูลำดับ (system admin)</p>
+<table>
+<thead><tr><th>คำสั่ง (ใน <code>server/</code>)</th><th>สิ่งที่ทำ</th></tr></thead>
+<tbody>
+<tr><td><code>make run-server</code>, <code>make run-client</code></td><td>รันเฉพาะเซิร์ฟเวอร์ หรือเฉพาะตัวเฝ้าดูของเว็บแอป</td></tr>
+<tr><td><code>make restart-server</code></td><td>รีสตาร์ทเซิร์ฟเวอร์หลังจากแก้ไขโค้ด Go</td></tr>
+<tr><td><code>make stop</code></td><td>หยุดเซิร์ฟเวอร์ ตัวเฝ้าดู และคอนเทนเนอร์</td></tr>
+<tr><td><code>make debug-server</code></td><td>รันเซิร์ฟเวอร์ภายใต้ Delve debugger</td></tr>
+<tr><td><code>make run-cli ARGS="-version"</code></td><td>รันคำสั่งของเซิร์ฟเวอร์</td></tr>
+<tr><td><code>make config-reset</code></td><td>รีเซ็ต <code>config/config.json</code> กลับเป็นค่าเริ่มต้น</td></tr>
+<tr><td><code>make clean</code>, <code>make nuke</code></td><td>ลบไฟล์ที่คอมไพล์แล้ว; คำสั่ง <code>nuke</code> จะลบข้อมูลสำหรับพัฒนาด้วย</td></tr>
+</tbody>
+</table>
+<p>ฐานข้อมูลสำหรับพัฒนาคือ <code>postgres://mmuser:mostest_password@localhost/mattermost_test</code> ซึ่งเป็นแหล่งข้อมูลเริ่มต้นของเซิร์ฟเวอร์ คุณสามารถเลือกคอนเทนเนอร์ที่จะเริ่มทำงานได้ผ่าน <code>ENABLED_DOCKER_SERVICES</code> ในไฟล์ <code>server/config.override.mk</code> หรือในตัวแปรสภาพแวดล้อม (ดู <code>server/config.mk</code> สำหรับรายละเอียด)</p>
+
+<h2 id="webapp">อินเทอร์เฟซเว็บ</h2>
+<p>ใน <code>webapp/</code>:</p>
+<pre><code>npm install      # also builds the shared packages
+npm run build    # the classic interface, then Fusion</code></pre>
+<p>ไฟล์ที่สร้างเสร็จจะอยู่ที่ <code>webapp/channels/dist</code> (classic) และ <code>webapp/fusion/dist</code> (Fusion) การรัน <code>make client</code> ใน <code>server/</code> จะเชื่อมโยงไฟล์เหล่านี้เป็น <code>server/client</code> และ <code>server/client-fusion</code> ซึ่งเซิร์ฟเวอร์จะให้บริการไฟล์เหล่านี้โดย classic จะอยู่ภายใต้ <code>/static/</code> และ Fusion จะอยู่ภายใต้ <code>/static/fusion/</code></p>
+<ul>
+<li><code>npm run run</code> (หรือ <code>make run</code> ใน <code>webapp/</code>) จะเฝ้าดูและสร้างอินเทอร์เฟซ classic ใหม่ เพิ่ม <code>WATCH_FUSION=true</code> เพื่อสร้าง Fusion ใหม่ด้วย</li>
+<li><code>npm run dev-server</code> (<code>make dev</code>) จะรันเซิร์ฟเวอร์พัฒนาของ webpack แทน: classic บนพอร์ต 9005 และ Fusion บนพอร์ต 9006</li>
+<li>เพื่อดูอินเทอร์เฟซแบบใดแบบหนึ่งในเบราว์เซอร์ ให้เพิ่ม <code>?webui=fusion</code> หรือ <code>?webui=classic</code> ต่อท้ายที่อยู่ของหน้าเว็บ</li>
+</ul>
+
+<h2 id="tests">การทดสอบและการตรวจสอบ</h2>
+<table>
+<thead><tr><th>คำสั่ง</th><th>ตำแหน่ง</th><th>สิ่งที่ทำ</th></tr></thead>
+<tbody>
+<tr><td><code>make test-server</code></td><td><code>server/</code></td><td>ชุดการทดสอบของเซิร์ฟเวอร์ โดยทดสอบกับคอนเทนเนอร์สำหรับพัฒนา ซึ่งใช้เวลาค่อนข้างนาน</td></tr>
+<tr><td><code>make test-server-quick</code></td><td><code>server/</code></td><td>เฉพาะการทดสอบแบบสั้น</td></tr>
+<tr><td><code>go test ./channels/app/... -run TestName</code></td><td><code>server/</code></td><td>แพ็กเกจหรือการทดสอบหนึ่งรายการ โดยรันขณะที่คอนเทนเนอร์ทำงานอยู่ (<code>make start-docker</code>)</td></tr>
+<tr><td><code>make check-style</code></td><td><code>server/</code></td><td>go vet, golangci-lint และการตรวจสอบ Go อื่นๆ</td></tr>
+<tr><td><code>make test</code></td><td><code>webapp/</code></td><td>การทดสอบหน่วย (Jest) ของเว็บแอป ในทุกแพ็กเกจ</td></tr>
+<tr><td><code>npm run test -- &lt;pattern&gt;</code></td><td><code>webapp/fusion</code></td><td>การทดสอบบางส่วนของ Fusion</td></tr>
+<tr><td><code>make check-style</code>, <code>make check-types</code></td><td><code>webapp/</code></td><td>ESLint และ TypeScript</td></tr>
+<tr><td><code>make i18n-extract</code></td><td><code>server/</code> และ <code>webapp/</code></td><td>อัปเดตไฟล์สตริงภาษาอังกฤษหลังจากที่คุณเพิ่มหรือแก้ไขสตริง (ดู <a href="{{root}}docs/developers/contributing.html#translations">การแปล</a>)</td></tr>
+</tbody>
+</table>
+<p>ให้รัน <code>make modules-tidy</code> แทน <code>go mod tidy</code> ใน <code>server/</code></p>
+
+<h2 id="release">ไฟล์อาร์ไคฟ์สำหรับเผยแพร่</h2>
+<pre><code>cd webapp &amp;&amp; npm run build &amp;&amp; cd ..
+cd server
+make build-linux       # the antimatter and amctl binaries
+make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
+<p><code>make build</code> จะสร้างอินเทอร์เฟซเว็บและไบนารีสำหรับ Linux ในครั้งเดียว อาร์ไคฟ์จะประกอบด้วย <code>bin/antimatter</code>, <code>bin/amctl</code>, <code>config/config.json</code> ค่าเริ่มต้น อินเทอร์เฟซเว็บทั้งสอง เทมเพลต ฟอนต์ และการแปล สำหรับแพลตฟอร์มอื่น: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code> อาร์ไคฟ์เหล่านี้ไม่รวมแอปที่ฝังไว้ แต่ Docker image จะรวมไว้</p>
+
+<h2 id="docker">Docker image</h2>
+<p>รีพอสิทอรี <a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> สร้าง image ที่เผยแพร่ ซึ่งประกอบด้วยเซิร์ฟเวอร์และแอปทั้งหมดภายใน Docker:</p>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter-docker.git
+cd antimatter-docker
+scripts/build-all.sh                     # from the main branches on GitHub
+SOURCES=local scripts/build-all.sh       # from your checkouts next to this folder
+VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatter app</code></pre>
+<p>ต้องใช้ Docker ที่รองรับ buildx, Python 3, git และ gpg พร้อม RAM ประมาณ 16 GB และพื้นที่ดิสก์ 30 GB ผลลัพธ์จะถูกโหลดเป็น <code>ghcr.io/antimatterchat/antimatter:dev</code>; ลองใช้ด้วย <code>ANTIMATTER_IMAGE=ghcr.io/antimatterchat/antimatter:dev docker compose -f compose.local.yml up -d</code> <code>plugins.json</code> จะระบุรายการแอปและเวอร์ชันที่สร้าง และ README ของรีพอสิทอรีจะอธิบายถึงตัวแปรต่างๆ</p>
+<div class="callout warn"><code>build-all.sh</code> ทำลายลายเซ็นแอปที่รวมอยู่ในแพ็กเกจด้วยคีย์ลายเซ็นของ Antimatter และกระบวนการสร้างภาพ (image build) จะปฏิเสธแอปที่ไม่มีลายเซ็น หากไม่มีคีย์ส่วนตัว (private key) ซึ่งเฉพาะผู้ดูแลระบบ (maintainers) เท่านั้นที่มี ให้รันขั้นตอนแรกๆ แยกกัน: <code>scripts/fetch-sources.sh</code>, <code>scripts/build-plugins.sh</code> (แอปใน <code>out/plugins/</code>) และ <code>scripts/build-server.sh</code> (ไฟล์เซิร์ฟเวอร์ใน <code>out/server/</code>)</div>
+
+<h2 id="memory">การสร้างและหน่วยความจำ</h2>
+<p>อินเทอร์เฟซเว็บเป็นการสร้าง (build) ด้วย webpack ขนาดใหญ่ และการหมดหน่วยความจำ (out of memory) เป็นสาเหตุที่พบบ่อยที่สุดของการสร้างล้มเหลว</p>
+<ul>
+<li><code>npm run build</code> สร้างอินเทอร์เฟซแบบคลาสสิกและ Fusion ไล่ตามลำดับทีละตัว ไม่ใช่พร้อมกัน เพื่อลดจุดสูงสุด (peak) ของการใช้หน่วยความจำ อย่ารันทั้งสองอย่างพร้อมกันด้วยตนเอง</li>
+<li>ตัวลดขนาด (minifier) จะเริ่ม worker หนึ่งตัวต่อโปรเซสเซอร์ หากเครื่องมีหลายคอร์แต่หน่วยความจำน้อย ให้จำกัดจำนวนโปรเซสเซอร์ที่การสร้างมองเห็น: <code>taskset -c 0-5 npm run build</code></li>
+<li>หาก Node หมดพื้นที่ heap ให้เพิ่มขีดจำกัด: <code>NODE_OPTIONS=--max-old-space-size=6144</code> การสร้าง Docker ใช้ค่านี้ (<code>BUILD_NODE_OPTIONS</code> ใน <code>build.env</code>)</li>
+<li>หลีกเลี่ยงการรันชุดทดสอบ (test suite) ทั้งหมดของเซิร์ฟเวอร์ การสร้างเว็บ และการสร้าง Docker พร้อมกันบนเครื่องขนาดเล็ก</li>
+</ul>
+
+<h2 id="apps">แอปพลิเคชัน</h2>
+<p>แต่ละแอป (plugin) มีรีพอสิทอรี (repository) และ Makefile ของตัวเอง; <code>make dist</code> สร้าง bundle ของแอปนั้น ดู <a href="{{root}}docs/developers/apps.html#build">การสร้าง การติดตั้ง และการดีบัก</a></p>
+<h3>แอปเดสก์ท็อป</h3>
+<p><a href="https://github.com/AntimatterChat/desktop-app">แอปเดสก์ท็อป</a> เป็นแอป Electron โดยใช้ Node.js 24 หรือสูงกว่า:</p>
+<pre><code>npm install --allow-git=all
+npm run build          # development build, into dist/
+npm start              # run it
+npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
+<p>การตั้งค่าตอนสร้าง (build-time settings) เช่น เซิร์ฟเวอร์ที่จะตั้งค่าล่วงหน้า อยู่ใน <code>src/common/config/buildConfig.ts</code></p>
+<h3>แอปมือถือ</h3>
+<p><a href="https://github.com/AntimatterChat/mobile-app">แอปมือถือ</a> เป็นแอป React Native; README ของแอประบุคำสั่ง (<code>npm run ios</code>, <code>npm run android</code>) เพื่อสร้างสำเนาของคุณเอง คุณยังต้องการคีย์ลายเซ็นของคุณเอง โปรเจกต์ Firebase สำหรับการแจ้งเตือนบน Android คีย์ APNs สำหรับ iOS และ <a href="https://github.com/AntimatterChat/push-proxy">push proxy</a> ที่เก็บข้อมูลรับรองเหล่านั้น</p>

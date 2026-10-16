@@ -1,0 +1,107 @@
+title: Beveiliging
+description: Een Antimatter-server versterken: welke poorten u opent, geheimen, rate limiting, IP-filtering, uploadlimieten, privacyinstellingen en het blokkeren van gebruikers, sessies, de verbindingen die de server maakt met externe diensten en hoe u een kwetsbaarheid meldt.
+guide: admins
+order: 12
+nav: Beveiliging
+lead: Een checklist om een Antimatter-server te versterken: wat u opent, de limieten en privacyinstellingen die u moet controleren, de externe diensten waarmee de server communiceert en hoe u een beveiligingsprobleem meldt.
+source: dbe2371ecf30
+---
+<h2 id="exposure">Wat u opent</h2>
+<table>
+<thead><tr><th>Poort</th><th>Service</th><th>Bereikbaarheid</th></tr></thead>
+<tbody>
+<tr><td>443/tcp, 443/udp, 80/tcp</td><td>Uw HTTPS-proxy (Caddy of nginx)</td><td>Publiek: zo bereiken mensen Antimatter.</td></tr>
+<tr><td>8443/udp en 8443/tcp</td><td>Media voor gesprekken</td><td>Publiek, als mensen gesprekken voeren vanuit buiten uw netwerk.</td></tr>
+<tr><td>8065/tcp</td><td>De webserver van Antimatter</td><td>Alleen voor de proxy: publiceer deze op <code>127.0.0.1</code> (<code>HTTP_PORT=127.0.0.1:8065</code>).</td></tr>
+<tr><td>8067/tcp</td><td>Metrieken</td><td>Alleen voor het interne netwerk, indien ingeschakeld. Geen inloggen.</td></tr>
+<tr><td>8074/tcp en udp</td><td>Cluster-gossip</td><td>Alleen tussen de knooppunten van het cluster.</td></tr>
+<tr><td>5432, 9000, 8080, 8066</td><td>PostgreSQL, opslag, GIF-dienst, push-proxy</td><td>Nooit. De compose-bestanden houden deze op interne netwerken zonder gepubliceerde poort.</td></tr>
+</tbody>
+</table>
+<p>Het compose-bestand van de site voert bovendien elke container uit met <code>no-new-privileges</code>, voert Antimatter uit als een niet-geprivilegieerde gebruiker op een distroless-image en voert de GIF-dienst uit met een alleen-lezen bestandssysteem. De database, de opslag en de GIF-dienst zitten op een netwerk zonder internettoegang.</p>
+
+<h2 id="checklist">Checklist na installatie</h2>
+<ol>
+<li>Maak het eerste beheerdersaccount aan voordat iemand anders de server kan bereiken (<a href="{{root}}docs/admins/install.html#first-admin">Installeren</a>).</li>
+<li>Bied Antimatter alleen aan via HTTPS en stel de site-URL in op het <code>https://</code>-adres (<a href="{{root}}docs/admins/https.html">Domein en HTTPS</a>).</li>
+<li>Houd <code>.env</code>, <code>config.json</code> en de TLS-sleutels alleen leesbaar voor root (of de gebruiker van de server): <code>chmod 600 .env</code>.</li>
+<li>Bepaal wie accounts kan aanmaken, houd <b>Open server activeren</b> uit tenzij de community publiek is, en schakel <b>Vereist e-mail verificatie</b> in zodra e-mail werkt (<a href="{{root}}docs/admins/authentication.html">Aanmelden en accounts</a>).</li>
+<li>Schakel tweestapsverificatie in en maak deze verplicht voor beheerdersaccounts, of gebruik die van uw identiteitsprovider.</li>
+<li>Controleer de externe verbindingen hieronder, met name de STUN-server die gesprekken standaard gebruiken.</li>
+<li>Maak back-ups en test een herstel (<a href="{{root}}docs/admins/backups-upgrades.html">Back-ups en upgrades</a>).</li>
+<li>Houd de images up-to-date: beveiligingspatches komen met nieuwe images.</li>
+</ol>
+
+<h2 id="rate-limiting">Rate limiting</h2>
+<p>De server kan beperken hoeveel API-aanvragen elke client doet. Dit is standaard uit. In <b>Systeemconsole › Omgeving › Snelheidsbeperking</b>:</p>
+<table>
+<thead><tr><th>Instelling</th><th>Sleutel</th><th>Standaardwaarde</th></tr></thead>
+<tbody>
+<tr><td><b>Snelheidsbeperkingen inschakelen</b></td><td><code>RateLimitSettings.Enable</code></td><td>Uit</td></tr>
+<tr><td><b>Maximaal Queries per Seconde</b></td><td><code>RateLimitSettings.PerSec</code></td><td>10</td></tr>
+<tr><td><b>Maximumgrootte van burst</b></td><td><code>RateLimitSettings.MaxBurst</code></td><td>100</td></tr>
+<tr><td><b>Geheugen opslag grootte</b></td><td><code>RateLimitSettings.MemoryStoreSize</code></td><td>10000 clients bijgehouden</td></tr>
+<tr><td><b>Snelheidslimiet variëren per extern adres</b></td><td><code>RateLimitSettings.VaryByRemoteAddr</code></td><td>aan</td></tr>
+<tr><td><b>Snelheidslimiet variëren per gebruiker</b></td><td><code>RateLimitSettings.VaryByUser</code></td><td>Uit</td></tr>
+<tr><td><b>Limietsnelheid per HTTP-header</b></td><td><code>RateLimitSettings.VaryByHeader</code></td><td>leeg</td></tr>
+</tbody>
+</table>
+<p>Achter een proxy werken beperkingen op adres alleen als de server het adres van elke client kent (<code>ServiceSettings.TrustedProxyIPHeader</code> en <code>ServiceSettings.TrustedProxyIPs</code>, zie <a href="{{root}}docs/admins/https.html#client-address">Client-adressen achter een proxy</a>). Anders lijkt het alsof alle aanvragen van de proxy komen, en delen alle gebruikers dezelfde limiet. Hetzelfde geldt voor IP-filtering en voor de adressen in de auditlogs.</p>
+<p>Aanmeldingspogingen worden apart beperkt: <b>Maximum aantal aanmeldingspogingen</b> (10) vergrendelt een account na dat aantal mislukte wachtwoorden.</p>
+
+<h2 id="ip-filtering">IP-filtering</h2>
+<p><b>Systeemconsole › Site Configuratie › IP-filtering</b> beperkt de toegang tot de server op IP-adres, met toelatings- en weigeringsregels (elk een adres of een CIDR-bereik). Met <b>IP-filtering inschakelen</b> ingeschakeld, kunnen personen wier adres overeenkomt met een weigeringsregel, of geen toelatingsregel wanneer er toelatingsregels zijn, de server niet bereiken. De pagina weigert regels die uw eigen adres zouden blokkeren. Achter een proxy, stel eerst client-adressen in (<a href="{{root}}docs/admins/https.html#client-address">Client-adressen achter een proxy</a>): anders lijkt elke aanvraag te komen van de proxy.</p>
+
+<h2 id="uploads">Uploads en bestanddelen</h2>
+<table>
+<thead><tr><th>Instelling</th><th>Waar</th><th>Standaardwaarde</th></tr></thead>
+<tbody>
+<tr><td><b>Maximale bestandsgrootte</b> (<code>FileSettings.MaxFileSize</code>)</td><td>Omgeving › File Storage</td><td>100 MB. Houd de limiet voor de grootte van proxy-aanvragen op minstens dit niveau.</td></tr>
+<tr><td><b>Maximale grootte van de payload (bytes)</b> (<code>ServiceSettings.MaximumPayloadSizeBytes</code>)</td><td>Omgeving › Web Server</td><td>300000: de grootste API-aanvraag, behalve bestanduploads</td></tr>
+<tr><td><b>Bestanden delen toestaan</b> (<code>FileSettings.EnableFileAttachments</code>)</td><td>Site Configuration › File Sharing and Downloads</td><td>aan</td></tr>
+<tr><td><b>Bestandsuploads toestaan op mobiel</b>, <b>Bestanddownloads op mobiel toestaan</b></td><td>Site Configuration › File Sharing and Downloads</td><td>aan</td></tr>
+<tr><td><b>Inschakelen publieke bestand links</b> (<code>FileSettings.EnablePublicLink</code>)</td><td>Site Configuration › Public Links</td><td>uit: als aan, kunnen personen een bestand delen met een link die werkt zonder aan te melden</td></tr>
+<tr><td><b>SVG's inschakelen</b> (<code>ServiceSettings.EnableSVGs</code>)</td><td>Site Configuration › Posts</td><td>uit op een nieuwe server: als aan, worden SVG-afbeeldingen inline weergegeven</td></tr>
+</tbody>
+</table>
+<p>Antimatter scant uploads niet op malware.</p>
+
+<h2 id="privacy">Privacy-instellingen</h2>
+<p>In <b>Systeemconsole › Site Configuratie › Gebruikers en Teams</b>:</p>
+<table>
+<thead><tr><th>Instelling</th><th>Sleutel</th><th>Standaardwaarde</th><th>Wat het doet</th></tr></thead>
+<tbody>
+<tr><td><b>Toon e-mail adres</b></td><td><code>PrivacySettings.ShowEmailAddress</code></td><td>aan</td><td>Uit, de e-mailadressen van leden zijn verborgen voor iedereen behalve beheerders. Zet dit uit op publieke servers.</td></tr>
+<tr><td><b>Toon de volledige naam</b></td><td><code>PrivacySettings.ShowFullName</code></td><td>aan</td><td>Uit, volledige namen zijn verborgen en gebruikersnamen worden in plaats daarvan weergegeven.</td></tr>
+<tr><td><b>Negeren, blokkeren en berichtverzoeken inschakelen</b></td><td><code>PrivacySettings.EnableUserBlocking</code></td><td>aan</td><td>Zie hieronder.</td></tr>
+<tr><td><b>Sta gebruikers to om Direct Message kanalen te openen met</b></td><td><code>TeamSettings.RestrictDirectMessage</code></td><td>Any user on the Antimatter server</td><td>Of <b>Elke gebruiker van het team</b>: alleen personen die een community delen.</td></tr>
+</tbody>
+</table>
+<h3>Negeren, blokkeren en berichtverzoeken</h3>
+<p>Met <b>Negeren, blokkeren en berichtverzoeken inschakelen</b> ingeschakeld (de standaard), kunnen personen elkaar negeren en blokkeren, en kunnen ze kiezen om privéberichten van personen die ze niet kennen te ontvangen als berichtverzoeken, die hen niet informeren totdat ze worden geaccepteerd. Dit is geschikt voor publieke communities. In een werkplek waar collega's altijd in staat moeten zijn elkaar te bereiken, schakel het uit (<code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING=false</code>): niets wordt dan nog afgedwongen, maar de lijsten en keuzes die personen hebben gemaakt worden behouden en worden opnieuw toegepast als u het weer inschakelt.</p>
+
+<h2 id="sessions">Sessies en tokens</h2>
+<ul>
+<li>Sessieduur en inactiviteitstimeout: zie <a href="{{root}}docs/admins/authentication.html#sessions">Aanmelden en accounts</a>. Kortere sessies betekenen dat een verloren laptop of telefoon minder lang ingelogd blijft.</li>
+<li><b>Persoonlijke toegangstokens inschakelen</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, uit) stelt gebruikers in staat API-tokens te maken; <b>Maximale levensduur persoonlijke toegangstokens (dagen)</b> beperkt deze. Beide staan in <b>Systeem console › Integraties › Integratiebeheer</b>.</li>
+<li>Om iedereen tegelijk af te melden, bijvoorbeeld na een vermoedde inbraak: <b>Alle Sessies Intrekken</b> in <b>Systeem console › Gebruikersbeheer › Gebruikers</b>.</li>
+</ul>
+
+<h2 id="outbound">Verbindingen met externe services</h2>
+<p>Antimatter maakt geen contact met services die door Mattermost, Inc. worden beheerd. Het verzendt geen telemetrie, crashrapporten of beveiligingscontroles en haalt geen productmeldingen op. Een configuratie die is overgenomen van Mattermost en nog steeds een van de services van Mattermost noemt (diens push-services, diens app-marktplaats, diens meldingen of diens STUN-server voor gesprekken) zorgt er niet voor dat de server contact maakt met deze services: die adressen worden genegeerd.</p>
+<p>De server en de apps maken alleen contact met andere externe services voor de functies die ze nodig hebben, en met de services die u configureert:</p>
+<table>
+<thead><tr><th>Functie</th><th>Contacteert</th><th>Standaard</th></tr></thead>
+<tbody>
+<tr><td>Gesprekken: het vinden van publieke adressen met STUN. De server en elke persoon die aan een gesprek deelneemt, sturen een verzoek, waardoor de STUN-server hun IP-adres en poort ziet.</td><td>De publieke STUN-server van Cloudflare, <code>stun.cloudflare.com</code></td><td>aan, zolang de app Gesprekken is ingeschakeld. Zie <a href="{{root}}docs/admins/calls.html#network">Gesprekken</a> om dit te wijzigen.</td></tr>
+<tr><td>Linkpreviews: de server haalt de pagina's op die in berichten zijn gelinkt (<b>Previews van links naar websites inschakelen</b>, <code>ServiceSettings.EnableLinkPreviews</code>)</td><td>de websites waarnaar mensen linken</td><td>aan. Schakel uit met <code>AM_SERVICESETTINGS_ENABLELINKPREVIEWS=false</code>.</td></tr>
+<tr><td>Pushmeldingen naar de mobiele app</td><td>uw eigen push-proxy (<a href="{{root}}docs/admins/email-push.html#push">Pushmeldingen</a>)</td><td>uit, totdat u het adres heeft ingesteld</td></tr>
+<tr><td>De externe appmarketplace (<code>PluginSettings.EnableRemoteMarketplace</code>)</td><td>de <b>Marktplaats URL</b> die u hebt ingesteld</td><td>uit, en geen adres</td></tr>
+<tr><td>E-mail</td><td>uw SMTP-server</td><td>de standaardserver is <code>localhost</code></td></tr>
+<tr><td>Single sign-on, AI-modellen, speech-to-text en vertaling, uitgaande webhooks en apps zoals Mail, Agenda, GitHub, GitLab of Jira</td><td>de services die u configureert</td><td>uit, totdat u ze configureert</td></tr>
+</tbody>
+</table>
+<p>Standaard weigert de server verbindingen met private en loopback-adressen voor deze doeleinden (linkpreviews, webhooks, apps), zodat een bericht of integratie niet kan worden gebruikt om toegang te krijgen tot uw interne netwerk. Voeg de interne hosts waarnaar verbinding mag worden gemaakt toe aan <b>Niet-vertrouwde interne verbindingen toestaan naar</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>, in <b>Systeem console › Omgeving › Ontwikkelaar</b>); de compose-bestand van de site vermeldt daar <code>gifs</code>.</p>
+
+<h2 id="report">Een kwetsbaarheid melden</h2>
+<p>Meld beveiligingsproblemen privé, zoals beschreven in het <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">Antimatter-beveiligingsbeleid</a>, en niet in openbare issues.</p>

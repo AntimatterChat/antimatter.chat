@@ -1,0 +1,102 @@
+title: Pagbuo mula sa source
+description: Paano mag-build ng Antimatter mula sa source: ang Go server, ang Fusion at classic na web interface, ang development server, ang mga test, ang mga release archive, ang Docker image, at ang mga desktop at mobile app.
+guide: developers
+order: 7
+nav: Pagbuo mula sa source
+lead: Inaakda ng pahinang ito kung paano mag-build at mag-run ng Antimatter mula sa kanyang source code, para sa pagtrabaho dito o para gumawa ng sariling build. Tinatalakay nito ang server at ang mga web interface, na nasa iisang repository, at ang Docker image at mga app.
+source: dfdf67f34f6e
+---
+<h2 id="requirements">Ang mga kailangan mo</h2>
+<ul>
+<li><b>Go</b>, sa bersyon na nakasa sa <code>server/go.mod</code> (1.26.7 noong panahong ito).</li>
+<li><b>Node.js at npm</b>, sa mga bersyon na nakasa sa <code>.nvmrc</code> at <code>webapp/package.json</code> (Node 24.11.1 kasama ang npm 11.6.2). Gamit ang <a href="https://mise.jdx.dev">mise</a>, ang <code>mise.toml</code> ng repository ang nag-i-install ng tamang Node.</li>
+<li><b>Docker</b> na may Compose: ang setup para sa development ay nagpapatakbo ng PostgreSQL at ilang ibang serbisyo sa mga container.</li>
+<li><b>make</b>, <b>git</b>, at isang makina na Linux o macOS.</li>
+<li><b>Memory</b>: ang pagbuo ng mga web interface ang pinakamabigat na bahagi. Magplano ng 16 GB ng RAM; tingnan ang <a href="#memory">Mga Build at Memory</a>.</li>
+</ul>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter.git
+cd antimatter</code></pre>
+<p>Nasa <code>server/</code> ang server, nasa <code>webapp/</code> ang mga web interface (Fusion sa <code>webapp/fusion</code>, classic sa <code>webapp/channels</code>, at mga shared package sa <code>webapp/platform</code>), at nasa <code>e2e-tests/</code> ang mga end-to-end test.</p>
+
+<h2 id="dev-server">Pagpapatakbo ng development server</h2>
+<pre><code>cd server
+make run</code></pre>
+<p>Ang <code>make run</code> ay nagpapa-start ng mga development container (PostgreSQL, Redis, mail catcher, at mga monitoring tool), nag-uugnay ng mga build ng web app sa tamang lugar, nagpapa-start ng server sa background gamit ang <code>go run</code>, at nagpapa-start ng watcher ng web app, na nagre-rebuild ng classic interface habang inu-edit ito. Buksan ang <code>http://localhost:8065</code> at gumawa ng account: ang unang account ang maging system admin.</p>
+<table>
+<thead><tr><th>Command (sa <code>server/</code>)</th><th>Ginagawa nito</th></tr></thead>
+<tbody>
+<tr><td><code>make run-server</code>, <code>make run-client</code></td><td>Pumunta sa server lang, o sa watcher ng web app lang.</td></tr>
+<tr><td><code>make restart-server</code></td><td>I-restart ang server pagkatapos magbago ng Go code.</td></tr>
+<tr><td><code>make stop</code></td><td>I-stop ang server, ang watcher, at ang mga container.</td></tr>
+<tr><td><code>make debug-server</code></td><td>Pumunta sa server gamit ang Delve debugger.</td></tr>
+<tr><td><code>make run-cli ARGS="-version"</code></td><td>Pumunta sa command ng server.</td></tr>
+<tr><td><code>make config-reset</code></td><td>I-reset ang <code>config/config.json</code> sa mga default.</td></tr>
+<tr><td><code>make clean</code>, <code>make nuke</code></td><td>Alisin ang mga build file; ang <code>nuke</code> ay pinaputol din ang mga development data.</td></tr>
+</tbody>
+</table>
+<p>Ang development database ay <code>postgres://mmuser:mostest_password@localhost/mattermost_test</code>, ang default na data source ng server. Piliin kung alin sa mga container ang magsisimula gamit ang <code>ENABLED_DOCKER_SERVICES</code>, sa isang <code>server/config.override.mk</code> file o sa iyong environment (tingnan ang <code>server/config.mk</code>).</p>
+
+<h2 id="webapp">Ang mga web interface</h2>
+<p>Sa <code>webapp/</code>:</p>
+<pre><code>npm install      # also builds the shared packages
+npm run build    # the classic interface, then Fusion</code></pre>
+<p>Ang mga build ay nakalagay sa <code>webapp/channels/dist</code> (classic) at <code>webapp/fusion/dist</code> (Fusion). Ang <code>make client</code> sa <code>server/</code> ay nag-uugnay sa kanila bilang <code>server/client</code> at <code>server/client-fusion</code>, kung saan ipinapasa ng server ang mga ito: ang classic ay nasa <code>/static/</code>, at ang Fusion ay nasa <code>/static/fusion/</code>.</p>
+<ul>
+<li>Ang <code>npm run run</code> (o <code>make run</code> sa <code>webapp/</code>) ay nagbabantay at nagre-rebuild ng classic interface. Idagdag ang <code>WATCH_FUSION=true</code> upang ma-rebuild din ang Fusion.</li>
+<li>Ang <code>npm run dev-server</code> (<code>make dev</code>) ay nagpapatakbo ng development server ng webpack sa halip: ang classic ay nasa port 9005, at ang Fusion ay nasa port 9006.</li>
+<li>Upang makita ang isa sa mga interface sa browser, idagdag ang <code>?webui=fusion</code> o <code>?webui=classic</code> sa address ng anumang pahina.</li>
+</ul>
+
+<h2 id="tests">Mga test at pagsusuri</h2>
+<table>
+<thead><tr><th>Command</th><th>Saan</th><th>Ginagawa nito</th></tr></thead>
+<tbody>
+<tr><td><code>make test-server</code></td><td><code>server/</code></td><td>Ang test suite ng server, laban sa mga development container. Matagal itong gagawin.</td></tr>
+<tr><td><code>make test-server-quick</code></td><td><code>server/</code></td><td>Ang maikling mga test lamang.</td></tr>
+<tr><td><code>go test ./channels/app/... -run TestName</code></td><td><code>server/</code></td><td>Isang package o test, habang tumatakbo ang mga container (<code>make start-docker</code>).</td></tr>
+<tr><td><code>make check-style</code></td><td><code>server/</code></td><td>Ang go vet, golangci-lint, at ang ibang Go checks.</td></tr>
+<tr><td><code>make test</code></td><td><code>webapp/</code></td><td>Ang mga unit test ng web app (Jest), sa bawat package.</td></tr>
+<tr><td><code>npm run test -- &lt;pattern&gt;</code></td><td><code>webapp/fusion</code></td><td>Ilang test ng Fusion.</td></tr>
+<tr><td><code>make check-style</code>, <code>make check-types</code></td><td><code>webapp/</code></td><td>Ang ESLint at TypeScript.</td></tr>
+<tr><td><code>make i18n-extract</code></td><td><code>server/</code> at <code>webapp/</code></td><td>Pinapa-update ang mga English string files pagkatapos mong magdagdag o magbago ng mga string (tingnan ang <a href="{{root}}docs/developers/contributing.html#translations">Mga Pagsasalin</a>).</td></tr>
+</tbody>
+</table>
+<p>Paggamit ng <code>make modules-tidy</code> sa halip ng <code>go mod tidy</code> sa <code>server/</code>.</p>
+
+<h2 id="release">Mga release archive</h2>
+<pre><code>cd webapp &amp;&amp; npm run build &amp;&amp; cd ..
+cd server
+make build-linux       # the antimatter and amctl binaries
+make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
+<p>Ang <code>make build</code> ay nagbu-build ng mga web interface at Linux binaries sa isang pag-ayos. Ang archive ay naglalaman ng <code>bin/antimatter</code>, <code>bin/amctl</code>, isang default <code>config/config.json</code>, ang dalawang web interface, ang mga template, font, at pagsasalin. Iba pang platform: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>. Ang mga archive ay hindi kasama ang mga bundled apps; ang Docker image naman ay kasama.</p>
+
+<h2 id="docker">Ang Docker image</h2>
+<p>Ang <a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> repository ay nagbu-build ng mga published image, ang server kasama ang mga app, buong-buo sa loob ng Docker:</p>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter-docker.git
+cd antimatter-docker
+scripts/build-all.sh                     # from the main branches on GitHub
+SOURCES=local scripts/build-all.sh       # from your checkouts next to this folder
+VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatter app</code></pre>
+<p>Kailangan nito ng Docker na may buildx, Python 3, git, at gpg, tungkol sa 16 GB ng RAM at 30 GB ng disk. Ang resulta ay niluload bilang <code>ghcr.io/antimatterchat/antimatter:dev</code>; subukan ito gamit ang <code>ANTIMATTER_IMAGE=ghcr.io/antimatterchat/antimatter:dev docker compose -f compose.local.yml up -d</code>. Ang <code>plugins.json</code> ay naglilista ng mga app at bersyon na nabu-build, at ang README ng repository ay nagpapaliwanag ng mga variant.</p>
+<div class="callout warn">Ang <code>build-all.sh</code> ay nagpapa-sign ng mga kasamang app gamit ang Antimatter signing key, at ang image build ay tumatanggi sa mga app na walang sign. Kung wala ang private key na iyon, na mayroon lamang ang mga maintainer, patakbuhin ang mga unang hakbang nang mag-isa: <code>scripts/fetch-sources.sh</code>, <code>scripts/build-plugins.sh</code> (mga app bundle sa <code>out/plugins/</code>) at <code>scripts/build-server.sh</code> (mga server archive sa <code>out/server/</code>).</div>
+
+<h2 id="memory">Mga build at memory</h2>
+<p>Ang mga web interface ay malalaking webpack build, at ang pagkaubos ng memory ang pinakakaraniwang dahilan ng pagkabigo ng build.</p>
+<ul>
+<li>Ang <code>npm run build</code> ay nagbu-build ng classic interface at Fusion nang isa-isa, hindi sabay-sabay, upang mabawasan ang peak. Huwag nilang sabay-sabay na patakbuhin.</li>
+<li>Ang minifier ay nagpapa-start ng isang worker bawat processor. Sa isang makina na maraming core ngunit kaunting memory, limitahan ang mga processor na nakikita ng build: <code>taskset -c 0-5 npm run build</code>.</li>
+<li>Kung ang Node ay nagkaubos ng heap, itaas ang limit nito: <code>NODE_OPTIONS=--max-old-space-size=6144</code>. Ginagamit ng Docker build ang halong ito (<code>BUILD_NODE_OPTIONS</code> sa <code>build.env</code>).</li>
+<li>Iwasan ang sabay-sabay na pagtaas ng buong test suite ng server, isang web build, at isang Docker build sa isang maliit na makina.</li>
+</ul>
+
+<h2 id="apps">Mga App</h2>
+<p>Bawat app (plugin) ay may sariling repository at Makefile; ang <code>make dist</code> ay nagbu-build ng bundle nito. Tingnan ang <a href="{{root}}docs/developers/apps.html#build">Build, install at debug</a>.</p>
+<h3>Desktop app</h3>
+<p>Ang <a href="https://github.com/AntimatterChat/desktop-app">desktop app</a> ay isang Electron app. Gamit ang Node.js 24 o higit pa:</p>
+<pre><code>npm install --allow-git=all
+npm run build          # development build, into dist/
+npm start              # run it
+npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
+<p>Ang mga setting sa oras ng build, tulad ng mga server na preconfigure, ay nasa <code>src/common/config/buildConfig.ts</code>.</p>
+<h3>Mobile app</h3>
+<p>Ang <a href="https://github.com/AntimatterChat/mobile-app">mobile app</a> ay isang React Native app; nakatala sa README nito ang mga command (<code>npm run ios</code>, <code>npm run android</code>). Upang mag-build ng sariling kopya, kailangan mo rin ng sariling signing keys, isang Firebase project para sa Android notifications, isang APNs key para sa iOS, at isang <a href="https://github.com/AntimatterChat/push-proxy">push proxy</a> na naglalaman ng mga credential na iyon.</p>

@@ -1,0 +1,113 @@
+title: Login e contas
+description: Controle quem pode criar uma conta no Antimatter e como as pessoas fazem login: e-mail e senha, regras de senha, autenticação multifator, OpenID Connect, GitLab, Google, Entra ID, SAML 2.0, AD/LDAP e contas de convidado.
+guide: admins
+order: 9
+nav: Login e contas
+lead: Decida quem pode criar uma conta e como as pessoas fazem login. Todos os métodos de login do Antimatter funcionam sem licença, incluindo single sign-on e diretórios.
+source: b4466d5ccfe1
+---
+<h2 id="signup">Quem pode criar uma conta</h2>
+<p>Logo após a instalação, verifique <b>Console do Sistema › Autenticação › Inscrição</b>. Com os padrões, qualquer pessoa com um link de convite para uma comunidade pode criar uma conta, mas ninguém pode se inscrever sem um.</p>
+<table>
+<thead><tr><th>Configuração</th><th>Chave</th><th>Padrão</th><th>O que faz</th></tr></thead>
+<tbody>
+<tr><td><b>Ativar criação de conta</b></td><td><code>TeamSettings.EnableUserCreation</code></td><td>ligado</td><td>Desativado, ninguém pode criar uma conta por nenhum método; apenas administradores podem (Console do Sistema ou <code>amctl user create</code>).</td></tr>
+<tr><td><b>Ativar servidor aberto</b></td><td><code>TeamSettings.EnableOpenServer</code></td><td>desativado</td><td>Ativado, qualquer pessoa que acessar o servidor pode se inscrever com um endereço de e-mail, sem um convite. Use apenas para comunidades públicas.</td></tr>
+<tr><td><b>Restringir novos membros do sistema e da equipe a domínios de e-mail especificados</b></td><td><code>TeamSettings.RestrictCreationToDomains</code></td><td>vazio</td><td>Domínios separados por vírgula, por exemplo <code>example.com, example.org</code>: apenas endereços desses domínios podem criar uma conta.</td></tr>
+<tr><td><b>Habilitar Convites por E-mail</b></td><td><code>ServiceSettings.EnableEmailInvitations</code></td><td>desativado em um novo servidor</td><td>Permite que os membros convidem pessoas por e-mail (requer <a href="{{root}}docs/admins/email-push.html">SMTP</a>). <b>Invalidar convites por email pendentes</b> cancela os convites que ainda não foram aceitos; eles expiram após 48 horas de qualquer forma.</td></tr>
+</tbody>
+</table>
+<p>Os administradores da comunidade também controlam quem entra na sua comunidade, com links de convite e seus próprios domínios permitidos: veja o guia <a href="{{root}}docs/communities/index.html">Executando uma comunidade</a>.</p>
+<p>Da linha de comando: <code>amctl user create</code> (adicione <code>--system-admin</code> ou <code>--guest</code>), <code>amctl user invite</code>, <code>amctl user deactivate</code>, <code>amctl roles system-admin &lt;user&gt;</code> para tornar alguém um administrador do sistema, e <code>amctl roles member &lt;user&gt;</code> para desfazer.</p>
+
+<h2 id="email-password">E-mail e senha</h2>
+<p>Em <b>Console do Sistema › Autenticação › E-mail</b>:</p>
+<table>
+<thead><tr><th>Configuração</th><th>Chave</th><th>Padrão</th></tr></thead>
+<tbody>
+<tr><td><b>Ativar criação de contas com e-mail</b></td><td><code>EmailSettings.EnableSignUpWithEmail</code></td><td>ativado. Desative quando todos fizerem login por meio de single sign-on.</td></tr>
+<tr><td><b>Requer Verificação de E-mail</b></td><td><code>EmailSettings.RequireEmailVerification</code></td><td>desativado. Ative quando o <a href="{{root}}docs/admins/email-push.html">e-mail</a> estiver funcionando: as pessoas então confirmam seu endereço antes de poderem fazer login.</td></tr>
+<tr><td><b>Ativar login por e-mail</b></td><td><code>EmailSettings.EnableSignInWithEmail</code></td><td>ligado</td></tr>
+<tr><td><b>Ativar login com nome de usuário</b></td><td><code>EmailSettings.EnableSignInWithUsername</code></td><td>ligado</td></tr>
+</tbody>
+</table>
+<p>Em <b>Console do Sistema › Autenticação › Senha</b>:</p>
+<table>
+<thead><tr><th>Configuração</th><th>Chave</th><th>Padrão</th></tr></thead>
+<tbody>
+<tr><td><b>Tamanho Mínimo de Senha</b></td><td><code>PasswordSettings.MinimumLength</code></td><td>8 (de 5 a 72)</td></tr>
+<tr><td><b>Requerimentos de Senha</b>: minúsculas, maiúsculas, número, símbolo</td><td><code>PasswordSettings.Lowercase</code>, <code>.Uppercase</code>, <code>.Number</code>, <code>.Symbol</code></td><td>tudo desativado</td></tr>
+<tr><td><b>Máxima Tentativas de Login</b></td><td><code>ServiceSettings.MaximumLoginAttempts</code></td><td>10: após esse número de falhas, a conta é bloqueada até que a senha seja redefinida por e-mail</td></tr>
+<tr><td><b>Ativar o link Esqueci a Senha</b></td><td><code>PasswordSettings.EnableForgotLink</code></td><td>ligado</td></tr>
+</tbody>
+</table>
+<p>Um comprimento de 12 ou mais caracteres contribui mais para a segurança do que as regras de caracteres. Para redefinir a senha de alguém: <b>Console do Sistema › Gestão de Usuários › Usuários</b>, ou <code>amctl user change-password &lt;user&gt; --password &lt;new&gt;</code>.</p>
+
+<h2 id="mfa">Autenticação multifator</h2>
+<p>A autenticação multifator (MFA) adiciona um código de um aplicativo de autenticação à senha. Ela se aplica a contas que fazem login com e-mail ou AD/LDAP; com login único, use a MFA do seu provedor de identidade. Em <b>Console do Sistema › Autenticação › MFA</b>:</p>
+<ul>
+<li><b>Ativar Autenticação Multi-Fator</b> (<code>ServiceSettings.EnableMultifactorAuthentication</code>, desativado): as pessoas podem ativar a MFA em suas configurações de segurança.</li>
+<li><b>Impor Autenticação Multi-Fator</b> (<code>ServiceSettings.EnforceMultifactorAuthentication</code>, desativado): todos devem configurá-la, no momento do cadastro ou no próximo login.</li>
+</ul>
+<p>Se alguém perder seu dispositivo: <code>amctl user resetmfa &lt;user&gt;</code>, ou redefina-a a partir da página deles em <b>Console do Sistema › Gestão de Usuários › Usuários</b>.</p>
+
+<h2 id="sso">Login único</h2>
+<p>O Antimatter pode fazer login das pessoas através do seu provedor de identidade. No primeiro login, ele cria a conta (se a criação de contas for permitida) com o nome, e-mail e nome de usuário enviados pelo provedor.</p>
+<h3>OpenID Connect, GitLab, Google e Entra ID</h3>
+<p>Vá para <b>Console do Sistema › Autenticação › OpenID Connect</b> e escolha em <b>Selecione o provedor de serviços</b>: GitLab, Google Apps, Entra ID (Office 365) ou <b>OpenID Connect (Outro)</b> para qualquer outro provedor (Keycloak, Authentik, Zitadel, Okta, Auth0…).</p>
+<ol>
+<li>No seu provedor, crie um aplicativo (um "cliente") do tipo web, com esta URI de redirecionamento, para a URL do seu site:
+<table>
+<thead><tr><th>Provedor</th><th>URI de Redirecionamento</th></tr></thead>
+<tbody>
+<tr><td>OpenID Connect (Outros)</td><td><code>https://chat.example.com/signup/openid/complete</code></td></tr>
+<tr><td>GitLab</td><td><code>https://chat.example.com/signup/gitlab/complete</code></td></tr>
+<tr><td>Google</td><td><code>https://chat.example.com/signup/google/complete</code></td></tr>
+<tr><td>Entra ID</td><td><code>https://chat.example.com/signup/office365/complete</code></td></tr>
+</tbody>
+</table></li>
+<li>No Antimatter, preencha o <b>Endpoint de Descoberta</b> (a URL <code>/.well-known/openid-configuration</code> do provedor; para o GitLab, use a <b>URL do GitLab</b>), o <b>ID do cliente</b> e o <b>Segredo do cliente</b>. Para outros provedores, preencha também o <b>Nome do Botão</b> e a <b>Cor do Botão</b> do botão de login.</li>
+<li><b>Usar Nome de Usuário Preferido</b> (GitLab e outros provedores) obtém o nome de usuário do Antimatter da reivindicação <code>preferred_username</code> do provedor.</li>
+<li>Salve, faça logout e teste o novo botão na página de login.</li>
+</ol>
+<p>As configurações são armazenadas em <code>OpenIdSettings</code>, <code>GitLabSettings</code>, <code>GoogleSettings</code> ou <code>Office365Settings</code> (por exemplo, <code>AM_OPENIDSETTINGS_ENABLE</code>, <code>AM_OPENIDSETTINGS_DISCOVERYENDPOINT</code>, <code>AM_OPENIDSETTINGS_ID</code>, <code>AM_OPENIDSETTINGS_SECRET</code>). A página antiga do OAuth 2.0 só aparece para servidores que ainda possuem uma configuração de OAuth 2.0 para GitLab, Google ou Entra ID.</p>
+<h3>SAML 2.0</h3>
+<p>Em <b>Console do Sistema › Autenticação › SAML 2.0</b>, ative <b>Ativar Login With SAML 2.0</b> (<code>SamlSettings.Enable</code>) e preencha as informações fornecidas pelo seu provedor de identidade: a <b>URL Do Provedor de Identidade Metadados</b>, ou a <b>SAML SSO URL</b>, a <b>URL Emissor Provedor Identidade</b> e o <b>Provedor de Identidade Certificado Público</b>. No lado do provedor de identidade:</p>
+<ul>
+<li>Service Provider Login URL (assertion consumer service): <code>https://chat.example.com/login/sso/saml</code>;</li>
+<li>Metadados do Antimatter, para provedores que os importam: <code>https://chat.example.com/api/v4/saml/metadata</code>.</li>
+</ul>
+<p>Mapeie os atributos enviados pelo seu provedor: pelo menos o <b>Atributo de E-mail</b> e o <b>Atributo do Usuário</b>, e, opcionalmente, os atributos de ID, nome, sobrenome, apelido, cargo, idioma, convidado e administrador. <b>Verificar Assinatura</b> e <b>Ativar Criptografia</b> estão ativados por padrão (a criptografia requer uma chave e um certificado do provedor de serviço; apenas chaves RSA são suportadas); <b>Assinar Requisição</b> está desativado. O algoritmo de assinatura padrão é RSAwithSHA256.</p>
+<h3>AD/LDAP</h3>
+<p>Em <b>Console do Sistema › Autenticação › AD/LDAP</b>, uma página passo a passo conecta o Antimatter ao Active Directory ou a outro servidor LDAP: o servidor e a porta (<code>LdapSettings.LdapServer</code>, <code>LdapSettings.LdapPort</code>, 389 por padrão), a segurança da conexão (nenhuma, TLS ou STARTTLS), o DN base e uma conta de vínculo (<code>BaseDN</code>, <code>BindUsername</code>, <code>BindPassword</code>), filtros para usuários, convidados, administradores e grupos, e os atributos para e-mail, nome de usuário, ID, nomes e foto. As pessoas então fazem login com suas credenciais do diretório.</p>
+<p>Um trabalho de sincronização é executado a cada 60 minutos (<code>LdapSettings.SyncIntervalMinutes</code>) para atualizar nomes e desativar pessoas removidas do diretório; execute-o agora com <code>amctl ldap sync</code>. Os grupos LDAP podem ser vinculados a comunidades e canais em <b>Console do Sistema › Gestão de Usuários › Grupos</b>. As contas SAML também podem ser mantidas em sincronização com AD/LDAP (<b>Habilitar sincronismo das contas SAML com AD/LDAP</b>).</p>
+<h3>Mover contas existentes</h3>
+<p>Para alternar contas de e-mail existentes para o login único, <code>amctl user migrate-auth email saml users.json</code> (ou <code>ldap</code>) as move em lote. Um usuário também pode alterar seu próprio método de login nas configurações de segurança quando <b>Permitir Transferência de Autenticação</b> (<code>ServiceSettings.ExperimentalEnableAuthenticationTransfer</code>, em <b>Console do Sistema › Experimental › Recursos</b>) estiver ativado.</p>
+
+<h2 id="guests">Contas de convidado</h2>
+<p>Convidados são pessoas de fora da sua organização que veem apenas os canais para os quais foram convidadas. Ative-os em <b>Console do Sistema › Autenticação › Acesso Convidado (Beta)</b>:</p>
+<table>
+<thead><tr><th>Configuração</th><th>Chave</th><th>Padrão</th></tr></thead>
+<tbody>
+<tr><td><b>Ativar Acesso Convidado</b></td><td><code>GuestAccountsSettings.Enable</code></td><td>desativado</td></tr>
+<tr><td><b>Lista Permitida Domínios Convidados</b></td><td><code>GuestAccountsSettings.RestrictCreationToDomains</code></td><td>vazio: os convidados podem ter qualquer domínio de e-mail</td></tr>
+<tr><td><b>Impor Autenticação Multi-Fator</b></td><td><code>GuestAccountsSettings.EnforceMultifactorAuthentication</code></td><td>desativado; disponível apenas quando a MFA estiver ativada e exigida para todos</td></tr>
+<tr><td><b>Ocultar tag de convidado</b></td><td><code>GuestAccountsSettings.HideTags</code></td><td>desativado: uma etiqueta "convidado" é exibida ao lado do nome</td></tr>
+</tbody>
+</table>
+<p>Uma vez ativado, os administradores da comunidade convidam convidados para canais específicos. Os administradores podem transformar um membro em convidado com <code>amctl user demote</code>, e um convidado em membro com <code>amctl user promote</code>.</p>
+
+<h2 id="sessions">Sessões</h2>
+<p>O tempo que as pessoas permanecem conectadas é definido em <b>Console do Sistema › Ambiente › Durações da Sessão</b>:</p>
+<table>
+<thead><tr><th>Configuração</th><th>Chave</th><th>Padrão em um novo servidor</th></tr></thead>
+<tbody>
+<tr><td><b>Estender tamanho de sessão com atividade</b></td><td><code>ServiceSettings.ExtendSessionLengthWithActivity</code></td><td>ativado: as sessões são renovadas enquanto as pessoas usam o Antimatter</td></tr>
+<tr><td><b>Duração da Sessão AD/LDAP e E-mail (horas)</b></td><td><code>ServiceSettings.SessionLengthWebInHours</code></td><td>720 horas (30 dias)</td></tr>
+<tr><td><b>Duração da Sessão no Celular (horas)</b></td><td><code>ServiceSettings.SessionLengthMobileInHours</code></td><td>720 horas</td></tr>
+<tr><td><b>Duração da Sessão SSO (horas)</b></td><td><code>ServiceSettings.SessionLengthSSOInHours</code></td><td>720 horas</td></tr>
+<tr><td><b>Limite de Inatividade da Sessão (minutos)</b></td><td><code>ServiceSettings.SessionIdleTimeoutInMinutes</code></td><td>43200 minutos (30 dias); exibido apenas quando as sessões não são estendidas com atividade</td></tr>
+<tr><td><b>Encerrar Sessões ao Alterar a Senha</b></td><td><code>ServiceSettings.TerminateSessionsOnPasswordChange</code></td><td>ligado</td></tr>
+</tbody>
+</table>
+<p>Para desconectar todos de uma vez, use <b>Revogar Todas Sessões</b> em <b>Console do Sistema › Gestão de Usuários › Usuários</b>. Para desconectar uma pessoa, abra a página dela lá.</p>

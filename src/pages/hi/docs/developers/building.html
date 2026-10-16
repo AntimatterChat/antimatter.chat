@@ -1,0 +1,102 @@
+title: सोर्स से बिल्ड करना
+description: Antimatter को सोर्स से कैसे बिल्ड करें: Go सर्वर, Fusion और क्लासिक वेब इंटरफेस, डेवलपमेंट सर्वर, टेस्ट, रिलीज़ आर्काइव, Docker इमेज, और डेस्कटॉप और मोबाइल ऐप्स।
+guide: developers
+order: 7
+nav: सोर्स से बिल्ड करना
+lead: यह पेज बताता है कि Antimatter को उसके सोर्स कोड से कैसे बिल्ड और चलाया जाए, चाहे आप उस पर काम कर रहे हों या अपनी खुद की बिल्ड्स बना रहे हों। यह सर्वर और वेब इंटरफेसों को कवर करता है, जो एक ही रिपॉज़िटरी में मौजूद हैं, और फिर Docker इमेज और ऐप्स को।
+source: dfdf67f34f6e
+---
+<h2 id="requirements">आपको क्या चाहिए</h2>
+<ul>
+<li><b>जाना</b>, <code>server/go.mod</code> में वर्जन (लेखन के समय 1.26.7)।</li>
+<li><b>Node.js और npm</b>, <code>.nvmrc</code> और <code>webapp/package.json</code> में उल्लिखित संस्करण (Node 24.11.1 with npm 11.6.2)। <a href="https://mise.jdx.dev">mise</a> के साथ, रिपॉज़िटरी का <code>mise.toml</code> सही Node इंस्टॉल करता है।</li>
+<li><b>Docker</b> with Compose: डेवलपमेंट सेटअप PostgreSQL और कुछ अन्य सेवाओं को कंटेनरों में चलाता है।</li>
+<li><b>make</b>, <b>git</b>, और एक Linux या macOS मशीन।</li>
+<li><b>मेमोरी</b>: वेब इंटरफेसों को बिल्ड करना भारी हिस्सा है। 16 GB RAM की योजना बनाएं; देखें <a href="#memory">बिल्ड्स और मेमोरी</a>।</li>
+</ul>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter.git
+cd antimatter</code></pre>
+<p>रिपॉज़िटरी सर्वर को <code>server/</code> में, वेब इंटरफेसों को <code>webapp/</code> में (Fusion in <code>webapp/fusion</code>, classic in <code>webapp/channels</code>, shared packages in <code>webapp/platform</code>), और एंड-टू-एंड टेस्ट्स को <code>e2e-tests/</code> में रखती है।</p>
+
+<h2 id="dev-server">एक डेवलपमेंट सर्वर चलाएं</h2>
+<pre><code>cd server
+make run</code></pre>
+<p><code>make run</code> डेवलपमेंट कंटेनर (PostgreSQL, Redis, a mail catcher and monitoring tools) शुरू करता है, वेब ऐप बिल्ड्स को जगह पर जोड़ता है, सर्वर को बैकग्राउंड में <code>go run</code> के साथ शुरू करता है, और वेब ऐप के वॉचर को शुरू करता है, जो आपके संपादन के साथ क्लासिक इंटरफेस को पुनर्बिल्ड करता है। <code>http://localhost:8065</code> खोलें और एक खाता बनाएं: पहला खाता सिस्टम एडमिन बन जाता है।</p>
+<table>
+<thead><tr><th>कमांड (in <code>server/</code>)</th><th>यह क्या करता है</th></tr></thead>
+<tbody>
+<tr><td><code>make run-server</code>, <code>make run-client</code></td><td>केवल सर्वर, या केवल वेब ऐप वॉचर शुरू करें।</td></tr>
+<tr><td><code>make restart-server</code></td><td>Go कोड बदलने के बाद सर्वर को पुनः शुरू करें।</td></tr>
+<tr><td><code>make stop</code></td><td>सर्वर, वॉचर और कंटेनरों को रोकें।</td></tr>
+<tr><td><code>make debug-server</code></td><td>Delve डीबगर के तहत सर्वर चलाएं।</td></tr>
+<tr><td><code>make run-cli ARGS="-version"</code></td><td>एक सर्वर कमांड चलाएं।</td></tr>
+<tr><td><code>make config-reset</code></td><td><code>config/config.json</code> को डिफ़ॉल्ट्स पर रीसेट करें।</td></tr>
+<tr><td><code>make clean</code>, <code>make nuke</code></td><td>बिल्ड फ़ाइलें हटाएं; <code>nuke</code> डेवलपमेंट डेटा को भी हटा देता है।</td></tr>
+</tbody>
+</table>
+<p>डेवलपमेंट डेटाबेस <code>postgres://mmuser:mostest_password@localhost/mattermost_test</code> है, जो सर्वर का डिफ़ॉल्ट डेटा सोर्स है। <code>ENABLED_DOCKER_SERVICES</code> के साथ चुनें कि कौन से कंटेनर शुरू हों, <code>server/config.override.mk</code> फ़ाइल में या आपके एनवायरनमेंट में (देखें <code>server/config.mk</code>)।</p>
+
+<h2 id="webapp">वेब इंटरफेस</h2>
+<p><code>webapp/</code> में:</p>
+<pre><code>npm install      # also builds the shared packages
+npm run build    # the classic interface, then Fusion</code></pre>
+<p>बिल्ड्स <code>webapp/channels/dist</code> (क्लासिक) और <code>webapp/fusion/dist</code> (Fusion) में बनते हैं। <code>server/</code> में <code>make client</code> इन्हें <code>server/client</code> और <code>server/client-fusion</code> के रूप में लिंक करता है, जहाँ सर्वर इन्हें सर्व करता है: क्लासिक <code>/static/</code> के तहत, और Fusion <code>/static/fusion/</code> के तहत।</p>
+<ul>
+<li><code>npm run run</code> (या <code>webapp/</code> में <code>make run</code>) क्लासिक इंटरफेस को वॉच करता है और पुनर्निर्माण (rebuild) करता है। Fusion को भी पुनर्निर्माण करने के लिए <code>WATCH_FUSION=true</code> जोड़ें।</li>
+<li><code>npm run dev-server</code> (<code>make dev</code>) के बजाय webpack के डेवलपमेंट सर्वर को चलाता है: क्लासिक पोर्ट 9005 पर, और Fusion पोर्ट 9006 पर।</li>
+<li>ब्राउज़र में एक इंटरफेस या दूसरा देखने के लिए, किसी भी पेज के पता (address) में <code>?webui=fusion</code> या <code>?webui=classic</code> जोड़ें।</li>
+</ul>
+
+<h2 id="tests">टेस्ट और जाँचें</h2>
+<table>
+<thead><tr><th>Command</th><th>कहाँ</th><th>यह क्या करता है</th></tr></thead>
+<tbody>
+<tr><td><code>make test-server</code></td><td><code>server/</code></td><td>सर्वर का टेस्ट सूट, डेवलपमेंट कंटेनरों के विरुद्ध। इसमें बहुत समय लगता है।</td></tr>
+<tr><td><code>make test-server-quick</code></td><td><code>server/</code></td><td>केवल छोटे टेस्ट।</td></tr>
+<tr><td><code>go test ./channels/app/... -run TestName</code></td><td><code>server/</code></td><td>एक पैकेज या टेस्ट, कंटेनरों चलते हुए (<code>make start-docker</code>)।</td></tr>
+<tr><td><code>make check-style</code></td><td><code>server/</code></td><td>go vet, golangci-lint और अन्य Go जाँचें।</td></tr>
+<tr><td><code>make test</code></td><td><code>webapp/</code></td><td>वेब ऐप के यूनिट टेस्ट (Jest), हर पैकेज में।</td></tr>
+<tr><td><code>npm run test -- &lt;pattern&gt;</code></td><td><code>webapp/fusion</code></td><td>Fusion के कुछ टेस्ट।</td></tr>
+<tr><td><code>make check-style</code>, <code>make check-types</code></td><td><code>webapp/</code></td><td>ESLint और TypeScript।</td></tr>
+<tr><td><code>make i18n-extract</code></td><td><code>server/</code> और <code>webapp/</code></td><td>जब आप स्ट्रिंग्स जोड़ते या बदलते हैं, तब अंग्रेज़ी स्ट्रिंग फाइलों को अपडेट करता है (देखें <a href="{{root}}docs/developers/contributing.html#translations">अनुवाद</a>)।</td></tr>
+</tbody>
+</table>
+<p><code>server/</code> में <code>go mod tidy</code> के बजाय <code>make modules-tidy</code> चलाएँ।</p>
+
+<h2 id="release">रिलीज़ आर्काइव</h2>
+<pre><code>cd webapp &amp;&amp; npm run build &amp;&amp; cd ..
+cd server
+make build-linux       # the antimatter and amctl binaries
+make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
+<p><code>make build</code> वेब इंटरफेस और Linux बाइनरी दोनों एक साथ बनाता है। आर्काइव में <code>bin/antimatter</code>, <code>bin/amctl</code>, डिफ़ॉल्ट <code>config/config.json</code>, दोनों वेब इंटरफेस, टेम्पलेट, फ़ॉन्ट और अनुवाद शामिल हैं। अन्य प्लेटफ़ॉर्म: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>। आर्काइव में बंडल्ड ऐप्स शामिल नहीं हैं; Docker इमेज में शामिल हैं।</p>
+
+<h2 id="docker">Docker इमेज</h2>
+<p><a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> रिपॉज़िटरी प्रकाशित इमेजों को बनाती है, सर्वर और उसके ऐप्स सहित, पूरी तरह Docker के अंदर:</p>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter-docker.git
+cd antimatter-docker
+scripts/build-all.sh                     # from the main branches on GitHub
+SOURCES=local scripts/build-all.sh       # from your checkouts next to this folder
+VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatter app</code></pre>
+<p>इसके लिए Docker (buildx सहित), Python 3, git और gpg, लगभग 16 GB RAM और 30 GB डिस्क की ज़रूरत है। परिणाम को <code>ghcr.io/antimatterchat/antimatter:dev</code> के रूप में लोड किया जाता है; इसे <code>ANTIMATTER_IMAGE=ghcr.io/antimatterchat/antimatter:dev docker compose -f compose.local.yml up -d</code> के साथ आज़माएँ। <code>plugins.json</code> में बनाए गए ऐप्स और उनकी संस्करणों की सूची है, और रिपॉज़िटरी का README विभिन्न भेदों (variants) की व्याख्या करता है।</p>
+<div class="callout warn"><code>build-all.sh</code> Antimatter signing key से bundled apps को sign करता है, और image build unsigned apps को अस्वीकार कर देता है। यदि आपके पास वह private key नहीं है, जो केवल maintainers के पास है, तो केवल प्रारंभिक चरणों को अलग-अलग चलाएँ: <code>scripts/fetch-sources.sh</code>, <code>scripts/build-plugins.sh</code> (<code>out/plugins/</code> में app bundles) और <code>scripts/build-server.sh</code> (<code>out/server/</code> में server archives)।</div>
+
+<h2 id="memory">Builds और memory</h2>
+<p>वेब इंटरफेस बड़े webpack builds हैं, और memory की कमी सबसे आम build failure है।</p>
+<ul>
+<li><code>npm run build</code> classic interface और Fusion को एक के बाद एक build करता है, साथ में नहीं, ताकि peak memory कम रहे। इन्हें स्वयं parallel में न चलाएँ।</li>
+<li>Minifier प्रत्येक processor के लिए एक worker शुरू करता है। यदि मशीन में बहुत सारे cores हैं लेकिन memory कम है, तो build के लिए उपलब्ध processors की संख्या सीमित करें: <code>taskset -c 0-5 npm run build</code>।</li>
+<li>यदि Node के heap की memory खत्म हो जाती है, तो उसकी सीमा बढ़ाएँ: <code>NODE_OPTIONS=--max-old-space-size=6144</code>। Docker build इसी मान का उपयोग करता है (<code>build.env</code> में <code>BUILD_NODE_OPTIONS</code>)।</li>
+<li>छोटी मशीन पर server का पूरा test suite, web build और Docker build एक साथ न चलाएँ।</li>
+</ul>
+
+<h2 id="apps">Apps</h2>
+<p>प्रत्येक app (plugin) का अपना अलग repository और Makefile है; <code>make dist</code> इसका bundle build करता है। <a href="{{root}}docs/developers/apps.html#build">Build, install और debug</a> देखें।</p>
+<h3>Desktop app</h3>
+<p><a href="https://github.com/AntimatterChat/desktop-app">desktop app</a> एक Electron app है। Node.js 24 या नवीनतम संस्करण के साथ:</p>
+<pre><code>npm install --allow-git=all
+npm run build          # development build, into dist/
+npm start              # run it
+npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
+<p>Build-time settings, जैसे कि preconfigure करने के लिए servers, <code>src/common/config/buildConfig.ts</code> में हैं।</p>
+<h3>Mobile app</h3>
+<p><a href="https://github.com/AntimatterChat/mobile-app">mobile app</a> एक React Native app है; इसके README में commands (<code>npm run ios</code>, <code>npm run android</code>) सूचीबद्ध हैं। अपनी खुद की copy build करने के लिए आपको अपनी signing keys, Android notifications के लिए एक Firebase project, iOS के लिए एक APNs key, और उन credentials को रखने वाला <a href="https://github.com/AntimatterChat/push-proxy">push proxy</a> भी चाहिए।</p>

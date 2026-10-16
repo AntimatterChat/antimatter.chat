@@ -1,0 +1,170 @@
+title: Webhook
+description: Antimatterの内向きWebhookと外向きWebhook：作成方法、ペイロードとレスポンス、メッセージの添付ファイルとカード、名前とアイコンの上書き、そして使用例。
+guide: developers
+order: 3
+nav: Webhook
+lead: 内向きWebhookは、秘密のURLにJSONを送信することで、他のシステムがチャンネルに投稿できるようにします。外向きWebhookはその逆で、トリガーワードで始まるメッセージをあなたのURLに送信し、あなたが応答した内容を投稿します。
+source: ecd698619944
+---
+<h2 id="where">Webhookの管理場所</h2>
+<p>右上のアバターを開き、<b>統合機能</b>を選択します。現在のコミュニティの統合機能ページには、<b>内向きのウェブフック</b>と<b>外向きのウェブフック</b>がリスト表示されます。各Webhookは1つのコミュニティに属します。</p>
+<p>デフォルトでは、コミュニティ管理者とシステム管理者がWebhookを作成できます。システム管理者は、システムコンソールの権限設定で他のロールにこの権限を付与できます。また、システム管理者は<b>システムコンソール › 統合機能 › 統合機能管理</b>で各タイプを無効にすることもできます。<b>内向きのウェブフックを有効にする</b>と<b>外向きのウェブフックを有効にする</b>は、デフォルトで両方ともオンになっています。</p>
+<figure><img src="{{root}}assets/img/shots/integrations.webp" alt="A channel with messages from a CI bot and from GitHub, shown as cards with fields, pipeline stages and a button"><figcaption>カードとして描画される統合機能メッセージ：フィールド、パイプラインステージ、アクションボタン。</figcaption></figure>
+
+<h2 id="incoming">内向きWebhookの作成</h2>
+<ol>
+<li><b>統合機能</b>で<b>内向きのウェブフック</b>を選択し、<b>内向きのウェブフックを追加する</b>をクリックします。</li>
+<li><b>タイトル</b>と<b>説明</b>を入力します。これらは統合機能ページでのみ表示されます。</li>
+<li>メッセージがデフォルトで送信先となる<b>チャンネル</b>を選択します。非公開チャンネルの場合、そのメンバーである必要があります。</li>
+<li>送信者が他の場所に投稿できないようにする場合は、<b>このチャンネルに固定する</b>にチェックを入れます。</li>
+<li>必要に応じて、そのメッセージ用の<b>ユーザー名</b>と<b>プロフィール画像</b>のURLを設定します（<a href="#identity">名前とアイコン</a>を参照）。</li>
+<li><b>保存する</b>を選択します。表示されたURLをコピーします：<code>https://chat.example.com/hooks/&lt;key&gt;</code>。</li>
+</ol>
+<div class="callout warn">このURLは唯一の秘密です：これを保有する者は誰でもチャンネルに投稿できます。公開リポジトリに公開しないよう注意し、漏洩した場合はWebhookを削除してください。</div>
+<p>APIを使用する場合：<code>POST /api/v4/hooks/incoming</code>に<code>{"channel_id", "display_name", "description", "username", "icon_url", "channel_locked"}</code>を送信します。レスポンスの<code>id</code>がキーです。コマンドラインから：<code>amctl webhook create-incoming --channel &lt;channel id&gt; --user &lt;user&gt; --display-name "CI"</code>。</p>
+
+<h2 id="incoming-send">内向きWebhookへのメッセージ送信</h2>
+<pre><code>curl -X POST https://chat.example.com/hooks/xgh5ycrx1jf7mbs9w8z4c8e7ho \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Deploy of **api 2.4.0** finished :white_check_mark:"}'</code></pre>
+<p>サーバーは<code>200</code>を返し、ボディに<code>ok</code>を返します。SlackのWebhookと同様に、JSONを<code>payload</code>フィールドに含めた<code>application/x-www-form-urlencoded</code>も受け付けるため、Slack向けに作られたツールは通常、変更なしで動作します。</p>
+<table>
+<thead><tr><th>フィールド</th><th>意味</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>Markdown形式のメッセージ。<code>attachments</code>がない場合は必須です。サーバーのメッセージ上限を超える長文は、複数のメッセージに分割されます。</td></tr>
+<tr><td><code>channel</code></td><td>Webhookのコミュニティ内の別のチャンネル（<code>ops-alerts</code>または<code>#ops-alerts</code>）、またはWebhookのオーナーからのダイレクトメッセージには<code>@username</code>を指定します。Webhookが特定のチャンネルにロックされている場合は拒否されます。</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code>, <code>icon_emoji</code></td><td>サーバーが上書きを許可している場合に、表示する名前と画像。</td></tr>
+<tr><td><code>attachments</code></td><td>メッセージの添付ファイル。カードとして表示されます（下記参照）。</td></tr>
+<tr><td><code>props</code></td><td>それを読み取るアプリのために、メッセージに保存される追加プロパティ。</td></tr>
+<tr><td><code>type</code></td><td>それを描画するアプリ用のカスタム投稿タイプ（例：<code>custom_poll</code>）。<code>system_</code>で始まるタイプは拒否されます。</td></tr>
+<tr><td><code>root_id</code></td><td>スレッドの最初のメッセージのID。そのスレッドに返信するために使用します。</td></tr>
+<tr><td><code>priority</code></td><td>メッセージの優先度（例：<code>{"priority": "urgent"}</code>）。</td></tr>
+<tr><td><code>silent</code></td><td><code>true</code>の場合、プッシュ通知なしでメッセージを送信します。</td></tr>
+</tbody>
+</table>
+<p>上書きされた名前で表示されるメッセージには、実際のアカウントと区別できるように<b>BOT</b>タグが隣に付与されます。Webhookのメッセージは、送信Webhookをトリガーすることはありません。</p>
+
+<h2 id="identity">名前とアイコン</h2>
+<p>Webhookは、作成者として投稿されますが、サーバーが上書きを許可している場合は異なります。<b>システムコンソール › 統合機能 › 統合機能管理</b>内の2つの設定（どちらもデフォルトではオフ）を変更することで、この挙動を変えることができます：</p>
+<ul>
+<li><b>統合機能によるユーザー名の上書きを許可する</b> (<code>ServiceSettings.EnablePostUsernameOverride</code>): <b>ユーザー名</b>またはリクエストの <code>username</code> が表示されます。どちらも指定されていない場合、<code>webhook</code> が表示されます。</li>
+<li><b>統合機能によるプロフィール画像アイコンの上書きを許可する</b>（<code>ServiceSettings.EnablePostIconOverride</code>）：Webhookの<b>プロフィール画像</b>、またはリクエストの<code>icon_url</code>または<code>icon_emoji</code>が表示されます。</li>
+</ul>
+<p>リクエスト内の値は、Webhookに保存された値よりも優先されます。</p>
+
+<h2 id="attachments">添付ファイル</h2>
+<p>添付ファイルは、テキストの下に構造化されたコンテンツを追加します。Slackのメッセージ添付ファイル形式に従います：</p>
+<pre><code>{
+  "text": "Build failed on `main`",
+  "attachments": [{
+    "fallback": "main #1902 failed",
+    "color": "#d24b4e",
+    "author_name": "GitHub Actions",
+    "author_icon": "https://chat.example.com/static/ci.png",
+    "title": "main #1902 failed",
+    "title_link": "https://ci.example.com/runs/1902",
+    "text": "Commit `0f4d8e2` by Jonas Weber",
+    "fields": [
+      {"title": "Branch", "value": "zephyr-3.7", "short": true},
+      {"title": "Duration", "value": "3m 40s", "short": true}
+    ],
+    "footer": "Lumen CI",
+    "ts": 1760000000
+  }]
+}</code></pre>
+<table>
+<thead><tr><th>フィールド</th><th>意味</th></tr></thead>
+<tbody>
+<tr><td><code>fallback</code></td><td>カードを表示できない場所（通知など）向けのプレーンテキスト。</td></tr>
+<tr><td><code>color</code></td><td>カラーバー：16進カラー、または<code>good</code>、<code>warning</code>、<code>danger</code>。</td></tr>
+<tr><td><code>pretext</code></td><td>カードの上のテキスト。</td></tr>
+<tr><td><code>author_name</code>, <code>author_link</code>, <code>author_icon</code></td><td>小さなヘッダー行。</td></tr>
+<tr><td><code>title</code>, <code>title_link</code></td><td>カードのタイトル。リンクであることも可能です。</td></tr>
+<tr><td><code>text</code></td><td>Markdown形式のカード本文。</td></tr>
+<tr><td><code>fields</code></td><td><code>{"title", "value", "short"}</code>のリスト。<code>short</code>フィールドは横並びで配置されます。</td></tr>
+<tr><td><code>image_url</code>, <code>thumb_url</code></td><td>下の大きな画像、または横の小さな画像。</td></tr>
+<tr><td><code>footer</code>, <code>footer_icon</code>, <code>ts</code></td><td>フッター行と時間（Unix秒）。</td></tr>
+<tr><td><code>actions</code></td><td>ボタンとメニュー：<a href="{{root}}docs/developers/bots.html#interactive">対話型メッセージ</a>を参照してください。</td></tr>
+</tbody>
+</table>
+
+<h2 id="cards">カード：ステージとチャート</h2>
+<p>Antimatterは、デフォルトのインターフェースによって描画される2つのフィールドを添付ファイルに追加します。</p>
+<ul>
+<li><code>stages</code>: パイプラインのステップをピル(カプセル状の表示)として最大20個表示します。各項目は<code>{"name", "status"}</code>の形式で、ステータスは<code>passed</code>、<code>failed</code>、<code>running</code>、<code>pending</code>、<code>skipped</code>、または<code>canceled</code>のいずれかです。</li>
+<li><code>chart</code>: 最近の値を示す小型の折れ線グラフ、<code>{"values": [2 to 200 numbers], "threshold": number, "label": "…"}</code>。しきい値は破線で描画され、アラートの上限を表します。</li>
+</ul>
+<pre><code>{
+  "attachments": [{
+    "color": "danger",
+    "title": "main #1902 failed",
+    "stages": [
+      {"name": "build", "status": "failed"},
+      {"name": "unit", "status": "skipped"},
+      {"name": "publish", "status": "skipped"}
+    ]
+  }, {
+    "color": "warning",
+    "title": "API latency above 400 ms",
+    "chart": {"values": [210, 230, 260, 390, 450, 470], "threshold": 400, "label": "p95 latency, ms"}
+  }]
+}</code></pre>
+<p>クラシックインターフェースや他のクライアントはこれらの2つのフィールドを無視するため、<code>text</code>または<code>fields</code>にも必須情報を記載してください。</p>
+
+<h2 id="outgoing">外向きのウェブフックの作成</h2>
+<p>外向きのウェブフックはコミュニティの<b>公開</b>チャンネルを監視します。メッセージの最初の単語がトリガーワードのいずれかと一致した場合、Antimatterはメッセージを指定したURLに送信します。</p>
+<ol>
+<li><b>統合機能</b>で<b>外向きのウェブフック</b>を選択し、<b>外向きのウェブフックを追加する</b>をクリックします。</li>
+<li><b>タイトル</b>と<b>説明</b>を入力します。</li>
+<li>リクエストの<b>コンテントタイプ</b>を選択します: <code>application/x-www-form-urlencoded</code>または<code>application/json</code>。</li>
+<li><b>チャンネル</b>を選択し、<b>トリガーワード(1つにつき1行)</b>を入力するか、両方指定します。チャンネルのみ指定しトリガーワードがない場合、そのチャンネルのすべてのメッセージが送信されます。両方指定した場合、メッセージは両方の条件に一致する必要があります。</li>
+<li><b>トリガーとなる条件</b>の下で、<b>最初の単語がトリガーワードと正確に一致する</b>または<b>最初の単語がトリガーワードで始まる</b>を選択します。</li>
+<li><b>コールバックURL(1つにつき1行)</b>を入力します。各URLには、条件に一致したすべてのメッセージが送信されます。</li>
+<li>返信に使用する<b>ユーザー名</b>と<b>プロフィール画像</b>を任意で設定します。</li>
+<li><b>保存する</b>を選択し、表示されたトークンをコピーします。サービスはこのトークンを使用して、リクエストが自分のサーバーからのものであることを確認します。</li>
+</ol>
+<p>APIを使用する場合: <code>POST /api/v4/hooks/outgoing</code>に<code>{"team_id", "channel_id", "trigger_words", "trigger_when", "callback_urls", "content_type", "display_name"}</code>を指定します(<code>trigger_when</code>: 0は完全一致、1は「で始まる」)。</p>
+<div class="callout">サービスがプライベートネットワーク上にある場合、システム管理者が<b>信頼されていない内部接続を許可する</b>(<code>ServiceSettings.AllowedUntrustedInternalConnections</code>)にそのアドレスを許可する必要があります。それ以外の場合、サーバーはプライベートアドレスを呼び出しません。</div>
+
+<h2 id="outgoing-request">外向きのリクエスト</h2>
+<p>Antimatterは、コンテントタイプに応じてJSONまたはフォームエンコードで、これらのフィールドを含むPOSTリクエストを送信します:</p>
+<pre><code>{
+  "token": "6kd1ofo5ojr5zgu5ipfipybgnc",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "channel_id": "…",
+  "channel_name": "ops-alerts",
+  "timestamp": 1760010000000,
+  "user_id": "…",
+  "user_name": "priya",
+  "post_id": "…",
+  "text": "deploy api 2.4.0",
+  "trigger_word": "deploy",
+  "file_ids": ""
+}</code></pre>
+<p>処理を行う前に、<code>token</code> を Webhook のトークンと比較してください。フォームエンコード形式では、<code>timestamp</code> はミリ秒ではなく秒単位です。サーバーは、<b>統合機能リクエストタイムアウト</b>（デフォルトは 30 秒、<code>ServiceSettings.OutgoingIntegrationRequestsTimeout</code>）が許可する間、応答を待機します。</p>
+
+<h2 id="outgoing-response">アウトゴーイング Webhook への応答</h2>
+<p>返信を投稿するには、JSON で応答します。何も投稿しない場合は、空のボディで応答します。</p>
+<pre><code>{
+  "text": "Deploying **api 2.4.0** to staging…",
+  "response_type": "comment",
+  "username": "deploy-bot",
+  "icon_url": "https://chat.example.com/static/deploy.png"
+}</code></pre>
+<ul>
+<li><code>text</code> および <code>attachments</code>：返信の内容です。どちらもない場合、何も投稿されません。</li>
+<li><code>response_type</code>：<code>comment</code> を指定すると、トリガーメッセージのスレッドに返信が投稿されます。それ以外の場合は、チャンネルに投稿されます。</li>
+<li><code>username</code>、<code>icon_url</code>：サーバーが上書きを許可している場合に使用されます。許可されていない場合は、Webhook 自体の値が使用されます。</li>
+<li><code>props</code>、<code>type</code>、<code>priority</code>：インゴーイング Webhook と同じです。</li>
+</ul>
+<p>返信は、Webhook の作成者として投稿され、上書き名がある場合はその名前で表示されます。簡潔な応答を超える長文の場合は、即座に応答し、インゴーイング Webhook または API を使用して後から投稿してください。</p>
+
+<h2 id="troubleshooting">Webhook が動作しない場合</h2>
+<ul>
+<li><b>フック URL から 501 が返された場合</b>：サーバーでインゴーイング Webhook が無効になっています。</li>
+<li><b>400 "Failed to decode the payload…"</b>：JSON が無効であるか、フォームフィールドの名前が <code>payload</code> ではありません。<b>"No text specified."</b> は、リクエストに <code>text</code> も <code>attachments</code> も含まれていないことを意味します。</li>
+<li><b>403</b>：Webhook が別のチャンネルにロックされているか、その所有者がもはやそのチャンネルを読み取れなくなっています。</li>
+<li><b>アウトゴーイング Webhook がトリガーされない</b>：チャンネルが非公開である、トリガーが最初の単語ではない、またはメッセージが Webhook によって送信されたものです。</li>
+<li><b>ログ</b>：<b>ウェブフックのデバッグを有効にする</b>（<code>LogSettings.EnableWebhookDebugging</code>）をオンにし、ログレベルを <code>DEBUG</code> に設定すると、サーバーは失敗したインゴーイングリクエストのペイロードをログに記録します。失敗したアウトゴーイング呼び出しは <code>Outgoing Webhook POST failed</code> としてログに記録されます。</li>
+</ul>

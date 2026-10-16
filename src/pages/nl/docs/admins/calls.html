@@ -1,0 +1,126 @@
+title: Gesprekken en spraak
+description: Stel de gesprekken en spraakkanaal van Antimatter in: de mediaport, NAT en STUN, TURN, testmodus, video, een externe rtcd-server, transcriptie en live ondertiteling met uw eigen speech-to-text-model, en opnames.
+guide: admins
+order: 5
+nav: Gesprekken en spraak
+lead: Gesprekken en spraakkanaal sturen audio, video en het delen van het scherm rechtstreeks naar de server op hun eigen port. Deze pagina behandelt de netwerkzijde, de instellingen die u na de installatie moet controleren, en transcriptie met een speech-to-text-model dat u zelf draait.
+source: 16057458346f
+---
+<h2 id="overview">Hoe gesprekken werken</h2>
+<p>Gesprekken worden aangeboden door de <b>Gesprekken</b>-app (id <code>com.mattermost.calls</code>), die standaard is geïnstalleerd en ingeschakeld. Spraakkanaal (de <b>Spraakkanaal</b>-app, <code>antimatter-next</code>-image) zijn permanente gespreksruimten die zijn gebouwd op Gesprekken: ze vereisen dat Gesprekken is ingeschakeld en gebruiken dezelfde instellingen, poorten en servers.</p>
+<p>De Gesprekken-app draait een mediaserver binnen Antimatter. De webapp, de desktopapp en de mobiele apps verbinden ermee via WebRTC:</p>
+<ul>
+<li>de signalering verloopt via de normale webverbinding (uw HTTPS-proxy);</li>
+<li>de <b>media</b> (audio, video, het delen van het scherm) niet: die gaat rechtstreeks naar de server op de gespreksport, standaard <b>8443 UDP en TCP</b>.</li>
+</ul>
+<p>De instellingen staan in <b>Systeem console › Plugins › Calls</b>. Elke instelling kan ook worden ingesteld met een <code>AM_CALLS_</code>omgevingsvariabele op de <code>antimatter</code>-service, die dan voorrang heeft op de Systeem console en de instelling daar vergrendelt. De verouderde <code>MM_CALLS_</code>-namen werken ook.</p>
+
+<h2 id="after-install">Controleer dit na de installatie</h2>
+<ol>
+<li><b>Open de gespreksport.</b> Sta 8443/udp en 8443/tcp toe in de firewall van de server en van uw cloudprovider.</li>
+<li><b>Schakel de testmodus uit.</b> <b>Testmodus</b> (<code>DefaultEnabled</code>) is standaard ingeschakeld: alleen systeembeheerders kunnen gesprekken starten in kanalen, zodat u kunt controleren of gesprekken werken voordat iedereen ze gebruikt. Stel deze in op <b>Uit</b> in <b>Systeem console › Plugins › Calls</b>, of stel <code>AM_CALLS_DEFAULT_ENABLED=true</code> in.</li>
+<li><b>Bepaal het gebruik van video.</b> <b>Video-gesprekken inschakelen in privéberichten (Experimenteel)</b> (<code>EnableVideo</code>, <code>AM_CALLS_ENABLE_VIDEO</code>) is standaard uit. Zolang deze uit is, kan niemand een camera inschakelen, zelfs niet in spraakkanaal. Wanneer deze aan is, werken camera's in privéberichtgesprekken en in spraakkanaal (tenzij <b>Video toestaan in spraakkanaal</b> in de Spraakkanaal-app uit is).</li>
+<li><b>Stel het openbare adres in achter NAT</b> (volgende sectie).</li>
+</ol>
+
+<h2 id="network">Poorten, NAT en STUN</h2>
+<table>
+<thead><tr><th>Instelling</th><th>Variabele</th><th>Standaardwaarde</th></tr></thead>
+<tbody>
+<tr><td><b>RTC-serverport (UDP)</b></td><td><code>AM_CALLS_UDP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>RTC-serverport (TCP)</b></td><td><code>AM_CALLS_TCP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>RTC-serveradres (UDP)</b>, <b>(TCP)</b></td><td><code>AM_CALLS_UDP_SERVER_ADDRESS</code>, <code>AM_CALLS_TCP_SERVER_ADDRESS</code></td><td>leeg: alle adressen</td></tr>
+<tr><td><b>ICE Host Override</b></td><td><code>AM_CALLS_ICE_HOST_OVERRIDE</code></td><td>leeg: gevonden via STUN</td></tr>
+<tr><td><b>ICE Host Port Override</b></td><td><code>AM_CALLS_ICE_HOST_PORT_OVERRIDE</code></td><td>leeg: de serverpoort</td></tr>
+<tr><td><b>Configuratie van ICE-servers</b></td><td><code>AM_CALLS_ICE_SERVERS_CONFIGS</code></td><td><code>[{"urls":["stun:stun.cloudflare.com:3478"]}]</code></td></tr>
+<tr><td><b>(Experimenteel) IPv6-ondersteuning inschakelen</b></td><td>(Systeemconsole)</td><td>Uit</td></tr>
+</tbody>
+</table>
+<p>Poorten moeten tussen 80 en 49151 liggen. Wijzig in het compose-bestand van de site <code>CALLS_PORT</code> in <code>.env</code>: dit stelt beide variabelen in en publiceert de poort, met hetzelfde nummer op de host en in de container. Clients proberen eerst UDP en schakelen over op TCP op dezelfde poort.</p>
+<h3>Het adres waarnaar clients media sturen</h3>
+<p>De server geeft aan elke client het adres waarnaar media gestuurd moet worden (de "host candidate"). Standaard vindt de server zijn openbare adres door een STUN-server te raadplegen, een openbare dienst die antwoordt met het adres en de poort waarvandaan een verzoek kwam. De standaard is de openbare STUN-server van Cloudflare, <code>stun:stun.cloudflare.com:3478</code>. De server is niet de enige die deze gebruikt: elke client die een gesprek join, vraagt ook zijn eigen openbare adres op. De STUN-server ziet alleen IP-adressen en poorten, nooit audiogesprekken, video of berichten.</p>
+<p>Een server die nog de STUN-server van Mattermost (<code>stun.global.calls.mattermost.com</code>) heeft opgeslagen in <b>Configuratie van ICE-servers</b>, bijvoorbeeld na een overgang van Mattermost, gebruikt in plaats daarvan die van Cloudflare. De opgeslagen instelling wordt niet gewijzigd.</p>
+<p>Stel het adres zelf in wanneer:</p>
+<ul>
+<li>de server achter NAT staat, of meerdere openbare adressen heeft: stel <b>ICE Host Override</b> in op het openbare IP-adres (of een hostnaam die ernaar oplost);</li>
+<li>de NAT een ander openbare poort toewijst aan 8443: stel dan ook <b>ICE Host Port Override</b> in op die openbare poort;</li>
+<li>de server geen internettoegang heeft, of u niet wilt dat de server en de clients een externe STUN-server contacteren: stel <b>ICE Host Override</b> in en maak de STUN-lijst leeg met <code>AM_CALLS_ICE_SERVERS_CONFIGS=[]</code>. Wanneer <b>ICE Host Override</b> is ingesteld, vraagt de server niet langer een STUN-server om zijn adres; de lege lijst voorkomt dat de clients er een raadplegen.</li>
+</ul>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ICE_HOST_OVERRIDE: 203.0.113.10
+      AM_CALLS_ICE_SERVERS_CONFIGS: "[]"</code></pre>
+<p>Om STUN zonder derden te behouden, draait u uw eigen STUN-server (een TURN-server zoals coturn beantwoordt ook STUN-verzoeken) en voegt u deze toe aan <b>Configuratie van ICE-servers</b> in plaats daarvan, zoals in het TURN-voorbeeld hieronder.</p>
+<p>Op een lokaal netwerk alleen, gebruik het LAN-adres van de server. Herstart de server na wijziging van poorten, adressen of ICE-instellingen, of schakel de Calls-app uit en weer in: de mediaserver wordt ingesteld wanneer de app start.</p>
+
+<h2 id="turn">TURN, voor strikte firewalls</h2>
+<p>Sommige netwerken blokkeren zowel UDP als uitgaande verbindingen naar ongewone TCP-poorten. Gebruikers op dergelijke netwerken hebben een TURN-server nodig, die de media via een poort relayt die ze wel kunnen bereiken (vaak 443). Antimatter bevat er geen; draai een TURN-server zoals coturn en voeg deze toe aan <b>ICE Servers Configurations</b>, een JSON-lijst:</p>
+<pre><code>[
+  {"urls": ["stun:turn.example.com:3478"]},
+  {"urls": ["turn:turn.example.com:3478?transport=udp", "turns:turn.example.com:443?transport=tcp"]}
+]</code></pre>
+<ul>
+<li>Bij gebruik van een gedeeld geheim (de <code>use-auth-secret</code> van coturn), voer hetzelfde geheim in bij <b>TURN Static Auth Secret</b> (<code>AM_CALLS_TURN_STATIC_AUTH_SECRET</code>): de server geeft elke client tijdelijke inloggegevens, geldig voor <b>TURN Credentials Expiration (minutes)</b> (standaard 240).</li>
+<li>Bij vaste inloggegevens, voeg in plaats daarvan <code>"username"</code> en <code>"credential"</code> toe aan de TURN-invoer.</li>
+<li><b>Server Side TURN</b> (standaard uitgeschakeld) gebruikt de TURN-servers ook voor verbindingen die de server zelf start.</li>
+</ul>
+
+<h2 id="general">Overige gespreksinstellingen</h2>
+<table>
+<thead><tr><th>Instelling</th><th>Variabele</th><th>Standaardwaarde</th><th>Wat het doet</th></tr></thead>
+<tbody>
+<tr><td><b>Max call participants</b></td><td><code>AM_CALLS_MAX_CALL_PARTICIPANTS</code></td><td>0 (geen limiet)</td><td>Het maximale aantal personen in één gesprek.</td></tr>
+<tr><td><b>Allow screen sharing</b></td><td>(Systeemconsole)</td><td>aan</td><td>Maakt het mogelijk dat deelnemers hun scherm delen.</td></tr>
+<tr><td><b>Enable call ringing</b></td><td><code>AM_CALLS_ENABLE_RINGING</code></td><td>aan</td><td>Laat de andere personen in een privé- of groepsbericht rinkelen wanneer daar een gesprek start.</td></tr>
+<tr><td><b>Enable simulcast for screen sharing (Experimental)</b></td><td>(Systeemconsole)</td><td>Uit</td><td>Verstuurt scherm delen in meerdere kwaliteiten.</td></tr>
+<tr><td><b>Enable AV1 codec for screen sharing (Experimental)</b></td><td>(Systeemconsole)</td><td>Uit</td><td>Genegeerd wanneer simulcast is ingeschakeld.</td></tr>
+</tbody>
+</table>
+<p>De app Spraakkanaal heeft twee instellingen, in <b>Systeem console › Plugins › Voice Channels</b>: <b>Deelnemen bij het openen van een spraakkanaal</b> (standaard ingeschakeld) en <b>Video toestaan in spraakkanaal</b> (standaard ingeschakeld, maar zie video hierboven). Gemeenschapsbeheerders maken een kanaal om tot een spraakkanaal in de instellingen ervan.</p>
+<div class="callout">Om gesprekken volledig uit te schakelen, deactiveert u de Calls-app in <b>Systeem console › Plugins › Plugin Beheer</b>, of stelt u <code>AM_CALLS_DISABLE=true</code> in. Spraakkanaal werkt dan ook niet meer.</div>
+
+<h2 id="rtcd">Grotere servers: een externe rtcd</h2>
+<p>Standaard verwerkt één Antimatter-server alle mediastromen van gesprekken. Voor veel gelijktijdige gesprekken, of om de media van de chatserver te houden, kan de app Gesprek de media doorgeven aan <b>rtcd</b>, een aparte mediaserver (het open-source <code>rtcd</code> van Mattermost, versie 0.17 of nieuwer). Stel <b>RTCD-service-URL</b> (<code>AM_CALLS_RTCD_SERVICE_URL</code>) in, bijvoorbeeld <code>https://rtcd.example.com</code>: alle gesprekken gaan dan via deze server en clients sturen hun media naar de eigen poort van rtcd in plaats van naar die van Antimatter. Aanmeldgegevens kunnen worden verstrekt met <code>AM_CALLS_RTCD_CLIENT_ID</code> en <code>AM_CALLS_RTCD_AUTH_KEY</code>; zonder deze meldt de app zich zelf aan bij rtcd. Er is geen licentie nodig. De app Gesprek toont beheerders een waarschuwing met een aanbeveling voor rtcd wanneer op een server vaak meer dan 50 personen tegelijk in gesprekken zitten.</p>
+
+<h2 id="transcription">Transcriptie en live ondertiteling</h2>
+<p>Antimatter kan gesprekken transcriberen met een spraak-naar-tekst-model dat u zelf draait, en live ondertiteling tonen terwijl mensen spreken. Antimatter gebruikt elke server die een OpenAI-compatibele <code>/v1/audio/transcriptions</code>-endpoint aanbiedt, zoals een Whisper-server in uw netwerk. Er is geen extra service van Antimatter nodig.</p>
+<h3>Hoe het werkt</h3>
+<ul>
+<li>De gast van een gesprek start de transcriptie met <b>Gesprek transcriberen</b> in de gespreksbesturing. Een <b>Transcriberen</b>-badge geeft dit aan iedereen aan.</li>
+<li>De app van elke deelnemer luistert naar de eigen microfoon, snijdt de spraak in korte fragmenten (maximaal 12 seconden, nooit wanneer gedempt) en stuurt ze naar Antimatter, die ze doorstuurt naar uw spraak-naar-tekstserver.</li>
+<li>Wanneer live ondertiteling is ingeschakeld, wordt de tekst van elk fragment onmiddellijk als ondertiteling aan de deelnemers getoond.</li>
+<li>Wanneer de transcriptie stopt of het gesprek eindigt, plaatst de bot van de app Gesprek het transcript als tekstbestand en WebVTT-ondertitelbestand in het draadje van het gesprek (in spraakkanaal, in het kanaal).</li>
+<li>Wanneer <b>Summarize transcriptions</b> is ingeschakeld, plaatst de standaardagent van de app Agents ook een samenvatting in het draadje (zie <a href="{{root}}docs/admins/ai.html">AI</a>).</li>
+</ul>
+<figure><img src="{{root}}assets/img/shots/transcript.webp" alt="A call's thread: the Calls bot has posted the transcript as a text file, and an AI agent has posted a summary below it."><figcaption>Na het gesprek: het transcript en de samenvatting in het draadje van het gesprek.</figcaption></figure>
+<h3>Inrichten</h3>
+<p>Stel de volgende instellingen in op de <code>antimatter</code>-service:</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ENABLE_TRANSCRIPTIONS: "true"
+      AM_CALLS_TRANSCRIBE_API: openai
+      AM_CALLS_TRANSCRIBE_API_OPEN_AIURL: http://stt.internal:8000/v1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL: whisper-1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY: ""
+      AM_CALLS_ENABLE_LIVE_CAPTIONS: "true"
+      AM_CALLS_LIVE_CAPTIONS_LANGUAGE: en</code></pre>
+<table>
+<thead><tr><th>Instelling</th><th>Variabele</th><th>Wat er in moet</th></tr></thead>
+<tbody>
+<tr><td><b>Enable call transcriptions (Beta)</b></td><td><code>AM_CALLS_ENABLE_TRANSCRIPTIONS</code></td><td><code>true</code></td></tr>
+<tr><td><b>Call transcriber API</b></td><td><code>AM_CALLS_TRANSCRIBE_API</code></td><td><code>openai</code> (getoond als "OpenAI-compatible API (no job service)")</td></tr>
+<tr><td><b>Speech-to-text API URL</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AIURL</code></td><td>De basis-URL van de API, tot en met <code>/v1</code>.</td></tr>
+<tr><td><b>Speech-to-text model</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL</code></td><td>De modelnaam zoals de API die kent, bijvoorbeeld <code>whisper-1</code>. Verplicht.</td></tr>
+<tr><td><b>Speech-to-text API key</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY</code></td><td>Wordt verzonden als bearer-token. Laat leeg als de API er geen nodig heeft.</td></tr>
+<tr><td><b>Live ondertiteling inschakelen (Beta)</b></td><td><code>AM_CALLS_ENABLE_LIVE_CAPTIONS</code></td><td><code>true</code> voor ondertiteling tijdens het gesprek.</td></tr>
+<tr><td><b>Taal voor live ondertiteling</b></td><td><code>AM_CALLS_LIVE_CAPTIONS_LANGUAGE</code></td><td>De gesproken taal, als een code van twee letters (standaard <code>en</code>). Deze wordt ook naar de speech-to-text-API gestuurd voor transcripties, dus stel hem in, ook als u geen ondertiteling gebruikt.</td></tr>
+<tr><td><b>Transcripties samenvatten</b></td><td><code>AM_CALLS_SUMMARIZE_TRANSCRIPTIONS</code></td><td><code>true</code> voor een AI-samenvatting na het gesprek.</td></tr>
+</tbody>
+</table>
+<div class="callout">In de Systeemconsole verschijnen de instellingen voor transcriptie alleen als <b>Gespreksopnames inschakelen</b> is ingeschakeld, hoewel dit type transcriptie geen opname vereist. Door ze in te stellen met de bovenstaande variabelen voorkomt u dat. Schakel opnames niet in samen met de <code>openai</code>-transcriber: het starten van een opname zou dan proberen de job-service-transcriber te starten en mislukken.</div>
+<p>De audio van iedereen die spreekt terwijl transcriptie is ingeschakeld, wordt verstuurd naar de speech-to-text-server die u hebt geconfigureerd, en het transcript wordt gepost waar iedereen in het kanaal het kan lezen. Geef uw gebruikers hiervan kennis en houd die server op uw eigen netwerk als gesprekken vertrouwelijk zijn.</p>
+
+<h2 id="recordings">Opnames</h2>
+<p>Het opnemen van gesprekken (en het transcriberen met de ingebouwde <code>whisper.cpp</code>- of Azure-transcribers) wordt uitgevoerd in aparte containers die worden gestart door een job service, de open-source <code>calls-offloader</code> van Mattermost, die u zelf naast Antimatter installeert. De instellingen zijn <b>Gespreksopnames inschakelen</b> (<code>AM_CALLS_ENABLE_RECORDINGS</code>, standaard uit), <b>URL van de job service</b> (<code>AM_CALLS_JOB_SERVICE_URL</code>), <b>Maximale duur van gespreksopnames</b> (standaard 60 minuten, tussen 15 en 180) en <b>Kwaliteit van gespreksopnames</b> (laag, medium of hoog; standaard medium). Er is geen licentie voor nodig. Voor alleen transcripties en ondertiteling is de speech-to-text-instelling hierboven eenvoudiger: die vereist geen job service.</p>

@@ -1,0 +1,120 @@
+title: 설정
+description: Antimatter 설정의 작동 방식: 데이터베이스 또는 config.json에 저장된 설정, AM_ 환경 변수, 시스템 콘솔, amctl 명령줄 도구, 그리고 로그의 위치.
+guide: admins
+order: 3
+nav: 설정
+lead: Antimatter가 설정을 저장하는 위치, 설정을 변경하는 세 가지 방법(시스템 콘솔, 환경 변수, amctl), 그리고 로그가 기록되는 위치.
+source: e2d6546121d3
+---
+<h2 id="where">설정이 저장되는 위치</h2>
+<p>서버 설정의 이름은 섹션과 키로 구성되며, <code>ServiceSettings.SiteURL</code> 또는 <code>EmailSettings.SMTPServer</code>와 같습니다. 이 둘이 결합되어 하나의 설정을 형성하며, 다음 두 곳 중 한 곳에 저장됩니다:</p>
+<ul>
+<li><b>데이터베이스에.</b> 사이트의 compose 파일이 <code>AM_CONFIG</code>를 PostgreSQL 연결 URL로 설정하므로, 설정은 데이터베이스의 한 행이 되고 컨테이너는 디스크에 아무것도 저장하지 않습니다. 하나의 데이터베이스를 공유하는 여러 서버는 설정도 함께 공유합니다.</li>
+<li><b>파일에.</b> <code>AM_CONFIG</code>가 없으면 서버는 <code>bin/</code> 디렉터리 옆의 <code>config/config.json</code>(Docker 이미지에서는 <code>/antimatter/config/config.json</code>)을 읽습니다. 릴리스 아카이브와 antimatter-docker의 프로덕션 compose 파일이 이 방식으로 작동합니다. 이 파일에는 비밀번호와 키가 포함되어 있으므로 서버의 사용자만 읽을 수 있도록 유지하세요.</li>
+</ul>
+<p><code>AM_CONFIG</code>(또는 <code>antimatter</code> 명령의 <code>--config</code> 플래그)는 파일 경로 또는 <code>postgres://</code> URL을 둘 다 받아들입니다. 명시하지 않은 설정은 기본값을 사용합니다.</p>
+<p>기존 설정을 파일에서 데이터베이스로 이동하려면 서버에서 다음을 실행한 후, <code>AM_CONFIG</code>를 동일한 URL로 설정하여 서버를 시작하세요:</p>
+<pre><code>amctl --local config migrate /opt/antimatter/config/config.json \
+    "postgres://antimatter:PASSWORD@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10"</code></pre>
+
+<h2 id="environment">환경 변수</h2>
+<p>모든 설정을 환경 변수로도 지정할 수 있습니다. 환경 변수는 저장된 설정보다 우선하므로, 배포에 속하는 항목(데이터베이스, 사이트 URL, 파일 저장소, 포트)에 적합합니다.</p>
+<h3>이름 규칙</h3>
+<p><code>AM_</code>를 쓰고, 섹션을 쓰고, 키를 대문자와 밑줄로 구분하여 씁니다. 섹션 또는 키 이름 안의 단어는 구분되지 않습니다:</p>
+<table>
+<thead><tr><th>설정</th><th>변수</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.SiteURL</code></td><td><code>AM_SERVICESETTINGS_SITEURL</code></td></tr>
+<tr><td><code>SqlSettings.DataSource</code></td><td><code>AM_SQLSETTINGS_DATASOURCE</code></td></tr>
+<tr><td><code>EmailSettings.SMTPServer</code></td><td><code>AM_EMAILSETTINGS_SMTPSERVER</code></td></tr>
+<tr><td><code>PrivacySettings.EnableUserBlocking</code></td><td><code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li>참/거짓 설정은 <code>true</code> 또는 <code>false</code>를, 숫자는 일반 숫자를 사용합니다.</li>
+<li>목록 설정은 값을 공백으로 구분하여 지정합니다. 예를 들어 <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>.</li>
+<li>객체인 설정은 JSON을 사용합니다. 앱에 해당되는 유일한 변수는 <code>AM_PLUGINSETTINGS_PLUGINS</code>이며, 이 변수는 <em>모든</em> 앱의 설정을 한 번에 대체합니다: 대신 시스템 콘솔 또는 <code>amctl</code>로 앱 설정을 설정하세요(아래 참조).</li>
+<li>구형 Mattermost 설정은 <code>MM_</code> 접두사를 사용합니다. 예를 들어 <code>MM_SQLSETTINGS_DATASOURCE</code>입니다. 이는 레거시 별칭으로 여전히 동작합니다. 두 변수가 모두 설정된 경우 <code>AM_</code> 변수가 우선합니다.</li>
+</ul>
+<p>환경 변수로 설정된 항목은 시스템 콘솔에서 잠금 처리되며, "이 설정은 환경 변수를 통해 설정되었습니다. 시스템 콘솔을 통해 변경할 수 없습니다."라는 주석이 표시됩니다. 저장된 설정 파일에는 기록되지 않으며, 환경 변수를 제거하면 다시 저장된 값이 적용됩니다.</p>
+<h3>Docker Compose 사용 시</h3>
+<p><code>antimatter</code> 서비스의 <code>environment:</code> 아래에 변수를 추가하거나, <code>compose.yaml</code> 옆에 <code>compose.override.yaml</code> 파일을 배치할 수 있습니다(Compose는 이를 자동으로 읽으며, 다운로드된 파일의 업데이트에도 유지됩니다):</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_LOGSETTINGS_CONSOLELEVEL: INFO</code></pre>
+<p><code>docker compose up -d</code> 명령을 실행하여 변경 사항을 적용합니다. 이 명령은 컨테이너를 재생성합니다.</p>
+<h3>앱이 읽는 변수</h3>
+<p>일부 앱은 <code>antimatter</code> 서비스에 설정된 자체 변수를 읽습니다. Calls 앱은 <code>AM_CALLS_*</code>를 읽으며(자세한 내용은 <a href="{{root}}docs/admins/calls.html">통화와 음성</a> 참조), GIFs 앱은 <code>AM_GIFS_SERVICE_URL</code>, <code>AM_GIFS_API_KEY</code>, <code>AM_GIFS_UPLOAD_KEY</code>를 읽습니다(자세한 내용은 <a href="{{root}}docs/admins/apps.html">기본 제공 앱</a> 참조).</p>
+
+<h2 id="console">시스템 콘솔</h2>
+<p>시스템 콘솔은 시스템 관리자를 위한 웹 앱의 관리 영역입니다. 열려면 프로필 사진을 클릭하고 <b>관리자 도구</b>를 선택하거나, <code>https://chat.example.com/admin_console</code>로 이동하세요. 사이드바에는 모든 페이지를 검색할 수 있는 <b>검색 설정</b> 상자가 있습니다.</p>
+<figure><img src="{{root}}assets/img/shots/admin.webp" alt="The System Console, with its sidebar of sections on the left and the SAML 2.0 settings page on the right."><figcaption>시스템 콘솔. 사이드바는 페이지를 리포트, 사용자 관리, 환경 등의 섹션으로 그룹화합니다.</figcaption></figure>
+<p>섹션은 다음과 같습니다:</p>
+<ul>
+<li><b>리포팅</b>: 통계 및 서버 로그.</li>
+<li><b>사용자 관리</b>: 사용자, 그룹, 커뮤니티(팀으로 나열됨), 채널, 권한 및 위임 관리.</li>
+<li><b>시스템 속성</b>: 사용자 정의 프로필 속성 및 속성 기반 접근 제어.</li>
+<li><b>환경</b>: 웹 서버, 데이터베이스, 파일 저장소, 이미지 프록시, SMTP, 푸시 알림, 속도 제한, 로깅, 세션 길이, 성능 모니터링.</li>
+<li><b>사이트 구성</b>: 브랜딩, 팀과 사용자, 알림, 게시물, 파일 공유 및 기타 서버 전체 동작 설정.</li>
+<li><b>인증</b>: 가입, 이메일 및 비밀번호 로그인, MFA, AD/LDAP, SAML 2.0, OAuth 2.0, OpenID Connect 및 게스트 접근.</li>
+<li><b>플러그인</b>: 앱 관리 및 각 설치된 앱의 설정.</li>
+<li><b>통합</b>: 웹훅, 슬래시 명령, 봇 계정, GIF, 텍스트 음성 변환, CORS.</li>
+<li><b>컴플라이언스</b>: 데이터 보존, 컴플라이언스 내보내기 및 모니터링, 감사 로그, 사용자 정의 서비스 약관.</li>
+<li><b>실험용</b>: 변경될 수 있는 기능.</li>
+</ul>
+<p>이 가이드에서는 설정을 시스템 콘솔의 경로, 라벨, 구성 키 순서로 표기합니다. 예를 들어 <b>관리자 도구 › 사이트 구성 › 팀과 사용자 › 무시, 차단 및 메시지 요청 활성화</b> (<code>PrivacySettings.EnableUserBlocking</code>).</p>
+<p>대부분의 변경 사항은 <b>저장</b>을 클릭하는 즉시 적용됩니다. 일부 설정(리스닝 주소, 일부 데이터베이스 및 캐시 설정)은 재시작이 필요하며, 해당 페이지에 명시되어 있습니다.</p>
+
+<h2 id="amctl">amctl 명령줄 도구</h2>
+<p><code>amctl</code>는 명령줄에서 서버를 관리합니다: 사용자, 커뮤니티, 채널, 앱, 설정, 작업 등. 서버와 두 가지 방식으로 통신합니다.</p>
+<h3>로컬 모드, 서버에서</h3>
+<p>로컬 모드는 <code>amctl</code>이 로그인 없이 Unix 소켓을 통해 서버와 통신할 수 있게 합니다. Docker 이미지에서는 기본적으로 활성화되어 있습니다. 아카이브에서 설치한 서버에서는 <b>ServiceSettings.EnableLocalMode</b> (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>)를 통해 활성화할 수 있습니다. 소켓의 기본 위치는 <code>/var/tmp/antimatter_local.socket</code>입니다 (<code>ServiceSettings.LocalModeSocketLocation</code>).</p>
+<pre><code># with Docker Compose
+docker compose exec antimatter amctl --local system status
+# with a release archive
+sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code></pre>
+<div class="callout warn">소켓을 사용할 수 있거나 호스트에서 <code>docker compose exec</code>를 실행할 수 있는 사용자는 전체 시스템 관리자 권한을 갖습니다.</div>
+<h3>원격, 계정 사용</h3>
+<p>어떤 기기에서든 시스템 관리자 계정(또는 개인 액세스 토큰)으로 로그인한 후 해당 서버에 대해 명령을 실행합니다:</p>
+<pre><code>amctl auth login https://chat.example.com --name prod --username admin
+amctl system status</code></pre>
+<h3>설정 명령</h3>
+<table>
+<thead><tr><th>명령</th><th>기능</th></tr></thead>
+<tbody>
+<tr><td><code>amctl config get ServiceSettings.SiteURL</code></td><td>하나의 설정을 출력합니다.</td></tr>
+<tr><td><code>amctl config set TeamSettings.EnableOpenServer false</code></td><td>하나의 설정을 변경합니다. 목록형 설정은 여러 값을 받을 수 있습니다.</td></tr>
+<tr><td><code>amctl config patch settings.json</code></td><td>설정 JSON 파일을 현재 설정에 병합합니다.</td></tr>
+<tr><td><code>amctl config show</code></td><td>전체 설정을 JSON 형식으로 출력합니다.</td></tr>
+<tr><td><code>amctl config edit</code></td><td>에디터(<code>$EDITOR</code>)에서 설정을 엽니다.</td></tr>
+<tr><td><code>amctl config reset</code></td><td>설정을 기본값으로 재설정합니다.</td></tr>
+<tr><td><code>amctl config reload</code></td><td>서버 외부에서 변경이 이루어진 후, 저장 위치에서 설정을 다시 로드합니다.</td></tr>
+</tbody>
+</table>
+<p>앱 설정은 <code>PluginSettings.Plugins.&lt;app id&gt;</code> 아래에 있으며, 키는 소문자로 사용됩니다. 예를 들어, Docker 호스트에서 GIFs 앱의 서비스 URL과 키를 설정하려면:</p>
+<pre><code>docker compose exec -T antimatter amctl --local config patch /dev/stdin &lt;&lt;'EOF'
+{"PluginSettings": {"Plugins": {"com.antimatterchat.gifs": {
+  "serviceurl": "http://gifs:8080/v2",
+  "apikey": "the GIFS_API_KEY of your .env"
+}}}}
+EOF</code></pre>
+<p>기타 유용한 명령: <code>amctl user create</code>, <code>amctl user deactivate</code>, <code>amctl team create</code>, <code>amctl plugin list</code>, <code>amctl plugin enable</code>, <code>amctl system supportpacket</code>, <code>amctl logs</code>. 각 명령의 옵션은 <code>amctl help &lt;command&gt;</code>를 실행하여 확인하세요.</p>
+
+<h2 id="logs">로그</h2>
+<p>서버는 로그를 두 곳에 기록하며, 각각의 레벨(<code>DEBUG</code>, <code>INFO</code>, <code>WARN</code> 또는 <code>ERROR</code>)은 <b>관리자 도구 › 환경 › 로그</b>에서 설정합니다:</p>
+<table>
+<thead><tr><th>대상</th><th>설정</th><th>기본값</th></tr></thead>
+<tbody>
+<tr><td>콘솔(표준 출력)</td><td><b>콘솔로 로그를 출력</b> (<code>LogSettings.EnableConsole</code>), <b>콘솔 로그 레벨</b> (<code>LogSettings.ConsoleLevel</code>), <b>JSON 으로 콘솔 로그 출력 </b> (<code>LogSettings.ConsoleJson</code>)</td><td>켜짐, <code>DEBUG</code>, JSON</td></tr>
+<tr><td>파일, <code>antimatter.log</code></td><td><b>파일로 로그를 출력합니다</b> (<code>LogSettings.EnableFile</code>), <b>파일 로그 레벨</b> (<code>LogSettings.FileLevel</code>), <b>파일 로그 경로</b> (<code>LogSettings.FileLocation</code>)</td><td>켜짐, <code>INFO</code>, <code>bin/</code> 옆의 <code>logs/</code> 디렉터리</td></tr>
+</tbody>
+</table>
+<p>로그 파일은 100 MB에서 회전되며, 이전 파일은 압축됩니다.</p>
+<p>사이트의 compose 파일에서는 파일 로깅을 끕니다(<code>AM_LOGSETTINGS_ENABLEFILE=false</code>), 따라서 로그는 컨테이너의 출력에만 기록됩니다:</p>
+<pre><code>docker compose logs -f antimatter
+docker compose logs --since 1h antimatter | grep -i error</code></pre>
+<p>콘솔 수준의 기본값은 <code>DEBUG</code>로, 상세한 로그를 생성합니다. 트래픽이 많은 서버에서는 <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code>를 설정하세요. systemd 아래 릴리스 아카이브를 사용하는 경우, 콘솔 출력은 저널(<code>journalctl -u antimatter</code>)로, 파일은 <code>/opt/antimatter/logs/antimatter.log</code>로 기록됩니다.</p>
+<p>파일 로그가 활성화된 경우, 시스템 관리자는 <b>관리자 도구 › 리포팅 › 서버 로그</b>에서 최신 로그 줄을 읽거나 <code>amctl logs</code> 명령을 사용할 수 있습니다.</p>

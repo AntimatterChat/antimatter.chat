@@ -1,0 +1,313 @@
+title: பாட்களை எழுதுதல் (பிளக்-இன்கள்)
+description: Antimatter-இல் ஒரு பாட்களை எப்படி எழுதுவது: பண்டிள் அமைப்பு மற்றும் plugin.json, சர்வர் ஹூக்ஸ் மற்றும் API, வெப் ஆப் ரெஜிஸ்ட்ரி, Fusion இன்டர்ஃபேஸை ஆதரித்தல், அமைப்புகள், கீ-வெலு ஸ்டோர், மொழிபெயர்ப்புகள், பேக்கேஜிங் மற்றும் நிறுவல்.
+guide: developers
+order: 6
+nav: பாட்களை எழுதுதல்
+lead: பாட்கள் Antimatter-க்கு உள்ளிருந்து சேர்க்கைகளை சேர்க்கின்றன: சர்வருடன் இணைக்கப்படும் Go-இல் எழுதப்பட்ட சர்வர் பகுதி, மற்றும் மெனுக்கள், பேனல்கள், செய்தி வகைகள் மற்றும் பக்கங்களை சேர்க்கும் React-இல் எழுதப்பட்ட வெப் ஆப் பகுதி. இந்தப் பக்கம், Antimatter-இல் உள்ள Polls பாட்களை எடுத்துக்காட்டாகக் கொண்டு, ஒரு பாட்கள் எப்படி அமைக்கப்படுகிறது மற்றும் Antimatter-இன் Fusion இன்டர்ஃபேஸில் என்ன மாற்றங்கள் ஏற்படுகின்றன என்பதைக் காட்டுகிறது.
+source: d9c132cac759
+---
+<h2 id="overview">ஒரு பாட்கள் எப்படி செயல்படுகிறது</h2>
+<ul>
+<li><b>சர்வர் பகுதி</b> ஒரு Go நிரல் ஆகும். சர்வர் இதை ஒரு தனித்த செயல்முறையாக இயக்கி, RPC மூலம் அதனுடன் தொடர்பு கொள்கிறது: அது பாட்களின் <b>ஹூக்ஸ்களை</b> அழைக்கிறது (ஒரு செய்தி பதிவு செய்யப்பட இருக்கிறது, ஒரு கட்டளை இயக்கப்பட்டது…), மற்றும் பாட்கள் சர்வரின் <b>பிளக்-இன் API</b>-யை அழைக்கின்றன (ஒரு பதிவை உருவாக்கு, ஒரு பயனரை படி, தரவுகளை சேமி…). இது <code>/plugins/&lt;app id&gt;/</code> கீழ் HTTP வழிமுறைகளையும் வழங்க முடியும்.</li>
+<li><b>வெப் ஆப் பகுதி</b> வெப் ஆப் உடன் உலாவியில் ஏற்றப்படும் ஒரு JavaScript பண்டிள் ஆகும். இது <b>ரெஜிஸ்ட்ரி</b>-உடன் React கூறுகளை மற்றும் கால்ப்பேக்ஸ்களை பதிவு செய்கிறது: ஒரு மெனுவில் உள்ள பொத்தான், ஒரு பேனல், ஒரு செய்தி வகையை வரையுதல் போன்றவை.</li>
+<li>இரு பகுதிகளும் விருப்பத்திற்குரியவை. ஒரு பாட்கள் <code>.tar.gz</code> பண்டிளாக நிறுவப்படுகிறது, மேலும் அமைப்பு நிர்வாகிகள் அதை இயக்குவார்கள், முடக்குவார்கள் அல்லது அமைப்பார்கள்.</li>
+</ul>
+<div class="callout warn">சர்வர் பகுதி சர்வரின் தரவுகளுக்கு முழு அணுகலுடன் இயங்குகிறது. ஒரு பாட்களை சர்வருக்கு நீங்கள் பரவல் செய்கிற நிரல் போலக் கருதுங்கள்.</div>
+<p>Antimatter, Mattermost-க்காக எழுதப்பட்ட பாட்களை இயக்குகிறது, மற்றும் அதேபோல Mattermost, Antimatter-க்காக எழுதப்பட்ட பாட்களை இயக்குகிறது, ஆனால் ஒரு பாட்கள் இருவரிடமிருந்தும் உள்ள ஹூக்ஸ்களை மட்டுமே பயன்படுத்தினால். <a href="#antimatter-hooks">Antimatter-க்கு மட்டுமே உள்ள ஹூக்ஸ்</a> காண்க.</p>
+
+<h2 id="layout">பண்டிள் அமைப்பு</h2>
+<p>தனித்த தொடக்கக் கட்டளைகள் இல்லை: <a href="https://github.com/AntimatterChat/antimatter-plugin-polls">antimatter-plugin-polls</a> அல்லது <a href="https://github.com/AntimatterChat/antimatter-plugin-todo">antimatter-plugin-todo</a> போன்ற சிறிய பண்டிள் செய்யப்பட்ட பாட்களில் இருந்து தொடங்கி, அதன் ID மற்றும் நிரலை மாற்றுங்கள். Polls இதுபோல் அமைக்கப்பட்டுள்ளது:</p>
+<pre><code>antimatter-plugin-polls/
+├── plugin.json            the manifest
+├── Makefile               build, test, bundle, deploy
+├── build/                 the manifest and pluginctl helper tools (Go), setup.mk
+├── assets/icon.svg        files shipped with the bundle
+├── go.mod
+├── server/
+│   ├── main.go            plugin.ClientMain(&amp;Plugin{})
+│   ├── plugin.go          the Plugin type, OnActivate, ServeHTTP
+│   ├── manifest.go        generated from plugin.json
+│   ├── api.go, command.go, hooks.go, store.go …
+│   └── dist/              compiled binaries, one per platform
+└── webapp/
+    ├── package.json, webpack.config.js, tsconfig.json
+    ├── i18n/              en.json and one file per language
+    ├── src/index.tsx      registers the app with the web app
+    ├── src/manifest.ts    generated from plugin.json
+    ├── src/translations.ts
+    └── dist/main.js       the bundle</code></pre>
+<p>விருப்பத்திற்குரியது: <code>public/</code> கோப்புறை, <code>/plugins/&lt;app id&gt;/public/</code> இல் அப்படியே வழங்கப்படுகிறது.</p>
+
+<h2 id="manifest">plugin.json</h2>
+<pre><code>{
+  "id": "com.example.weather",
+  "name": "Weather",
+  "description": "Forecasts in the chat.",
+  "homepage_url": "https://github.com/example/weather",
+  "support_url": "https://github.com/example/weather/issues",
+  "icon_path": "assets/icon.svg",
+  "version": "1.0.0",
+  "min_server_version": "12.0.0",
+  "server": {
+    "executables": {
+      "linux-amd64": "server/dist/plugin-linux-amd64",
+      "linux-arm64": "server/dist/plugin-linux-arm64",
+      "darwin-amd64": "server/dist/plugin-darwin-amd64",
+      "darwin-arm64": "server/dist/plugin-darwin-arm64",
+      "windows-amd64": "server/dist/plugin-windows-amd64.exe"
+    }
+  },
+  "webapp": {"bundle_path": "webapp/dist/main.js"},
+  "settings_schema": {"settings": []}
+}</code></pre>
+<ul>
+<li><code>id</code>: தனித்துவமானது மற்றும் நிலையானது; ஒரு தலைகீழ் டொமைன் பெயல் வழக்கமானது. இது வழிமுறைகளுக்கு, சேமிக்கப்பட்ட அமைப்புகளுக்கு மற்றும் WebSocket நிகழ்வுகளுக்கு பெயரிடப்படுகிறது.</li>
+<li><code>version</code>: செமான்டிக் வெர்ஷன். பண்டிள் செய்யப்பட்ட பாட்கள் இதை <code>plugin.json</code>-இல் விடுபடுத்துகின்றன; அவற்றின் கட்டமைப்பு கருவி இதை கடைசி <code>v*</code> git டேக்-இல் இருந்து எடுக்கிறது.</li>
+<li><code>min_server_version</code>: Antimatter <code>12.0.0</code> என அறிவிக்கிறது.</li>
+<li><code>settings_schema</code>: அமையப்பு கனசோலில் (System Console) உள்ள செயலியின் அமைப்புகள் பக்கம் (காண்க <a href="#settings">அமைப்புகள்</a>).</li>
+</ul>
+<p><code>make apply</code> மானிபெஸ்டை (manifest) <code>server/manifest.go</code> மற்றும் <code>webapp/src/manifest.ts</code> கோப்புகளில் நகலெடுக்கிறது; <code>make manifest-check</code> அதை சரிபார்த்து உறுதிப்படுத்துகிறது.</p>
+
+<h2 id="server">சர்வர் பகுதி</h2>
+<p>சர்வர் பகுதி, Mattermost செயலிகளின் Go மோடியுலான <code>github.com/mattermost/mattermost/server/public</code>-ஐ Go மோடியுலு புராக்ஸியிலிருந்து இறக்குமதி செய்கிறது. அதன் <code>main</code> செயலியை மட்டுமே இயக்குகிறது:</p>
+<pre><code>package main
+
+import "github.com/mattermost/mattermost/server/public/plugin"
+
+func main() {
+	plugin.ClientMain(&amp;Plugin{})
+}</code></pre>
+<p><code>Plugin</code> வகை, <code>plugin.MattermostPlugin</code>-ஐ உள்ளடக்கியது; இதனால் <code>p.API</code> கிடைக்கிறது. தேவையான ஹூக்ஸ்களை (hooks) இது செயல்படுத்துகிறது:</p>
+<pre><code>type Plugin struct {
+	plugin.MattermostPlugin
+	router *mux.Router
+}
+
+func (p *Plugin) OnActivate() error {
+	p.router = p.newRouter()
+	return p.API.RegisterCommand(&amp;model.Command{
+		Trigger:          "weather",
+		AutoComplete:     true,
+		AutoCompleteDesc: "Show the forecast",
+		AutoCompleteHint: "[city]",
+	})
+}
+
+func (p *Plugin) ExecuteCommand(c *plugin.Context, args *model.CommandArgs) (*model.CommandResponse, *model.AppError) {
+	city := strings.TrimSpace(strings.TrimPrefix(args.Command, "/weather"))
+	return &amp;model.CommandResponse{
+		ResponseType: model.CommandResponseTypeEphemeral,
+		Text:         "Forecast for " + city + ": sunny",
+	}, nil
+}
+
+func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Request) {
+	p.router.ServeHTTP(w, r)
+}</code></pre>
+<h3>பொதுவான ஹூக்ஸ்கள்</h3>
+<table>
+<thead><tr><th>ஹூக்</th><th>எப்போது இயங்குகிறது</th></tr></thead>
+<tbody>
+<tr><td><code>OnActivate</code>, <code>OnDeactivate</code></td><td>செயலி இயக்கப்பட்டாலும் அல்லது நிறுத்தப்பட்டாலும், மேலும் சர்வர் இயங்கும்போதும் நிறுத்தப்படும்போதும். <code>OnActivate</code>-ல் கட்டளைகள் மற்றும் பாட்களை பதிவு செய்யவும்.</td></tr>
+<tr><td><code>OnConfigurationChange</code></td><td>அதன் அமைப்புகள் மாறும்போது; <code>p.API.LoadPluginConfiguration(&amp;cfg)</code> மூலம் அவற்றை ஏற்றவும்.</td></tr>
+<tr><td><code>ServeHTTP</code></td><td><code>/plugins/&lt;app id&gt;/…</code> ஐ நோக்கிய கோரிக்கைகள். கோரிக்கை உள்நுழைந்த பயனரிடமிருந்து வந்தால், சர்வர் <code>Mattermost-User-Id</code> தலைப்பை (header) அமைக்கும்; பொதுவாக இல்லாமல் இருக்க வேண்டிய கோரிக்கைகள் தவிர, இல்லாத கோரிக்கைகளை நிராகரிக்கவும்.</td></tr>
+<tr><td><code>ExecuteCommand</code></td><td>செயலி பதிவு செய்த ஒரு கட்டளை இயக்கப்பட்டது.</td></tr>
+<tr><td><code>MessageWillBePosted</code>, <code>MessageWillBeUpdated</code></td><td>செய்தி சேமிக்கப்படும் முன்: மாற்றப்பட்ட பதிவை (post) திருப்பி அனுப்பவும், அல்லது அதை நிராகரிக்கும் காரணத்தை தரவும்.</td></tr>
+<tr><td><code>MessageHasBeenPosted</code>, <code>MessageHasBeenUpdated</code>, <code>MessageHasBeenDeleted</code></td><td>பின்னணி விளைவுகளுக்காக, நிகழ்வுக்குப் பிறகு.</td></tr>
+<tr><td><code>ReactionHasBeenAdded</code>, <code>ReactionHasBeenRemoved</code></td><td>வினைகள் (Reactions).</td></tr>
+<tr><td><code>UserHasJoinedChannel</code>, <code>UserHasLeftChannel</code>, <code>UserHasJoinedTeam</code>, <code>UserHasLeftTeam</code>, <code>ChannelHasBeenCreated</code></td><td>உறுப்பினர் மற்றும் சேனல் மாற்றங்கள். ஒரு குழு என்பது ஒரு சமூகம்.</td></tr>
+<tr><td><code>FileWillBeUploaded</code></td><td>கோப்பு சேமிக்கப்படும் முன்: அதை மாற்றவும் அல்லது நிராகரிக்கவும்.</td></tr>
+<tr><td><code>OnPluginClusterEvent</code></td><td>கிளஸ்டரின் மற்றொரு சர்வரில் உள்ள அதே செயலியிலிருந்து வரும் செய்தி.</td></tr>
+</tbody>
+</table>
+<p>சரியான சின்னேச்சர்களுடன் (signatures) கூடிய முழு பட்டியலும் <code>server/public/plugin/hooks.go</code>-ல் உள்ளது; API <code>server/public/plugin/api.go</code>-ல் உள்ளது. <code>pluginapi</code> தொகுப்பு (<code>server/public/pluginapi</code>) API-ஐ நண்புதரமான உதவித்தொகுப்புகளில் (helpers) சுருக்கமாக வழங்குகிறது.</p>
+<h3>பயனுள்ள API அழைப்புகள்</h3>
+<ul>
+<li><code>CreatePost</code>, <code>UpdatePost</code>, <code>SendEphemeralPost</code>: செயலியின் பாடாகவோ அல்லது பயனராகவோ பதிவு செய்ய.</li>
+<li><code>EnsureBotUser(&amp;model.Bot{Username, DisplayName})</code>: செயலியின் பாட்களை ஒருமுறை உருவாக்கி அதன் ID-ஐ பெற.</li>
+<li><code>PublishWebSocketEvent("poll_updated", payload, &amp;model.WebsocketBroadcast{ChannelId: id})</code>: வலை செயலிக்கு நிகழ்வை அனுப்ப. அது <code>custom_&lt;app id&gt;_poll_updated</code> என வரும்.</li>
+<li><code>OpenInteractiveDialog</code>: ஒரு <a href="{{root}}docs/developers/bots.html#dialogs">உரையாடல் பெட்டியை</a> (dialog) திறக்க.</li>
+<li><code>LogInfo</code>, <code>LogError</code> மற்றும் தொடர்புடையவை: செயலியின் ID-உடன் குறிக்கப்பட்டு சர்வர் பதிவுக்கு (log) எழுத.</li>
+<li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: பயனருக்காக செயல்படும் முன், யார் என்ன செய்ய அங்கீகரிக்கப்பட்டுள்ளனர் என்பதை சரிபார்க்க.</li>
+</ul>
+<p>ஒரு செயலி (app) கிளஸ்டரின் ஒவ்வொரு சர்வரிலும் இயங்குகிறது. நிலையை (state) மெமரி மட்டும் அல்ல, key-value store அல்லது database-ல் வைக்கவும்.</p>
+
+<h2 id="kv">தரவு சேமிப்பு</h2>
+<p>ஒவ்வொரு செயலிக்கும் சர்வரின் database-ல் தனி key-value store உண்டு:</p>
+<ul>
+<li><code>KVSet(key, value)</code>, <code>KVGet(key)</code>, <code>KVDelete(key)</code>: மதிப்புகள் (values) bytes ஆக இருக்கும், பொதுவாக JSON. விசைகள் (keys) அதிகபட்சம் 150 எழுத்துகள்.</li>
+<li><code>KVSetWithExpiry(key, value, seconds)</code>: அந்த நேரம் முடிந்த பிறகு மதிப்பு அழிக்கப்படும்.</li>
+<li><code>KVCompareAndSet(key, old, new)</code> மற்றும் <code>Atomic</code> உடன் <code>KVSetWithOptions</code>: பல கோரிக்கைகள் அல்லது சர்வர்கள் ஒரே key-ஐ எழுதும்போது பாதுகாப்பான புதுப்பிப்புகள். Polls இந்த முறையில்தான் ஒவ்வொரு வாக்கையும் சேமிக்கிறது, மோதல் ஏற்பட்டால் மீண்டும் முயற்சிக்கிறது.</li>
+<li><code>KVList(page, perPage)</code>: விசைகள், பக்கம் பக்கமாக.</li>
+</ul>
+
+<h2 id="webapp">வெப் செயலி பகுதி</h2>
+<p>பண்டிள் (bundle) <code>window.registerPlugin</code> மூலம் ஒரு வகுப்பை (class) பதிவு செய்கிறது. அதன் <code>initialize</code> registry மற்றும் Redux store-ஐ பெறுகிறது:</p>
+<pre><code>import manifest from './manifest';
+
+class Plugin {
+    initialize(registry, store) {
+        registry.registerTranslations((locale) =&gt; translationsFor(locale));
+        registry.registerPostTypeComponent('custom_poll', PollPost);
+        registry.registerWebSocketEventHandler(`custom_${manifest.id}_poll_updated`, (msg) =&gt; {
+            store.dispatch(pollUpdated(JSON.parse(msg.data.poll)));
+        });
+        registry.registerReconnectHandler(() =&gt; store.dispatch(reloadPolls()));
+    }
+}
+
+window.registerPlugin(manifest.id, new Plugin());</code></pre>
+<ul>
+<li><b>பகிர்ந்த நூலகங்கள்.</b> வெப் செயலி React, ReactDOM, Redux, React Redux மற்றும் React Intl-ஐ வழங்குகிறது: உங்கள் சொந்த நகல்களை பண்டிள் செய்யாமல், அவற்றை webpack <code>externals</code> (<code>React</code>, <code>ReactDOM</code>, <code>Redux</code>, <code>ReactRedux</code>, <code>ReactIntl</code>) ஆக பட்டியலிடுங்கள். Polls-இன் <code>webpack.config.js</code>-ஐ பாருங்கள்.</li>
+<li><b>உங்கள் சர்வர் பகுதியை அழைத்தல்.</b> <code>Client4.getOptions()</code> ( <code>mattermost-redux/client</code> இலிருந்து) இல் உள்ள விருப்பங்களுடன் <code>${window.basename}/plugins/&lt;app id&gt;/…</code> ஐ Fetch செய்யவும்: அவை சர்வருக்கு உலாவியிலிருந்து கோரிக்கையை ஏற்க தேவையான தலைப்புகளை (headers) கொண்டுள்ளன.</li>
+<li><b>உங்கள் சொந்த நிலை.</b> <code>registerReducer</code> ஒரு reducer-ஐ சேர்க்கிறது, அது <code>state['plugins-&lt;app id&gt;']</code> கீழ் சேமிக்கப்படுகிறது.</li>
+<li><b>வகைகள் (Types).</b> Antimatter-இன் கூடுதல் registry முறைகள் Mattermost-இன் வெளியிடப்பட்ட வகைகளில் இல்லை: Polls அது பயன்படுத்தும் registry-ஐ <code>webapp/src/types/host.ts</code> இல் விவரிக்கிறது.</li>
+</ul>
+<p>Registry-இன் முறைகள் மற்றும் அவற்றின் அளவுருக்கள் (parameters) குறியீட்டில் ஆவணப்படுத்தப்பட்டுள்ளன, <code>webapp/fusion/src/plugins/registry.ts</code> (Fusion) மற்றும் <code>webapp/channels/src/plugins/registry.ts</code> (classic) இல்.</p>
+
+<h2 id="fusion">Fusion இடைமுகத்தை ஆதரித்தல்</h2>
+<p>Antimatter-இல் இரண்டு வெப் இடைமுகங்கள் உண்டு: Fusion (இயல்புநிலை) மற்றும் classic. இரண்டும் ஒரே செயலி பண்டிள்களை ஏற்றுகின்றன, ஒரே registry-ஐ கொண்டுள்ளன, ஆனால் Fusion பல விஷயங்களை தானே வரைகிறது, செயலி கூறுகளை (components) தனியாக வைக்கிறது. உங்கள் செயலியை இரண்டிலும் சோதிக்கவும்.</p>
+<h3>இடைமுகத்தை கண்டறிதல்</h3>
+<p>எந்த செயலியும் ஏற்றப்படும் முன், இரண்டு இடைமுகங்களும் <code>window.antimatterWebUI</code> ஐ <code>'fusion'</code> அல்லது <code>'classic'</code> ஆக அமைக்கின்றன, மேலும் பக்கத்தின் root element-ல் <code>data-am-web-ui</code> ஆக அதே மதிப்பை வைக்கின்றன. Mattermost-இல், இரண்டும் அமைக்கப்படாது.</p>
+<pre><code>export function isFusionUI(): boolean {
+    return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
+}</code></pre>
+<p>இணைக்கப்பட்ட செயல்கள் (bundled apps) இதைப் பயன்படுத்தி வேறுபட்ட முறையில் வரைகின்றன. கர்த்துக் கணிப்பு (Polls) செயல், தனது கர்த்துக் அட்டைகளையும் (poll cards) உருவாக்க விண்டோவையும் (creation dialog) Fusion-இன் பாணியில் வரைகிறது; Fusion-இல் <code>/poll</code> ஸ்லாஷ் கட்டளையைப் பயன்படுத்தும்போது தனது சொந்த விண்டோவைத் திறக்கிறது. அழைப்புகளும் (Calls) குரல் சேனல்களும் (Voice channels), Fusion தனது சொந்த அழைப்பு இடைமுகத்தால் மாற்றிவிடும் பக்கவாட்டுப் பட்டை (sidebar) மற்றும் டோஸ்ட் (toast) கூறுகளை விட்டுவிடுகின்றன. ஏஜென்ட் (Agents) செயல், தனது AI செயல்களை ஹோவர் டூல்பாரில் (hover toolbar) அல்லாமல், செய்தி மெனுவின் (message menu) உபமெனுவில் (submenu) வைக்கிறது. Fusion-இன் சொந்த CSS வகுப்புகள் (<code>am-</code> முன்னொட்டுடன்) மற்றும் அதன் விண்டோ அடுக்கு (the <code>am-layer</code> element) ஆகியவை இந்த செயல்கள் இடைமுகத்தைப் பொருத்திக்கொள்ளப் பயன்படுத்துவன; இவை ஆவணப்படுத்தப்பட்ட, நிலையான API அல்ல.</p>
+<h3>Fusion-இல் பிளகின் கூறுகள் (plugin components) எங்கே தோன்றும்</h3>
+<table>
+<thead><tr><th>பதிவு முறை (Registry method)</th><th>Fusion-இல் அது எங்கே தோன்றும்</th></tr></thead>
+<tbody>
+<tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>ஆப்ஸ் ரெயில், உங்கள் அவடார் மற்றும் <b>Antimatter பற்றி</b> பொத்தான்களுக்கு இடையே, வலது விளிம்பில் உள்ள ஐகன்களின் நெடுவரிசை. சேனல் தலைப்பு பொத்தான்களும் அங்கேயே இருக்கும், சேனல் தலைப்பில் இல்லை. அமையப்பு நிர்வாகி <b>ஆப்ஸ் பாரை அணை</b> (<code>ExperimentalSettings.DisableAppBar</code>, இயல்பாக அணைக்கப்பட்டது) ஓன் செய்தால் மறைக்கப்படும்.</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>வலது பக்கப் பலகை. அதன் விளிம்பை இழுத்து மக்கள் அதை மாற்றியமைக்கலாம். ஆப் ஒரு பொருட்களாகவும் இருந்தால், பலகை <b>மொழு பகக்கமாக திறக்கவும்</b> விருப்பத்தை வழங்கும்.</td></tr>
+<tr><td><code>registerChannelHeaderIcon</code></td><td>அழைப்பு பொத்தான்களுக்குப் பின் சேனல் தலைப்பில் உள்ள ஐகான்கள்; தொலைபேசிகளில், தலைப்பின் <b>மேலும்</b> மெனுவில்.</td></tr>
+<tr><td><code>registerCallButtonAction</code></td><td>சேனல் தலைப்பின் அழைப்பு பொத்தான்; பல வழங்குநர்கள் <b>அழைக்கிறதின் மற்ற வழிகள்</b> மெனுவைப் பகிர்ந்து கொள்கிறார்கள்.</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>செய்தியின் <b>மேலும் செயல்கள்</b> (⋯) மெனுவில், <b>செய்தி செயல்கள்</b> (Message actions) உபமெனுவில்; த்ரெட் பலகையின் (thread panel) <b>த்ரெட் செயல்கள்</b> (Thread actions) மெனுவிலும், <b>மேலும் செயல்கள்</b> கீழே.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>அதே மெனுவில், செயலின் பெயரும் ஐகானுடனும் கூடிய தனியான உபமெனுவில்.</td></tr>
+<tr><td><code>registerPostActionComponent</code></td><td>செய்தியின் ஹோவர் டூல்பாரில் (message hover toolbar), ⋯ பொத்தானுக்கு முன்.</td></tr>
+<tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>செய்தியின் உடல் (body): அதன் உரைக்குக் கீழே, அதன் நேரத்திற்குப் பின், மற்றும் இணைப்பு முன்னோட்டங்களின் (link previews) இடத்தில்.</td></tr>
+<tr><td><code>registerChannelHeaderMenuAction</code></td><td>சேனலின் <b>சேனல் விருப்பங்கள்</b> (Channel options) மெனுவில் (பக்கவாட்டுப் பட்டையின் சேனலில் ⋯ அல்லது வலது-கிளிக்), பிளக் ஐகானுடன் கூடிய உருப்படிகளாக.</td></tr>
+<tr><td><code>registerMainMenuAction</code></td><td>சமூக மெனுவில் (சேனல் பட்டியலின் மேலே உள்ள சமூகத்தின் பெயர்), <b>மேலும் செயல்கள்</b> கீழே, செயல்களால் தொகுக்கப்பட்ட நிலையில்.</td></tr>
+<tr><td><code>registerSidebarBrowseOrAddChannelMenuAction</code></td><td>சமூக மெனுவில், <b>சேனல் உருவாக்கு</b> மற்றும் <b>வகையை உருவாக்கு</b> பின்.</td></tr>
+<tr><td><code>registerFileUploadMethod</code></td><td>கம்போசரின் <b>+</b> மெனுவில் (<b>செய்தியில் சேர்</b>), <b>கோப்பை பதிவேற்றவும்</b> பின்.</td></tr>
+<tr><td><code>registerPostEditorActionComponent</code></td><td>எழுதுபொறி இன் வடிவமைப்புப் பட்டில் (formatting bar), வடிவமைப்பு காட்டப்படும்போது.</td></tr>
+<tr><td><code>registerAIActionMenuItemComponent</code></td><td>எழுதுபொறி இன் <b>AI</b> மெனுவில்.</td></tr>
+<tr><td><code>registerFileDropdownMenuAction</code>, <code>registerFilePreviewComponent</code></td><td>கோப்பின் விருப்ப மெனுவில், மற்றும் கோப்பு முன்னோட்டத்தில் (file preview).</td></tr>
+<tr><td><code>registerUserSettings</code></td><td><b>சுயவிவரம் &amp; அமைப்புகள்</b>, <b>பிளகின்கள்</b> தலைப்புக்கு கீழே ஒவ்வொரு ஆப்பிற்கும் ஒரு டேப்.</td></tr>
+<tr><td><code>registerChannelSettingsTab</code></td><td>சேனல் அமைப்புகள் டயலாகில், <b>ஆப்கள்</b> தலைப்புக்கு கீழே.</td></tr>
+<tr><td><code>registerPopoverUserAttributesComponent</code>, <code>registerPopoverUserActionsComponent</code></td><td>பெயரை அல்லது அவதாரத்தைக் கிளிக் செய்யும்போது தோன்றும் சுயவிவரம் அட்டை (profile card).</td></tr>
+<tr><td><code>registerLeftSidebarHeaderComponent</code>, <code>registerSidebarChannelLinkLabelComponent</code>, <code>registerChannelIconOverride</code>, <code>registerBottomTeamSidebarComponent</code></td><td>கம்யூனிட்டியின் சேனல் பட்டியலின் மேல் பகுதி, ஒரு சேனலின் பெயருக்கு அருகில், சேனலின் ஐகானுக்கு அருகில், மற்றும் இடதுபுறத்தில் உள்ள கம்யூனிட்டி ரெயிலின் கீழ் பகுதி.</td></tr>
+<tr><td><code>registerChannelIntro</code>, <code>registerChannelIntroButtonAction</code>, <code>registerChannelToastComponent</code>, <code>registerNewMessagesSeparatorActionComponent</code>, <code>registerChannelComposerBannerComponent</code>, <code>registerComposerPlaceholder</code></td><td>ஒரு சேனலின் வரலாற்றின் தொடக்கம், செய்தி பட்டியலின் மேல் பகுதி, படிக்கப்படாத கோடு, கம்போசரின் மேல், மற்றும் கம்போசரின் பிளேஸ்ஹோல்டர்.</td></tr>
+<tr><td><code>registerChannelTypeOption</code></td><td><b>சேனல் உருவாக்கு</b> டயலாக்கின் சேனல் வகைகள்.</td></tr>
+<tr><td><code>registerSearchComponents</code></td><td>சேனல் ஹெடரின் தேடல் பெட்டி: அது காலியாக இருக்கும்போது ஆப் ஸ்கோப்கள் தோன்றும்.</td></tr>
+<tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>Antimatter பற்றி</b> (ஆப் ரெயிலின் கீழ் பகுதி), <b>உதவி</b> கீழ்.</td></tr>
+<tr><td><code>registerProduct</code></td><td>பொருட்களின் URL-இல் முழு பக்கங்கள், <b>Antimatter பற்றி</b> இல் <b>பொருட்கள்</b> கீழே பட்டியலிடப்பட்டுள்ளன. பொருள் பக்கங்கள் கிளாசிக் பக்க கட்டமைப்பை வைத்திருக்கின்றன.</td></tr>
+<tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code> போன்ற ஹூக்க்கள்</td><td>கிளாசிக் இன்டர்ஃபேஸில் செயல்படும்படி.</td></tr>
+<tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>அமைப்பு கன்சோல், இது இரண்டு இன்டர்ஃபேஸ்களிலும் கிளாசிக் ஒன்றாகும்.</td></tr>
+</tbody>
+</table>
+<h3>Fusion காட்டாதது அல்லது இயக்காதது</h3>
+<ul>
+<li><code>registerPostDropdownMenuComponent</code> (செய்தி மெனுவில் உள்ள ஒரு கூறு), <code>registerPostCardTypeComponent</code> (வலதுபுறப் பலகையில் உள்ள ஒரு செய்தியின் அட்டை) மற்றும் <code>registerProductSwitcherMenuItem</code> ஆகியவை Fusion-ன் முக்கிய காட்சிகளில் காட்டப்படாது. முதலாவதுக்கு பதிலாக <code>registerPostDropdownMenuAction</code> ஐப் பயன்படுத்தவும்.</li>
+<li><code>registerMessageWillBeUpdatedHook</code> Fusion-இல் ஒரு செய்தி திருத்தப்படும்போது இயக்கப்படாது. பதிலாக, சர்வரில் திருத்தங்களை <code>MessageWillBeUpdated</code> ஹூக்க்கு மூலம் சரிபார்க்கவும்.</li>
+<li><code>registerActionAfterChannelCreation</code> கிளாசிக் சேனல் உருவாக்க டயலாக்கிலிருந்து மட்டுமே இயக்கப்படுகிறது, இது Fusion தனது <b>சேனல் உருவாக்கு</b> டயலாக்கில் உள்ள <b>மேலும் விருப்பங்கள்…</b> இலிருந்து திறக்கிறது.</li>
+<li>ஆப் பார் கூறுகள், அவற்றின் <code>supportedProductIds</code> எதுவாக இருந்தாலும் காட்டப்படுகின்றன.</li>
+<li><code>registerNeedsTeamRoute</code> மற்றும் <code>registerCustomRoute</code> இலிருந்து வரும் ரூட்கள், புரொடக்ட்கள் போல, கிளாசிக் பக்க ஃப்ரேமை வைத்திருக்கின்றன.</li>
+</ul>
+
+<h2 id="antimatter-hooks">Antimatter மட்டுமே கொண்டிருக்கும் ஹூக்க்கள்</h2>
+<p>இந்த ரெஜிஸ்ட்ரி மெதாட்கள் Mattermost-இல் இல்லை. ஆப் அங்கும் வேலை செய்ய, அழைக்கும் முன் ஒரு மெதாட் இருக்கிறதா என்பதைச் சரிபார்க்கவும்:</p>
+<pre><code>if (typeof registry.registerComposerMenuItem === 'function') {
+    registry.registerComposerMenuItem({
+        text: 'Create a poll',
+        icon: &lt;i className='icon icon-chart-bar'/&gt;,
+        fusionIcon: 'poll',
+        action: ({channelId, rootId}) =&gt; openPollCreation(channelId, rootId),
+    });
+} else {
+    registry.registerChannelHeaderButtonAction(icon, (channel) =&gt; openPollCreation(channel.id), 'Create a poll', 'Create a poll');
+}</code></pre>
+<table>
+<thead><tr><th>மெதாட்</th><th>அது என்ன சேர்க்கிறது</th></tr></thead>
+<tbody>
+<tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>இரண்டு இன்டர்ஃபேஸ்களிலும் செய்தி பெட்டியின் <b>+</b> மெனுவில் உள்ள ஒரு உருப்படி. <code>action</code> <code>{channelId, rootId}</code> ஐப் பெறுகிறது.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>செய்தி பெட்டியின் எமோஜி தேர்ந்தெடுப்பியில் ஒரு தாவல், உதாரணமாக GIF அல்லது ஸ்டிக்கர்கள். Fusion-இல், <code>order</code> மதிப்பு 10-க்குக் குறைவாக உள்ள தாவல்கள் எமோஜி தாவலுக்கு முன் வரும். இந்தக் கூறு <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> மற்றும் <code>isFusion</code> ஆகியவற்றைப் பெறுகிறது.</td></tr>
+<tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>சேனல் தலைப்பும் (channel header) செய்திகளுக்கும் இடையேயான ஒரு பலகை (panel); <code>matcher(state, channel)</code> தேர்ந்தெடுக்கும் சேனல்களுக்காக. குரல் சேனல்கள் (voice channels) செய்வது போல, செய்திகளையும் எழுதும் பகுதியையும் (composer) மறைக்க முடியும் (<code>setMessagesVisible</code>).</td></tr>
+<tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>பக்கவாட்டுப் பலகையில் (sidebar) ஒரு சேனலின் கீழே உள்ள ஒரு வரி, உதாரணமாக அதன் அழைப்பில் (call) உள்ளவர்கள். இது <code>channel</code> ஐப் பெறுகிறது.</td></tr>
+<tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Fusion மட்டுமே: <b>இணைப்புகள்</b> பக்கங்களில் ஒரு நுழைவு, தனிப்பயன் எமோஜியின் அருகில். GIF ஆப் அதன் தனிப்பயன் GIF-கள் மற்றும் ஸ்டிக்ல்களை அங்கே சேர்க்கிறது.</td></tr>
+</tbody>
+</table>
+<p><code>fusionIcon</code> என்பது Fusion-இன் ஐகான் தொகுப்பில் உள்ள ஒரு ஐகானின் பெயர் (உதாரணமாக <code>poll</code>, <code>sticker</code>, <code>calendar</code> அல்லது <code>image</code>; <code>webapp/fusion/src/fusion/components/icon</code> ஐப் பார்க்கவும்). Fusion இதை <code>icon</code> ஐப் பதிலாகக் காட்டுகிறது, இதனால் அந்த உருப்படி மற்றவற்றுடன் பொருந்தும்.</p>
+
+<h2 id="settings">அமைப்புகள்</h2>
+<p><code>plugin.json</code> இல் உள்ள <code>settings_schema</code> ஆப்-இன் பக்கத்தை <b>அமைப்பு கன்சோல் › பிளகின்கள்</b> இல் விவரிக்கிறது:</p>
+<pre><code>"settings_schema": {
+  "header": "Forecasts come from the weather service below.",
+  "settings": [
+    {"key": "ServiceURL", "display_name": "Service URL", "type": "text", "default": "https://api.example.com"},
+    {"key": "Units", "display_name": "Units", "type": "dropdown", "default": "metric",
+     "options": [{"display_name": "Celsius", "value": "metric"}, {"display_name": "Fahrenheit", "value": "imperial"}]},
+    {"key": "EnableAlerts", "display_name": "Severe weather alerts", "type": "bool", "default": false,
+     "help_text": "Post alerts in the channels that follow a city."}
+  ]
+}</code></pre>
+<p>அமைப்பு வகைகள் (Setting types): <code>bool</code>, <code>text</code>, <code>longtext</code>, <code>number</code>, <code>dropdown</code>, <code>radio</code>, <code>generated</code> (ஒரு சீரற்ற ரகசியம்), <code>username</code>, மற்றும் <code>custom</code> (வெப் செயலி பகுதி <code>registerAdminConsoleCustomSetting</code> மூலம் பதிவு செய்யும் ஒரு கூறு மூலம் வரையப்படும்). அமைப்புகளை <code>sections</code> இல் தொகுக்க முடியும்.</p>
+<p>சர்வர் பகுதி (server part) அவற்றை, விசைகள் (keys) பொருந்தும் புலங்களைக் (fields) கொண்ட ஒரு கட்டமைப்பில் (struct) படிக்கிறது:</p>
+<pre><code>type configuration struct {
+	ServiceURL   string
+	Units        string
+	EnableAlerts bool
+}
+
+func (p *Plugin) OnConfigurationChange() error {
+	var cfg configuration
+	if err := p.API.LoadPluginConfiguration(&amp;cfg); err != nil {
+		return err
+	}
+	p.setConfiguration(&amp;cfg)
+	return nil
+}</code></pre>
+<p>நிர்வாகிகள் (Admins) அவற்றை அமைப்புகளில் (configuration) <code>PluginSettings.Plugins.&lt;app id&gt;</code> கீழே, சிறிய எழுத்துக்களில் (lower case) விசைகளுடன் அமைக்கலாம் (பார்க்க <a href="{{root}}docs/admins/configuration.html#amctl">நிர்வாக வழிகாட்டி</a>).</p>
+
+<h2 id="translations">மொழிபெயர்ப்புகள்</h2>
+<p>Antimatter 37 மொழிகளில் மொழிபெயர்க்கப்பட்டுள்ளது, இணைக்கப்பட்ட செயலிகளும் (bundled apps) அப்படித்தான். வெப் செயலி பகுதி (web app part) இதை இவ்வாறு செய்கிறது:</p>
+<ol>
+<li>ஒவ்வொரு சரத்தையும் (string) React Intl மூலம், ஒரு ID மற்றும் அதன் ஆங்கில உரைடன் எழுதுங்கள்: <code>&lt;FormattedMessage id='polls.create' defaultMessage='Create a poll'/&gt;</code> அல்லது <code>defineMessages</code>. ID-களுக்கு உங்கள் செயலியின் பெயரை முன்னொட்டு (prefix) ஆகப் பயன்படுத்தவும்.</li>
+<li>ஆங்கில சரங்களை <code>webapp/i18n/en.json</code> இல் வெளியேற்றுங்கள் (இணைக்கப்பட்ட செயலிகள் <code>formatjs extract</code> ஐப் பயன்படுத்துகின்றன).</li>
+<li>அதன் அருகே, ஒவ்வொரு மொழிக்கும் ஒரு கோப்பு சேர்க்கவும், அதே ID-களுடன்: <code>fr.json</code>, <code>de.json</code>, <code>pt-BR.json</code>, <code>zh-CN.json</code>…</li>
+<li>இவற்றை வெப் ஆப்-க்கு அளிக்கவும்; அது பயனரின் மொழியைக் கேட்கிறது:
+<pre><code>import fr from '../i18n/fr.json';
+import ptBR from '../i18n/pt-BR.json';
+
+const catalogs = {fr, 'pt-BR': ptBR};
+
+export function translationsFor(locale) {
+    return catalogs[locale] || catalogs[locale.split('-')[0]] || {};
+}
+
+registry.registerTranslations(translationsFor);</code></pre></li>
+</ol>
+<p>ஒரு துணைச் சரம் இல்லையெனில், அதன் ஆங்கில <code>defaultMessage</code> பயன்படுத்தப்படும். சர்வர் பகுதி அனுப்பும் சரங்களுக்கு (கட்டளை பதில்கள், பாடட் செய்திகள்), <code>pluginapi/i18n</code> தொகுப்பு பண்டலில் சேர்க்கப்பட்ட மொழிபெயர்ப்பு கோப்புகளை (உதாரணமாக <code>assets/i18n</code>) ஏற்றி, ஒவ்வொரு பயனரின் மொழியிலும் ஒரு மொழிபெயர்ப்பாளரை வழங்குகிறது.</p>
+
+<h2 id="build">உருவாக்குதல், நிறுவல் மற்றும் பிழைநீக்கம்</h2>
+<p>Go மற்றும் Node.js (ஆப்பின் <code>.nvmrc</code>-ல் உள்ள பதிப்பு) தேவை. ஆப்பின் கோப்புறையில்:</p>
+<table>
+<thead><tr><th>கட்டளை</th><th>இது என்ன செய்கிறது</th></tr></thead>
+<tbody>
+<tr><td><code>make dist</code></td><td>எல்லா தளங்களுக்கும் சர்வர் பகுதியையும், வெப் ஆப் பகுதியையும் உருவாக்கி, பண்டலை <code>dist/&lt;app id&gt;-&lt;version&gt;.tar.gz</code> என எழுதுகிறது.</td></tr>
+<tr><td><code>make test</code></td><td>Go மற்றும் JavaScript சோதனைகளை இயக்குகிறது.</td></tr>
+<tr><td><code>make check-style</code></td><td>குறியீட்டைச் சரிபார்த்து (golangci-lint, ESLint), TypeScript வகைகளைச் சரிபார்க்கிறது.</td></tr>
+<tr><td><code>make deploy</code></td><td>உருவாக்கி, பின்னர் சர்வரில் பண்டலை நிறுவி இயக்குகிறது.</td></tr>
+<tr><td><code>make watch</code>, <code>make deploy-from-watch</code></td><td>முதல் ஒன்று நீங்கள் சேமிக்கும் ஒவ்வொரு முறையும் வெப் ஆப் பகுதியை மறுஉருவாக்குகிறது; இரண்டாவது உருவாக்கியதைப் பண்டலாக்கி சர்வரில் நிறுவுகிறது.</td></tr>
+<tr><td><code>make enable</code>, <code>make disable</code>, <code>make reset</code></td><td>சர்வரில் ஆப்பை இயக்கு, முடக்கு அல்லது மறுதொடக்கம் செய்யவும்.</td></tr>
+<tr><td><code>make logs</code>, <code>make logs-watch</code></td><td>சர்வர் பதிவின் ஆப்பின் வரிசைகளைக் காட்டுகிறது.</td></tr>
+<tr><td><code>make attach</code></td><td>இயங்கும் சர்வர் பகுதிக்கு Delve பிழைநீக்கியை இணைக்கிறது (முதலில் <code>AM_DEBUG=1</code> உடன் உருவாக்கவும்).</td></tr>
+</tbody>
+</table>
+<p><code>make deploy</code> மற்றும் மற்ற சர்வர் கட்டளைகள், உள்ளூர் முறை சாக்கெட்டைக் (உள்ளூர் முறை இயக்கப்பட்டால்) கண்டறிந்தால் அதைப் பயன்படுத்துகின்றன (<code>/var/tmp/antimatter_local.socket</code>, அல்லது <code>AM_LOCALSOCKETPATH</code>): இவற்றை உள்ளூர் முறையில் சர்வரின் கணினியில் இயக்கவும். இல்லையெனில், <code>MM_SERVICESETTINGS_SITEURL</code> மூலம் குறிப்பிடப்பட்ட சர்வரில் <code>AM_ADMIN_TOKEN</code>, அல்லது <code>AM_ADMIN_USERNAME</code> மற்றும் <code>AM_ADMIN_PASSWORD</code> மூலம் உள்நுழைகின்றன. உருவாக்க கருவிகள் இதுவரை தள URL-க்காக <code>AM_</code> பெயரைப் படிக்கவில்லை.</p>
+<h3>ஒரு பண்டலை கைமுறையாக நிறுவுதல்</h3>
+<ul>
+<li>ஒரு அமைப்பு நிர்வாகி <code>AM_PLUGINSETTINGS_ENABLEUPLOADS=true</code> மூலம் பதிவேற்றங்களை அனுமதிக்கிறார் (இயல்பாக அணைக்கப்பட்டது; அமைப்பு கன்சோலில் மாற்றி இல்லை).</li>
+<li>பின் <b>அமைப்பு கன்சோல் › பிளகின்கள் › பிளகின் மேலாண்மை › பிளகினை பதிவேற்று</b>, அல்லது <code>amctl plugin add weather.tar.gz</code> பின் <code>amctl plugin enable com.example.weather</code>.</li>
+<li>சர்வரில் <b>பிளகின்களுக்கு சைக்னேச்சு தேவை</b> ஓன் ஆக இருந்தால், அது நம்பகமான விசையால் கையொப்பமிடப்பட்ட பண்டல்களை மட்டுமே ஏற்கும்; <a href="{{root}}docs/admins/apps.html#other-apps">மற்ற ஆப்களை நிறுவல்</a> பார்க்கவும்.</li>
+</ul>
+<div class="callout">ஒரு வளர்ச்சி சர்வரில் விரைவான மறுஉருவாக்கங்களுக்கு, சர்வரில் <code>AM_SERVICESETTINGS_ENABLEDEVELOPER=true</code> அமைக்கவும்: பின்னர் பிழைகள் அவற்றின் விவரங்களைக் கொண்டிருக்கும். உங்கள் ஷெல்லில் <code>MM_SERVICESETTINGS_ENABLEDEVELOPER</code> அமைக்கப்பட்டிருந்தால் மட்டுமே, பண்டலாக்கப்பட்ட ஆப்ஸ்களின் Makefile-கள் உங்கள் தளத்திற்கு மட்டுமே சர்வர் பகுதியை உருவாக்கும்.</div>

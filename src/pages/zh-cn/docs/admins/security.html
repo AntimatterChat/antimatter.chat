@@ -1,0 +1,107 @@
+title: 安全
+description: 加固 Antimatter 服务器：应暴露哪些端口、密钥、速率限制、IP 过滤、上传限制、隐私设置和用户屏蔽、会话、服务器与外部服务的连接，以及如何报告漏洞。
+guide: admins
+order: 12
+nav: 安全
+lead: 加固 Antimatter 服务器的检查清单：应暴露的内容、需审查的限制和隐私设置、服务器联系的外部服务，以及如何报告安全问题。
+source: dbe2371ecf30
+---
+<h2 id="exposure">应暴露的内容</h2>
+<table>
+<thead><tr><th>端口</th><th>服务</th><th>暴露方式</th></tr></thead>
+<tbody>
+<tr><td>443/tcp, 443/udp, 80/tcp</td><td>您的 HTTPS 代理（Caddy 或 nginx）</td><td>公开：这是用户访问 Antimatter 的方式。</td></tr>
+<tr><td>8443/udp 和 8443/tcp</td><td>通话媒体</td><td>如果用户从您的网络外部使用通话，则设为公开。</td></tr>
+<tr><td>8065/tcp</td><td>Antimatter 的 Web 服务器</td><td>仅对代理开放：将其发布到 <code>127.0.0.1</code>（<code>HTTP_PORT=127.0.0.1:8065</code>）。</td></tr>
+<tr><td>8067/tcp</td><td>指标</td><td>仅在启用时限于私有网络。无需登录。</td></tr>
+<tr><td>8074/tcp 和 udp</td><td>集群 gossip</td><td>仅限集群节点之间。</td></tr>
+<tr><td>5432, 9000, 8080, 8066</td><td>PostgreSQL、文件存储、GIF 服务、推送代理</td><td>绝不公开。compose 文件将它们保留在内部网络上，不发布任何端口。</td></tr>
+</tbody>
+</table>
+<p>该网站的 compose 文件还以 <code>no-new-privileges</code> 运行每个容器，在 distroless 镜像上以非特权用户身份运行 Antimatter，并以只读文件系统运行 GIF 服务。数据库、存储和 GIF 服务位于一个没有互联网访问权限的网络上。</p>
+
+<h2 id="checklist">安装后的检查清单</h2>
+<ol>
+<li>在其他人能够访问服务器之前，创建第一个管理员账户（<a href="{{root}}docs/admins/install.html#first-admin">安装</a>）。</li>
+<li>仅通过 HTTPS 提供 Antimatter，并将站点 URL 设置为 <code>https://</code> 地址（<a href="{{root}}docs/admins/https.html">域名和 HTTPS</a>）。</li>
+<li>确保 <code>.env</code>、<code>config.json</code> 和 TLS 密钥仅 root（或服务器用户）可读：<code>chmod 600 .env</code>。</li>
+<li>决定谁可以创建账户，除非社区是公开的，否则请保持<b>启用开放服务器</b>关闭，并在邮件功能正常后开启<b>需要邮箱验证</b>（<a href="{{root}}docs/admins/authentication.html">登录和账户</a>）。</li>
+<li>开启多因素身份验证，至少对管理员账户强制执行，或使用您的身份提供商的多因素身份验证。</li>
+<li>审查以下外部连接，特别是通话默认使用的 STUN 服务器。</li>
+<li>进行备份，并测试恢复（<a href="{{root}}docs/admins/backups-upgrades.html">备份和升级</a>）。</li>
+<li>保持镜像最新：安全修复随新镜像发布。</li>
+</ol>
+
+<h2 id="rate-limiting">速率限制</h2>
+<p>服务器可以限制每个客户端发出的 API 请求数量。此功能默认处于关闭状态。在 <b>系统控制台 › 环境 › 速率限制</b> 中：</p>
+<table>
+<thead><tr><th>设置项</th><th>键</th><th>默认值</th></tr></thead>
+<tbody>
+<tr><td><b>启用限流</b></td><td><code>RateLimitSettings.Enable</code></td><td>关闭</td></tr>
+<tr><td><b>每秒最大查询数</b></td><td><code>RateLimitSettings.PerSec</code></td><td>10</td></tr>
+<tr><td><b>最大过载大小</b></td><td><code>RateLimitSettings.MaxBurst</code></td><td>100</td></tr>
+<tr><td><b>内存存储大小</b></td><td><code>RateLimitSettings.MemoryStoreSize</code></td><td>跟踪 10000 个客户端</td></tr>
+<tr><td><b>根据远程地址改变频率限制</b></td><td><code>RateLimitSettings.VaryByRemoteAddr</code></td><td>开启</td></tr>
+<tr><td><b>根据用户改变速率限制</b></td><td><code>RateLimitSettings.VaryByUser</code></td><td>关闭</td></tr>
+<tr><td><b>通过HTTP头变化频率限制</b></td><td><code>RateLimitSettings.VaryByHeader</code></td><td>空</td></tr>
+</tbody>
+</table>
+<p>在代理后面，仅按地址限制只有在服务器知道每个客户端的地址时才有效（<code>ServiceSettings.TrustedProxyIPHeader</code> 和 <code>ServiceSettings.TrustedProxyIPs</code>，参见 <a href="{{root}}docs/admins/https.html#client-address">代理后的客户端地址</a>）。否则，所有请求看起来都来自代理，所有人共享同一个限制。IP 过滤和审计日志中的地址也是如此。</p>
+<p>登录尝试单独限制：<b>最大登录尝试次数</b>（10）次，密码连续失败达到该次数后锁定账户。</p>
+
+<h2 id="ip-filtering">IP 过滤</h2>
+<p><b>系统控制台 › 站点配置 › IP 过滤</b> 通过 IP 地址限制对服务器的访问，包含允许和拒绝规则（每个规则为地址或 CIDR 范围）。开启 <b>启用 IP 过滤</b> 后，地址匹配拒绝规则，或在存在允许规则时不匹配任何允许规则的人，将无法访问服务器。该页面会拒绝会阻止您自身地址的规则。在代理后面，请先配置客户端地址（<a href="{{root}}docs/admins/https.html#client-address">代理后的客户端地址</a>）：否则所有请求看起来都来自代理。</p>
+
+<h2 id="uploads">上传与文件共享</h2>
+<table>
+<thead><tr><th>设置项</th><th>位置</th><th>默认值</th></tr></thead>
+<tbody>
+<tr><td><b>最大文件大小</b>（<code>FileSettings.MaxFileSize</code>）</td><td>环境 › 文件存储</td><td>100 MB。请保持代理的请求大小限制至少为此值。</td></tr>
+<tr><td><b>最大有效负载大小（字节）</b>（<code>ServiceSettings.MaximumPayloadSizeBytes</code>）</td><td>环境 › Web 服务器</td><td>300000：除文件上传外最大的 API 请求</td></tr>
+<tr><td><b>允许文件共享</b>（<code>FileSettings.EnableFileAttachments</code>）</td><td>站点配置 › 文件共享与下载</td><td>开启</td></tr>
+<tr><td><b>允许移动设备文件上传</b>、<b>允许在移动设备下载文件</b></td><td>站点配置 › 文件共享与下载</td><td>开启</td></tr>
+<tr><td><b>启用公开文件链接</b>（<code>FileSettings.EnablePublicLink</code>）</td><td>站点配置 › 公共链接</td><td>关闭：开启后，人们可以分享一个无需登录即可访问的文件链接</td></tr>
+<tr><td><b>开启 SVG</b>（<code>ServiceSettings.EnableSVGs</code>）</td><td>站点配置 › 帖子</td><td>新服务器上默认关闭：开启后，SVG 图像将内联显示</td></tr>
+</tbody>
+</table>
+<p>Antimatter 不扫描上传文件中的恶意软件。</p>
+
+<h2 id="privacy">隐私设置</h2>
+<p>在<b>系统控制台 › 站点配置 › 成员和团队</b>中：</p>
+<table>
+<thead><tr><th>设置项</th><th>键</th><th>默认值</th><th>功能说明</th></tr></thead>
+<tbody>
+<tr><td><b>显示邮箱地址</b></td><td><code>PrivacySettings.ShowEmailAddress</code></td><td>开启</td><td>关闭后，成员的电子邮件地址将对除管理员外的所有人隐藏。建议在公共服务器上关闭此选项。</td></tr>
+<tr><td><b>显示全名</b></td><td><code>PrivacySettings.ShowFullName</code></td><td>开启</td><td>关闭后，全名将隐藏，并改为显示用户名。</td></tr>
+<tr><td><b>启用忽略、屏蔽和消息请求</b></td><td><code>PrivacySettings.EnableUserBlocking</code></td><td>开启</td><td>详见下文。</td></tr>
+<tr><td><b>允许用户私信的频道</b></td><td><code>TeamSettings.RestrictDirectMessage</code></td><td>Antimatter 服务器上的任意用户</td><td>或者<b>任何团队成员</b>：仅限共享同一社区的人员。</td></tr>
+</tbody>
+</table>
+<h3>忽略、屏蔽和私信请求</h3>
+<p>当<b>启用忽略、屏蔽和消息请求</b>开启时（默认设置），用户可以互相忽略和屏蔽，并可以选择将来自陌生人的私信作为消息请求接收，这些请求在被接受之前不会发送通知。这适用于公共社区。在同事必须始终能够联系到彼此的职场环境中，请将其关闭（<code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING=false</code>）：此时不再强制执行任何限制，但用户已创建的列表和选择会被保留，如果重新开启，这些设置将再次生效。</p>
+
+<h2 id="sessions">会话和令牌</h2>
+<ul>
+<li>会话时长和闲置超时：请参阅 <a href="{{root}}docs/admins/authentication.html#sessions">登录和账户</a>。较短的会话时长意味着丢失的笔记本电脑或手机保持登录状态的时间更短。</li>
+<li><b>开启个人访问令牌</b>（<code>ServiceSettings.EnableUserAccessTokens</code>，默认关闭）允许用户创建 API 令牌；<b>个人访问令牌最长生命周期（天）</b>用于限制其有效期。这两项设置均位于<b>系统控制台 › 集成 › 集成管理</b>中。</li>
+<li>若要一次性注销所有用户，例如在疑似发生数据泄露后：请在<b>系统控制台 › 用户管理 › 用户</b>中点击<b>吊销所有会话</b>。</li>
+</ul>
+
+<h2 id="outbound">与外部服务的连接</h2>
+<p>Antimatter 不会联系任何由 Mattermost, Inc. 运营的服务。它不发送遥测数据、崩溃报告或安全更新检查，也不获取产品通知。从 Mattermost 迁移过来的配置如果仍然包含 Mattermost 服务的名称（其推送服务、应用市场、通知或用于通话的 STUN 服务器），服务器也不会联系这些服务：这些地址将被忽略。</p>
+<p>服务器和应用仅在需要相应功能时，才会连接其他外部服务，以及您配置的服务：</p>
+<table>
+<thead><tr><th>功能</th><th>联系人</th><th>默认情况下</th></tr></thead>
+<tbody>
+<tr><td>通话：通过 STUN 查找公共地址。服务器和每个加入通话的人员都会发送请求，该请求会向 STUN 服务器显示其 IP 地址和端口。</td><td>Cloudflare 的公共 STUN 服务器，<code>stun.cloudflare.com</code></td><td>开启，前提是已启用通话应用。如需更改，请参阅<a href="{{root}}docs/admins/calls.html#network">通话</a>。</td></tr>
+<tr><td>链接预览：服务器会抓取消息中链接的页面（<b>启用网站链接预览</b>，<code>ServiceSettings.EnableLinkPreviews</code>）</td><td>用户链接的网站</td><td>开启。使用 <code>AM_SERVICESETTINGS_ENABLELINKPREVIEWS=false</code> 关闭。</td></tr>
+<tr><td>向移动应用发送推送通知</td><td>您自己的推送代理（<a href="{{root}}docs/admins/email-push.html#push">推送通知</a>）</td><td>关闭，直到您设置其地址</td></tr>
+<tr><td>远程应用市场（<code>PluginSettings.EnableRemoteMarketplace</code>）</td><td>您设置的<b>市场 URL</b></td><td>关闭，且未设置地址</td></tr>
+<tr><td>电子邮件</td><td>您的 SMTP 服务器</td><td>默认服务器为 <code>localhost</code></td></tr>
+<tr><td>单点登录、AI 模型、语音转文字和翻译、出站 Webhook，以及 Mail、Calendar、GitHub、GitLab 或 Jira 等应用</td><td>您配置的服务</td><td>关闭，直到您进行配置</td></tr>
+</tbody>
+</table>
+<p>默认情况下，服务器会拒绝为这些功能（链接预览、Webhook、应用）连接到私有地址和回环地址，以防止消息或集成被用于访问您的内部网络。请在<b>允许不受信任的内部连接到</b>（<code>ServiceSettings.AllowedUntrustedInternalConnections</code>，位于<b>系统控制台 › 环境 › 开发人员</b>）中列出允许访问的内部主机；该站点的 compose 文件在此处列出了 <code>gifs</code>。</p>
+
+<h2 id="report">报告漏洞</h2>
+<p>请按照<a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">Antimatter 安全策略</a>中的说明私下报告安全问题，而不是在公开问题中报告。</p>

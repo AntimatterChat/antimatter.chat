@@ -1,0 +1,102 @@
+title: Forrásból történő fordítás
+description: Az Antimatter forráskódból történő fordítása: a Go szerver, a Fusion és a klasszikus webes felületek, a fejlesztői szerver, a tesztek, a kiadási archívumok, a Docker-képek, valamint az asztali és mobilalkalmazások.
+guide: developers
+order: 7
+nav: Forrásból történő fordítás
+lead: Ez az oldal azt mutatja be, hogyan fordítható és futtatható az Antimatter a forráskódjából, legyen szó fejlesztésről vagy saját build-ek készítéséről. A szervert és a webes felületeket egy repozitóriumban találjuk, majd a Docker-képeket és az alkalmazásokat is áttekintjük.
+source: dfdf67f34f6e
+---
+<h2 id="requirements">Amihez szükséged van</h2>
+<ul>
+<li><b>Mehet</b>, a <code>server/go.mod</code> fájlban megadott verzió (írás idején 1.26.7).</li>
+<li><b>Node.js és npm</b>, a <code>.nvmrc</code> és a <code>webapp/package.json</code> fájlokban megadott verziókban (Node 24.11.1, npm 11.6.2). A <a href="https://mise.jdx.dev">mise</a> segítségével a repozitórium <code>mise.toml</code> fájlja telepíti a megfelelő Node verziót.</li>
+<li><b>Docker</b> Compose-kal: a fejlesztői környezet PostgreSQL-t és néhány más szolgáltatást futtat konténerekben.</li>
+<li><b>make</b>, <b>git</b>, valamint Linux vagy macOS gépezet.</li>
+<li><b>Memória</b>: a webes felületek fordítása a legköltségesebb rész. 16 GB RAM-mal érdemes számolni; lásd: <a href="#memory">Fordítás és memória</a>.</li>
+</ul>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter.git
+cd antimatter</code></pre>
+<p>A repozitórium a szervert a <code>server/</code> mappában, a webes felületeket a <code>webapp/</code> mappában (a Fusion a <code>webapp/fusion</code>-ban, a klasszikus a <code>webapp/channels</code>-ben, a közös csomagok a <code>webapp/platform</code>-ban), valamint a végpont-teszteket az <code>e2e-tests/</code> mappában tartalmazza.</p>
+
+<h2 id="dev-server">Fejlesztői szerver futtatása</h2>
+<pre><code>cd server
+make run</code></pre>
+<p>A <code>make run</code> parancs elindítja a fejlesztői konténereket (PostgreSQL, Redis, e-mail fogadó és monitorozási eszközök), behelyezi a webes alkalmazás build-jeit, háttérben elindítja a szervert a <code>go run</code> paranccsal, és elindítja a webes alkalmazás figyelőjét, amely újra fordítja a klasszikus felületet, ahogy szerkeszted. Nyisd meg a <code>http://localhost:8065</code> címet, és hozz létre egy fiókot: az első fiók rendszergazdává válik.</p>
+<table>
+<thead><tr><th>Parancs (a <code>server/</code> mappában)</th><th>Mire szolgál</th></tr></thead>
+<tbody>
+<tr><td><code>make run-server</code>, <code>make run-client</code></td><td>Csak a szerver, vagy csak a webes alkalmazás figyelője indítása.</td></tr>
+<tr><td><code>make restart-server</code></td><td>A szerver újraindítása Go kód módosítása után.</td></tr>
+<tr><td><code>make stop</code></td><td>A szerver, a figyelő és a konténerek leállítása.</td></tr>
+<tr><td><code>make debug-server</code></td><td>A szerver futtatása a Delve hibakeresővel.</td></tr>
+<tr><td><code>make run-cli ARGS="-version"</code></td><td>Szerverparancs futtatása.</td></tr>
+<tr><td><code>make config-reset</code></td><td>A <code>config/config.json</code> fájl visszaállítása az alapértékekre.</td></tr>
+<tr><td><code>make clean</code>, <code>make nuke</code></td><td>Fordítási fájlok törlése; a <code>nuke</code> parancs a fejlesztési adatokat is törli.</td></tr>
+</tbody>
+</table>
+<p>A fejlesztési adatbázis: <code>postgres://mmuser:mostest_password@localhost/mattermost_test</code>, a szerver alapértelmezett adatforrása. Az <code>ENABLED_DOCKER_SERVICES</code> változóval választhatod ki, mely konténerek induljanak el, a <code>server/config.override.mk</code> fájlban vagy a környezeti változóiddal (lásd: <code>server/config.mk</code>).</p>
+
+<h2 id="webapp">A webes felületek</h2>
+<p>A <code>webapp/</code> mappában:</p>
+<pre><code>npm install      # also builds the shared packages
+npm run build    # the classic interface, then Fusion</code></pre>
+<p>A build-ek a <code>webapp/channels/dist</code> (klasszikus) és a <code>webapp/fusion/dist</code> (Fusion) könyvtárakba kerülnek. A <code>server/</code> könyvtárban futtatott <code>make client</code> parancs ezeket <code>server/client</code> és <code>server/client-fusion</code> néven köti össze, ahonnan a szerver szolgálja ki őket: a klasszikus verziót a <code>/static/</code> alatt, a Fusiont pedig a <code>/static/fusion/</code> alatt.</p>
+<ul>
+<li>A <code>npm run run</code> (vagy a <code>webapp/</code> könyvtárban a <code>make run</code>) figyel és újraépíti a klasszikus felületet. A Fusion újraépítéséhez adjad hozzá a <code>WATCH_FUSION=true</code> környezeti változót.</li>
+<li>A <code>npm run dev-server</code> (<code>make dev</code>) a webpack fejlesztői szerverét futtatja: a klasszikus felület a 9005-ös, a Fusion a 9006-os porton érhető el.</li>
+<li>Ha a böngészőben az egyik vagy a másik felületet szeretnéd látni, add hozzá a <code>?webui=fusion</code> vagy <code>?webui=classic</code> paramétert bármelyik oldal címéhez.</li>
+</ul>
+
+<h2 id="tests">Tesztek és ellenőrzések</h2>
+<table>
+<thead><tr><th>Parancs</th><th>Hely</th><th>Mire szolgál</th></tr></thead>
+<tbody>
+<tr><td><code>make test-server</code></td><td><code>server/</code></td><td>A szerver teszt-suite-je, a fejlesztői konténerekkel szemben. Ez sok időt vesz igénybe.</td></tr>
+<tr><td><code>make test-server-quick</code></td><td><code>server/</code></td><td>Csak a rövid tesztek.</td></tr>
+<tr><td><code>go test ./channels/app/... -run TestName</code></td><td><code>server/</code></td><td>Egy csomag vagy teszt, a konténerek futtatása mellett (<code>make start-docker</code>).</td></tr>
+<tr><td><code>make check-style</code></td><td><code>server/</code></td><td>go vet, golangci-lint és a többi Go-ellenőrzés.</td></tr>
+<tr><td><code>make test</code></td><td><code>webapp/</code></td><td>A webalkalmazás egységtesztjei (Jest), minden csomagban.</td></tr>
+<tr><td><code>npm run test -- &lt;pattern&gt;</code></td><td><code>webapp/fusion</code></td><td>A Fusion néhány tesztje.</td></tr>
+<tr><td><code>make check-style</code>, <code>make check-types</code></td><td><code>webapp/</code></td><td>ESLint és TypeScript.</td></tr>
+<tr><td><code>make i18n-extract</code></td><td><code>server/</code> és <code>webapp/</code></td><td>Frissíti az angol szövegfájlokat, miután új szöveget adtál hozzá vagy meglévőket módosítottál (lásd: <a href="{{root}}docs/developers/contributing.html#translations">Fordítások</a>).</td></tr>
+</tbody>
+</table>
+<p>A <code>server/</code> könyvtárban a <code>make modules-tidy</code> parancsot futtasd, ne a <code>go mod tidy</code>-t.</p>
+
+<h2 id="release">Kiadási archívumok</h2>
+<pre><code>cd webapp &amp;&amp; npm run build &amp;&amp; cd ..
+cd server
+make build-linux       # the antimatter and amctl binaries
+make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
+<p>A <code>make build</code> parancs egyben felépíti a webes felületeket és a Linux binárisokat. Az archívum tartalmazza a <code>bin/antimatter</code>, a <code>bin/amctl</code> fájlokat, az alapértelmezett <code>config/config.json</code> konfigurációt, mindkét webes felületet, a sablonokat, a betűtípusokat és a fordításokat. Egyéb platformok: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>. Az archívumok nem tartalmazzák a beépített alkalmazásokat; a Docker-képeket viszont igen.</p>
+
+<h2 id="docker">A Docker-kép</h2>
+<p>Az <a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> repozitórium építi fel a közzétett képeket, a szerverrel és annak alkalmazásaival, teljesen a Dockeren belül:</p>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter-docker.git
+cd antimatter-docker
+scripts/build-all.sh                     # from the main branches on GitHub
+SOURCES=local scripts/build-all.sh       # from your checkouts next to this folder
+VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatter app</code></pre>
+<p>Ehhez Docker buildx, Python 3, git és gpg szükséges, valamint kb. 16 GB RAM és 30 GB lemezterület. Az eredményt a <code>ghcr.io/antimatterchat/antimatter:dev</code> néven töltjük be; próbáld ki a <code>ANTIMATTER_IMAGE=ghcr.io/antimatterchat/antimatter:dev docker compose -f compose.local.yml up -d</code> paranccsal. A <code>plugins.json</code> fájl felsorolja az alkalmazásokat és a felépített verziókat, a repozitórium README fájlja pedig a változatokat ismerteti.</p>
+<div class="callout warn">A <code>build-all.sh</code> script az Antimatter aláírókulccsal aláírja a csomagolt alkalmazásokat, és a képből építés elutasítja az aláíratlan alkalmazásokat. Ha nincs meg a privát kulcs (amelyhez csak a karbantartók férnek hozzá), futtasd külön-külön az első lépéseket: <code>scripts/fetch-sources.sh</code>, <code>scripts/build-plugins.sh</code> (alkalmazáscsomagok a <code>out/plugins/</code> könyvtárban) és <code>scripts/build-server.sh</code> (szerverarchívumok a <code>out/server/</code> könyvtárban).</div>
+
+<h2 id="memory">Buildelés és memória</h2>
+<p>A webes felületek nagy webpack buildjei, és a memória kimerülése a leggyakoribb buildhiba.</p>
+<ul>
+<li>Az <code>npm run build</code> parancs a klasszikus felületet és a Fusiót egymás után építi, nem párhuzamosan, hogy a csúcsterhelés alacsonyabb maradjon. Ne futtasd párhuzamosan.</li>
+<li>A minifier minden processzorra egy munkafolyamatot indít. Sokmagos, de kevés memóriájú gépen korlátozd a build által látható processzorok számát: <code>taskset -c 0-5 npm run build</code>.</li>
+<li>Ha a Node kimeríti a heapet, emeld meg a limitet: <code>NODE_OPTIONS=--max-old-space-size=6144</code>. A Docker build ezt az értéket használja (<code>BUILD_NODE_OPTIONS</code> a <code>build.env</code> fájlban).</li>
+<li>Kerüld, hogy kis gépen egyszerre fusson a szerver teljes teszt-suite-ja, egy web build és egy Docker build.</li>
+</ul>
+
+<h2 id="apps">Az alkalmazások</h2>
+<p>Minden alkalmazásnak (pluginnek) van saját repozitórium- és Makefile-ja; a <code>make dist</code> parancs építi a csomagját. Lásd: <a href="{{root}}docs/developers/apps.html#build">Buildelés, telepítés és hibakeresés</a>.</p>
+<h3>Asztali alkalmazás</h3>
+<p>Az <a href="https://github.com/AntimatterChat/desktop-app">asztali alkalmazás</a> egy Electron app. Node.js 24 vagy újabb verzióval:</p>
+<pre><code>npm install --allow-git=all
+npm run build          # development build, into dist/
+npm start              # run it
+npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
+<p>A build idejű beállítások, például a előre konfigurálandó szerverek, a <code>src/common/config/buildConfig.ts</code> fájlban találhatók.</p>
+<h3>Mobilalkalmazás</h3>
+<p>Az <a href="https://github.com/AntimatterChat/mobile-app">mobilalkalmazás</a> egy React Native app; a README fájlja felsorolja a parancsokat (<code>npm run ios</code>, <code>npm run android</code>). Saját példányt építenihez saját aláírókulcsok, Android értesítésekhez Firebase projekt, iOS-höz APNs kulcs, valamint egy <a href="https://github.com/AntimatterChat/push-proxy">push proxy</a> is szükséges, amelyben tárolod ezeket a hitelesítő adatokat.</p>

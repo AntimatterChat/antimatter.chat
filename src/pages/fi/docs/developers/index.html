@@ -1,0 +1,77 @@
+title: Rakentaminen Antimatterin varaan
+description: Ohjeet kehittäjille, jotka integroivat Antimatterin tai laajentavat sitä: REST API, webhooks, kauttaviivakomennot, botit, sovellukset (liitännäiset), lähdekoodista rakentaminen ja panostus kehitykseen.
+guide: developers
+order: 1
+nav: Yleiskatsaus
+lead: Tämä ohje on tarkoitettu kehittäjille. Se kattaa API:ta käyttävät skriptit ja botit, webhooks- ja kauttaviivakomentopohjaiset integraatiot, sovellukset (liitännäiset), jotka lisäävät toiminnallisuutta palvelimelle ja verkkosovellukselle, sekä Antimatterin lähdekoodista rakentamisen ja panostamisen sen kehitykseen.
+source: b60d529f2c61
+---
+<h2 id="ways">Tapaa laajentaa Antimatteria</h2>
+<p>Valitse kevyin työkalu, joka hoitaa tehtävän. Neljä ensimmäistä ei vaadi pääsyä palvelimeen itse; sovellukset ajetaan sen sisällä.</p>
+<table>
+<thead><tr><th>Työkalu</th><th>Toiminto</th><th>Sopii</th></tr></thead>
+<tbody>
+<tr><td><a href="{{root}}docs/developers/api.html">REST API</a></td><td>Kaikki, mitä sovellukset tekevät: viestit, kanavat, ihmiset, tiedostot, asetukset. WebSocket lähettää tapahtumat, kun ne tapahtuvat.</td><td>Skriptit, synkronointi muiden järjestelmien kanssa, omat asiakasohjelmat.</td></tr>
+<tr><td><a href="{{root}}docs/developers/webhooks.html">Tulevat webhooksit</a></td><td>Salainen URL, joka lähettää viestin kanavaan, kun jokin lähettää sille JSON-muotoista dataa.</td><td>Hälytykset, CI-tulokset, valvonta, ilmoitukset muista työkaluista.</td></tr>
+<tr><td><a href="{{root}}docs/developers/webhooks.html#outgoing">Lähtevät webhooksit</a></td><td>Antimatter kutsuu URL:iasi, kun julkinen kanavassa oleva viesti alkaa laukaisusanan, ja lähettää vastauksesi.</td><td>Yksinkertaiset chat-pohjaiset automaatiot.</td></tr>
+<tr><td><a href="{{root}}docs/developers/commands.html">Kauttaviivakomennot</a></td><td>Käyttäjät kirjoittavat <code>/something</code>; Antimatter kutsuu URL:iasi ja näyttää vastauksesi heille tai kanavalle.</td><td>Haut, chatista käynnistettävät toiminnot.</td></tr>
+<tr><td><a href="{{root}}docs/developers/bots.html">Botit</a></td><td>Ohjelmissa käytettävät tilit, joilla on omat tunnusluvut, <b>BOTTI</b>-tunnus sekä interaktiiviset viestit ja dialogit.</td><td>Assistentit, ilmoittajat, kaikki, jotka vuorovaikuttavat ihmisten kanssa.</td></tr>
+<tr><td><a href="{{root}}docs/developers/apps.html">Sovellukset (liitännäiset)</a></td><td>Koodi, joka ajetaan palvelimella (Go) ja verkkosovelluksessa (React): hakukohdat jokaiselle viestille, uudet valikot, paneelit, viestityypit, sivut.</td><td>Toiminnallisuudet: kyselyt, muistiinpanot, kalenterit, integraatiot, jotka vaaravat käyttöliittymän.</td></tr>
+</tbody>
+</table>
+<p>Käyttöliittymässä ihmiset kutsuvat liitännäisiä "sovelluksiksi". Tämä ohje käyttää ilmaisua "sovellukset (liitännäiset)" siellä, missä molemmat sanat auttavat, koska koodi, API ja asetukset edelleen käyttävät sanaa "plugin".</p>
+
+<h2 id="compatibility">Yhteensopivuus Mattermostin kanssa</h2>
+<p>Antimatter on Mattermostin haarautuma. Enemmistö siitä, mikä toimii Mattermost-palvelimen kanssa, toimii myös Antimatterin kanssa.</p>
+<h3>Mitä on samaa</h3>
+<ul>
+<li><b>REST API</b> polulla <code>/api/v4</code>, sen todennus, WebSocket ja virheformaatti. Palvelin ilmoittaa versioon <code>12.0.0</code>, joten asiakasohjelmat ja sovellukset, jotka tarkistavat palvelimen version, näkevät uuden Mattermostin.</li>
+<li><b>Webhookit ja kauttaviivakomennot</b>, mukaan lukien niiden Slack-yhteensopivat kuormat.</li>
+<li><b>Palvelimen lisäosien API ja hookit</b>: Antimatter ei ole muuttanut niitä. Palvelinkoodi kääntyy samalle Go-moduulille, <code>github.com/mattermost/mattermost/server/public</code>.</li>
+<li><b>Verkkosovelluksen lisäosarekisteri</b>: Mattermostin rekisterin kaikki <code>register…</code>-metodit löytyvät molemmista Antimatterin käyttöliittymistä.</li>
+<li><b>Asiakasohjelmistot</b>: Go-asiakasohjelmisto <code>model.Client4</code> ja TypeScript-asiakasohjelmisto <code>@mattermost/client</code> (ks. <a href="{{root}}docs/developers/api.html#clients">Asiakasohjelmistot</a>).</li>
+<li><b>Lisäosapaketit</b>: <code>.tar.gz</code>-tiedosto, jossa on <code>plugin.json</code>-manifesti. Mattermostin avaimella allekirjoitetut lisäosat asennetaan, kuten myös Antimatterin avaimella allekirjoitetut.</li>
+</ul>
+<h3>Mitä on eri</h3>
+<ul>
+<li><b>Kaksi verkkokäyttöliittymää.</b> Uusi käyttöliittymä, Fusion, on oletus; klassinen Mattermost-käyttöliittymä on edelleen käytettävissä. Fusion piirtää suurimman osan lisäosien komponenteista, mutta sijoittaa jotkut niistä eri paikkaan ja jättää muutamat pois. Sovellus voi tarkistaa, mikä käyttöliittymä on käytössä. Katso <a href="{{root}}docs/developers/apps.html#fusion">Fusion-käyttöliittymän tuki</a>.</li>
+<li><b>Lisä-API.</b> Antimatter lisää päätepisteitä omiin ominaisuuksiinsa: yhteisöominaisuudet, aikakatkaisut, viestit yläreunaan, viestipyynnöt, kanava- ja kategorian yliaukot, kanavan vienti ja uudet kentät yhteisöille. Katso <a href="{{root}}docs/developers/api.html#antimatter">Mitä Antimatter lisää API:hin</a>.</li>
+<li><b>Lisäominaisuudet viesteille.</b> Viestiliitteet voivat näyttää putken vaiheet ja pienen kaavion; viestit voivat olla sisäisiä vastauksia tai spoilereita.</li>
+<li><b>Lisähookit verkkosovelluksille</b> sovelluksille: kirjoitusalan "+"-valikkotavute, emoji-valitsimen välilehdet, paneeli kanavanäkymässä, alatunniste sivupalkin kanavien alla ja tulos integrointisivuilla. Katso <a href="{{root}}docs/developers/apps.html#antimatter-hooks">Vain Antimatterin hookit</a>.</li>
+<li><b>Ei lisenssejä.</b> Kaikki ominaisuudet ovat käytettävissä ilman lisenssiohjekoodia. Lisenssi-, kokeilu- ja yritysversiopäivityspäätepisteet on poistettu; <code>GET /api/v4/license/client</code> on edelleen olemassa asiakkaille, jotka kysyvät. Jotkin Mattermostin maksullisille versioille rakennetut sovellukset tarkistavat lisenssin itse ja kieltäytyvät ajamasta.</li>
+<li><b>Nimet.</b> Tiimejä kutsutaan yhteisöiksi käyttöliittymässä, mutta API ja koodi käyttävät yhä nimeä <code>team</code>. Ympäristömuuttujat käyttävät <code>AM_</code>-etartetta, komentorivityökalu on <code>amctl</code> ja palvelinkonekoodi <code>antimatter</code>.</li>
+</ul>
+
+<h2 id="code">Missä koodi sijaitsee</h2>
+<p>Kaikki on avoimen lähdekoodin ohjelmistoa <a href="https://github.com/AntimatterChat">AntimatterChat</a>-järjestössä GitHubissa. Jokainen varasto toimii <code>main</code>-haarallaan.</p>
+<table>
+<thead><tr><th>Varasto</th><th>Sisältö</th></tr></thead>
+<tbody>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter">antimatter</a></td><td>Palvelin (Go, hakemistossa <code>server/</code>), molemmat verkkokeskukset (<code>webapp/fusion</code> ja <code>webapp/channels</code>), TypeScript-asiakasohjelma ja <code>amctl</code>.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a></td><td>Docker-kuvat, mukana toimitetut sovellukset ja compose-tiedostot.</td></tr>
+<tr><td><code>antimatter-plugin-*</code></td><td>Yksi varasto per mukana toimitettu sovellus: <a href="https://github.com/AntimatterChat/antimatter-plugin-polls">polls</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-todo">todo</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-notes">notes</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-whiteboard">whiteboard</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-calendar">calendar</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-mail">mail</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-gifs">gifs</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-memes">memes</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-voice-channels">voice-channels</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-calls">calls</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-boards">boards</a> (Kanban), <a href="https://github.com/AntimatterChat/antimatter-plugin-playbooks">playbooks</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-agents">agents</a> ja <a href="https://github.com/AntimatterChat/antimatter-plugin-metrics">metrics</a>.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/gifs-server">gifs-server</a></td><td>Itsensä isännöity GIF- ja tarrapalvelu, jota GIFs-sovellus käyttää.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/desktop-app">desktop-app</a>, <a href="https://github.com/AntimatterChat/mobile-app">mobile-app</a>, <a href="https://github.com/AntimatterChat/push-proxy">push-proxy</a></td><td>Työpöytä- ja mobiilisovellukset sekä palvelu, joka välittää push-ilmoitukset puhelimille.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter.chat">antimatter.chat</a></td><td>Tämä verkkosivusto ja sen dokumentaatio.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/community">community</a></td><td>Ongelmat ja keskustelut Antimatterin kaikista osista.</td></tr>
+</tbody>
+</table>
+
+<h2 id="first-steps">Ennen aloitusta</h2>
+<ul>
+<li><b>Hanki testipalvelin.</b> Nopein tapa on Docker-kuvake: katso <a href="{{root}}docs/admins/install.html">Antimatterin asennus</a>. Jos haluat työskennellä Antimatterin koodin kanssa, katso <a href="{{root}}docs/developers/building.html">Käännös lähdetiedostoista</a>.</li>
+<li><b>Tarkista, mitä palvelin sallii.</b> Useat integrointitoiminnot ovat oletusarvoisesti poissa käytöstä ja vaativat järjestelmän ylläpitäjän: henkilökohtaiset pääsytunnukset, bottitilit, käyttäjätunnuksen ja ikoon yliajurit sekä sovellusten lataaminen. Jokainen sivu kertoo, mitä asetuksia se vaatii.</li>
+<li><b>Tunne sivustosi URL-osoite.</b> Esimerkeissä käytetään osoitetta <code>https://chat.example.com</code>. Korvaa se palvelimesi osoitteella.</li>
+</ul>
+
+<h2 id="in-this-guide">Tässä oppaassa</h2>
+<ul>
+<li><a href="{{root}}docs/developers/api.html">REST API</a>: todennus, pääresurssit, sivutus, virheet, nopeusrajoitukset, WebSocket, asiakaskirjastot ja Antimatterin lisäykset.</li>
+<li><a href="{{root}}docs/developers/webhooks.html">Webhookit</a>: saapuvat ja lähtevät webhookit, kuormat, liitteet ja kortit.</li>
+<li><a href="{{root}}docs/developers/commands.html">Kauttaviivakomennot</a>: mukautetut komennot, niiden pyynnöt ja vastaukset, automaattitäydennys.</li>
+<li><a href="{{root}}docs/developers/bots.html">Bottit ja interaktiiviset viestit</a>: bottitilit, painikkeet, valikot ja dialogit.</li>
+<li><a href="{{root}}docs/developers/apps.html">Sovellusten kirjoittaminen</a>: liitännäisen rakenne, palvelimen koukut, web-sovellusrekisteri, Fusion, asetukset, tallennus, käännökset ja pakkaaminen.</li>
+<li><a href="{{root}}docs/developers/building.html">Käännös lähdetiedostoista</a>: palvelin, web-käyttöliittymät, Docker-kuvake ja sovellukset.</li>
+<li><a href="{{root}}docs/developers/contributing.html">Osallistuminen</a>: ongelmaraportit, pull requestit, tyyli, käännökset, turvallisuus ja lisenssit.</li>
+</ul>
+<div class="callout">Kysymykset ovat tervetulleita <a href="https://github.com/AntimatterChat/community/discussions">yhteisön keskusteluissa</a>. Raportoi virheistä <a href="https://github.com/AntimatterChat/community/issues">yhteisön ongelmaraportteihin</a>.</div>

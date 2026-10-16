@@ -1,0 +1,161 @@
+title: Domini, HTTPS i proxys inversos
+description: Serveix Antimatter al teu propi domini mitjançant HTTPS, amb el perfil de Caddy inclòs o el teu propi proxy invers d'nginx, i configura correctament l'URL del lloc web i les adreces del client.
+guide: admins
+order: 4
+nav: Domini i HTTPS
+lead: Posa Antimatter en un nom de domini amb HTTPS, utilitzant el perfil de Caddy del fitxer compose o un proxy invers propi, i configura correctament l'URL del lloc web i les adreces del client.
+source: 69e8779d356e
+---
+<h2 id="site-url">L'URL del lloc web</h2>
+<p>L'URL del lloc web (<code>ServiceSettings.SiteURL</code>) és l'adreça que les persones utilitzen per accedir a Antimatter, com ara <code>https://chat.example.com</code>. El servidor l'utilitza en els enllaços dels correus electrònics i les notificacions, en les redireccions d'inici de sessió (OAuth, OpenID Connect, SAML), per a les aplicacions mòbil i d'escriptori, i per comprovar d'on provenen les sol·licituds. Configura-la exactament com l'adreça que apareix a la barra d'adreces del navegador: esquema, domini i port (si no és el predeterminat), sense barra inclinada final.</p>
+<ul>
+<li>Amb el fitxer compose del lloc: <code>SITE_URL</code> a <code>.env</code>.</li>
+<li>En qualsevol altre lloc: <code>AM_SERVICESETTINGS_SITEURL</code>, o <b>Consola del sistema › Entorn › Servidor web › URL del lloc web</b>.</li>
+</ul>
+<p>Si l'URL del lloc web és incorrecta, l'inici de sessió amb un proveïdor d'identitat fallarà, els enllaços dels correus apuntaran a un lloc incorrecte i les aplicacions poden no connectar-se. Després de canviar el domini, actualitza-la aquí i a les URL de redirecció de cada proveïdor d'identitat.</p>
+
+<h2 id="caddy">HTTPS amb el perfil de Caddy inclòs</h2>
+<p>El <code>compose.yaml</code> del lloc inclou un servei de <a href="https://caddyserver.com">Caddy</a> al perfil <code>https</code>. Obté un certificat de Let's Encrypt, el renova automàticament, redirigeix HTTP a HTTPS i transfereix tot, inclosos els websockets, a Antimatter.</p>
+<ol>
+<li>Apunta un registre DNS (A, i AAAA per a IPv6) del teu domini al servidor.</li>
+<li>Obre els ports 80/tcp, 443/tcp i 443/udp (HTTP/3) al tallafoc. Let's Encrypt ha de poder accedir al port 80 o 443 des d'Internet.</li>
+<li>Afegeix el domini a <code>.env</code> i configura l'URL del lloc web:
+<pre><code>echo "DOMAIN=chat.example.com" &gt;&gt; .env
+sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env</code></pre></li>
+<li>Inicia amb el perfil:
+<pre><code>docker compose --profile https up -d</code></pre></li>
+</ol>
+<p>Afegeix <code>--profile https</code> a cada <code>docker compose up</code> posterior, o posa <code>COMPOSE_PROFILES=https</code> a <code>.env</code> perquè un simple <code>docker compose up -d</code> l'inclougi. Caddy guarda els seus certificats al volum <code>https</code>.</p>
+<p>El port propi d'Antimatter continua publicat a l'amfitrió (<code>HTTP_PORT</code>, 8065 per defecte). Amb Caddy davant, mantén-lo només per al propi servidor:</p>
+<pre><code>echo "HTTP_PORT=127.0.0.1:8065" &gt;&gt; .env
+docker compose --profile https up -d</code></pre>
+<p>Caddy accedeix a Antimatter a través de la xarxa interna <code>edge</code>, no a través d'aquest port, així que això no canvia res per als teus usuaris.</p>
+
+<h2 id="nginx">Amb el teu propi proxy invers (nginx)</h2>
+<p>Si el servidor ja executa nginx o un altre proxy, desactiva el perfil <code>https</code> i apunta el proxy al port 8065 d'Antimatter. El proxy ha de:</p>
+<ul>
+<li>transmetre les actualitzacions de websocket (l'aplicació web i les aplicacions mòbil mantenen un websocket obert a <code>/api/v4/websocket</code>, i algunes aplicacions n'obren un de propi);</li>
+<li>acceptar cossos de sol·licitud d'almenys la mida de la càrrega més gran (<b>Mida màxima del fitxer</b>, 100 MB per defecte);</li>
+<li>mantir obertes les connexions de llarga durada (websockets, càrregues i descàrregues grans);</li>
+<li>transmetre la capçalera <code>Host</code> i l'adreça del client.</li>
+</ul>
+<p>Un bloc de servidor complet, adaptat de la plantilla de producció d'antimatter-docker. Substitueix el domini i les rutes dels certificats:</p>
+<pre><code>upstream antimatter {
+    server 127.0.0.1:8065;
+    keepalive 64;
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+proxy_cache_path /var/cache/nginx/antimatter levels=1:2 keys_zone=antimatter_cache:10m
+                 max_size=3g inactive=120m use_temp_path=off;
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name chat.example.com;
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name chat.example.com;
+
+    ssl_certificate     /etc/ssl/chat.example.com/fullchain.pem;
+    ssl_certificate_key /etc/ssl/chat.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:AntimatterSSL:10m;
+    ssl_session_tickets off;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # At least FileSettings.MaxFileSize (100 MB by default).
+    client_max_body_size 100M;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade           $http_upgrade;
+    proxy_set_header Connection        $connection_upgrade;
+    proxy_buffers 256 16k;
+    proxy_buffer_size 16k;
+
+    location ~ ^/api/v[0-9]+/(users/)?websocket$ {
+        client_body_timeout 60s;
+        send_timeout 300s;
+        lingering_timeout 5s;
+        proxy_connect_timeout 90s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 90s;
+        proxy_pass http://antimatter;
+    }
+
+    location / {
+        proxy_read_timeout 600s;
+        proxy_cache antimatter_cache;
+        proxy_cache_revalidate on;
+        proxy_cache_min_uses 2;
+        proxy_cache_use_stale timeout;
+        proxy_cache_lock on;
+        proxy_pass http://antimatter;
+    }
+}</code></pre>
+<p>Comprova el fitxer amb <code>nginx -t</code> i aplica'l amb <code>systemctl reload nginx</code>. El servidor envia per si mateix <code>X-Content-Type-Options</code>, <code>Referrer-Policy</code>, <code>Permissions-Policy</code> i <code>X-Frame-Options</code>; només l'HSTS depèn del proxy. Augmenta el seu <code>max-age</code> quan l'HTTPS funcioni, i afegeix <code>includeSubDomains</code> només si tots els subdominis utilitzen HTTPS.</p>
+<p>Amb Docker Compose i nginx a l'amfitrió, l'<code>upstream</code> anterior apunta al port 8065 publicat. Publica'l només a <code>127.0.0.1</code> (<code>HTTP_PORT=127.0.0.1:8065</code>), perquè ningú no es salti el proxy.</p>
+<p>El repositori antimatter-docker té una configuració completa amb nginx en un contenedor i Let's Encrypt mitjançant certbot, a <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">deploy/compose</a>.</p>
+
+<h3>Altres proxys</h3>
+<p>Qualsevol proxy funciona si compleix els quatre punts anteriors. Les trucades d'àudio i vídeo mai no passen pel proxy: utilitzen el seu propi port, consulta <a href="{{root}}docs/admins/calls.html">Trucades i veu</a>.</p>
+
+<h2 id="client-address">Adreces de clients darrere d'un proxy</h2>
+<p>Darrere d'un proxy, totes les sol·licituds semblen provenir del proxy. Per registrar l'adreça real del client, aplicar límits de freqüència per client i utilitzar filtratge per IP, indica al servidor quina capçalera porta l'adreça i quins proxys pot confiar. Cap d'aquestes configuracions té un camp a la Consola del sistema: estableix-les a <code>config.json</code> o amb variables.</p>
+<table>
+<thead><tr><th>Clau i variable</th><th>Valor per defecte</th><th>Què fa</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.TrustedProxyIPHeader</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER</code></td><td>buit: el servidor utilitza l'adreça de la connexió</td><td>Les capçaleres que porten l'adreça del client, per exemple <code>X-Forwarded-For</code>. S'utilitza la primera que apareix en una sol·licitud.</td></tr>
+<tr><td><code>ServiceSettings.TrustedProxyIPs</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code></td><td>buit</td><td>Les adreces o rangs CIDR dels teus proxys, per exemple <code>172.29.71.0/28</code>. Les capçaleres només compten per a les sol·licituds que provenen d'un d'ells.</td></tr>
+</tbody>
+</table>
+<p>En una variable, separa diversos valors amb espais: <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>. El servidor rebutja una configuració amb una entrada a <code>TrustedProxyIPs</code> que no sigui ni una adreça IP ni un rang CIDR.</p>
+<h3>Com el servidor troba l'adreça del client</h3>
+<p>Cada proxy afegeix l'adreça des de la qual ha rebut la sol·licitud a la dreta de <code>X-Forwarded-For</code>. El que el client hagi enviat al capçalera original queda a l'esquerra. Per tant, el servidor llegeix el capçalera des de la dreta, salta les adreces dels teus proxys de confiança i pren la primera altra adreça com a la del client. Un client no pot triar la seva adreça enviant el seu propi capçalera.</p>
+<ul>
+<li>Darrere d'un sol proxy, <code>TrustedProxyIPHeader</code> per si sol dona l'adreça correcta: el servidor pren l'adreça més a la dreta del capçalera. Registra un avís en arrencar fins que també configuris <code>TrustedProxyIPs</code>. Sense això, qualsevol qui arribi directament al port 8065 pot establir el capçalera, així que publica aquest port només a <code>127.0.0.1</code> o en una xarxa privada.</li>
+<li>Darrere de diversos proxys, per exemple un CDN o un equilibrador de càrrega davant del teu propi proxy, llista'ls tots a <code>TrustedProxyIPs</code>. En cas contrari, el servidor pren l'adreça del proxy extern com a la del client.</li>
+<li>El proxy pot substituir el capçalera per l'adreça que veu, com fa l'exemple d'nginx anterior (<code>X-Forwarded-For $remote_addr</code>), o afegir-hi (el <code>$proxy_add_x_forwarded_for</code> d'nginx). Ambdues opcions funcionen.</li>
+</ul>
+<h3>Quines adreces llistar</h3>
+<p>Llista l'adreça des de la qual arriben les sol·licituds del proxy, tal com la veu Antimatter.</p>
+<ul>
+<li>Amb el fitxer compose del lloc i Caddy, això ja està fet: Caddy arriba a Antimatter a través de la xarxa <code>edge</code>, i el fitxer compose estableix <code>TrustedProxyIPHeader</code> a <code>X-Forwarded-For</code> i <code>TrustedProxyIPs</code> al rang d'aquesta xarxa, <code>EDGE_SUBNET</code> (<code>172.29.71.0/28</code> si no el canvies a <code>.env</code>). Canvia <code>EDGE_SUBNET</code> si se superposa amb una de les teves xarxes.</li>
+<li>La configuració de producció d'antimatter-docker fa el mateix per al seu contenidor nginx, amb <code>FRONTEND_SUBNET</code>.</li>
+<li>Amb nginx a l'amfitrió i Antimatter a Docker, les sol·licituds arriben a Antimatter a través del port publicat, normalment des de l'adreça de la passarel·la de la xarxa del projecte compose (<code>docker network inspect</code> la mostra). Estableix <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code> a aquesta adreça a <code>compose.override.yaml</code>.</li>
+<li>Sense Docker, amb nginx al mateix host, és <code>127.0.0.1</code> (i <code>::1</code> si nginx es connecta per IPv6).</li>
+</ul>
+
+<h2 id="builtin-tls">TLS sense proxy</h2>
+<p>El servidor també pot servir HTTPS directament, a <b>Consola del sistema › Entorn › Servidor web</b>: <b>Seguretat de la connexió</b> establert a TLS (<code>ServiceSettings.ConnectionSecurity</code>), amb <b>Fitxer del certificat TLS</b> i <b>Fitxer de la clau privada TLS</b> (<code>ServiceSettings.TLSCertFile</code>, <code>ServiceSettings.TLSKeyFile</code>), o bé <b>Utilitza Let’s Encrypt</b> (<code>ServiceSettings.UseLetsEncrypt</code>). El servidor ha d'escoltar aleshores al port 443 (<b>Adreça d'escolta</b>, <code>ServiceSettings.ListenAddress</code>, <code>:8065</code> per defecte), i <code>ServiceSettings.Forward80To443</code> redirigeix el port 80. Un proxy invers és més fàcil de gestionar i renovar, i és el que suposa aquesta guia.</p>
+
+<h2 id="timeouts">Temps d'espera del servidor i mida de les sol·licituds</h2>
+<p>Configuració del propi servidor web del servidor, a <b>Consola del sistema › Entorn › Servidor web</b>:</p>
+<table>
+<thead><tr><th>Paràmetre</th><th>Clau</th><th>Valor per defecte</th></tr></thead>
+<tbody>
+<tr><td><b>Adreça d'escolta</b></td><td><code>ServiceSettings.ListenAddress</code></td><td><code>:8065</code></td></tr>
+<tr><td><b>Temps d’espera de lectura</b></td><td><code>ServiceSettings.ReadTimeout</code></td><td>300 segons</td></tr>
+<tr><td><b>Temps d'espera d'escriptura</b></td><td><code>ServiceSettings.WriteTimeout</code></td><td>300 segons</td></tr>
+<tr><td>Temps d'espera en estat inactiu (no hi ha cap camp a la Consola del sistema)</td><td><code>ServiceSettings.IdleTimeout</code></td><td>60 segons</td></tr>
+<tr><td><b>Mida màxima de la càrrega (bytes)</b></td><td><code>ServiceSettings.MaximumPayloadSizeBytes</code></td><td>vegeu <a href="{{root}}docs/admins/security.html">Seguretat</a></td></tr>
+</tbody>
+</table>
+<p>Mantén els propis temps d'espera del proxy com a mínim tan llargs com aquests per a les sol·licituds normals, i la mida del cos com a mínim <b>Mida màxima del fitxer</b>.</p>

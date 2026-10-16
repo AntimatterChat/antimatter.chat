@@ -1,0 +1,104 @@
+title: AI
+description: Koble Antimatters AI-funksjoner til modeller du velger, inkludert servere du kjører selv: AI-agenter, tale-til-tekst for samtaler, les opp, automatisk oversettelse, hvor data sendes, og hvordan du slår av hver funksjon.
+guide: admins
+order: 8
+nav: AI
+lead: Antimatters AI-funksjoner bruker modeller du velger: en skytjeneste, eller en server på ditt eget nettverk. Ingen data sendes noe sted før du har konfigurert en modell. Denne siden dekker hver funksjon, dataen den sender og hvordan du slår den av.
+source: b6dfe1d5e313
+---
+<h2 id="overview">AI-funksjonene</h2>
+<table>
+<thead><tr><th>Funksjon</th><th>Konfigurert i</th><th>Type modell</th><th>På som standard</th></tr></thead>
+<tbody>
+<tr><td>AI-agenter: chatt med en bot, oppsummeringer av tråder og kanaler, hjelp i skrivefeltet</td><td>Agents-appen</td><td>En hvilken som helst stor språkmodell (LLM)-tjeneste</td><td>Appen er på, men gjør ingenting før du legger til en tjeneste</td></tr>
+<tr><td>Transkripsjoner og live-tekst for samtaler</td><td>Calls-appen</td><td>Tale-til-tekst, OpenAI-kompatibel</td><td>nei</td></tr>
+<tr><td>Les opp</td><td>Serveren</td><td>Tekst-til-tale, OpenAI-kompatibel</td><td>nei</td></tr>
+<tr><td>Automatisk oversettelse av kanaler</td><td>Serveren</td><td>LibreTranslate, en OpenAI-kompatibel LLM, eller en Agents-tjeneste</td><td>nei</td></tr>
+</tbody>
+</table>
+<p>«OpenAI-kompatibel» betyr en server som tilbyr den samme HTTP-APIen som OpenAI. De fleste modelservere du kan kjøre selv gjør dette (for eksempel Ollama, vLLM, llama.cpps server, eller Whisper- og tekst-til-tale-servere), og mange skytjenester gjør det også. Ingen lisens kreves for noen av disse funksjonene.</p>
+
+<h2 id="agents">AI-agenter</h2>
+<p>Agents-appen (id <code>mattermost-ai</code>) er på som standard. Oppsettet tar to steg: legg til en <b>tjeneste</b> (en tilkobling til en modellleverandør), og deretter opprett <b>agenter</b> (bots som bruker en tjeneste).</p>
+<figure><img src="{{root}}assets/img/shots/ai.webp" alt="The Agents panel on the right of a channel: a user asked about an incident and the agent answered with a summary of the related threads."><figcaption>En agent som svarer i Agents-panelet.</figcaption></figure>
+<h3>1. Legg til en tjeneste</h3>
+<p>Gå til <b>Systemkonsoll › Plugins › Agenter</b> og klikk på <b>Legg til en AI-tjeneste</b> under <b>AI-tjenester</b>. Velg <b>Tjenestetype</b>:</p>
+<ul>
+<li><b>OpenAI Compatible</b>: for en modellserver du kjører selv, eller en leverandør med en OpenAI-stil API. Fyll inn <b>API URL</b> (for eksempel <code>http://ollama:11434/v1</code> eller <code>http://vllm.internal:8000/v1</code>), og <b>API-nøkkel</b> bare hvis serveren krever en. Hvis serveren bare støtter Chat Completions API, slå av <b>Use Responses API</b>.</li>
+<li><b>OpenAI</b>, <b>Anthropic</b>, <b>Google Gemini</b>, <b>Google Vertex AI</b>, <b>AWS Bedrock</b>, <b>Azure</b>, <b>Cohere</b>, <b>Mistral</b>: vertsbaserte leverandører. Hver av dem krever sin <b>API-nøkkel</b> (Bedrock: en AWS-region og legitimasjon eller en IAM-rolle; Vertex AI: et prosjekt, en region og en tjenestekonto; Azure: også API-URL-en).</li>
+</ul>
+<p>Deretter angir du <b>Standardmodell</b> (en liste hvis leverandoren kan rapportere modellene sine, ellers skriver du inn navnet) og, hvis leverandoren ikke rapporterer dem, <b>Inngangstokenbegrensning</b> og <b>Utgangstokenbegrensning</b>. En <b>Reserveleverandør</b> kan ta over når denne feiler. Lagre.</p>
+<p>Serveren utfører disse forespørrelsene selv, så den må kunne nå API-et: en modellserver i samme compose-prosjekt, på nettverket ditt eller på internett. Utgående forespørsler respekterer <code>HTTP_PROXY</code>- og <code>HTTPS_PROXY</code>-variablene.</p>
+<h3>2. Opprett agenter</h3>
+<p>Agenter opprettes på <b>Agenter</b>-siden i nettappen: åpne den fra produktmenyen, eller med <b>Administrer</b> i agentvelgeren i Agentpanelet. Adressen er <code>https://chat.example.com/plug/mattermost-ai/agents</code>. Hver agent har et <b>Visningsnavn</b>, et <b>Agentbrukernavn</b> (hvordan folk nevner den), en <b>Leverandør</b> og eventuelt en modell, <b>Egendefinerte instruksjoner</b> samt brytere for <b>Slå på syns</b> (bilder) og <b>Slå på verktøy</b>. Fanen <b>Tilgang</b> begrenser hvilke kanaler den kan brukes i og hvilke brukere som kan bruke den. Under <b>AI-funksjoner</b> i Systemkonsollen velger <b>Standardbot</b> agenten som brukes når ingen er valgt, for eksempel for oppsummeringer av samtaler.</p>
+<div class="callout">Som standard kan alle brukere opprette sine egne agenter, med leverandørene du har konfigurert. For å begrense dette til administratorer, fjerner du tillatelsen <b>Administrer egne AI-agenter</b> fra rollen til medlemmene i <b>Systemkonsoll › Brukeradministrasjon › Tillatelser</b>.</div>
+<h3>Valgfrie funksjoner i Agent-appen</h3>
+<ul>
+<li><b>Innledd søk</b> (eksperimentell, av): semantisk søk i meldinger. Dette krever PostgreSQL med pgvector-utvidelsen og en innleddingsmodell (OpenAI eller OpenAI-kompatibel). Den sender <em>alle</em> meldinger til innleddingsmodellen, også i private kanaler og direktemeldinger.</li>
+<li><b>Nettsøk</b> (av): lar agenter søke på nettet via Google, Brave eller en SearXNG-server du kjører.</li>
+<li><b>Native verktøy</b>: med leverandører som tilbyr dem, kan agenter bruke leverandørens eget nettsøk (på som standard for nye agenter, der støttet), netthenting og kodekjøring. Disse kjøres hos leverandøren. Slå dem av per agent.</li>
+<li><b>Model Context Protocol (MCP)</b>: koble agenter til MCP-servere du stoler på, for ekstra verktøy.</li>
+<li><b>Debug</b>: <b>Trace Output</b> (av, serverlogger eller et OpenTelemetry-endepunkt) og <b>Enable Token Usage Logging</b>, som skriver antall token til <code>logs/agents/token_usage.log</code>.</li>
+</ul>
+
+<h2 id="speech-to-text">Tale til tekst: transkripsjoner og live-tekst for samtaler</h2>
+<p>Samtaler kan transkriberes, med live-tekst, av en tale-til-tekst-tjener som tilbyr en OpenAI-kompatibel <code>/v1/audio/transcriptions</code>-endepunkt. Oppsettet finnes i <a href="{{root}}docs/admins/calls.html#transcription">Samtaler og tale</a>. Med <b>Oppsummer transkripsjoner</b> slått på, poster også standardagenten en oppsummering av hver transkripsjon.</p>
+
+<h2 id="text-to-speech">Tekst-til-tale: les høyt</h2>
+<p>Når tekst-til-tale er slått på, har menyen for hver melding <b>Les høyt</b>: Tjeneren sender meldingens tekst til en tekst-til-tale-API og avspiller lyden. Innstillinger, i <b>Systemkonsoll › Integrasjoner › Tekst til tale</b>:</p>
+<table>
+<thead><tr><th>Innstilling</th><th>Nøkkel og variabel</th><th>Hva du skal oppgi</th></tr></thead>
+<tbody>
+<tr><td><b>Les meldinger høyt</b></td><td><code>TextToSpeechSettings.Enable</code>, <code>AM_TEXTTOSPEECHSETTINGS_ENABLE</code></td><td><code>true</code> (av som standard)</td></tr>
+<tr><td><b>Grunn-URL for API-et</b></td><td><code>TextToSpeechSettings.URL</code>, <code>AM_TEXTTOSPEECHSETTINGS_URL</code></td><td>Grunn-URL opp til og med <code>/v1</code>, for eksempel <code>http://tts.internal:8000/v1</code>. Tjeneren kaller dens <code>/audio/speech</code>-endepunkt.</td></tr>
+<tr><td><b>Modell</b></td><td><code>TextToSpeechSettings.Model</code>, <code>AM_TEXTTOSPEECHSETTINGS_MODEL</code></td><td>Modellen slik API-et navngir den, for eksempel <code>tts-1</code>. Obligatorisk.</td></tr>
+<tr><td><b>Stemme</b></td><td><code>TextToSpeechSettings.Voice</code>, <code>AM_TEXTTOSPEECHSETTINGS_VOICE</code></td><td>En av modellens røster, eller tom for standard.</td></tr>
+<tr><td><b>API-nøkkel</b></td><td><code>TextToSpeechSettings.APIKey</code>, <code>AM_TEXTTOSPEECHSETTINGS_APIKEY</code></td><td>Sendes som en bearer-token. Tom hvis API-et ikke krever noen.</td></tr>
+</tbody>
+</table>
+<p>Før sending fjerner tjeneren kodeblokker, lenker, emojikoder og formatering, og beholder i det hele tatt 4000 tegn. Den ber om MP3-lyd og beholder de siste 64 resultatene i minnet, så en melding som leses to ganger sendes kun én gang.</p>
+
+<h2 id="translation">Automatisk oversettelse</h2>
+<p>Automatisk oversettelse viser meldingene i en kanal i hver leser sin egen språk. Konfigurer den i <b>Systemkonsoll › Nettstedsoppsett › Lokalisering</b>, under <b>Automatisk oversettelse</b>:</p>
+<table>
+<thead><tr><th>Innstilling</th><th>Nøkkel</th><th>Standard</th></tr></thead>
+<tbody>
+<tr><td>Aktiver</td><td><code>AutoTranslationSettings.Enable</code></td><td>av</td></tr>
+<tr><td><b>Oversettingsleverandør</b></td><td><code>AutoTranslationSettings.Provider</code></td><td><code>libretranslate</code>, <code>openai</code> (vises som "OpenAI-compatible API") eller <code>agents</code> (en tjeneste i Agents-appen)</td></tr>
+<tr><td><b>Tillatte språk</b></td><td><code>AutoTranslationSettings.TargetLanguages</code></td><td><code>en</code>: språkene meldinger kan oversettes til</td></tr>
+<tr><td><b>Oversettingsavbrudd (ms)</b></td><td><code>AutoTranslationSettings.TimeoutMs</code></td><td>5000</td></tr>
+<tr><td><b>Beskränk auto-translation på direktemeldinger og gruppemeldinger</b></td><td><code>AutoTranslationSettings.RestrictDMAndGM</code></td><td>av</td></tr>
+</tbody>
+</table>
+<p>Hver leverandør har sine egne felter:</p>
+<ul>
+<li><b>LibreTranslate</b>: <b>LibreTranslate API-endepunkt</b> og <b>LibreTranslate API-nøkkel</b> (<code>AutoTranslationSettings.LibreTranslate.URL</code>, <code>.APIKey</code>). En LibreTranslate-server kan kjøres på ditt eget nettverk.</li>
+<li><b>OpenAI-compatible API</b>: <b>Grunn-URL for API-et</b> (opp til og med <code>/v1</code>; serveren bruker sin chat completions-endepunkt), <b>Modell</b> og <b>API-nøkkel</b> (<code>AutoTranslationSettings.OpenAI.URL</code>, <code>.Model</code>, <code>.APIKey</code>). En liten oversettelsesmodell som kjører lokalt fungerer godt.</li>
+<li><b>Agenter</b>: <b>AI-tjeneste</b>, en av tjenestene som er konfigurert i Agents-appen.</li>
+</ul>
+<p>Når den er slått på, kan kanaladministratorer slå på oversettelse for en kanal i kanalens innstillinger (<b>Automatisk oversettelse</b>), og hvert medlem kan fravike fra kanalmenyen (<b>Oversett meldinger</b>). I direktemeldinger og gruppemeldinger kan ethvert medlem slå den på; med begrensningen på, er oversettelse ikke tilgjengelig der. Oversatte meldinger viser «Oversatt fra …» med en lenke til originalen.</p>
+<p>Kode, lenker, nevninger og emoji erstattes med plassholdere før teksten sendes, og settes tilbake etterpå.</p>
+
+<h2 id="data">Hvor data sendes</h2>
+<table>
+<thead><tr><th>Funksjon</th><th>Hva som sendes</th><th>Til</th></tr></thead>
+<tbody>
+<tr><td>Agenter</td><td>Forespørselen, meldingene i tråden eller kanalen den gjelder, agentens instruksjoner, verktøyresultater, bilder når visjon er slått på, og brukernavnet, brukernavnet, stillingen og språket til den spurte brukeren</td><td>Tjenestens API</td></tr>
+<tr><td>Innleddingssøk</td><td>Hver melding (unntatt bots' og systemmeldinger)</td><td>Innleddings-API-et</td></tr>
+<tr><td>Innbygde verktøy og websøk</td><td>Søreforespørsler, sider som skal hentes, kode</td><td>Tjenesteleverandøren, eller søkemotoren du valgte</td></tr>
+<tr><td>Transkripsjon av samtaler</td><td>Røsten til alle som snakker mens den er på</td><td>Tale-til-tekst-API-et</td></tr>
+<tr><td>Les opp</td><td>Teksten i meldingen som leses</td><td>Tekst-til-tale-API-et</td></tr>
+<tr><td>Oversettelse</td><td>Teksten i meldingene i oversatte kanaler</td><td>LibreTranslate, LLM-API-et eller Agents-tjenesten</td></tr>
+</tbody>
+</table>
+<p>For å beholde alt på ditt nettverk, peker du hver funksjon mot servere du kjører selv. Med en skytjenesteleverandør, sjekk dets vilkår for databevaring, og fortell brukerne dine hvilke funksjoner som sender meldingene deres ut.</p>
+
+<h2 id="turn-off">Slå av AI</h2>
+<p>Det er ingen enkeltbryter: hver funksjon har sin egen.</p>
+<ul>
+<li><b>Agenter</b>: deaktiver Agents-appen i <b>Systemkonsoll › Plugins › Pluginhåndtering</b>. Dette fjerner også samtaleoppsummeringer og Agents-oversettingsleverandøren.</li>
+<li><b>Transkripsjon og live-tekst</b>: <code>AM_CALLS_ENABLE_TRANSCRIPTIONS=false</code> og <code>AM_CALLS_ENABLE_LIVE_CAPTIONS=false</code> (standardverdiene).</li>
+<li><b>Les høyt</b>: <b>Les meldinger høyt</b> av (<code>AM_TEXTTOSPEECHSETTINGS_ENABLE=false</code>, standard).</li>
+<li><b>Oversettelse</b>: auto-translation av (<code>AM_AUTOTRANSLATIONSETTINGS_ENABLE=false</code>, standardverdien).</li>
+</ul>
+<p>Å deaktivere Agents-appen slår ikke av de andre tre: de kaller sine egne API-er direkte.</p>

@@ -1,0 +1,172 @@
+title: Bots och interaktiva meddelanden
+description: Bot-konton i Antimatter: hur du skapar dem, deras token och behörigheter, hur du publicerar som en bot, direktmeddelanden, interaktiva knappar och menyer samt dialogrutor.
+guide: developers
+order: 5
+nav: Bots
+lead: Ett botkonto är en användare som skapats för ett program. Det har ett eget namn, en bild och egna token, och visas med en BOT-etikett bredvid namnet. Denna sida behandlar även de interaktiva delarna av meddelanden: knappar, menyer och dialogrutor, som alla integrationer kan använda.
+source: 45503666f647
+---
+<h2 id="why">Varför ett bot-konto</h2>
+<ul>
+<li>Dess meddelanden kommer från en tydlig identitet med en <b>BOT</b>-etikett, istället för från en kollegas konto.</li>
+<li>Dess token fortsätter att fungera när den person som skapade det byter roll eller lämnar (såvida inte servern inaktiverar bots med inaktiverade ägare, se nedan).</li>
+<li>Bots kan inte logga in med lösenord och de ser aldrig webbappen.</li>
+</ul>
+<p>Appar skapar egna bots, till exempel bots för Att göra och Playbook, via plugin-API:t (<code>EnsureBotUser</code>).</p>
+
+<h2 id="enable">Aktivera bot-konton</h2>
+<p>En systemadministratör aktiverar <b>Aktivera möjligheten att skapa botkonton</b> i <b>Systemkonsol › Integrationer › Botkonton</b> (<code>ServiceSettings.EnableBotAccountCreation</code>, <code>AM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION</code>). Det är inaktiverat som standard. Endast systemadministratörer kan skapa botar, om de inte ger rättigheten till andra roller i behörighetsinställningarna.</p>
+<p>På samma sida, <b>Spärra bot-konton när dess ägare blir avaktiverad</b> (<code>ServiceSettings.DisableBotsWhenOwnerIsDeactivated</code>, aktiverat som standard), stänger av en bot när dess ägares konto avaktiveras.</p>
+
+<h2 id="create">Skapa en bot</h2>
+<ol>
+<li>Öppna din avatar i övre högra hörnet, välj sedan <b>Integrationer › Botkonton</b> och därefter <b>Lägg till bot-konto</b>.</li>
+<li>Ange ett <b>Användarnamn</b> (gemina bokstäver, siffror, punkter, bindestreck och understreck) och, om så önskas, en <b>Bot-ikon</b>, ett <b>Visningsnamn</b> och en <b>Beskrivning</b>.</li>
+<li>Välj <b>Roll</b>: <b>Medlem</b>, eller <b>Systemadministratör</b> för en bot som administrerar servern. Ge en bot så lite behörighet som möjligt.</li>
+<li>Markera <b>post:kanaler</b> för att låta den posta i alla publika kanaler, eller <b>post:all</b> för alla kanaler, inklusive privata kanaler och direktmeddelanden, utan att vara medlem.</li>
+<li>Ställ in när dess standardtoken upphör, välj sedan <b>Skapa konto</b>.</li>
+<li>Kopiera den åtkomsttoken som visas. Den visas inte igen.</li>
+</ol>
+<p>Senare, <b>Skapa ny token</b> på botens rad, lägger till en token, och varje token kan inaktiveras eller tas bort. Bot-token fungerar även när personliga åtkomsttoken är inaktiverade för användare.</p>
+<p>Med API:t:</p>
+<pre><code># create the bot (you become its owner)
+curl -X POST https://chat.example.com/api/v4/bots \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username": "deploy-bot", "display_name": "Deploy", "description": "Posts deployments"}'
+
+# give it a token
+curl -X POST https://chat.example.com/api/v4/users/$BOT_USER_ID/tokens \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"description": "deploy pipeline"}'</code></pre>
+<p>Från kommandoraden, inloggad som administratör (inte i lokalt läge): <code>amctl bot create deploy-bot --display-name Deploy --with-token --expires-in 90d</code>. Andra ändpunkter: <code>GET /api/v4/bots</code>, <code>PUT /api/v4/bots/{bot_user_id}</code>, <code>POST /api/v4/bots/{bot_user_id}/disable</code> och <code>/enable</code>, samt <code>POST /api/v4/bots/{bot_user_id}/assign/{user_id}</code> för att ändra ägaren.</p>
+
+<h2 id="membership">Lägg till boten i samhällen och kanaler</h2>
+<p>En ny bot finns i inget samhälle. Lägg till den som en person, antingen via samhällets hantering av medlemmar eller via API:et:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/teams/$TEAM_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"team_id": "'$TEAM_ID'", "user_id": "'$BOT_USER_ID'"}'
+
+curl -X POST https://chat.example.com/api/v4/channels/$CHANNEL_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"user_id": "'$BOT_USER_ID'"}'</code></pre>
+<p>En bot med <b>post:kanaler</b> eller <b>post:all</b> kan posta utan att vara medlem, men den tar endast emot WebSocket-händelser för de kanaler den är i.</p>
+
+<h2 id="post">Skriv inlägg som boten</h2>
+<p>Använd botens token i valfri API-anrop; <code>POST /api/v4/posts</code> är det vanligaste (se <a href="{{root}}docs/developers/api.html#resources">Huvudresurser</a>). För att skriva direkt till någon, öppna först direktmeddelandekanalen:</p>
+<pre><code># returns the channel; use its "id" as channel_id
+curl -X POST https://chat.example.com/api/v4/channels/direct \
+  -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' \
+  -d '["'$BOT_USER_ID'", "'$USER_ID'"]'</code></pre>
+<p>För att reagera på vad andra skriver, följ <a href="{{root}}docs/developers/api.html#websocket">WebSocket</a> med botens token och svara på de <code>posted</code>-händelser du är intresserad av. Ignorera botens egna meddelanden för att undvika loopar.</p>
+<p>Ett meddelande som bara en person kan se (ett tillfälligt meddelande) skickas med <code>POST /api/v4/posts/ephemeral</code> och <code>{"user_id", "post": {"channel_id", "message"}}</code>. Det kräver behörigheten <code>create_post_ephemeral</code>, som endast systemadministratörer har som standard. Integrationer skickar oftast tillfälliga meddelanden som svar på snedstreckskommandon och knappar.</p>
+
+<h2 id="interactive">Interaktiva meddelanden: knappar och menyer</h2>
+<p>Valfritt meddelande med bilagor kan bära åtgärder: knappar och menyer att välja från. De fungerar i meddelanden som skickats via API:et, webhooks och svar på snedstreckskommandon. När någon använder en åtgärd anropar Antimatter din integrationens URL.</p>
+<pre><code>{
+  "channel_id": "…",
+  "message": "Deploy **api 2.4.0** to production?",
+  "props": {
+    "attachments": [{
+      "actions": [
+        {
+          "id": "approve",
+          "type": "button",
+          "name": "Approve",
+          "style": "primary",
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "approve"}}
+        },
+        {
+          "id": "env",
+          "type": "select",
+          "name": "Pick an environment",
+          "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}],
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "env"}}
+        }
+      ]
+    }]
+  }
+}</code></pre>
+<ul>
+<li><code>type</code>: <code>button</code> eller <code>select</code>.</li>
+<li><code>id</code>: bokstäver, siffror, bindestreck och understreck, unika för varje åtgärd i meddelandet. Genereras om du lämnar den ut.</li>
+<li><code>style</code> (knappar): <code>default</code>, <code>primary</code>, <code>success</code>, <code>good</code>, <code>warning</code>, <code>danger</code> eller en hex-färg.</li>
+<li><code>options</code> (menyer), eller <code>data_source</code>: <code>users</code> eller <code>channels</code> för att välja en person eller en kanal. <code>default_option</code> förval ett värde.</li>
+<li><code>integration.url</code>: vart klicket skickas. En app (plugin) kan använda sin egen route, till exempel <code>/plugins/com.example.deploy/actions</code>. <code>integration.context</code> är din: den kommer tillbaka med klicket och klienterna ser den aldrig.</li>
+</ul>
+<h3>Begäran som din integration mottar</h3>
+<pre><code>{
+  "user_id": "…",
+  "user_name": "priya",
+  "channel_id": "…",
+  "channel_name": "releases",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "post_id": "…",
+  "trigger_id": "…",
+  "type": "button",
+  "context": {"release": "2.4.0", "action": "approve"}
+}</code></pre>
+<p>För en meny är <code>type</code> <code>select</code> och <code>context.selected_option</code> innehåller det valda värdet.</p>
+<h3>Ditt svar</h3>
+<pre><code>{
+  "update": {"message": "Deploy of **api 2.4.0** approved by @priya", "props": {}},
+  "ephemeral_text": "Done. The deploy starts in a minute."
+}</code></pre>
+<ul>
+<li><code>update</code>: ersätter meddelandets text och egenskaper, till exempel för att ta bort knapparna när de har använts (en tom <code>props</code>).</li>
+<li><code>ephemeral_text</code>: ett meddelande som endast den som klickade ser.</li>
+<li><code>goto_location</code>: en URL som ska öppnas.</li>
+<li>En tom body ändrar ingenting.</li>
+</ul>
+<p>Servern väntar så länge som <b>Timeout vid integrationer</b> tillåter (30 sekunder som standard). Integrations-URL:er på privata nätverksadresser måste tillåtas av en systemadministratör, på samma sätt som webhooks.</p>
+
+<h2 id="dialogs">Dialoger</h2>
+<p>En dialog är ett formulär som öppnas ovanför chatten. Du kan endast öppna en som svar på något personen just gjorde, ett snedstreckskommando eller en knapp, eftersom den behöver den begäran <code>trigger_id</code>. <code>trigger_id</code> är giltig så länge som integration request timeout.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/actions/dialogs/open \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "trigger_id": "'$TRIGGER_ID'",
+    "url": "https://deploy.example.com/dialog",
+    "dialog": {
+      "callback_id": "new-release",
+      "title": "New release",
+      "introduction_text": "Fill in the release details.",
+      "submit_label": "Create",
+      "notify_on_cancel": false,
+      "state": "anything you want back",
+      "elements": [
+        {"display_name": "Version", "name": "version", "type": "text", "placeholder": "2.4.0"},
+        {"display_name": "Notes", "name": "notes", "type": "textarea", "optional": true},
+        {"display_name": "Environment", "name": "env", "type": "select",
+         "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}]},
+        {"display_name": "Owner", "name": "owner", "type": "select", "data_source": "users"},
+        {"display_name": "Notify the channel", "name": "notify", "type": "bool", "default": "true"}
+      ]
+    }
+  }'</code></pre>
+<table>
+<thead><tr><th>Elementtyp</th><th>Vad det visar</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>Ett fält på en rad. <code>subtype</code>: <code>text</code>, <code>email</code>, <code>number</code>, <code>password</code>, <code>tel</code> eller <code>url</code>. <code>min_length</code> och <code>max_length</code> begränsar det.</td></tr>
+<tr><td><code>textarea</code></td><td>Ett fält med flera rader.</td></tr>
+<tr><td><code>select</code></td><td>En lista: <code>options</code>, eller <code>data_source</code> <code>users</code>, <code>channels</code>, eller <code>dynamic</code> med en <code>data_source_url</code>. <code>multiselect</code> tillåter flera värden.</td></tr>
+<tr><td><code>bool</code></td><td>En kryssruta.</td></tr>
+<tr><td><code>radio</code></td><td>Ett val bland <code>options</code>.</td></tr>
+<tr><td><code>date</code>, <code>datetime</code></td><td>Ett datum, eller ett datum och en tid.</td></tr>
+</tbody>
+</table>
+<p>Varje element tar <code>display_name</code>, <code>name</code>, <code>help_text</code>, <code>placeholder</code>, <code>default</code> och <code>optional</code>.</p>
+<p>När personen skickar in formuläret POST:ar Antimatter till dialogens <code>url</code>:</p>
+<pre><code>{
+  "type": "dialog_submission",
+  "callback_id": "new-release",
+  "state": "anything you want back",
+  "user_id": "…",
+  "channel_id": "…",
+  "team_id": "…",
+  "submission": {"version": "2.4.0", "notes": "", "env": "staging", "owner": "…", "notify": true},
+  "cancelled": false
+}</code></pre>
+<p>Svara med en tom body för att stänga dialogen, eller håll den öppen och visa vad som är fel:</p>
+<pre><code>{"errors": {"version": "This version already exists."}}</code></pre>
+<p><code>{"error": "…"}</code> visar ett meddelande för hela formuläret. Med <code>notify_on_cancel</code> skickas <code>"cancelled": true</code> när dialogen stängs. Dialoger fungerar på samma sätt i appar: plugin-API:ets <code>OpenInteractiveDialog</code> tar samma begäran.</p>

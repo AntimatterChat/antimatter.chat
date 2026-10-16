@@ -16,6 +16,12 @@ A page's content file starts with front matter lines ("key: value") up to a line
     title       the <title> and the share preview title
     description the meta description and share preview text
     plain       "yes" for pages without a dark hero (the navigation bar is solid from the top)
+    guide       for documentation pages: the guide the page belongs to (a key of GUIDES); the page is shown with
+                the guide's navigation, its own table of contents and links to the previous and next pages
+    nav         the page's name in the guide's navigation (its title when absent)
+    order       the page's position in the guide's navigation
+
+Documentation lives in src/pages/docs/<guide>/; each guide's index.html is its first page.
 """
 import hashlib
 import html
@@ -146,6 +152,7 @@ def icon(name, cls=''):
 
 NAV = [
     ('Features', 'features.html'),
+    ('Docs', 'docs/index.html'),
     ('Compare', 'compare/index.html'),
     ('Self-host', 'install.html'),
     ('About', 'about.html'),
@@ -157,6 +164,8 @@ FOOTER = [
     ('Compare', [('Slack', 'compare/slack.html'), ('Mattermost', 'compare/mattermost.html'),
                  ('Rocket.Chat', 'compare/rocketchat.html'), ('Discord', 'compare/discord.html'),
                  ('Microsoft Teams', 'compare/teams.html'), ('Element (Matrix)', 'compare/element.html')]),
+    ('Documentation', [('Using Antimatter', 'docs/users/index.html'), ('Running a server', 'docs/admins/index.html'),
+                       ('Running a community', 'docs/communities/index.html'), ('Building on Antimatter', 'docs/developers/index.html')]),
     ('Project', [('About', 'about.html'), ('Help & support', 'help.html'), ('Report a problem', 'help.html#report'),
                  ('Security', 'help.html#security')]),
     ('Legal', [('Privacy policy', 'privacy.html'), ('Terms of use', 'terms.html'), ('License', 'about.html#license')]),
@@ -194,7 +203,8 @@ def layout(path, meta, body, lang):
         for code, (tg, _) in LANGS.items())
     alternates += f'<link rel="alternate" hreflang="x-default" href="{SITE}/{"" if path == "index.html" else path}">\n'
     nav = ''.join(
-        f'<a href="{base}{href}"{" aria-current=\"page\"" if href == path else ""}>{t(lang, label)}</a>' for label, href in NAV)
+        f'<a href="{base}{href}"{" aria-current=\"page\"" if href == path or (href == "docs/index.html" and path.startswith("docs/")) else ""}>{t(lang, label)}</a>'
+        for label, href in NAV)
     cols = ''.join(
         f'<div><h4>{t(lang, title)}</h4><ul>' + ''.join(f'<li><a href="{link(h, base)}">{t(lang, l)}</a></li>' for l, h in items)
         + '</ul></div>' for title, items in FOOTER)
@@ -253,6 +263,69 @@ def layout(path, meta, body, lang):
 '''
 
 
+# The documentation's guides, one per audience: directory under docs/, then its name.
+GUIDES = {
+    'users': 'Using Antimatter',
+    'admins': 'Running a server',
+    'communities': 'Running a community',
+    'developers': 'Building on Antimatter',
+}
+DOCS_STRINGS = ['Documentation', 'Guides', 'On this page', 'Previous', 'Next']
+
+
+def guide_pages(guide, lang):
+    """A guide's pages in a language, in order: [(path, meta, content)]."""
+    out = []
+    for f in (PAGES / 'docs' / guide).glob('*.html'):
+        rel = f.relative_to(PAGES).as_posix()
+        translated = PAGES / lang / rel
+        meta, content = parse((translated if lang != 'en' and translated.exists() else f).read_text())
+        out.append((rel, meta, content))
+    return sorted(out, key=lambda x: (int(x[1].get('order', 99)), x[0]))
+
+
+def docs_page(rel, meta, content, lang):
+    """A documentation page's content inside its guide: the guide's navigation, the page, previous and next."""
+    guide = meta['guide']
+    pages = guide_pages(guide, lang)
+    here = [p[0] for p in pages].index(rel)
+    depth = rel.count('/')
+    up = '../' * depth  # from the page to the root of its language
+    heads = re.findall(r'<h2 id="([^"]+)">(.*?)</h2>', content)
+    toc = ''.join(f'<li><a href="#{i}">{re.sub(r"<[^>]+>", "", h)}</a></li>' for i, h in heads)
+    items = []
+    for path, m, _ in pages:
+        current = path == rel
+        label = html.escape(m.get('nav') or m.get('title', path))
+        items.append(f'<li><a href="{up}{path}"{" aria-current=\"page\"" if current else ""}>{label}</a>'
+                     + (f'<ul class="toc">{toc}</ul>' if current and toc else '') + '</li>')
+    guides = ''.join(f'<option value="{up}docs/{g}/index.html"{" selected" if g == guide else ""}>{t(lang, name)}</option>'
+                     for g, name in GUIDES.items())
+    pager = ''
+    if here > 0:
+        p, m, _ = pages[here - 1]
+        pager += (f'<a class="prev" href="{up}{p}"><small>{t(lang, "Previous")}</small>'
+                  f'{html.escape(m.get("nav") or m["title"])}</a>')
+    if here < len(pages) - 1:
+        p, m, _ = pages[here + 1]
+        pager += (f'<a class="next" href="{up}{p}"><small>{t(lang, "Next")}</small>'
+                  f'{html.escape(m.get("nav") or m["title"])}</a>')
+    lead = f'<p class="lead">{meta["lead"]}</p>' if meta.get('lead') else ''
+    return f'''<div class="docs wrap">
+<aside class="docs-nav" aria-label="{html.escape(t(lang, GUIDES[guide]), quote=True)}">
+<a class="docs-home" href="{up}docs/index.html">{t(lang, "Documentation")}</a>
+<label class="docs-guide"><span class="sr">{t(lang, "Guides")}</span><select onchange="location.href=this.value">{guides}</select></label>
+<ul>{''.join(items)}</ul>
+</aside>
+<article class="docs-body prose">
+<h1>{html.escape(meta["title"])}</h1>
+{lead}
+{content}
+<nav class="pager">{pager}</nav>
+</article>
+</div>'''
+
+
 def render(text, root, base):
     """Expands the content's shortcuts: {{icon:name}}, {{icon:name:cls}} and {{root}}, the path to the site's root
     for assets (assets/...) and to the root of the page's language for links to pages."""
@@ -308,7 +381,7 @@ def compare_pages(lang):
     """The comparison pages' content in a language: the overview and one page per app, as {path: content}."""
     import compare_data as cd
     c = {k: t(lang, v) for k, v in COMPARE.items()}
-    legend = '<p class="legend">' + t(lang, LEGEND).replace('{issues}', 'https://github.com/AntimatterChat/antimatter.chat/issues') + '</p>'
+    legend = '<p class="legend">' + t(lang, LEGEND).replace('{issues}', 'https://github.com/AntimatterChat/community/issues') + '</p>'
     cards = ''.join(
         f'<a class="card reveal" href="{key}.html" style="display:block"><h3>{c["vs"].replace("{name}", name)}</h3>'
         f'<p>{html.escape(t(lang, cd.NOTES[key]["lead"]))}</p></a>' for key, name in cd.APPS.items())
@@ -349,7 +422,7 @@ def shared_strings():
     for title, items in FOOTER:
         out += [title] + [label for label, _ in items]
     out += [FOOTER_TEXT, LEGAL_LICENSE, LEGAL_TRADEMARKS, 'Skip to content', 'Menu', 'Main', 'Language',
-            'Yes', 'Partly', 'No', 'Feature', LEGEND] + list(COMPARE.values())
+            'Yes', 'Partly', 'No', 'Feature', LEGEND] + list(COMPARE.values()) + list(GUIDES.values()) + DOCS_STRINGS
     for g, feature, values in cd.ROWS:
         out += [g, feature] + [note for _, note in values.values() if note]
     for n in cd.NOTES.values():
@@ -374,10 +447,11 @@ def parse(raw):
 def stamp():
     """Records the current version of each English page in its translations."""
     for code in LANGS:
-        for f in sorted((PAGES / code).glob('*.html')) if code != 'en' else []:
+        for f in sorted((PAGES / code).rglob('*.html')) if code != 'en' else []:
             raw = f.read_text()
             head, _, content = raw.partition('\n---\n')
-            lines = [l for l in head.splitlines() if not l.startswith('source: ')] + [f'source: {source_hash(f.name)}']
+            name = f.relative_to(PAGES / code).as_posix()
+            lines = [l for l in head.splitlines() if not l.startswith('source: ')] + [f'source: {source_hash(name)}']
             f.write_text('\n'.join(lines) + '\n---\n' + content)
             print('stamped', f.relative_to(PAGES))
 
@@ -391,7 +465,8 @@ def main():
     if '--stamp' in sys.argv:
         stamp()
         return
-    english = sorted(f.name for f in PAGES.glob('*.html'))
+    english = sorted(f.relative_to(PAGES).as_posix() for f in PAGES.rglob('*.html')
+                     if f.relative_to(PAGES).parts[0] not in LANGS)
     for code in LANGS:
         pages = {}
         for name in english:
@@ -413,6 +488,9 @@ def main():
             root = '../' * (rel.count('/') + (code != 'en'))
             out = ROOT / lang_dir(code) / rel
             out.parent.mkdir(parents=True, exist_ok=True)
+            if meta.get('guide'):
+                meta = dict(meta, plain='yes')
+                content = docs_page(rel, meta, content.strip(), code)
             out.write_text(layout(rel, meta, render(content.strip(), root, root + lang_dir(code)), code))
     print('built', len(LANGS), 'languages')
 

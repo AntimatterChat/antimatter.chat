@@ -1,0 +1,85 @@
+title: Provoz
+description: Denní provoz Antimatteru: kontroly stavu, metriky a monitorování, aplikace Metriky, podpůrné balíčky, vyhledávání a škálování, vysoká dostupnost, uchovávání dat, exporty pro soulad s předpisy a auditační protokoly, opravy běžných problémů.
+guide: admins
+order: 11
+nav: Provoz
+lead: Sledujte server, zajistěte, aby zvládal více uživatelů, rozhodněte, jak dlouho se data uchovávají, a řešte problémy, s nimiž se administrátoři nejčastěji setkávají.
+source: 32577b38c3db
+---
+<h2 id="health">Kontroly stavu</h2>
+<ul>
+<li><code>amctl --local system status</code> (v kontejneru: <code>docker compose exec antimatter amctl --local system status</code>). Kontrola stavu obrazu Docker se spouští každých 30 sekund, takže <code>docker compose ps</code> zobrazí <code>healthy</code> nebo <code>unhealthy</code>.</li>
+<li><code>GET /api/v4/system/ping</code> odpovídá bez přihlášení, což je vhodné pro externí monitor nebo vyvažovač zátěže: <code>curl -fsS https://chat.example.com/api/v4/system/ping</code>.</li>
+<li><code>antimatter db ping</code> ověří, že je databáze dosažitelná s nastavenými parametry.</li>
+<li>Sekce <b>Systémová konzole › Reporty › Systémové statistiky</b> zobrazuje počet uživatelů, příspěvků a relací, zatímco <b>Optimalizace pracovního prostoru</b> vyjmenuje problémy s konfigurací, které je třeba řešit.</li>
+</ul>
+
+<h2 id="metrics">Metriky</h2>
+<p>Server může publikovat metriky Prometheus: frekvence a délka požadavků, websocketové připojení, využití databáze a mezipaměti, úlohy, háčky pluginů a další. Zapněte je v <b>Systémová konzole › Prostředí › Monitorování výkonu</b>:</p>
+<table>
+<thead><tr><th>Nastavení</th><th>Klíč a proměnná</th><th>Výchozí</th></tr></thead>
+<tbody>
+<tr><td><b>Povolit monitorování výkonu</b></td><td><code>MetricsSettings.Enable</code>, <code>AM_METRICSSETTINGS_ENABLE</code></td><td>Vypnuto</td></tr>
+<tr><td><b>Adresa naslouchání</b></td><td><code>MetricsSettings.ListenAddress</code>, <code>AM_METRICSSETTINGS_LISTENADDRESS</code></td><td><code>:8067</code></td></tr>
+<tr><td><b>Povolit monitorování výkonu klienta</b></td><td><code>MetricsSettings.EnableClientMetrics</code></td><td>zapnuto: prohlížeče a aplikace hlásí vlastní časy odezvy</td></tr>
+</tbody>
+</table>
+<p>Prometheus pak sbírá data z <code>http://&lt;server&gt;:8067/metrics</code>. Každá metrika je publikována pod svým názvem Mattermost (<code>mattermost_…</code>) i pod svým názvem Antimatter (<code>antimatter_…</code>), takže stávající dashboardy Mattermost dál fungují. Aplikace publikují vlastní metriky, například aplikace Agenti na <code>/plugins/mattermost-ai/metrics</code>.</p>
+<p>Port pro metriky nevyžaduje přihlášení: nechte ho v privátní síti. Soubor compose pro web ho nepublikuje; pokud ho chcete sbírat z hostitele, přidejte <code>"127.0.0.1:8067:8067"</code> do sekce <code>ports</code> služby <code>antimatter</code>.</p>
+<h3>Aplikace Metriky</h3>
+<p>Bez serveru Prometheus sbírá aplikace Metrics (výchozí stav je vypnuto, viz <a href="{{root}}docs/admins/apps.html">Balíček aplikací</a>) stejné metriky do malé databáze časových řad uvnitř Antimatter: každých 60 sekund, s uchováváním po dobu 15 dnů. Při spuštění aktivuje koncový bod pro metriky. Její stránka v <b>Systémová konzole › Pluginy</b> zobrazuje velikost databáze a umožňuje stáhnout výpisy dat pro vlastní analýzu nebo přiložit k hlášení chyby; poslední den se také přidává do podpůrných balíčků.</p>
+
+<h2 id="support-packet">Podpůrný balíček</h2>
+<p>Podpůrný balíček je soubor zip, který obsahuje vše potřebné pro diagnostiku problému: verze, statistiky, konfigurace bez utajených údajů, seznam aplikací a úloh, schéma databáze, nedávné protokoly a profily výkonu. Vytvoříte ho příkazem <code>amctl system supportpacket</code> nebo v Systémové konzoli z menu v horní části bočního panelu (<b>Komerční podpora</b>, kde pak můžete vybrat, co zahrnout). Před sdílením si ho přečtěte: neobsahuje zprávy, ale obsahuje názvy komunit, uživatelů a nastavení.</p>
+
+<h2 id="scaling">Výkon a škálování</h2>
+<p>Jeden server s 2 jádry CPU a 4 GB paměti obsluží několik set lidí. Před přidáváním dalších serverů zvažte:</p>
+<ul>
+<li><b>Databáze.</b> Většinu práce odvádí PostgreSQL: zajistěte mu rychlé úložiště a dostatek paměti. Čtecí repliky mohou převzát čtecí zátěž (<code>SqlSettings.DataSourceReplicas</code>, seznam URL pro připojení).</li>
+<li><b>Hledat.</b> Zprávy se ve výchozím nastavení vyhledávají v databázi. U velkých serverů může vyhledávání a indexování převzít Elasticsearch nebo OpenSearch: <b>Systémová konzole › Prostředí › Elasticsearch</b> (<code>ElasticsearchSettings</code>: <b>Typ backendu</b> Elasticsearch nebo OpenSearch, <b>Adresa připojení k serveru</b>, přihlašovací údaje, poté povolte indexování, sestavte index a povolte vyhledávání).</li>
+<li><b>Hovory.</b> Média hovorů představují největší zátěž. Přesuňte je na server rtcd: viz <a href="{{root}}docs/admins/calls.html#rtcd">Hovory a hlas</a>.</li>
+<li><b>Otevřené soubory.</b> Každý připojený uživatel drží otevřené websocket. Produkční soubor compose projektu antimatter-docker zvyšuje limit na 49152 (<code>ulimits: nofile</code>); to samé proveďte pomocí systemd (<code>LimitNOFILE</code>).</li>
+<li><b>Protokoly.</b> Snížte <code>LogSettings.ConsoleLevel</code> na <code>INFO</code> nebo <code>WARN</code>: <code>DEBUG</code> generuje na vytíženém serveru velké množství záznamů.</li>
+</ul>
+<h3>Vysoká dostupnost</h3>
+<p>Více serverů Antimatter může běžet jako cluster za load balancerem, aniž by vyžadovaly licenci. Musí sdílet stejnou databázi PostgreSQL, stejné úložiště souborů S3 a konfiguraci v databázi (<code>AM_CONFIG</code>). V sekci <b>Systémová konzole › Prostředí › Vysoká dostupnost</b> (<code>ClusterSettings</code>): zapněte <b>Povolit režim vysoké dostupnosti</b> (<code>ClusterSettings.Enable</code>), přidejte všem uzlům stejný <b>Název clusteru</b> (<code>ClusterSettings.ClusterName</code>) a ujistěte se, že si uzly mohou navzájem komunikovat na gossip portu, <b>8074</b> TCP a UDP (<code>ClusterSettings.GossipPort</code>). Uzly se navzájí najdou přes databázi. Load balancer musí propouštět websockets. Pro hovory v clusteru použijte rtcd.</p>
+
+<h2 id="retention">Zachování dat</h2>
+<p>Ve výchozím nastavení Antimatter uchovává všechny zprávy a soubory navždy. Pokud chcete starší obsah automaticky odstraňovat, přejděte do sekce <b>Systémová konzole › Shoda s předpisy › Zásady pro uchovávání dat</b>:</p>
+<ul>
+<li><b>Globální zásada pro uchovávání dat</b> nastavuje <b>Uchovávání kanálů a přímých zpráv</b> a <b>Uchovávání souborů</b> pro celý server: <b>Uchovávat navždy</b>, nebo konkrétní počet hodin, dnů nebo let (<code>DataRetentionSettings.EnableMessageDeletion</code>, <code>MessageRetentionHours</code>, <code>EnableFileDeletion</code>, <code>FileRetentionHours</code>).</li>
+<li><b>Vlastní zásady pro uchovávání dat</b> nastavují jinou dobu uchovávání pro vybrané komunity a kanály.</li>
+<li>Úloha pro mazání běží každý den ve vámi zvoleném čase (<code>DataRetentionSettings.DeletionJobStartTime</code>, ve výchozím nastavení <code>02:00</code> UTC). Tlačítko <b>Spustit úlohu pro mazání nyní</b> ji spustí okamžitě a <b>Protokol zásad</b> vyjmenuje, co každé provedení odstranilo.</li>
+</ul>
+<div class="callout warn">Odstraněné zprávy a soubory jsou trvale ztraceny, z databáze i z úložiště souborů. Před zapnutím politiky zkontrolujte nastavené doby a pamatujte, že vaše zálohy stále obsahují odstraněná data, dokud nevyprší.</div>
+
+<h2 id="compliance">Export pro compliance a deníky auditu</h2>
+<ul>
+<li>Sekce <b>Systémová konzole › Shoda s předpisy › Export pro souladnost</b> denně exportuje všechny zprávy a soubory (<b>Povolit export pro soulad s předpisy</b>, <code>MessageExportSettings.EnableExport</code>, výchozí stav vypnuto; <b>Čas exportu souladu</b>, výchozí hodnota <code>01:00</code>) do jednoho z formátů, které archivní systémy čtou: CSV, Actiance XML nebo Global Relay (zip soubor, nebo EML odeslané přes SMTP). Příkaz <code>amctl compliance-export</code> spouští export a stahuje ho z příkazového řádku.</li>
+<li>Sekce <b>Monitorování souladnosti</b> (<code>ComplianceSettings</code>) zapisuje denní zprávy do adresáře. Jedná se o starší mechanismus; preferujte Export pro souladnost.</li>
+<li>Sekce <b>Auditní protokolování</b> (beta, <code>ExperimentalAuditSettings</code>) zaznamenává administrativní a bezpečnostní události (přihlášení, změny oprávnění a nastavení) do samostatného souboru.</li>
+<li>Nastavení <b>Vlastní podmínky služby</b> vyžaduje, aby všichni uživatelé před použitím Antimatteru přijali vaše podmínky, a znovu po jejich změně.</li>
+</ul>
+
+<h2 id="troubleshooting">Common problems</h2>
+<h3>"Cannot connect to the server", or messages only appear after a reload</h3>
+<p>The websocket doesn't get through. Check that the reverse proxy passes <code>Upgrade</code> and <code>Connection</code> headers (see <a href="{{root}}docs/admins/https.html#nginx">the nginx example</a>), and that the site URL matches the address in the browser exactly, including <code>https</code>.</p>
+<h3>Uploads fail with "413 Request Entity Too Large"</h3>
+<p>Proxy služba velikost zamítá. Zvyšte její limit (v nginx <code>client_max_body_size</code>) na alespoň hodnotu <b>Maximální velikost souboru</b> v sekci <b>Systémová konzole › Prostředí › Úložiště souborů</b> (<code>FileSettings.MaxFileSize</code>, výchozí hodnota 100 MB).</p>
+<h3>People can't start calls, or join but hear nothing</h3>
+<p>If nobody but administrators can start calls, turn Calls' <b>Test mode</b> off. If people join but hear nothing, the media port is blocked or the server announces the wrong address: open 8443 UDP and TCP, and set <b>ICE Host Override</b> behind NAT. People on networks that block both need a TURN server. See <a href="{{root}}docs/admins/calls.html">Calls and voice</a>.</p>
+<h3>The GIF picker is empty</h3>
+<p>Zkontrolujte <b>URL GIF služby</b> (<code>http://gifs:8080/v2</code> v compose souboru webu) a <b>API klíč</b> (<code>GIFS_API_KEY</code> v souboru <code>.env</code>) v sekci <b>Systémová konzole › Pluginy › GIF</b>, a také, že služba <code>gifs</code> běží: <code>docker compose ps gifs</code>.</p>
+<h3>No emails arrive</h3>
+<p>Použijte <b>Test připojení</b> v sekci <b>Systémová konzole › Prostředí › SMTP</b>, zkontrolujte, že <b>Adresa odesílatele oznámení</b> není stále <code>test@example.com</code>, a prohledejte protokol po výrazu <code>smtp</code> nebo <code>mail</code>.</p>
+<h3>An app shows "Failed to start"</h3>
+<p>Look for its id in the log (<code>docker compose logs antimatter | grep &lt;app id&gt;</code>). Disable and enable it in Plugin Management to restart it.</p>
+<h3>The server doesn't start</h3>
+<p>Read the end of its log. Most often the database is unreachable (check <code>AM_SQLSETTINGS_DATASOURCE</code> with <code>antimatter db ping</code>), a database migration failed (restore the backup taken before the upgrade and report the error), or the listen port is taken.</p>
+<h3>Locked out of the administrator account</h3>
+<p>Z serveru, lokální režim nevyžaduje heslo:</p>
+<pre><code>docker compose exec antimatter amctl --local user change-password admin --password 'a-new-password'
+docker compose exec antimatter amctl --local user resetmfa admin
+docker compose exec antimatter amctl --local roles system-admin admin</code></pre>
+<h3>Nahlášení chyby</h3>
+<p>Otevřete problém v <a href="https://github.com/AntimatterChat/community/issues/new/choose">komunitním repozitáři Antimatter</a> a uveďte verzi, způsob instalace, co jste provedli a příslušné řádky z logu. Bezpečnostní problémy nám prosím nahláste soukromě, jak je popsáno v <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">zásadách pro bezpečnost</a>.</p>

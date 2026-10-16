@@ -1,0 +1,120 @@
+title: Configuratie
+description: Hoe de configuratie van Antimatter werkt: instellingen in de database of in config.json, AM_ omgevingsvariabelen, de Systeemconsole, het amctl command-line tool en waar de logs te vinden zijn.
+guide: admins
+order: 3
+nav: Configuratie
+lead: Waar Antimatter zijn instellingen bewaart, de drie manieren om ze te wijzigen (Systeemconsole, omgevingsvariabelen, amctl) en waar de logs terechtkomen.
+source: e2d6546121d3
+---
+<h2 id="where">Waar de instellingen staan</h2>
+<p>Elke serverinstelling heeft een naam die bestaat uit een sectie en een sleutel, zoals <code>ServiceSettings.SiteURL</code> of <code>EmailSettings.SMTPServer</code>. Samen vormen ze één configuratie, die in een van de twee volgende locaties wordt opgeslagen:</p>
+<ul>
+<li><b>In de database.</b> Het compose-bestand van de site zet <code>AM_CONFIG</code> in op de verbindings-URL van PostgreSQL, zodat de configuratie een rij in de database is en de container niets op de schijf bewaart. Meerdere servers die één database delen, delen ook hun configuratie.</li>
+<li><b>In een bestand.</b> Zonder <code>AM_CONFIG</code> leest de server <code>config/config.json</code> naast de <code>bin/</code>-map (<code>/antimatter/config/config.json</code> in het Docker-image). De release-archief en de productie-compose-bestanden van antimatter-docker werken zo. Houd dit bestand alleen leesbaar door de gebruiker van de server: het bevat wachtwoorden en sleutels.</li>
+</ul>
+<p><code>AM_CONFIG</code> (of de <code>--config</code>-vlag van het <code>antimatter</code>-commando) accepteert zowel een bestandspad als een <code>postgres://</code>-URL. Instellingen die u niet opgeeft, krijgen hun standaardwaarde.</p>
+<p>Om een bestaande configuratie van een bestand naar de database te verplaatsen, voert u dit op de server uit en start u de server daarna op met <code>AM_CONFIG</code> ingesteld op dezelfde URL:</p>
+<pre><code>amctl --local config migrate /opt/antimatter/config/config.json \
+    "postgres://antimatter:PASSWORD@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10"</code></pre>
+
+<h2 id="environment">Omgevingsvariabelen</h2>
+<p>Elke instelling kan ook als omgevingsvariabele worden opgegeven. Variabelen hebben voorrang op de opgeslagen configuratie, wat ze geschikt maakt voor wat bij de implementatie hoort: de database, de site-URL, de opslag van bestanden, de poorten.</p>
+<h3>Naamgevingsregel</h3>
+<p>Schrijf <code>AM_</code>, dan de sectie, dan de sleutel, in hoofdletters en gescheiden door underscores. De woorden binnen een sectie- of sleutelnaam worden niet gescheiden:</p>
+<table>
+<thead><tr><th>Instelling</th><th>Variabele</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.SiteURL</code></td><td><code>AM_SERVICESETTINGS_SITEURL</code></td></tr>
+<tr><td><code>SqlSettings.DataSource</code></td><td><code>AM_SQLSETTINGS_DATASOURCE</code></td></tr>
+<tr><td><code>EmailSettings.SMTPServer</code></td><td><code>AM_EMAILSETTINGS_SMTPSERVER</code></td></tr>
+<tr><td><code>PrivacySettings.EnableUserBlocking</code></td><td><code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li>Instellingen met een booleaanse waarde nemen <code>true</code> of <code>false</code>; getallen zijn gewone getallen.</li>
+<li>Lijst-instellingen nemen waarden gescheiden door spaties, bijvoorbeeld <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>.</li>
+<li>Instellingen die objecten zijn, nemen JSON. De enige dergelijke variabele voor apps is <code>AM_PLUGINSETTINGS_PLUGINS</code>, en deze vervangt de instellingen van <em>elke</em> app tegelijk: stel app-instellingen in via de Systeemconsole of met <code>amctl</code> (zie hieronder).</li>
+<li>Oudere Mattermost-installaties gebruiken het voorvoegsel <code>MM_</code>, bijvoorbeeld <code>MM_SQLSETTINGS_DATASOURCE</code>. Dit werkt nog steeds als verouderde alias. Als beide zijn ingesteld, heeft de <code>AM_</code>-variabele voorrang.</li>
+</ul>
+<p>Een instelling die via een variabele is gegeven, is vergrendeld in de Systeemconsole, met de melding "Deze instelling is ingesteld via een omgevingsvariabele. Hij kan niet worden gewijzigd via de Systeemconsole." Hij wordt niet naar de opgeslagen configuratie geschreven: verwijder de variabele en de opgeslagen waarde wordt weer toegepast.</p>
+<h3>Met Docker Compose</h3>
+<p>Voeg variabelen toe onder <code>environment:</code> van de <code>antimatter</code>-service, of in een <code>compose.override.yaml</code> naast <code>compose.yaml</code> (Compose leest dit automatisch en het blijft behouden bij updates van het gedownloade bestand):</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_LOGSETTINGS_CONSOLELEVEL: INFO</code></pre>
+<p>Pas wijzigingen toe met <code>docker compose up -d</code>, wat de container opnieuw aanmaakt.</p>
+<h3>Variabelen die door de apps worden gelezen</h3>
+<p>Een aantal apps leest hun eigen variabelen, ingesteld op de <code>antimatter</code>-service: de Calls-app leest <code>AM_CALLS_*</code> (zie <a href="{{root}}docs/admins/calls.html">Gesprekken en spraak</a>), en de GIFs-app leest <code>AM_GIFS_SERVICE_URL</code>, <code>AM_GIFS_API_KEY</code> en <code>AM_GIFS_UPLOAD_KEY</code> (zie <a href="{{root}}docs/admins/apps.html">Ingebouwde apps</a>).</p>
+
+<h2 id="console">De Systeemconsole</h2>
+<p>De Systeemconsole is het beheergedeelte van de webapp, bestemd voor systeembeheerders. Open het door op je profielfoto te klikken en <b>Systeem console</b> te kiezen, of door te gaan naar <code>https://chat.example.com/admin_console</code>. In de zijbalk vind je een <b>Instellingen zoeken</b>-vak waarmee je door alle pagina's kunt zoeken.</p>
+<figure><img src="{{root}}assets/img/shots/admin.webp" alt="The System Console, with its sidebar of sections on the left and the SAML 2.0 settings page on the right."><figcaption>De Systeemconsole. De zijbalk groepeert de pagina's in secties zoals Rapportage, Gebruikersbeheer en Omgeving.</figcaption></figure>
+<p>De secties zijn:</p>
+<ul>
+<li><b>Rapportage</b>: statistieken en de serverlogboeken.</li>
+<li><b>Gebruikersbeheer</b>: gebruikers, groepen, gemeenschappen (vermeld als Teams), kanalen, machtigingen en gedelegeerd beheer.</li>
+<li><b>Systeemkenmerken</b>: aangepaste profielkenmerken en op kenmerken gebaseerde toegang.</li>
+<li><b>Omgeving</b>: webserver, database, opslag van bestanden, afbeeldingsproxy, SMTP, pushmeldingen, limieten voor verzoeken, loggen, sessieduur en prestatiebewaking.</li>
+<li><b>Site Configuratie</b>: huisstijl, gebruikers en teams, meldingen, berichten, bestanddelen en andere serverbrede instellingen.</li>
+<li><b>Authenticatie</b>: registratie, inloggen met e-mail en wachtwoord, MFA, AD/LDAP, SAML 2.0, OAuth 2.0, OpenID Connect en gasttoegang.</li>
+<li><b>Plugins</b>: appbeheer en de instellingen van elke geïnstalleerde app.</li>
+<li><b>Integraties</b>: webhooks, slash-opdrachten, bot-accounts, GIFs, tekst-naar-spraak, CORS.</li>
+<li><b>Voldoet aan</b>: bewaartermijnen, export en bewaking voor compliance, auditloggen en aangepaste servicevoorwaarden.</li>
+<li><b>Experimenteel</b>: functies die kunnen veranderen.</li>
+</ul>
+<p>In deze handleiding wordt een instelling aangegeven door het pad in de Systeemconsole, gevolgd door de labelnaam en de configuratie-sleutel. Bijvoorbeeld <b>Systeemconsole › Site Configuratie › Gebruikers en Teams › Negeren, blokkeren en berichtverzoeken inschakelen</b> (<code>PrivacySettings.EnableUserBlocking</code>).</p>
+<p>De meeste wijzigingen worden toegepast zodra u op <b>Opslaan</b> klikt. Een paar (het luisteradres, sommige database- en cache-instellingen) vereist een herstart, en de pagina geeft dit aan.</p>
+
+<h2 id="amctl">Het commandoregelhulpmiddel amctl</h2>
+<p><code>amctl</code> beheert een server vanaf de commandoregel: gebruikers, communities, kanalen, apps, configuratie, taken en meer. Het communiceert met de server op een van de twee manieren.</p>
+<h3>Lokale modus, op de server</h3>
+<p>In de lokale modus kan <code>amctl</code> met de server communiceren via een Unix-socket, zonder in te loggen. Het is ingeschakeld in het Docker-image. Op een server die is geïnstalleerd uit een archief, schakelt u het in met <b>ServiceSettings.EnableLocalMode</b> (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>). De socket is standaard <code>/var/tmp/antimatter_local.socket</code> (<code>ServiceSettings.LocalModeSocketLocation</code>).</p>
+<pre><code># with Docker Compose
+docker compose exec antimatter amctl --local system status
+# with a release archive
+sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code></pre>
+<div class="callout warn">Iedereen die de socket kan gebruiken, of <code>docker compose exec</code> op de host kan uitvoeren, heeft volledige systeembeheerderrechten.</div>
+<h3>Afstand, met een account</h3>
+<p>Vanaf elk apparaat, log in met een systeembeheerderaccount (of een persoonlijke toegangstoken), en voer dan commando's uit tegen die server:</p>
+<pre><code>amctl auth login https://chat.example.com --name prod --username admin
+amctl system status</code></pre>
+<h3>Configuratiecommando's</h3>
+<table>
+<thead><tr><th>Opdracht</th><th>Wat het doet</th></tr></thead>
+<tbody>
+<tr><td><code>amctl config get ServiceSettings.SiteURL</code></td><td>Toont één instelling.</td></tr>
+<tr><td><code>amctl config set TeamSettings.EnableOpenServer false</code></td><td>Wijzigt één instelling. Lijstinstellingen nemen meerdere waarden aan.</td></tr>
+<tr><td><code>amctl config patch settings.json</code></td><td>Voegt een JSON-bestand met instellingen toe aan de configuratie.</td></tr>
+<tr><td><code>amctl config show</code></td><td>Toont de volledige configuratie als JSON.</td></tr>
+<tr><td><code>amctl config edit</code></td><td>Opent de configuratie in uw editor (<code>$EDITOR</code>).</td></tr>
+<tr><td><code>amctl config reset</code></td><td>Reset instellingen naar de standaardwaarden.</td></tr>
+<tr><td><code>amctl config reload</code></td><td>Laadt de configuratie opnieuw in vanaf de opslaglocatie, na een wijziging die buiten de server is gemaakt.</td></tr>
+</tbody>
+</table>
+<p>App-instellingen staan onder <code>PluginSettings.Plugins.&lt;app id&gt;</code>, met sleutels in kleine letters. Bijvoorbeeld, om de service-URL en sleutel van de GIFs-app in te stellen vanaf de Docker-host:</p>
+<pre><code>docker compose exec -T antimatter amctl --local config patch /dev/stdin &lt;&lt;'EOF'
+{"PluginSettings": {"Plugins": {"com.antimatterchat.gifs": {
+  "serviceurl": "http://gifs:8080/v2",
+  "apikey": "the GIFS_API_KEY of your .env"
+}}}}
+EOF</code></pre>
+<p>Andere nuttige opdrachten: <code>amctl user create</code>, <code>amctl user deactivate</code>, <code>amctl team create</code>, <code>amctl plugin list</code>, <code>amctl plugin enable</code>, <code>amctl system supportpacket</code> en <code>amctl logs</code>. Voer <code>amctl help &lt;command&gt;</code> uit voor de opties van elke opdracht.</p>
+
+<h2 id="logs">Logboeken</h2>
+<p>De server schrijft zijn log naar twee locaties, elk met een eigen niveau (<code>DEBUG</code>, <code>INFO</code>, <code>WARN</code> of <code>ERROR</code>), ingesteld in <b>Systeemconsole › Omgeving › Loggen</b>:</p>
+<table>
+<thead><tr><th>Bestemming</th><th>Instellingen</th><th>Standaardwaarden</th></tr></thead>
+<tbody>
+<tr><td>De console (standaarduitvoer)</td><td><b>Log naar console</b> (<code>LogSettings.EnableConsole</code>), <b>Console Log Level</b> (<code>LogSettings.ConsoleLevel</code>), <b>Uitvoer logs in de console als JSON</b> (<code>LogSettings.ConsoleJson</code>)</td><td>aan, <code>DEBUG</code>, JSON</td></tr>
+<tr><td>Een bestand, <code>antimatter.log</code></td><td><b>Log naar bestand</b> (<code>LogSettings.EnableFile</code>), <b>Bestand log-niveau</b> (<code>LogSettings.FileLevel</code>), <b>Map voor logs</b> (<code>LogSettings.FileLocation</code>)</td><td>aan, <code>INFO</code>, de <code>logs/</code>-map naast <code>bin/</code></td></tr>
+</tbody>
+</table>
+<p>Logbestanden worden geroteerd bij 100 MB en de oudere bestanden gecomprimeerd.</p>
+<p>Het compose-bestand van de site schakelt het loggen naar een bestand uit (<code>AM_LOGSETTINGS_ENABLEFILE=false</code>), zodat de logboeken alleen in de container-uitvoer staan:</p>
+<pre><code>docker compose logs -f antimatter
+docker compose logs --since 1h antimatter | grep -i error</code></pre>
+<p>Het console-niveau is standaard <code>DEBUG</code>, wat veel details bevat. Op een drukke server stel je <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code> in. Bij een release-archief onder systemd gaat de console-uitvoer naar het journaal (<code>journalctl -u antimatter</code>) en het bestand naar <code>/opt/antimatter/logs/antimatter.log</code>.</p>
+<p>Wanneer loggen naar bestand is ingeschakeld, kunnen systeembeheerders de nieuwste logregels ook lezen in <b>Systeemconsole › Rapportage › Server Logs</b>, of met <code>amctl logs</code>.</p>

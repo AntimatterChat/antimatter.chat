@@ -1,0 +1,122 @@
+title: Mga Slash Command
+description: Mga custom slash command sa Antimatter: paggawa, ang request na tinatanggap ng iyong service, format ng sagot, mga ephemeral at in-channel na sagot, delayed answers, at autocomplete.
+guide: developers
+order: 4
+nav: Mga Slash Command
+lead: Pang-aalok ng custom slash command ang pagpapa-type ng /something sa message box upang tumawag sa iyong service. Ipinapadala ng Antimatter ang command sa iyong URL at ipinapakita ang iyong sagot, maaaring sa isang tao lamang o sa buong channel.
+source: 24dbc9730e62
+---
+<h2 id="how">Paano gumagana ang slash command</h2>
+<ol>
+<li>May nag-type ng <code>/weather Paris</code> at ipinadala ito. Hindi ipinost ang text.</li>
+<li>Ipinapadala ng Antimatter ang HTTP request sa URL ng command, kasama ang sinumang nag-type, saan, at ang text pagkatapos ng trigger.</li>
+<li>Sasagutin ng iyong service ang request sa loob ng request timeout (30 segundo ang default) gamit ang mensahe.</li>
+<li>Ipinapakita ng Antimatter ang sagot: sa iisang tao lamang (ephemeral) o sa channel para sa lahat.</li>
+</ol>
+<p>Ang mga command ay kinalipat ng isang community, at ang trigger word ay unique sa loob nito. Ang mga built-in commands tulad ng <code>/join</code>, <code>/msg</code> o <code>/away</code> ay hindi maaaring palitan. Maaari ring magparehistro ng commands ang mga Apps (plugins); tingnan ang <a href="{{root}}docs/developers/apps.html#server">The server part</a>.</p>
+
+<h2 id="create">Paggawa ng command</h2>
+<p>Naka-on by default ang mga custom slash command (<b>Enable Custom Slash Commands</b> sa <b>System Console › Mga Integration › Pamamahala ng Integration</b>, <code>ServiceSettings.EnableCommands</code>). Maaari nilang lumikha nito ang mga community admin at system admin by default.</p>
+<ol>
+<li>Buksan ang iyong avatar sa itaas na kanan, tapos <b>Mga Integration › Mga Slash Command</b>, tapos <b>Magdagdag ng Slash Command</b>.</li>
+<li>Punan ang <b>Pamagat</b> at <b>Paglalarawan</b> (ipinapakita sa mga pahina ng integration).</li>
+<li>Ilagay ang <b>Trigger Word ng Command</b>, nang walang slash at walang puwang, halimbawa <code>weather</code>.</li>
+<li>Ilagay ang <b>URL ng Request</b> at piliin ang <b>Methid ng Reklamo</b>: <b>POST</b> (ang default) o <b>GET</b>.</li>
+<li>Opsyonal na maglagay ng <b>Username ng Sagot</b> at <b>Icon ng Sagot</b>. Ginagamit lamang ito kapag pinapayagan ng server ang mga integration na palitan ang mga pangalan at icon (tingnan ang <a href="{{root}}docs/developers/webhooks.html#identity">Pangalan at icon</a>).</li>
+<li>Tikman ang <b>Autocomplete</b> upang i-list ang command kapag nagta-type ng <code>/</code>, kasama ang <b>Autocomplete Hint</b> (ang mga arguments nito, tulad ng <code>[city]</code>) at <b>Autocomplete Description</b>.</li>
+<li>Piliin ang <b>I-save</b>, at i-copy ang token na ipinapakita. Ginagamit nito ng iyong service upang siguraduhing mula sa iyong server ang mga request.</li>
+</ol>
+<p>Sa pamamagitan ng API: <code>POST /api/v4/commands</code> gamit ang <code>{"team_id", "trigger", "url", "method": "P", "display_name", "description", "auto_complete": true, "auto_complete_hint", "auto_complete_desc", "username", "icon_url"}</code>. Ang <code>P</code> ay para sa POST, at ang <code>G</code> ay para sa GET. Ang <code>PUT /api/v4/commands/{command_id}/regen_token</code> ay naglalabas ng bagong token.</p>
+
+<h2 id="request">Ang hiling na tinatanggap ng iyong serbisyo</h2>
+<p>Ang POST command ay nagpapadala ng form-encoded na katawan (<code>application/x-www-form-urlencoded</code>); ang GET command ay nagpapadala ng mga parehong field sa query string. Nakapaloob din ang token sa <code>Authorization: Token &lt;token&gt;</code> header.</p>
+<table>
+<thead><tr><th>Field</th><th>Halaga</th></tr></thead>
+<tbody>
+<tr><td><code>token</code></td><td>Ang token ng command. Suriin ito sa bawat hiling.</td></tr>
+<tr><td><code>command</code></td><td>Ang trigger kasama ang slash, halimbawa <code>/weather</code>.</td></tr>
+<tr><td><code>text</code></td><td>Lahat ng nasa likod ng trigger, halimbawa <code>Paris</code>.</td></tr>
+<tr><td><code>user_id</code>, <code>user_name</code></td><td>Sino ang nagpatawag nito.</td></tr>
+<tr><td><code>channel_id</code>, <code>channel_name</code></td><td>Saan ito ipinagpatupad.</td></tr>
+<tr><td><code>team_id</code>, <code>team_domain</code></td><td>Ang ID at URL name ng komunidad.</td></tr>
+<tr><td><code>root_id</code></td><td>Ang thread, kung ipinagpatupad ito sa reply box ng isang thread.</td></tr>
+<tr><td><code>trigger_id</code></td><td>Pinapayagan ng ito na buksan ng iyong sagot ang isang dialog (tingnan ang <a href="{{root}}docs/developers/bots.html#dialogs">Dialogs</a>). May limitadong panahon lamang itong valid.</td></tr>
+<tr><td><code>response_url</code></td><td>Isang URL para mag-post ng karagdagang sagot mamaya (tingnan ang <a href="#delayed">Delayed answers</a>).</td></tr>
+<tr><td><code>user_mentions</code>, <code>user_mentions_ids</code>, <code>channel_mentions</code>, <code>channel_mentions_ids</code></td><td>Ang mga tao at pampublikong channel na binanggit sa teksto, kung mayroon.</td></tr>
+</tbody>
+</table>
+<div class="callout">Ang <b>Site URL</b> ng server ay dapat na nakaset upang tumakbo ang mga custom command: binubuo ng Antimatter ang <code>response_url</code> mula rito.</div>
+
+<h2 id="response">Ang sagot</h2>
+<p>Sagutin ang <code>200</code> gamit ang JSON (<code>Content-Type: application/json</code>):</p>
+<pre><code>{
+  "response_type": "in_channel",
+  "text": "Paris: 18 °C, light rain",
+  "attachments": []
+}</code></pre>
+<table>
+<thead><tr><th>Field</th><th>Kahulugan</th></tr></thead>
+<tbody>
+<tr><td><code>response_type</code></td><td><code>ephemeral</code> (ang default): nakikita lamang ng taong nagpatawag ng command ang sagot, at hindi ito natatago pagkatapos ng reload. <code>in_channel</code>: ipinopost ang sagot sa channel.</td></tr>
+<tr><td><code>text</code>, <code>attachments</code></td><td>Ang mensahe, katulad ng sa mga webhook: Markdown na teksto at <a href="{{root}}docs/developers/webhooks.html#attachments">attachments</a>, kasama ang mga button at menu.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code></td><td>Ang pangalan at larawan para ipakita, kung pinapayagan ang mga override. Ang mga setting ng sarili ng command ang nananalo sa mga ito.</td></tr>
+<tr><td><code>channel_id</code></td><td>I-post ang sagot sa ibang channel, na dapat miyembro ang taong nagpatawag.</td></tr>
+<tr><td><code>goto_location</code></td><td>Isang URL na bubuksan pagkatapos tumakbo ang command.</td></tr>
+<tr><td><code>props</code>, <code>type</code></td><td>Mga karagdagang property at custom na uri ng post, katulad ng sa mga webhook.</td></tr>
+<tr><td><code>extra_responses</code></td><td>Mga karagdagang sagot, bawat isa ay may parehong field, na ipinopost pagkatapos ng unang sagot.</td></tr>
+<tr><td><code>skip_slack_parsing</code></td><td>Ang <code>true</code> ay pinapanatili ang teksto na naka-isa, nang walang pag-convert ng mga Slack-style na link at mention.</td></tr>
+</tbody>
+</table>
+<p>Ang sagot na hindi JSON ay ipapakita bilang ephemeral na mensahe na may katawan bilang teksto. Ang <code>204 No Content</code> ay walang ipapakita. Ang anumang status na nasa labas ng 200–299 ay ipapakita sa tao ang isang error.</p>
+
+<h2 id="example">Halimbawang serbisyo</h2>
+<p>Isang minimal na command service sa Python, gamit lamang ang standard library:</p>
+<pre><code>import hmac
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
+
+TOKEN = "the token shown when you saved the command"
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        form = {key: values[0] for key, values in parse_qs(body).items()}
+        if not hmac.compare_digest(form.get("token", ""), TOKEN):
+            self.send_response(401)
+            self.end_headers()
+            return
+        answer = {
+            "response_type": "ephemeral",
+            "text": f"Hello @{form['user_name']}, you asked for: {form.get('text', '')}",
+        }
+        data = json.dumps(answer).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(data)
+
+HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()</code></pre>
+<p>Kung ang service ay tumatakbo sa isang private network address, dapat payagan nito ng isang system admin sa <b>Pahintulutan ang mga untrusted internal connections sa</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>).</p>
+
+<h2 id="delayed">Mga hinala na sagot</h2>
+<p>Para sa mga gawain na mas matagal kaysa sa timeout, sagutin agad (halimbawa, gamit ang ephemeral na "Working on it…"), tapos i-POST ang tunay na sagot sa <code>response_url</code>. Tinatanggap nito ang parehong JSON ng response, at gumagawa hanggang 5 beses sa loob ng 30 minuto mula sa command.</p>
+<pre><code>curl -X POST "$RESPONSE_URL" -H 'Content-Type: application/json' \
+  -d '{"response_type": "in_channel", "text": "Report ready: https://reports.example.com/42"}'</code></pre>
+
+<h2 id="run">Paggamit ng command gamit ang API</h2>
+<p>Ang mga script at bot ay maaaring gumamit ng anumang command, built-in o custom, parang sila ang nagsulat nito:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/commands/execute \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "command": "/weather Paris"}'</code></pre>
+<p>Ang <code>GET /api/v4/teams/{team_id}/commands/autocomplete</code> ay naglilista ng mga command na maaaring i-autocomplete ng mga tao sa isang community.</p>
+
+<h2 id="autocomplete">Autocomplete</h2>
+<p>Ang mga command na nabuo sa mga integrations pages ay nag-a-autocomplete gamit ang kanilang trigger, hint, at description. Ang mga command na narehistro ng mga app ay maaaring ilarawan nang detalyado ang kanilang subcommands at arguments gamit ang <code>AutocompleteData</code>, mula sa <code>model.NewAutocompleteData(trigger, hint, helpText)</code>:</p>
+<ul>
+<li>Ang <code>AddCommand(sub)</code> ay nagdadagdag ng isang subcommand, na isang <code>AutocompleteData</code> rin.</li>
+<li>Ang <code>AddTextArgument(helpText, hint, pattern)</code> ay nagdadagdag ng libreng text.</li>
+<li>Ang <code>AddStaticListArgument(helpText, required, items)</code> ay nag-aalok ng isang fixed list ng <code>AutocompleteListItem{Item, Hint, HelpText}</code>.</li>
+<li>Ang <code>AddDynamicListArgument(helpText, url, required)</code> ay humihingi ng mga mungkahi mula sa iyong app habang nagsusulat ang mga tao. Ang URL ay isang route ng iyong app, tulad ng <code>/plugins/com.example.weather/cities</code>. Tinatanggap nito ang user, channel, at community, at nagbabalik ng isang JSON list ng <code>{"Item", "Hint", "HelpText"}</code>.</li>
+</ul>
+<p>Ang mga <code>Named…</code> variants (<code>AddNamedTextArgument</code> at iba pa) ay nagdadagdag ng mga <code>--name value</code> flags. Ipinapakita ng parehong web interfaces ang mga mungkahi na ito.</p>

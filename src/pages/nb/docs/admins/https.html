@@ -1,0 +1,161 @@
+title: Domene, HTTPS og reverse proxies
+description: Server Antimatter på ditt eget domene over HTTPS, med den medfølgende Caddy-profilen eller din egen nginx reverse proxy, og still inn nettside-URL-en og klientadressene riktig.
+guide: admins
+order: 4
+nav: Domene og HTTPS
+lead: Plasser Antimatter på et domenenavn med HTTPS, ved hjelp av Caddy-profilen i compose-filen eller en reverse proxy du har selv, og sørg for at nettside-URL-en og klientadressene er riktige.
+source: 69e8779d356e
+---
+<h2 id="site-url">Nettside-URL-en</h2>
+<p>Nettside-URL-en (<code>ServiceSettings.SiteURL</code>) er adressen folk bruker for å nå Antimatter, for eksempel <code>https://chat.example.com</code>. Serveren bruker den i lenker i e-poster og varsler, i omdirigeringer ved pålogging (OAuth, OpenID Connect, SAML), for mobil- og skrivebordsappene, og for å sjekke hvor forespørsler kommer fra. Still inn nøyaktig adressen i nettleserens adressefelt: protokoll, domene og port hvis ikke standard, uten skråstrek i slutten.</p>
+<ul>
+<li>Med nettsidens compose-fil: <code>SITE_URL</code> i <code>.env</code>.</li>
+<li>Et annet sted: <code>AM_SERVICESETTINGS_SITEURL</code>, eller <b>Systemkonsoll › Miljø › Nettserver › Nettsteds-URL</b>.</li>
+</ul>
+<p>Hvis nettside-URL-en er feil, vil pålogging med en identitetsleverandør mislykkes, lenker i e-poster peke til feil sted, og appene kan ikke koble til. Etter å ha endret domenet, oppdater det her og i omdirigerings-URL-ene for alle identitetsleverandører.</p>
+
+<h2 id="caddy">HTTPS med den medfølgende Caddy-profilen</h2>
+<p>Nettsidens <code>compose.yaml</code> inneholder en <a href="https://caddyserver.com">Caddy</a>-tjeneste i <code>https</code>-profilen. Den henter et sertifikat fra Let's Encrypt, fornyer det automatisk, omdirigerer HTTP til HTTPS og videresender alt, inkludert websockets, til Antimatter.</p>
+<ol>
+<li>Pek en DNS-post (A, og AAAA for IPv6) for domenet mot serveren.</li>
+<li>Åpne portene 80/tcp, 443/tcp og 443/udp (HTTP/3) i brannmuren. Let's Encrypt må kunne nå port 80 eller 443 fra internett.</li>
+<li>Legg til domenet i <code>.env</code> og still inn nettside-URL-en:
+<pre><code>echo "DOMAIN=chat.example.com" &gt;&gt; .env
+sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env</code></pre></li>
+<li>Start med profilen:
+<pre><code>docker compose --profile https up -d</code></pre></li>
+</ol>
+<p>Legg til <code>--profile https</code> i alle senere <code>docker compose up</code>-kommandoer, eller legg inn <code>COMPOSE_PROFILES=https</code> i <code>.env</code> slik at vanlig <code>docker compose up -d</code> inkluderer den. Caddy lagrer sertifikatene sine i <code>https</code>-volumet.</p>
+<p>Antimatters egen port forblir utgitt på vertsmaskinen (<code>HTTP_PORT</code>, 8065 som standard). Med Caddy foran, behold den kun for selve serveren:</p>
+<pre><code>echo "HTTP_PORT=127.0.0.1:8065" &gt;&gt; .env
+docker compose --profile https up -d</code></pre>
+<p>Caddy når Antimatter over det interne <code>edge</code>-nettverket, ikke gjennom den porten, så dette endrer ingenting for brukerne dine.</p>
+
+<h2 id="nginx">Med din egen reverse proxy (nginx)</h2>
+<p>Hvis serveren allerede kjører nginx eller en annen proxy, slår du av <code>https</code>-profilen og peker proxyen mot Antimatters port 8065. Proxyen må:</p>
+<ul>
+<li>la WebSocket-opgraderinger passere (nettappet og mobilappene holder en WebSocket åpen på <code>/api/v4/websocket</code>, og noen apper åpner sine egne);</li>
+<li>akseptere forespørselskropper som er minst like store som den største opplastingen (<b>Maksimal filstørrelse</b>, 100 MB som standard);</li>
+<li>holde langlevende tilkoblinger åpne (WebSockets, store opplastinger og nedlastinger);</li>
+<li>la <code>Host</code>-hodet og klientens adresse passere.</li>
+</ul>
+<p>Et komplett serverblokk, tilpasset fra produksjonsmalen i antimatter-docker. Bytt ut domenet og sertifikatstiene:</p>
+<pre><code>upstream antimatter {
+    server 127.0.0.1:8065;
+    keepalive 64;
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+proxy_cache_path /var/cache/nginx/antimatter levels=1:2 keys_zone=antimatter_cache:10m
+                 max_size=3g inactive=120m use_temp_path=off;
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name chat.example.com;
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name chat.example.com;
+
+    ssl_certificate     /etc/ssl/chat.example.com/fullchain.pem;
+    ssl_certificate_key /etc/ssl/chat.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:AntimatterSSL:10m;
+    ssl_session_tickets off;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # At least FileSettings.MaxFileSize (100 MB by default).
+    client_max_body_size 100M;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade           $http_upgrade;
+    proxy_set_header Connection        $connection_upgrade;
+    proxy_buffers 256 16k;
+    proxy_buffer_size 16k;
+
+    location ~ ^/api/v[0-9]+/(users/)?websocket$ {
+        client_body_timeout 60s;
+        send_timeout 300s;
+        lingering_timeout 5s;
+        proxy_connect_timeout 90s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 90s;
+        proxy_pass http://antimatter;
+    }
+
+    location / {
+        proxy_read_timeout 600s;
+        proxy_cache antimatter_cache;
+        proxy_cache_revalidate on;
+        proxy_cache_min_uses 2;
+        proxy_cache_use_stale timeout;
+        proxy_cache_lock on;
+        proxy_pass http://antimatter;
+    }
+}</code></pre>
+<p>Sjekk filen med <code>nginx -t</code> og anvend den med <code>systemctl reload nginx</code>. Serveren sender <code>X-Content-Type-Options</code>, <code>Referrer-Policy</code>, <code>Permissions-Policy</code> og <code>X-Frame-Options</code> selv; kun HSTS er opp til proxyen. Øk <code>max-age</code> når HTTPS fungerer, og legg til <code>includeSubDomains</code> bare hvis alle underdomener bruker HTTPS.</p>
+<p>Med Docker Compose og nginx på verten, peker <code>upstream</code> ovenfor mot den utgitte porten 8065. Gi den ut kun på <code>127.0.0.1</code> (<code>HTTP_PORT=127.0.0.1:8065</code>), slik at ingen kan omgå proxyen.</p>
+<p>antimatter-docker-repositoriet har en fullstendig oppsett med nginx i en container og Let's Encrypt via certbot, i <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">deploy/compose</a>.</p>
+
+<h3>Andre proxyer</h3>
+<p>Enhver proxy fungerer hvis den oppfyller de fire punktene ovenfor. Audio- og videotaler går aldri gjennom proxyen: de bruker sin egen port, se <a href="{{root}}docs/admins/calls.html">Samtaler og tale</a>.</p>
+
+<h2 id="client-address">Klientadresser bak en proxy</h2>
+<p>Bak en proxy ser alle forespørsler ut til å komme fra proxyen. For å logge den egentlige klientadressen, anvende hastighetsbegrensninger per klient og bruke IP-filtrering, må du fortelle serveren hvilket hode som bærer adressen, og hvilke proxyer den kan stole på. Ingen av disse innstillingene har et felt i Systemkonsollen: sett dem i <code>config.json</code> eller med variabler.</p>
+<table>
+<thead><tr><th>Nøkkel og variabel</th><th>Standard</th><th>Hva det gjør</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.TrustedProxyIPHeader</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER</code></td><td>tom: serveren bruker adressen til tilkoblingen</td><td>Hodene som bærer klientens adresse, for eksempel <code>X-Forwarded-For</code>. Det første som er til stede i en forespørsel, brukes.</td></tr>
+<tr><td><code>ServiceSettings.TrustedProxyIPs</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code></td><td>tom</td><td>Adressene eller CIDR-områdene til proxyene dine, for eksempel <code>172.29.71.0/28</code>. Hodene teller bare for forespørsler som kommer fra én av dem.</td></tr>
+</tbody>
+</table>
+<p>I en variabel, separer flere verdier med mellomrom: <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>. Serveren avviser en konfigurasjon som har en post i <code>TrustedProxyIPs</code> som verken er en IP-adresse eller et CIDR-område.</p>
+<h3>Hvordan serveren finner klientens adresse</h3>
+<p>Hver proxy legger adressen den mottok forespørselen fra til høyre for <code>X-Forwarded-For</code>. Det klienten selv sendte i overskriften forblir til venstre. Serveren leser derfor overskriften fra høyre, hopper over adressene til de tillitede proxyene, og bruker den første andre adressen som klientens. En klient kan ikke velge sin egen adresse ved å sende sin egen overskrift.</p>
+<ul>
+<li>Bak én proxy gir <code>TrustedProxyIPHeader</code> alene rett adresse: serveren bruker den ytterste adressen i overskriften. Den logger en advarsel ved oppstart inntil du også setter <code>TrustedProxyIPs</code>. Uten dette kan alle som når port 8065 direkte sette overskriften, så publiser kun den porten på <code>127.0.0.1</code> eller på et privat nettverk.</li>
+<li>Bak flere proxyer, for eksempel en CDN eller en lastbalanser foran din egen proxy, må du liste dem alle i <code>TrustedProxyIPs</code>. Ellers tar serveren den ytre proxyens adresse for klientens.</li>
+<li>Proxyen kan erstatte overskriften med adressen den ser, som nginx-eksemplet over gjør (<code>X-Forwarded-For $remote_addr</code>), eller legge til i den (nginxs <code>$proxy_add_x_forwarded_for</code>). Begge deler fungerer.</li>
+</ul>
+<h3>Hvilke adresser du skal liste</h3>
+<p>List adressen proxyens forespørsler kommer fra, slik Antimatter ser den.</p>
+<ul>
+<li>Med nettstedets compose-fil og Caddy er dette allerede gjort: Caddy når Antimatter via <code>edge</code>-nettverket, og compose-filen setter <code>TrustedProxyIPHeader</code> til <code>X-Forwarded-For</code> og <code>TrustedProxyIPs</code> til det nettverkets område, <code>EDGE_SUBNET</code> (<code>172.29.71.0/28</code> med mindre du endrer det i <code>.env</code>). Endre <code>EDGE_SUBNET</code> hvis det overlapper med ett av dine nettverk.</li>
+<li>Produksjonsoppsettet i antimatter-docker gjør det samme for nginx-beholderen, med <code>FRONTEND_SUBNET</code>.</li>
+<li>Med nginx på vertsmaskinen og Antimatter i Docker, når forespørsler Antimatter gjennom den publiserte porten, vanligvis fra gateway-adressen til compose-projektets nettverk (<code>docker network inspect</code> viser den). Sett <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code> til den adressen i <code>compose.override.yaml</code>.</li>
+<li>Uten Docker, med nginx på samme vert, er det <code>127.0.0.1</code> (og <code>::1</code> hvis nginx kobler til via IPv6).</li>
+</ul>
+
+<h2 id="builtin-tls">TLS uten en proxy</h2>
+<p>Serveren kan også selv levere HTTPS, i <b>Systemkonsoll › Miljø › Nettserver</b>: <b>Forbindelsessikkerhet</b> satt til TLS (<code>ServiceSettings.ConnectionSecurity</code>), med <b>TLS-sertifikatfil</b> og <b>TLS-nøkkel</b> (<code>ServiceSettings.TLSCertFile</code>, <code>ServiceSettings.TLSKeyFile</code>), eller <b>Bruk Let's Encrypt</b> (<code>ServiceSettings.UseLetsEncrypt</code>). Serveren må da lytte på port 443 (<b>Lyttadresse</b>, <code>ServiceSettings.ListenAddress</code>, <code>:8065</code> som standard), og <code>ServiceSettings.Forward80To443</code> videresender port 80. En omvendt proxy er enklere å kjøre og fornye, og er det denne veiledningen forutsetter.</p>
+
+<h2 id="timeouts">Serverens tidsavbrudd og størrelse på forespørsler</h2>
+<p>Innstillinger for serverens egen nettserver, i <b>Systemkonsoll › Miljø › Nettserver</b>:</p>
+<table>
+<thead><tr><th>Innstilling</th><th>Nøkkel</th><th>Standard</th></tr></thead>
+<tbody>
+<tr><td><b>Lyttadresse</b></td><td><code>ServiceSettings.ListenAddress</code></td><td><code>:8065</code></td></tr>
+<tr><td><b>Lesetidslimit</b></td><td><code>ServiceSettings.ReadTimeout</code></td><td>300 sekunder</td></tr>
+<tr><td><b>Skriveavbruddstid</b></td><td><code>ServiceSettings.WriteTimeout</code></td><td>300 sekunder</td></tr>
+<tr><td>Tidsavbrudd for inaktivitet (ingen felt i System Console)</td><td><code>ServiceSettings.IdleTimeout</code></td><td>60 sekunder</td></tr>
+<tr><td><b>Maksimalt laststørrelse (byte)</b></td><td><code>ServiceSettings.MaximumPayloadSizeBytes</code></td><td>se <a href="{{root}}docs/admins/security.html">Sikkerhet</a></td></tr>
+</tbody>
+</table>
+<p>Hold proxyens egne tidsbegrensninger minst like lange som disse for vanlige forespørsler, og størrelsen på kroppen minst <b>Maksimal filstørrelse</b>.</p>

@@ -1,0 +1,75 @@
+title: சர்வரை இயக்குதல்
+description: Antimatter-ஐ நிறுவி இயக்கும் அமைப்பு நிர்வாகிகளுக்கான வழிகாட்டி: ஒரு நிறுவல் என்னென்னால் ஆனது, என்ன தேவை, எங்கிருந்து தொடங்க வேண்டும்.
+guide: admins
+order: 1
+nav: மேலோட்டம்
+lead: இந்த வழிகாட்டி Antimatter சர்வரை நிறுவி இயக்கும் அமைப்பு நிர்வாகிகளுக்காகும். இது நீங்கள் Linux, Docker மற்றும் reverse proxy-களை அறிவீர்கள், ஆனால் Antimatter-ஐ அறியவில்லை என்று கருதுகிறது.
+source: bf9ad573ed07
+---
+<h2 id="parts">ஒரு நிறுவலில் என்னென்ன உள்ளன</h2>
+<p>Antimatter என்பது தானியங்கு-நிறுவல் (self-hosted) குழு உரையாடல், Mattermost-இன் ஒரு fork. ஒரு முழுமையான நிறுவல் இவற்றால் ஆனது. முதல் மூன்றே அவசியமானவை.</p>
+<table>
+<thead><tr><th>பகுதி</th><th>இது என்ன செய்கிறது</th><th>அவசியம்</th></tr></thead>
+<tbody>
+<tr><td><b>Antimatter சர்வரர்</b></td><td>8065 போர்ட்டில் web app, API மற்றும் websockets-ஐ வழங்கும், சேர்க்கப்பட்ட பயன்பாடுகளை (plugins) இயக்கும், 8443 போர்ட்டில் அழைப்பு ஊடகங்களை (call media) கடத்தும் ஒரு Go நிரல் (<code>antimatter</code>). <code>amctl</code> என்ற கட்டளை-வரி கருவி (command-line tool) இதை நிர்வகிக்கிறது.</td><td>ஆம்</td></tr>
+<tr><td><b>PostgreSQL</b></td><td>தரவுத்தளம்: செய்திகள், பயனர்கள், சமூகங்கள் மற்றும் பரிந்துரைக்கப்பட்ட அமைப்பில் சர்வரின் அமைப்புகள். பதிப்பு 15 அல்லது அதற்குப் புதியது.</td><td>ஆம்</td></tr>
+<tr><td><b>கோப்பு சேமிப்பு</b></td><td>பதிவேற்றப்பட்ட கோப்புகள், படங்கள் மற்றும் நிறுவப்பட்ட பயன்பாடுகள்: S3-உடன் இணைக்கக்கூடிய சேவை (compose file RustFS-ஐ இயக்குகிறது) அல்லது உள்ளூர் வடிவமைப்பு (local directory).</td><td>ஆம்</td></tr>
+<tr><td><b>ஒரு reverse proxy</b></td><td>சர்வரின் முன்னால் HTTPS: compose file-இன் Caddy profile அல்லது உங்கள் சொந்த nginx.</td><td>உற்பத்திக்கு (production)</td></tr>
+<tr><td><b>GIF சேவை</b> (<code>gifs-server</code>)</td><td>GIF தேர்விக்கான (GIF picker) GIFs மற்றும் stickers, உங்கள் சொந்த வர்த்தகப்பட்டியலிலிருந்து. இது Tenor API-உடன் தொடர்பு கொள்கிறது.</td><td>இல்லை</td></tr>
+<tr><td><b>ஒரு push proxy</b></td><td>Apple மற்றும் Google வழியாக அறிவிப்புகளை (notifications) மொபைல் பயன்பாட்டிற்கு முன்னேற்றுகிறது.</td><td>மொபைல் அறிவிப்புகளுக்கு</td></tr>
+<tr><td><b>rtcd</b>, <b>ஒரு TURN சர்வரர்</b></td><td>பல அழைப்புகளுக்கு தனி ஊடக சர்வரர், கடுமையான firewalls-க்கு பின்னால் உள்ளவர்களுக்கு relay.</td><td>இல்லை</td></tr>
+<tr><td><b>AI முனைகள் (endpoints)</b></td><td>AI agents, அழைப்பு எழுத்துப்படுத்தல் (transcription), படித்துக் கேட்பு (read-aloud) மற்றும் மொழிபெயர்ப்பின் பின்னே உள்ள மாதிரிகள்: ஒரு மின்னூட்ட சேவை (cloud provider) அல்லது நீங்கள் இயக்கும் சர்வர்கள்.</td><td>இல்லை</td></tr>
+</tbody>
+</table>
+<p>Antimatter-இல் உரிமம் (licence) இல்லை, கட்டண பதிப்பு இல்லை: single sign-on, LDAP, high availability, compliance exports, data retention மற்றும் Mattermost-இன் கட்டண திட்டங்களுக்காக ஒதுக்கப்பட்ட மற்ற அம்சங்கள் அனைத்தும் இதில் சேர்க்கப்பட்டுள்ளன.</p>
+
+<h2 id="requirements">தேவைகள்</h2>
+<ul>
+<li>ஒரு Linux சர்வரர், <code>amd64</code> அல்லது <code>arm64</code>, சில நூறு மக்களுக்காக 2 CPU cores மற்றும் 4 GB memory அல்லது அதற்கு மேல், மக்கள் பதிவேற்றும் கோப்புகளுக்கான டிஸ்க் இடம்.</li>
+<li>பரிந்துரைக்கப்பட்ட நிறுவலுக்காக Compose plugin-உடன் கூடிய Docker Engine (<code>docker compose</code>).</li>
+<li>உற்பத்திக்கு (production): சர்வரை சுட்டிக்காட்டும் ஒரு domain name, HTTPS-க்காக 80 மற்றும் 443 போர்ட்கள் திறந்திருக்க வேண்டும்.</li>
+<li>அழைப்புகளுக்கு (calls): 8443 போர்ட், UDP மற்றும் TCP, அழைப்பவர்களால் அணுகக்கூடியதாக இருக்க வேண்டும்.</li>
+<li>மின்னஞ்சலுக்காக (email): Antimatter வழியாக அனுப்பக்கூடிய ஒரு SMTP சர்வரர்.</li>
+</ul>
+
+<h2 id="quick-start">விரைவு தொடக்கம் (Quick start)</h2>
+<pre><code>mkdir antimatter &amp;&amp; cd antimatter
+curl -fsSLO https://antimatter.chat/compose.yaml
+cat &gt; .env &lt;&lt;EOF
+SITE_URL=http://localhost:8065
+POSTGRES_PASSWORD=$(openssl rand -hex 24)
+S3_SECRET_KEY=$(openssl rand -hex 24)
+GIFS_API_KEY=$(openssl rand -hex 24)
+EOF
+docker compose up -d</code></pre>
+<p>பின்னர் தளத்தின் URL-ஐ திறந்து உங்கள் கணக்கை உருவாக்குங்கள்: முதல் கணக்கு அமைப்பு நிர்வாகியாக (system administrator) மாறும். <a href="{{root}}docs/admins/install.html">நிறுவல்</a> ஒவ்வொரு படியையும் மற்றும் நிறுவும் மற்ற வழிகளையும் விளக்குகிறது.</p>
+
+<h2 id="in-this-guide">இந்த வழிகாட்டியில்</h2>
+<ul>
+<li><a href="{{root}}docs/admins/install.html">நிறுவல்</a>: Docker Compose, ஊடகங்கள் (images), வெளியீட்டு ஆர்கைவ் (release archive), முதல் நிர்வாகி.</li>
+<li><a href="{{root}}docs/admins/configuration.html">அமைப்பு</a>: தரவுத்தளத்தில் அல்லது கோப்பில் உள்ள அமைப்புகள், <code>AM_</code> சூழல் மாறிகள் (environment variables), அமைப்பு கன்சோல் (System Console), <code>amctl</code>, பதிவுகள் (logs).</li>
+<li><a href="{{root}}docs/admins/https.html">டொமைன் மற்றும் HTTPS</a>: தளத்தின் URL, Caddy, nginx, கிளையன்ட் முகவரிகள்.</li>
+<li><a href="{{root}}docs/admins/calls.html">அழைப்புகள் மற்றும் குரல்</a>: போர்ட்கள், NAT, TURN, rtcd, எழுத்துப்பதிவு (transcription) மற்றும் வசனங்கள் (captions).</li>
+<li><a href="{{root}}docs/admins/email-push.html">மின்னஞ்சல் மற்றும் டிவ்</a>: SMTP, டிவ் புராக்சி (push proxy) மற்றும் மொபைல் செயலி.</li>
+<li><a href="{{root}}docs/admins/apps.html">இணைக்கப்பட்ட செயலிகள்</a>: எந்த செயலிகள் இயக்கப்பட்டுள்ளன, அவற்றின் அமைப்புகள், மற்றவற்றை நிறுவுதல்.</li>
+<li><a href="{{root}}docs/admins/ai.html">AI</a>: ஏஜெண்டுகள், குரல் மற்றும் மொழிபெயர்ப்புக்கான மாதிரிகள், மற்றும் எந்த தரவு எங்கு செல்கிறது என்பது.</li>
+<li><a href="{{root}}docs/admins/authentication.html">உள்நுழைவு மற்றும் கணக்குகள்</a>: பதிவு (sign-up), கடவுச்சொற்கள், MFA, ஒற்றை உள்நுழைவு (single sign-on), LDAP, விருந்தினர்கள், அமர்வுகள் (sessions).</li>
+<li><a href="{{root}}docs/admins/backups-upgrades.html">பின்புல நகல்கள் மற்றும் மேம்பாடுகள்</a>: பின்புல நகல் (backup), மீட்பு (restore), மேம்பாடு (upgrade), Mattermost-இலிருந்து நகர்த்தல்.</li>
+<li><a href="{{root}}docs/admins/operations.html">செயல்பாடுகள்</a>: கண்காணிப்பு, விரிவாக்கம் (scaling), தரவு வைப்பு (data retention), சட்டப்படி இயக்கம் (compliance), பிரச்சினை தீர்ப்பு.</li>
+<li><a href="{{root}}docs/admins/security.html">பாதுகாப்பு</a>: பாதுகாப்பு சரிபார்ப்புப் பட்டியல் (hardening checklist) மற்றும் வெளி இணைப்புகள்.</li>
+</ul>
+<p>சர்வர்களுக்குப் பதிலாக ஒரு சமூகத்தை இயக்குவது (சேனல்கள், பங்குகள், நிர்வாகம்)? <a href="{{root}}docs/communities/index.html">சமூகத்தை இயக்குதல்</a> காண்க. ஒருங்கிணைப்புகளை உருவாக்குவது? <a href="{{root}}docs/developers/index.html">Antimatter-இல் உருவாக்குதல்</a> காண்க.</p>
+
+<h2 id="first-hour">உங்கள் முதல் மணி நேரம்</h2>
+<ol>
+<li>நிறுவவும், உடனடியாக நிர்வாகி கணக்கை உருவாக்கவும்.</li>
+<li>சர்வரை அதன் சொந்த டொமைனில் HTTPS-இன் பின்னால் வைக்கவும்.</li>
+<li>SMTP-ஐ அமைத்து ஒரு சோதனை மின்னஞ்சலை அனுப்பவும்.</li>
+<li>அழைப்புகள் போர்டை திறந்து, அழைப்புகள் செயலியின் சோதனை முறையை (test mode) அணைக்கவும்.</li>
+<li>யார் பதிவு செய்யலாம் என்பதை முடிவு செய்து, MFA-ஐ இயக்கவும்.</li>
+<li><a href="{{root}}docs/admins/security.html#outbound">பாதுகாப்பு</a> பகுதியில் உள்ள வெளி இணைப்புகளை சரிபார்க்கவும்.</li>
+<li>தினசரி பின்புல நகல்களை அமைக்கவும்.</li>
+</ol>
+
+<h2 id="help">உதவி பெறுதல்</h2>
+<p><a href="https://github.com/AntimatterChat/community/discussions">சமூக விவாதங்களில்</a> கேள்விகளைக் கேளுங்கள், மற்றும் <a href="https://github.com/AntimatterChat/community/issues/new/choose">சமூக சேமிப்பகத்தில்</a> பிழைகளை அறிவிக்கவும். <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">பாதுகாப்புக் கொள்கை</a> விளக்குவது போல, பாதுகாப்புப் பிரச்சனைகளை தனியாக அறிவிக்கவும்.</p>

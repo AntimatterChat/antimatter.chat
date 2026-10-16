@@ -1,0 +1,113 @@
+title: Logowanie i konta
+description: Kontroluj, kto może utworzyć konto w Antimatter i jak użytkownicy się logują: e-mail i hasło, zasady hasła, uwierzytelnianie wieloskładnikowe, OpenID Connect, GitLab, Google, Entra ID, SAML 2.0, AD/LDAP oraz konta gości.
+guide: admins
+order: 9
+nav: Logowanie i konta
+lead: Określ, kto może utworzyć konto i jak użytkownicy się logują. Każda metoda logowania w Antimatter działa bez licencji, w tym jednokrotne logowanie (SSO) i katalogi.
+source: b4466d5ccfe1
+---
+<h2 id="signup">Kto może utworzyć konto</h2>
+<p>Niedługo po instalacji sprawdź <b>Konsola systemu › Autoryzacja › Zarejestruj się</b>. Przy domyślnych ustawieniach każdy, kto posiada link zaproszenia do społeczności, może utworzyć konto, ale nikt nie może się zarejestrować bez niego.</p>
+<table>
+<thead><tr><th>Ustawienie</th><th>Klucz</th><th>Domyślnie</th><th>Opis</th></tr></thead>
+<tbody>
+<tr><td><b>Włącz tworzenie kont</b></td><td><code>TeamSettings.EnableUserCreation</code></td><td>włączone</td><td>Wyłączone: nikt nie może utworzyć konta żadną metodą; mogą to zrobić tylko administratorzy (Konsola systemu lub <code>amctl user create</code>).</td></tr>
+<tr><td><b>Włącz Open Server</b></td><td><code>TeamSettings.EnableOpenServer</code></td><td>Wyłączone</td><td>Włączone: każdy, kto ma dostęp do serwera, może się zarejestrować za pomocą adresu e-mail, bez zaproszenia. Używaj tego tylko dla publicznych społeczności.</td></tr>
+<tr><td><b>Ogranicz nowych członków systemu i zespołu do określonych domen e-mail</b></td><td><code>TeamSettings.RestrictCreationToDomains</code></td><td>pusta</td><td>Domeny oddzielone przecinkami, na przykład <code>example.com, example.org</code>: tylko adresy z tych domen mogą tworzyć konta.</td></tr>
+<tr><td><b>Włącz Zaproszenia Email</b></td><td><code>ServiceSettings.EnableEmailInvitations</code></td><td>wyłączone na nowym serwerze</td><td>Pozwala członkom zapraszać osoby za pomocą e-maila (wymaga <a href="{{root}}docs/admins/email-push.html">SMTP</a>). <b>Unieważnij oczekujące zaproszenia E-Mail</b> anuluje zaproszenia, które nie zostały jeszcze przyjęte; wygasają one po 48 godzinach w każdym przypadku.</td></tr>
+</tbody>
+</table>
+<p>Administratorzy społeczności kontrolują również, kto do niej dołącza, za pomocą linków zaproszeń i własnych dozwolonych domen: zobacz przewodnik <a href="{{root}}docs/communities/index.html">Prowadzenie społeczności</a>.</p>
+<p>Z wiersza poleceń: <code>amctl user create</code> (dodaj <code>--system-admin</code> lub <code>--guest</code>), <code>amctl user invite</code>, <code>amctl user deactivate</code>, <code>amctl roles system-admin &lt;user&gt;</code>, aby nadać komuś rolę administratora systemu, oraz <code>amctl roles member &lt;user&gt;</code>, aby ją cofnąć.</p>
+
+<h2 id="email-password">E-mail i hasło</h2>
+<p>W <b>Konsola systemu › Autoryzacja › E-mail</b>:</p>
+<table>
+<thead><tr><th>Ustawienie</th><th>Klucz</th><th>Domyślnie</th></tr></thead>
+<tbody>
+<tr><td><b>Włącz tworzenie kont za pomocą emaila</b></td><td><code>EmailSettings.EnableSignUpWithEmail</code></td><td>Włączone. Wyłącz, gdy wszyscy logują się za pomocą jednokrotnego logowania (SSO).</td></tr>
+<tr><td><b>Wymagaj weryfikacji e-mail</b></td><td><code>EmailSettings.RequireEmailVerification</code></td><td>Wyłączone. Włącz, gdy <a href="{{root}}docs/admins/email-push.html">e-mail</a> działa: użytkownicy będą musieli potwierdzić swój adres, zanim będą mogli się zalogować.</td></tr>
+<tr><td><b>Włącz logowanie za pomocą adresu email</b></td><td><code>EmailSettings.EnableSignInWithEmail</code></td><td>włączone</td></tr>
+<tr><td><b>Włącz logowanie za pomocą nazwy użytkownika</b></td><td><code>EmailSettings.EnableSignInWithUsername</code></td><td>włączone</td></tr>
+</tbody>
+</table>
+<p>W <b>Konsola systemu › Autoryzacja › Hasło</b>:</p>
+<table>
+<thead><tr><th>Ustawienie</th><th>Klucz</th><th>Domyślnie</th></tr></thead>
+<tbody>
+<tr><td><b>Minimalna długość hasła</b></td><td><code>PasswordSettings.MinimumLength</code></td><td>8 (od 5 do 72)</td></tr>
+<tr><td><b>Wymagania hasła</b>: małe litery, wielkie litery, cyfra, znak specjalny</td><td><code>PasswordSettings.Lowercase</code>, <code>.Uppercase</code>, <code>.Number</code>, <code>.Symbol</code></td><td>wszystkie wyłączone</td></tr>
+<tr><td><b>Maksymalna liczba prób logowania</b></td><td><code>ServiceSettings.MaximumLoginAttempts</code></td><td>10: po tylu nieudanych próbach konto jest blokowane do momentu zresetowania hasła za pomocą e-maila</td></tr>
+<tr><td><b>Włącz łącze zapomnianego hasła</b></td><td><code>PasswordSettings.EnableForgotLink</code></td><td>włączone</td></tr>
+</tbody>
+</table>
+<p>Długość 12 znaków lub więcej przyczynia się do bezpieczeństwa bardziej niż reguły dotyczące znaków. Aby zresetować hasło dla kogoś: <b>Konsola systemu › Zarządzanie użytkownikiem › Użytkownicy</b>, lub <code>amctl user change-password &lt;user&gt; --password &lt;new&gt;</code>.</p>
+
+<h2 id="mfa">Uwierzytelnianie wieloskładnikowe</h2>
+<p>Uwierzytelnianie wieloskładnikowe (MFA) dodaje kod z aplikacji uwierzytelniającej do hasła. Dotyczy ono kont, które logują się za pomocą e-maila lub AD/LDAP; w przypadku jednokrotnego logowania (SSO) użyj MFA dostawcy tożsamości. W <b>Konsola systemu › Autoryzacja › MFA</b>:</p>
+<ul>
+<li><b>Włącz uwierzytelnianie wieloskładnikowe</b> (<code>ServiceSettings.EnableMultifactorAuthentication</code>, wyłączony): użytkownicy mogą włączyć MFA w swoich ustawieniach bezpieczeństwa.</li>
+<li><b>Wymuszaj uwierzytelnianie wieloskładnikowe</b> (<code>ServiceSettings.EnforceMultifactorAuthentication</code>, wyłączony): wszyscy muszą je skonfigurować, podczas rejestracji lub przy następnym logowaniu.</li>
+</ul>
+<p>Jeśli ktoś utraci swoje urządzenie: <code>amctl user resetmfa &lt;user&gt;</code>, lub zresetuj je z jego strony w <b>Konsola systemu › Zarządzanie użytkownikiem › Użytkownicy</b>.</p>
+
+<h2 id="sso">Jednokrotne logowanie</h2>
+<p>Antimatter może logować użytkowników za pomocą dostawcy tożsamości. Przy pierwszym logowaniu tworzy ich konto (jeśli tworzenie kont jest dozwolone) na podstawie nazwy, adresu e-mail i nazwy użytkownika wysłanych przez dostawcę.</p>
+<h3>OpenID Connect, GitLab, Google i Entra ID</h3>
+<p>Przejdź do <b>Konsola systemu › Autoryzacja › OpenID Connect</b> i wybierz w sekcji <b>Wybierz dostawcę usług</b>: GitLab, Google Apps, Entra ID (Office 365) lub <b>OpenID Connect (Inne)</b> dla innego dostawcy (Keycloak, Authentik, Zitadel, Okta, Auth0…).</p>
+<ol>
+<li>W swoim dostawcy utwórz aplikację (tzw. „klient”) typu web z następującym URI przekierowania, dla adresu URL Twojej strony:
+<table>
+<thead><tr><th>Dostawca</th><th>URI przekierowania</th></tr></thead>
+<tbody>
+<tr><td>OpenID Connect (Inne)</td><td><code>https://chat.example.com/signup/openid/complete</code></td></tr>
+<tr><td>GitLab</td><td><code>https://chat.example.com/signup/gitlab/complete</code></td></tr>
+<tr><td>Google</td><td><code>https://chat.example.com/signup/google/complete</code></td></tr>
+<tr><td>Entra ID</td><td><code>https://chat.example.com/signup/office365/complete</code></td></tr>
+</tbody>
+</table></li>
+<li>W Antimatter wypełnij <b>Punkt końcowy odkrycia</b> (adres URL <code>/.well-known/openid-configuration</code> dostawcy; w przypadku GitLab podaj zamiast tego <b>Adres URL GitLab</b>), <b>ID klienta</b> oraz <b>Klucz klienta</b>. Dla innych dostawców podaj również <b>Nazwę przycisku</b> i <b>Kolor przycisków</b> przycisku logowania.</li>
+<li><b>Użyj preferowanej nazwy użytkownika</b> (GitLab i inne dostawcy) pobiera nazwę użytkownika Antimatter z atrybutu <code>preferred_username</code> dostawcy.</li>
+<li>Zapisz zmiany, wyloguj się i przetestuj nowy przycisk na stronie logowania.</li>
+</ol>
+<p>Ustawienia są przechowywane w <code>OpenIdSettings</code>, <code>GitLabSettings</code>, <code>GoogleSettings</code> lub <code>Office365Settings</code> (na przykład <code>AM_OPENIDSETTINGS_ENABLE</code>, <code>AM_OPENIDSETTINGS_DISCOVERYENDPOINT</code>, <code>AM_OPENIDSETTINGS_ID</code>, <code>AM_OPENIDSETTINGS_SECRET</code>). Starsza strona OAuth 2.0 pojawia się tylko na serwerach, które nadal mają konfigurację OAuth 2.0 dla GitLab, Google lub Entra ID.</p>
+<h3>SAML 2.0</h3>
+<p>W <b>Konsola systemu › Autoryzacja › SAML 2.0</b> włącz <b>Włącz logowanie z użyciem SAML 2.0</b> (<code>SamlSettings.Enable</code>) i uzupełnij dane dostarczone przez dostawcę tożsamości: <b>Adres URL Metadanych Dostawcy Tożsamości</b> lub <b>SAML SSO URL</b>, <b>URL emitenta zarządcy tożsamości</b> oraz <b>Certyfikat publiczny zarządcy tożsamości</b>. Po stronie dostawcy tożsamości:</p>
+<ul>
+<li>Adres URL logowania dostawcy usługi (usługa konsumenta asercji): <code>https://chat.example.com/login/sso/saml</code>;</li>
+<li>Metadane Antimatter, dla dostawców, którzy je importują: <code>https://chat.example.com/api/v4/saml/metadata</code>.</li>
+</ul>
+<p>Zmapuj atrybuty wysyłane przez dostawcę: co najmniej <b>Atrybut Email</b> i <b>Atrybut nazwy użytkownika</b>, a opcjonalnie atrybuty ID, imienia, nazwiska, pseudonimu, stanowiska, języka, gościa i administratora. <b>Weryfikuj Podpis</b> i <b>Włącz Szyfrowanie</b> są włączone domyślnie (szyfrowanie wymaga klucza i certyfikatu dostawcy usługi; obsługiwane są tylko klucze RSA); <b>Żądanie podpisania</b> jest wyłączone. Algorytm podpisu domyślnie to RSAwithSHA256.</p>
+<h3>AD/LDAP</h3>
+<p>W <b>Konsola systemu › Autoryzacja › AD/LDAP</b> strona z krokami po kolei łączy Antimatter z Active Directory lub innym serwerem LDAP: serwer i port (<code>LdapSettings.LdapServer</code>, <code>LdapSettings.LdapPort</code>, domyślnie 389), bezpieczeństwo połączenia (brak, TLS lub STARTTLS), bazowy DN i konto do logowania (<code>BaseDN</code>, <code>BindUsername</code>, <code>BindPassword</code>), filtry dla użytkowników, gości, administratorów i grup, a także atrybuty dla adresu e-mail, nazwy użytkownika, ID, imion i zdjęcia. Użytkownicy logują się następnie przy użyciu logowania z katalogu.</p>
+<p>Zadanie synchronizacji uruchamia się co 60 minut (<code>LdapSettings.SyncIntervalMinutes</code>), aby aktualizować nazwy i dezaktywować osoby usunięte z katalogu; można je uruchomić teraz za pomocą <code>amctl ldap sync</code>. Grupy LDAP można powiązać z społecznościami i kanałami w <b>Konsola systemu › Zarządzanie użytkownikiem › Grupy</b>. Konta SAML można również utrzymywać w synchronizacji z AD/LDAP (<b>Włączyć synchronizację kont SAML z AD/LDAP</b>).</p>
+<h3>Przenoszenie istniejących kont</h3>
+<p>Aby przełączyć istniejące konta e-mail na logowanie jednokrotne (single sign-on), polecenie <code>amctl user migrate-auth email saml users.json</code> (lub <code>ldap</code>) przenosi je zbiorczo. Użytkownik może również zmienić własną metodę logowania w ustawieniach bezpieczeństwa, gdy opcja <b>Zezwalaj na transfer uwierzytelniania</b> (<code>ServiceSettings.ExperimentalEnableAuthenticationTransfer</code>, w <b>Konsola systemu › Eksperymentalne › Funkcje</b>) jest włączona.</p>
+
+<h2 id="guests">Konta gości</h2>
+<p>Goście to osoby spoza Twojej organizacji, które widzą tylko kanały, do których zostały zaproszone. Włącz je w <b>Konsola systemu › Autoryzacja › Dostęp dla gości</b>:</p>
+<table>
+<thead><tr><th>Ustawienie</th><th>Klucz</th><th>Domyślnie</th></tr></thead>
+<tbody>
+<tr><td><b>Włącz dostęp dla gości</b></td><td><code>GuestAccountsSettings.Enable</code></td><td>Wyłączone</td></tr>
+<tr><td><b>Domeny gościnne na białej liście</b></td><td><code>GuestAccountsSettings.RestrictCreationToDomains</code></td><td>puste: goście mogą mieć dowolną domenę e-mail</td></tr>
+<tr><td><b>Wymuszaj uwierzytelnianie wieloskładnikowe</b></td><td><code>GuestAccountsSettings.EnforceMultifactorAuthentication</code></td><td>wyłączone; dostępne tylko wtedy, gdy MFA jest włączone i wymuszone dla wszystkich</td></tr>
+<tr><td><b>Ukryj tag gościa</b></td><td><code>GuestAccountsSettings.HideTags</code></td><td>wyłączone: obok ich nazwy wyświetlany jest tag „gość”</td></tr>
+</tbody>
+</table>
+<p>Po włączeniu administratorzy społeczności zapraszają gości do konkretnych kanałów. Administratorzy mogą zmienić członka w gościa za pomocą polecenia <code>amctl user demote</code>, a gościa w członka za pomocą <code>amctl user promote</code>.</p>
+
+<h2 id="sessions">Sesje</h2>
+<p>Czas, przez jaki użytkownicy pozostają zalogowani, jest ustawiany w <b>Konsola systemu › Środowisko › Długość sesji</b>:</p>
+<table>
+<thead><tr><th>Ustawienie</th><th>Klucz</th><th>Domyślnie na nowym serwerze</th></tr></thead>
+<tbody>
+<tr><td><b>Wydłuż długość sesji dzięki aktywności</b></td><td><code>ServiceSettings.ExtendSessionLengthWithActivity</code></td><td>włączone: sesje są odnawiane, gdy użytkownicy korzystają z Antimatter</td></tr>
+<tr><td><b>Długość sesji AD/LDAP i email (godzin)</b></td><td><code>ServiceSettings.SessionLengthWebInHours</code></td><td>720 godzin (30 dni)</td></tr>
+<tr><td><b>Długość Sesji Mobilnej (godziny)</b></td><td><code>ServiceSettings.SessionLengthMobileInHours</code></td><td>720 godzin</td></tr>
+<tr><td><b>Długość sesji SSO (godziny)</b></td><td><code>ServiceSettings.SessionLengthSSOInHours</code></td><td>720 godzin</td></tr>
+<tr><td><b>Limit Bezczynności Sesji (minuty)</b></td><td><code>ServiceSettings.SessionIdleTimeoutInMinutes</code></td><td>43200 minut (30 dni); wyświetlane tylko wtedy, gdy sesje nie są wydłużane dzięki aktywności</td></tr>
+<tr><td><b>Zakończ sesje po zmianie hasła</b></td><td><code>ServiceSettings.TerminateSessionsOnPasswordChange</code></td><td>włączone</td></tr>
+</tbody>
+</table>
+<p>Aby wylogować wszystkich naraz, użyj opcji <b>Odwołaj wszystkie sesje</b> w <b>Konsola systemu › Zarządzanie użytkownikiem › Użytkownicy</b>. Aby wylogować jedną osobę, otwórz jej stronę w tym miejscu.</p>

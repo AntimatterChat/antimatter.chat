@@ -1,0 +1,172 @@
+title: Bots y mensajes interactivos
+description: Cuentas de bot en Antimatter: cómo crearlas, sus tokens y permisos, publicación como bot, mensajes directos, botones y menús interactivos, y diálogos.
+guide: developers
+order: 5
+nav: Bots
+lead: Una cuenta de bot es un usuario creado para un programa. Tiene su propio nombre, imagen y tokens, y muestra una etiqueta BOT junto a su nombre. Esta página también cubre las partes interactivas de los mensajes: botones, menús y diálogos, que cualquier integración puede usar.
+source: 45503666f647
+---
+<h2 id="why">Por qué usar una cuenta de bot</h2>
+<ul>
+<li>Sus mensajes provienen de una identidad clara, con una etiqueta <b>BOT</b>, en lugar de de la cuenta de un compañero.</li>
+<li>Sus tokens siguen funcionando cuando la persona que los configuró cambia de rol o se va (a menos que el servidor desactive los bots de propietarios desactivados, ver abajo).</li>
+<li>Los bots no pueden iniciar sesión con una contraseña y nunca ven la aplicación web.</li>
+</ul>
+<p>Las aplicaciones crean sus propios bots, como los bots de Por hacer o Playbooks, a través de la API de plugins (<code>EnsureBotUser</code>).</p>
+
+<h2 id="enable">Activar las cuentas de bot</h2>
+<p>Un administrador de sistema activa <b>Permitir la Creación de Cuentas Bot</b> en <b>Consola de sistema › Integraciones › Cuentas de bot</b> (<code>ServiceSettings.EnableBotAccountCreation</code>, <code>AM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION</code>). Está desactivado por defecto. Solo los administradores de sistema pueden crear bots, a menos que otorguen ese permiso a otros roles en la configuración de permisos.</p>
+<p>En la misma página, <b>Desactivar cuentas bot cuando el dueño es desactivado</b> (<code>ServiceSettings.DisableBotsWhenOwnerIsDeactivated</code>, activado por defecto) desactiva un bot cuando la cuenta de su dueño se desactiva.</p>
+
+<h2 id="create">Crear un bot</h2>
+<ol>
+<li>Abre tu avatar en la esquina superior derecha, luego <b>Integraciones › Cuentas de bot</b>, y después <b>Agregar Cuenta Bot</b>.</li>
+<li>Introduce un <b>Nombre de usuario</b> (letras minúsculas, números, puntos, guiones y guiones bajos), y opcionalmente un <b>Icono Bot</b>, un <b>Nombre a mostrar</b> y una <b>Descripción</b>.</li>
+<li>Elige el <b>Rol</b>: <b>Miembro</b>, o <b>Administrador de sistema</b> para un bot que gestione el servidor. Otorga al bot solo lo que necesite.</li>
+<li>Marca <b>mensajes:canales</b> para permitirle publicar en todos los canales públicos, o <b>mensajes:todos</b> para todos los canales, incluidos los privados y los mensajes directos, sin necesidad de ser miembro.</li>
+<li>Configura cuándo expira su token predeterminado y luego elige <b>Crear Cuenta Bot</b>.</li>
+<li>Copia el token de acceso mostrado. No se mostrará de nuevo.</li>
+</ol>
+<p>Más tarde, <b>Crear nuevo token</b> en la fila del bot añade un token, y cada token puede desactivarse o eliminarse. Los tokens de bot funcionan incluso cuando los tokens de acceso personal están desactivados para las personas.</p>
+<p>Con la API:</p>
+<pre><code># create the bot (you become its owner)
+curl -X POST https://chat.example.com/api/v4/bots \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username": "deploy-bot", "display_name": "Deploy", "description": "Posts deployments"}'
+
+# give it a token
+curl -X POST https://chat.example.com/api/v4/users/$BOT_USER_ID/tokens \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"description": "deploy pipeline"}'</code></pre>
+<p>Desde la línea de comandos, iniciando sesión como administrador (no en modo local): <code>amctl bot create deploy-bot --display-name Deploy --with-token --expires-in 90d</code>. Otros puntos finales: <code>GET /api/v4/bots</code>, <code>PUT /api/v4/bots/{bot_user_id}</code>, <code>POST /api/v4/bots/{bot_user_id}/disable</code> y <code>/enable</code>, <code>POST /api/v4/bots/{bot_user_id}/assign/{user_id}</code> para cambiar su propietario.</p>
+
+<h2 id="membership">Añadir el bot a comunidades y canales</h2>
+<p>Un bot nuevo no pertenece a ninguna comunidad. Añádelo como a una persona, desde la gestión de miembros de la comunidad o mediante la API:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/teams/$TEAM_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"team_id": "'$TEAM_ID'", "user_id": "'$BOT_USER_ID'"}'
+
+curl -X POST https://chat.example.com/api/v4/channels/$CHANNEL_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"user_id": "'$BOT_USER_ID'"}'</code></pre>
+<p>Un bot con <b>mensajes:canales</b> o <b>mensajes:todos</b> puede publicar sin ser miembro, pero solo recibe eventos de WebSocket para los canales en los que está.</p>
+
+<h2 id="post">Publicar como el bot</h2>
+<p>Usa el token del bot con cualquier llamada a la API; <code>POST /api/v4/posts</code> es la más común (consulta <a href="{{root}}docs/developers/api.html#resources">Recursos principales</a>). Para escribir directamente a alguien, abre primero el canal de mensaje directo:</p>
+<pre><code># returns the channel; use its "id" as channel_id
+curl -X POST https://chat.example.com/api/v4/channels/direct \
+  -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' \
+  -d '["'$BOT_USER_ID'", "'$USER_ID'"]'</code></pre>
+<p>Para reaccionar a lo que dicen las personas, sigue el <a href="{{root}}docs/developers/api.html#websocket">WebSocket</a> con el token del bot y responde a los eventos <code>posted</code> que te interesen. Ignora los mensajes propios del bot para evitar bucles.</p>
+<p>Un mensaje que solo una persona puede ver (un mensaje efímero) se envía con <code>POST /api/v4/posts/ephemeral</code> y <code>{"user_id", "post": {"channel_id", "message"}}</code>. Requiere el permiso <code>create_post_ephemeral</code>, que por defecto solo tienen los administradores de sistema. Las integraciones suelen enviar mensajes efímeros como respuesta a comandos con barra diagonal y botones.</p>
+
+<h2 id="interactive">Mensajes interactivos: botones y menús</h2>
+<p>Cualquier mensaje con adjuntos puede incluir acciones: botones y menús para seleccionar opciones. Funcionan en mensajes publicados mediante la API, webhooks y respuestas a comandos con barra diagonal. Cuando alguien usa una, Antimatter llama a la URL de tu integración.</p>
+<pre><code>{
+  "channel_id": "…",
+  "message": "Deploy **api 2.4.0** to production?",
+  "props": {
+    "attachments": [{
+      "actions": [
+        {
+          "id": "approve",
+          "type": "button",
+          "name": "Approve",
+          "style": "primary",
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "approve"}}
+        },
+        {
+          "id": "env",
+          "type": "select",
+          "name": "Pick an environment",
+          "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}],
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "env"}}
+        }
+      ]
+    }]
+  }
+}</code></pre>
+<ul>
+<li><code>type</code>: <code>button</code> o <code>select</code>.</li>
+<li><code>id</code>: letras, números, guiones y guiones bajos, distintos para cada acción del mensaje. Se genera si se omite.</li>
+<li><code>style</code> (botones): <code>default</code>, <code>primary</code>, <code>success</code>, <code>good</code>, <code>warning</code>, <code>danger</code>, o un color en hexadecimal.</li>
+<li><code>options</code> (menús), o <code>data_source</code>: <code>users</code> o <code>channels</code> para seleccionar una persona o un canal. <code>default_option</code> preselecciona un valor.</li>
+<li><code>integration.url</code>: destino de la solicitud. Una app (plugin) puede usar su propia ruta, como <code>/plugins/com.example.deploy/actions</code>. <code>integration.context</code> es de tu propiedad: se devuelve con la solicitud y los clientes nunca lo ven.</li>
+</ul>
+<h3>La solicitud que recibe tu integración</h3>
+<pre><code>{
+  "user_id": "…",
+  "user_name": "priya",
+  "channel_id": "…",
+  "channel_name": "releases",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "post_id": "…",
+  "trigger_id": "…",
+  "type": "button",
+  "context": {"release": "2.4.0", "action": "approve"}
+}</code></pre>
+<p>En el caso de un menú, <code>type</code> es <code>select</code> y <code>context.selected_option</code> contiene el valor seleccionado.</p>
+<h3>Tu respuesta</h3>
+<pre><code>{
+  "update": {"message": "Deploy of **api 2.4.0** approved by @priya", "props": {}},
+  "ephemeral_text": "Done. The deploy starts in a minute."
+}</code></pre>
+<ul>
+<li><code>update</code>: reemplaza el texto y las propiedades del mensaje, por ejemplo para eliminar los botones una vez usados (con <code>props</code> vacío).</li>
+<li><code>ephemeral_text</code>: un mensaje que solo ve la persona que hizo clic.</li>
+<li><code>goto_location</code>: una URL para abrir.</li>
+<li>Un cuerpo vacío no cambia nada.</li>
+</ul>
+<p>El servidor espera el tiempo que permita el <b>Tiempo de espera de solicitud de integración</b> (30 segundos por defecto). Las URL de integración en direcciones de red privada deben ser permitidas por un administrador de sistema, al igual que los webhooks.</p>
+
+<h2 id="dialogs">Diálogos</h2>
+<p>Un diálogo es un formulario que se abre sobre el chat. Solo puedes abrirlo en respuesta a algo que la persona acaba de hacer, como un comando con barra diagonal o un botón, porque necesita el <code>trigger_id</code> de esa solicitud. El <code>trigger_id</code> es válido durante el tiempo que dure el Integration request timeout.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/actions/dialogs/open \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "trigger_id": "'$TRIGGER_ID'",
+    "url": "https://deploy.example.com/dialog",
+    "dialog": {
+      "callback_id": "new-release",
+      "title": "New release",
+      "introduction_text": "Fill in the release details.",
+      "submit_label": "Create",
+      "notify_on_cancel": false,
+      "state": "anything you want back",
+      "elements": [
+        {"display_name": "Version", "name": "version", "type": "text", "placeholder": "2.4.0"},
+        {"display_name": "Notes", "name": "notes", "type": "textarea", "optional": true},
+        {"display_name": "Environment", "name": "env", "type": "select",
+         "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}]},
+        {"display_name": "Owner", "name": "owner", "type": "select", "data_source": "users"},
+        {"display_name": "Notify the channel", "name": "notify", "type": "bool", "default": "true"}
+      ]
+    }
+  }'</code></pre>
+<table>
+<thead><tr><th>Tipo de elemento</th><th>Lo que muestra</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>Un campo de una línea. <code>subtype</code>: <code>text</code>, <code>email</code>, <code>number</code>, <code>password</code>, <code>tel</code> o <code>url</code>. <code>min_length</code> y <code>max_length</code> lo limitan.</td></tr>
+<tr><td><code>textarea</code></td><td>Un campo de varias líneas.</td></tr>
+<tr><td><code>select</code></td><td>Una lista: <code>options</code>, o <code>data_source</code> <code>users</code>, <code>channels</code>, o <code>dynamic</code> con una <code>data_source_url</code>. <code>multiselect</code> permite varios valores.</td></tr>
+<tr><td><code>bool</code></td><td>Una casilla de verificación.</td></tr>
+<tr><td><code>radio</code></td><td>Una elección entre <code>options</code>.</td></tr>
+<tr><td><code>date</code>, <code>datetime</code></td><td>Una fecha, o una fecha y hora.</td></tr>
+</tbody>
+</table>
+<p>Cada elemento acepta <code>display_name</code>, <code>name</code>, <code>help_text</code>, <code>placeholder</code>, <code>default</code> y <code>optional</code>.</p>
+<p>Cuando la persona envía el formulario, Antimatter envía una solicitud POST a la <code>url</code> del diálogo:</p>
+<pre><code>{
+  "type": "dialog_submission",
+  "callback_id": "new-release",
+  "state": "anything you want back",
+  "user_id": "…",
+  "channel_id": "…",
+  "team_id": "…",
+  "submission": {"version": "2.4.0", "notes": "", "env": "staging", "owner": "…", "notify": true},
+  "cancelled": false
+}</code></pre>
+<p>Responde con un cuerpo vacío para cerrar el diálogo, o déjalo abierto y muestra qué está mal:</p>
+<pre><code>{"errors": {"version": "This version already exists."}}</code></pre>
+<p><code>{"error": "…"}</code> muestra un mensaje para todo el formulario. Con <code>notify_on_cancel</code>, al cerrar el diálogo se envía <code>"cancelled": true</code>. Los diálogos funcionan de la misma manera en las apps: la API del plugin <code>OpenInteractiveDialog</code> acepta la misma solicitud.</p>

@@ -1,0 +1,84 @@
+title: Operations
+description: Run Antimatter day to day: health checks, metrics and monitoring, the Metrics app, support packets, search and scaling, high availability, data retention, compliance exports and audit logs, and fixes for common problems.
+guide: admins
+order: 11
+nav: Operations
+lead: Keep an eye on the server, make it handle more people, decide how long data is kept, and fix the problems administrators meet most often.
+---
+<h2 id="health">Health checks</h2>
+<ul>
+<li><code>amctl --local system status</code> (in the container: <code>docker compose exec antimatter amctl --local system status</code>). The Docker image's health check runs it every 30 seconds, so <code>docker compose ps</code> shows <code>healthy</code> or <code>unhealthy</code>.</li>
+<li><code>GET /api/v4/system/ping</code> answers without signing in, for an outside monitor or a load balancer: <code>curl -fsS https://chat.example.com/api/v4/system/ping</code>.</li>
+<li><code>antimatter db ping</code> checks that the database is reachable with the configured settings.</li>
+<li><b>System Console › Reporting › System Statistics</b> shows the number of users, posts and sessions, and <b>Workspace Optimization</b> lists configuration problems to look at.</li>
+</ul>
+
+<h2 id="metrics">Metrics</h2>
+<p>The server can publish Prometheus metrics: request rates and durations, websocket connections, database and cache use, jobs, plugin hooks and more. Turn them on in <b>System Console › Environment › Performance Monitoring</b>:</p>
+<table>
+<thead><tr><th>Setting</th><th>Key and variable</th><th>Default</th></tr></thead>
+<tbody>
+<tr><td><b>Enable Performance Monitoring</b></td><td><code>MetricsSettings.Enable</code>, <code>AM_METRICSSETTINGS_ENABLE</code></td><td>off</td></tr>
+<tr><td><b>Listen Address</b></td><td><code>MetricsSettings.ListenAddress</code>, <code>AM_METRICSSETTINGS_LISTENADDRESS</code></td><td><code>:8067</code></td></tr>
+<tr><td><b>Enable Client Performance Monitoring</b></td><td><code>MetricsSettings.EnableClientMetrics</code></td><td>on: browsers and apps report their own timings</td></tr>
+</tbody>
+</table>
+<p>Prometheus then scrapes <code>http://&lt;server&gt;:8067/metrics</code>. Each metric is published under its Mattermost name (<code>mattermost_…</code>) and its Antimatter name (<code>antimatter_…</code>), so existing Mattermost dashboards keep working. Apps publish their own metrics, for example the Agents app at <code>/plugins/mattermost-ai/metrics</code>.</p>
+<p>The metrics port needs no sign-in: keep it on a private network. The site's compose file doesn't publish it; to scrape it from the host, add <code>"127.0.0.1:8067:8067"</code> to the <code>ports</code> of the <code>antimatter</code> service.</p>
+<h3>The Metrics app</h3>
+<p>Without a Prometheus server, the Metrics app (off by default, see <a href="{{root}}docs/admins/apps.html">Bundled apps</a>) collects the same metrics into a small time-series database inside Antimatter: every 60 seconds, kept 15 days. It turns on the metrics endpoint when it starts. Its page in <b>System Console › Plugins</b> shows the database's size and lets you download dumps of the data, for your own analysis or to attach to a bug report; the latest day is also added to support packets.</p>
+
+<h2 id="support-packet">Support packet</h2>
+<p>A support packet is a zip file with what's needed to diagnose a problem: versions, statistics, the configuration with its secrets removed, the list of apps and jobs, the database schema, the recent log and performance profiles. Generate one with <code>amctl system supportpacket</code>, or in the System Console from the menu at the top of its sidebar (<b>Commercial Support</b>, which then lets you choose what to include). Read it before you share it: it doesn't contain messages, but it does contain names of communities, users and settings.</p>
+
+<h2 id="scaling">Performance and scaling</h2>
+<p>One server with 2 CPU cores and 4 GB of memory serves a few hundred people. Before adding servers, look at:</p>
+<ul>
+<li><b>The database.</b> PostgreSQL does most of the work: give it fast storage and memory. Read replicas can take the read load (<code>SqlSettings.DataSourceReplicas</code>, a list of connection URLs).</li>
+<li><b>Search.</b> Messages are searched in the database by default. For large servers, Elasticsearch or OpenSearch can take over search and indexing: <b>System Console › Environment › Elasticsearch</b> (<code>ElasticsearchSettings</code>: <b>Backend type</b> Elasticsearch or OpenSearch, <b>Server Connection Address</b>, credentials, then enable indexing, build the index, and enable searching).</li>
+<li><b>Calls.</b> Call media are the heaviest load. Move them to an rtcd server: see <a href="{{root}}docs/admins/calls.html#rtcd">Calls and voice</a>.</li>
+<li><b>Open files.</b> Each connected person keeps a websocket open. The production compose file of antimatter-docker raises the limit to 49152 (<code>ulimits: nofile</code>); do the same with systemd (<code>LimitNOFILE</code>).</li>
+<li><b>Logs.</b> Lower <code>LogSettings.ConsoleLevel</code> to <code>INFO</code> or <code>WARN</code>: <code>DEBUG</code> logs a lot on a busy server.</li>
+</ul>
+<h3>High availability</h3>
+<p>Several Antimatter servers can run as a cluster behind a load balancer, without a licence. They must share the same PostgreSQL database, the same S3 file storage, and the configuration in the database (<code>AM_CONFIG</code>). In <b>System Console › Environment › High Availability</b> (<code>ClusterSettings</code>): turn on <b>Enable High Availability Mode</b> (<code>ClusterSettings.Enable</code>), give every node the same <b>Cluster Name</b> (<code>ClusterSettings.ClusterName</code>), and let the nodes reach each other on the gossip port, <b>8074</b> TCP and UDP (<code>ClusterSettings.GossipPort</code>). Nodes find each other through the database. The load balancer must pass websockets. For calls in a cluster, use rtcd.</p>
+
+<h2 id="retention">Data retention</h2>
+<p>By default Antimatter keeps every message and file forever. To delete old ones automatically, go to <b>System Console › Compliance › Data Retention Policies</b>:</p>
+<ul>
+<li>The <b>Global retention policy</b> sets <b>Channel &amp; direct message retention</b> and <b>File retention</b> for the whole server: <b>Keep forever</b>, or a number of hours, days or years (<code>DataRetentionSettings.EnableMessageDeletion</code>, <code>MessageRetentionHours</code>, <code>EnableFileDeletion</code>, <code>FileRetentionHours</code>).</li>
+<li><b>Custom retention policies</b> set another duration for chosen communities and channels.</li>
+<li>The deletion job runs every day at the time you choose (<code>DataRetentionSettings.DeletionJobStartTime</code>, <code>02:00</code> UTC by default). <b>Run Deletion Job Now</b> runs it at once, and the <b>Policy log</b> lists what each run removed.</li>
+</ul>
+<div class="callout warn">Deleted messages and files are gone for good, from the database and from the file storage. Check the durations before turning a policy on, and remember that your backups still hold the deleted data until they expire.</div>
+
+<h2 id="compliance">Compliance export and audit logs</h2>
+<ul>
+<li><b>System Console › Compliance › Compliance Export</b> exports all messages and files every day (<b>Enable Compliance Export</b>, <code>MessageExportSettings.EnableExport</code>, off by default; <b>Compliance Export Time</b>, <code>01:00</code> by default) in one of the formats archiving systems read: CSV, Actiance XML, or Global Relay (a zip file, or EML sent over SMTP). <code>amctl compliance-export</code> runs and downloads exports from the command line.</li>
+<li><b>Compliance Monitoring</b> (<code>ComplianceSettings</code>) writes daily reports to a directory. It is the older mechanism; prefer Compliance Export.</li>
+<li><b>Audit Logging</b> (beta, <code>ExperimentalAuditSettings</code>) records administrative and security events (sign-ins, permission and setting changes) to a file of its own.</li>
+<li><b>Custom Terms of Service</b> asks everyone to accept your terms before using Antimatter, and again after you change them.</li>
+</ul>
+
+<h2 id="troubleshooting">Common problems</h2>
+<h3>"Cannot connect to the server", or messages only appear after a reload</h3>
+<p>The websocket doesn't get through. Check that the reverse proxy passes <code>Upgrade</code> and <code>Connection</code> headers (see <a href="{{root}}docs/admins/https.html#nginx">the nginx example</a>), and that the site URL matches the address in the browser exactly, including <code>https</code>.</p>
+<h3>Uploads fail with "413 Request Entity Too Large"</h3>
+<p>The proxy refuses the size. Raise its limit (nginx <code>client_max_body_size</code>) to at least <b>Maximum File Size</b> in <b>System Console › Environment › File Storage</b> (<code>FileSettings.MaxFileSize</code>, 100 MB by default).</p>
+<h3>People can't start calls, or join but hear nothing</h3>
+<p>If nobody but administrators can start calls, turn Calls' <b>Test mode</b> off. If people join but hear nothing, the media port is blocked or the server announces the wrong address: open 8443 UDP and TCP, and set <b>ICE Host Override</b> behind NAT. People on networks that block both need a TURN server. See <a href="{{root}}docs/admins/calls.html">Calls and voice</a>.</p>
+<h3>The GIF picker is empty</h3>
+<p>Check <b>GIF service URL</b> (<code>http://gifs:8080/v2</code> with the site's compose file) and <b>API key</b> (the <code>GIFS_API_KEY</code> of <code>.env</code>) in <b>System Console › Plugins › GIFs</b>, and that the <code>gifs</code> service runs: <code>docker compose ps gifs</code>.</p>
+<h3>No emails arrive</h3>
+<p>Use <b>Test Connection</b> in <b>System Console › Environment › SMTP</b>, check that <b>Notification From Address</b> isn't still <code>test@example.com</code>, and search the log for <code>smtp</code> or <code>mail</code>.</p>
+<h3>An app shows "Failed to start"</h3>
+<p>Look for its id in the log (<code>docker compose logs antimatter | grep &lt;app id&gt;</code>). Disable and enable it in Plugin Management to restart it.</p>
+<h3>The server doesn't start</h3>
+<p>Read the end of its log. Most often the database is unreachable (check <code>AM_SQLSETTINGS_DATASOURCE</code> with <code>antimatter db ping</code>), a database migration failed (restore the backup taken before the upgrade and report the error), or the listen port is taken.</p>
+<h3>Locked out of the administrator account</h3>
+<p>From the server, local mode needs no password:</p>
+<pre><code>docker compose exec antimatter amctl --local user change-password admin --password 'a-new-password'
+docker compose exec antimatter amctl --local user resetmfa admin
+docker compose exec antimatter amctl --local roles system-admin admin</code></pre>
+<h3>Reporting a bug</h3>
+<p>Open an issue in the <a href="https://github.com/AntimatterChat/community/issues/new/choose">Antimatter community repository</a>, with the version, how you installed, what you did and the relevant log lines. Report security problems privately, as the <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">security policy</a> explains.</p>

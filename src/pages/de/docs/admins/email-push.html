@@ -1,0 +1,136 @@
+title: E-Mail- und Push-Benachrichtigungen
+description: Konfigurieren Sie die ausgehende E-Mail (SMTP) von Antimatter für Einladungen, Passwort-Resets und Benachrichtigungen sowie Push-Benachrichtigungen an die mobile App über Ihren eigenen Push-Proxy.
+guide: admins
+order: 6
+nav: E-Mail und Push
+lead: Antimatter sendet E-Mails für Einladungen, Passwort-Resets, Verifizierungen und verpasste Nachrichten sowie Push-Benachrichtigungen an die mobile App über einen Push-Proxy. Beides funktioniert nicht, bis Sie es konfiguriert haben.
+source: 4e9b08a2674b
+---
+<h2 id="smtp">Ausgehende E-Mail (SMTP)</h2>
+<p>Antimatter sendet E-Mails über einen von Ihnen bereitgestellten SMTP-Server: den Mail-Server Ihrer Organisation oder einen transaktionalen E-Mail-Dienst. Ohne ihn können Personen ein vergessenes Passwort nicht zurücksetzen, E-Mail-Einladungen und Verifizierungen treffen nicht ein und niemand erhält E-Mail-Benachrichtigungen über verpasste Nachrichten.</p>
+<p>Richten Sie dies in <b>Systemkonsole › Umgebung › SMTP</b> ein oder mit Variablen:</p>
+<table>
+<thead><tr><th>Einstellung</th><th>Schlüssel und Variable</th><th>Standard</th></tr></thead>
+<tbody>
+<tr><td><b>SMTP-Server</b></td><td><code>EmailSettings.SMTPServer</code>, <code>AM_EMAILSETTINGS_SMTPSERVER</code></td><td><code>localhost</code></td></tr>
+<tr><td><b>SMTP-Server-Port</b></td><td><code>EmailSettings.SMTPPort</code>, <code>AM_EMAILSETTINGS_SMTPPORT</code></td><td><code>10025</code></td></tr>
+<tr><td><b>SMTP-Authentifizierung aktivieren</b></td><td><code>EmailSettings.EnableSMTPAuth</code>, <code>AM_EMAILSETTINGS_ENABLESMTPAUTH</code></td><td>aus ohne Verbindungssicherheit, an mit ihr</td></tr>
+<tr><td><b>SMTP-Server-Benutzername</b></td><td><code>EmailSettings.SMTPUsername</code>, <code>AM_EMAILSETTINGS_SMTPUSERNAME</code></td><td>leer</td></tr>
+<tr><td><b>SMTP-Server-Passwort</b></td><td><code>EmailSettings.SMTPPassword</code>, <code>AM_EMAILSETTINGS_SMTPPASSWORD</code></td><td>leer</td></tr>
+<tr><td><b>Verbindungssicherheit</b></td><td><code>EmailSettings.ConnectionSecurity</code>, <code>AM_EMAILSETTINGS_CONNECTIONSECURITY</code></td><td>Keine (leer); oder <code>TLS</code> oder <code>STARTTLS</code></td></tr>
+<tr><td><b>Serverzertifikatsüberprüfung überspringen</b></td><td><code>EmailSettings.SkipServerCertificateVerification</code></td><td>aus. Lassen Sie es in der Produktion aus.</td></tr>
+</tbody>
+</table>
+<p>Verwenden Sie <code>STARTTLS</code> auf Port 587 oder <code>TLS</code> auf Port 465, wie von Ihrem Anbieter angegeben. Klicken Sie dann auf derselben Seite auf <b>Verbindung testen</b>: Antimatter sendet eine Test-E-Mail an Ihre eigene Adresse.</p>
+<p>Eine typische Einrichtung mit Docker Compose, in <code>compose.override.yaml</code> neben <code>compose.yaml</code>:</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_EMAILSETTINGS_CONNECTIONSECURITY: STARTTLS
+      AM_EMAILSETTINGS_ENABLESMTPAUTH: "true"
+      AM_EMAILSETTINGS_SMTPUSERNAME: chat@example.com
+      AM_EMAILSETTINGS_SMTPPASSWORD: ${SMTP_PASSWORD}
+      AM_EMAILSETTINGS_FEEDBACKNAME: Antimatter
+      AM_EMAILSETTINGS_FEEDBACKEMAIL: chat@example.com
+      AM_EMAILSETTINGS_REPLYTOADDRESS: chat@example.com</code></pre>
+<p>Legen Sie <code>SMTP_PASSWORD</code> in <code>.env</code> ab. Die Compose-Datei der Website platziert den Server im Standard-Netzwerk, das Internetzugriff hat, sodass es einen externen SMTP-Server erreichen kann.</p>
+
+<h3>Einstellungen für Absender- und Benachrichtigungs-E-Mails</h3>
+<p>In <b>Systemkonsole › Systemkonfiguration › Benachrichtigungen</b>:</p>
+<table>
+<thead><tr><th>Einstellung</th><th>Schlüssel</th><th>Standard</th></tr></thead>
+<tbody>
+<tr><td><b>Aktiviere E-Mail-Benachrichtigungen</b></td><td><code>EmailSettings.SendEmailNotifications</code></td><td>an</td></tr>
+<tr><td><b>Benachrichtigungs-Anzeigename</b></td><td><code>EmailSettings.FeedbackName</code></td><td>leer</td></tr>
+<tr><td><b>Benachrichtigungs-Absenderadresse</b></td><td><code>EmailSettings.FeedbackEmail</code></td><td><code>test@example.com</code>: ändern</td></tr>
+<tr><td><b>Antworten-an-Adresse für Benachrichtigungen</b></td><td><code>EmailSettings.ReplyToAddress</code></td><td><code>test@example.com</code>: ändern</td></tr>
+<tr><td><b>Support Emailadresse</b></td><td><code>SupportSettings.SupportEmail</code></td><td>leer</td></tr>
+<tr><td><b>Adresse in der Fußzeile von Benachrichtigungen</b></td><td><code>EmailSettings.FeedbackOrganization</code></td><td>leer</td></tr>
+<tr><td><b>Inhalt der E-Mail-Benachrichtigungen</b></td><td><code>EmailSettings.EmailNotificationContentsType</code></td><td>Vollständigen Nachrichteninhalt senden (<code>full</code>) oder eine allgemeine Beschreibung mit nur dem Namen des Absenders (<code>generic</code>)</td></tr>
+<tr><td><b>E-Mail-Stapelverarbeitung aktivieren</b></td><td><code>EmailSettings.EnableEmailBatching</code></td><td>aus. An, können sich Personen dafür entscheiden, verpasste Nachrichten alle 15 Minuten oder stündlich in einer E-Mail zusammengefasst zu erhalten, anstatt eine E-Mail pro Nachricht.</td></tr>
+<tr><td><b>Kanalnamen in E-Mail-Benachrichtigungen verwenden</b></td><td><code>EmailSettings.UseChannelInEmailNotifications</code></td><td>aus</td></tr>
+<tr><td><b>Vorschaumodus-Banner aktivieren</b></td><td><code>EmailSettings.EnablePreviewModeBanner</code></td><td>an: Während E-Mail-Benachrichtigungen deaktiviert sind, informiert ein Banner Administratoren, dass E-Mail nicht konfiguriert ist</td></tr>
+</tbody>
+</table>
+<p>Die Absenderadresse muss eine sein, für die Ihr SMTP-Server das Senden erlaubt. Richten Sie SPF und DKIM für die zugehörige Domain ein, da die E-Mails sonst in den Spam-Ordner landen könnten.</p>
+<p>E-Mail-bezogene Einstellungen zur Anmeldung (z. B. ob neue Konten ihre Adresse verifizieren müssen oder ob Einladungen per E-Mail versendet werden können) finden Sie unter <a href="{{root}}docs/admins/authentication.html">Anmeldung und Konten</a>.</p>
+
+<h2 id="push">Push-Benachrichtigungen an die mobile App</h2>
+<h3>Funktionsweise der Push-Benachrichtigungen</h3>
+<p>Antimatter kommuniziert nie direkt mit Apple oder Google. Für jede Benachrichtigung ruft es einen <b>Push-Proxy</b> auf, der die Zugangsdaten der mobilen App verwaltet und die Benachrichtigung an Apple (APNs) für iPhones und an Google (Firebase Cloud Messaging) für Android-Geräte weiterleitet. Apple und Google liefern eine Benachrichtigung nur aus, wenn sie mit den Zugangsdaten der jeweiligen App gesendet wird. Ein Push-Proxy funktioniert daher nur mit einer einzigen Version der mobilen App: derjenigen, deren Zugangsdaten er verwaltet.</p>
+<ul>
+<li>Antimatter betreibt keinen öffentlichen Push-Proxy. Sie betreiben den Antimatter-Push-Proxy selbst, mit den Zugangsdaten der mobilen App-Version, die Ihre Nutzer installieren.</li>
+<li>Antimatter sendet keine Benachrichtigungen an die Push-Dienste von Mattermost, weder an Test- noch an gehostete Instanzen: Diese liefern nur an die eigenen mobilen Apps von Mattermost aus. Ist der Server auf eine dieser Adressen (z. B. <code>https://push-test.mattermost.com</code>, wie in älteren Mattermost-Konfigurationen üblich) eingestellt, wird nichts gesendet und beim Start eine Warnung protokolliert.</li>
+</ul>
+<p>Ein neuer Server hat keinen Push-Benachrichtigungsserver, sodass keine Push-Benachrichtigungen gesendet werden, bis Sie die Adresse Ihres Push-Proxy festgelegt haben. Bis dahin funktioniert die mobile App, erhält aber keine Benachrichtigungen.</p>
+
+<h3>Den Push-Proxy betreiben</h3>
+<p>Der Push-Proxy befindet sich im <a href="https://github.com/AntimatterChat/push-proxy">push-proxy</a>-Repository. Die README erklärt, wie Sie die beiden Zugangsdaten beschaffen, die aus den Konten stammen, die Ihre Version der mobilen App veröffentlichen:</p>
+<ul>
+<li><b>Android</b>: eine Service-Account-Datei des Firebase-Projekts, das Ihre Android-Version verwendet.</li>
+<li><b>iOS</b>: ein APNs-Authentifizierungsschlüssel (<code>AuthKey_&lt;KEY ID&gt;.p8</code>) des Apple-Entwicklerkontos, das Ihre iOS-Version veröffentlicht, einschließlich der Schlüssel-ID und Team-ID.</li>
+</ul>
+<p>Legen Sie sie neben <code>compose.yaml</code> ab, zusammen mit der Konfigurationsdatei des Proxys:</p>
+<pre><code>push-proxy/
+  config/antimatter-push-proxy.json
+  certs/AuthKey_ABCDE12345.p8
+  certs/firebase-service-account.json</code></pre>
+<p><code>push-proxy/config/antimatter-push-proxy.json</code>, mit Ihrer Bundle-Kennung, Schlüssel-ID und Team-ID:</p>
+<pre><code>{
+    "ListenAddress": ":8066",
+    "ThrottlePerSec": 300,
+    "ThrottleMemoryStoreSize": 50000,
+    "ThrottleVaryByHeader": "X-Forwarded-For",
+    "EnableMetrics": false,
+    "SendTimeoutSec": 30,
+    "RetryTimeoutSec": 8,
+    "ApplePushSettings": [
+        {
+            "Type": "apple_rn",
+            "ApplePushUseDevelopment": false,
+            "ApplePushTopic": "chat.antimatter.app",
+            "AppleAuthKeyFile": "./certs/AuthKey_ABCDE12345.p8",
+            "AppleAuthKeyID": "ABCDE12345",
+            "AppleTeamID": "FGHIJ67890"
+        }
+    ],
+    "AndroidPushSettings": [
+        {
+            "Type": "android_rn",
+            "ServiceFileLocation": "./certs/firebase-service-account.json"
+        }
+    ],
+    "EnableConsoleLog": true,
+    "EnableFileLog": false,
+    "LogFormat": "plain",
+    "LogLevel": "info"
+}</code></pre>
+<p><code>ApplePushTopic</code> ist die iOS-Bundle-Kennung Ihrer Version. <code>ApplePushUseDevelopment</code> ist nur für Versionen, die aus Xcode installiert wurden, auf <code>true</code> gesetzt. Anrufe werden auf iPhones über VoIP-Pushes ausgelöst, die denselben Schlüssel verwenden und hier keine weiteren Einstellungen erfordern.</p>
+<p>Die Website enthält eine vorgefertigte Ergänzung für die Compose-Datei, <a href="{{root}}compose.push.example.yaml">compose.push.example.yaml</a>. Das Image des Proxys ist noch nicht veröffentlicht, daher wird es beim ersten Mal aus dem Repository gebaut:</p>
+<pre><code>curl -fsSLO https://antimatter.chat/compose.push.example.yaml
+docker compose -f compose.yaml -f compose.push.example.yaml --profile push up -d
+docker compose -f compose.yaml -f compose.push.example.yaml logs push-proxy</code></pre>
+<p>Beim Start benennt das Protokoll des Proxys jedes Push-Ziel, das eingerichtet wurde, und protokolliert einen Fehler für jedes Ziel, dessen Zugangsdaten nicht geladen werden können. Der Proxy veröffentlicht keinen Port: Nur Antimatter erreicht ihn, über das Compose-Netzwerk.</p>
+<div class="callout warn">Der Push-Proxy prüft nicht, wer ihn aufruft. Stellen Sie ihn nicht ins Internet. Wenn er auf einem anderen Host läuft, setzen Sie ihn hinter HTTPS und beschränken Sie, wer ihn erreichen kann: Benachrichtigungen können Nachrichtentext enthalten.</div>
+
+<h3>Antimatter auf den Proxy ausrichten</h3>
+<p>In <b>Systemkonsole › Umgebung › Push-Benachrichtigungs-Server</b> <b>Aktiviere Push-Benachrichtigungen</b> auf <b>Push-Benachrichtigungen über einen eigenen Push-Proxy senden</b> und <b>Push-Benachrichtigungs-Server</b> auf <code>http://push-proxy:8066</code> (oder die HTTPS-Adresse des Proxys, falls er woanders läuft) setzen. Die Seite kann mit dieser Option und ohne Adresse nicht gespeichert werden. Um das Senden von Push-Benachrichtigungen zu stoppen, <b>Keine Benachrichtigungen senden</b> wählen. Oder mit Variablen im <code>antimatter</code>-Dienst:</p>
+<pre><code>AM_EMAILSETTINGS_SENDPUSHNOTIFICATIONS: "true"
+AM_EMAILSETTINGS_PUSHNOTIFICATIONSERVER: http://push-proxy:8066</code></pre>
+<p>Zum Prüfen: Melden Sie sich mit der mobilen App an, legen Sie sie in den Hintergrund und lassen Sie sich von einem anderen Konto erwähnen. Wenn nichts ankommt, suchen Sie nach <code>push</code> im Protokoll von Antimatter und im Protokoll des Proxys: Dort wird angegeben, ob der Gerätetyp unbekannt ist, ein Schlüssel abgelehnt wurde oder das Gerät zu einem anderen App-Build gehört.</p>
+
+<h3>Inhalt der Benachrichtigungen</h3>
+<p><b>Systemkonsole › Systemkonfiguration › Benachrichtigungen › Push-Benachrichtigungs-Inhalt</b> (<code>EmailSettings.PushNotificationContents</code>):</p>
+<table>
+<thead><tr><th>Option</th><th>Wert</th></tr></thead>
+<tbody>
+<tr><td>Allgemeine Beschreibung mit nur dem Namen des Absenders</td><td><code>generic_no_channel</code></td></tr>
+<tr><td>Allgemeine Beschreibung mit Namen des Absenders und des Kanals</td><td><code>generic</code></td></tr>
+<tr><td>Vollständiger Nachrichteninhalt, der im Benachrichtigungspayload gesendet wird (Standard)</td><td><code>full</code></td></tr>
+<tr><td>Vollständiger Nachrichteninhalt, der beim Empfang vom Server abgerufen wird</td><td><code>id_loaded</code></td></tr>
+</tbody>
+</table>
+<p>Bei <code>id_loaded</code> enthält die Benachrichtigung, die über den Proxy, Apple und Google geht, nur eine ID, und die App ruft die Nachricht von Ihrem Server ab: Der Nachrichtentext geht nie über deren Dienste. Dies ist die beste Wahl, wenn Nachrichten vertraulich sind.</p>
+<p><b>Schwellenwert für Benachrichtigungen in großen Kanälen</b> auf der Seite Push-Benachrichtigungs-Server (<code>TeamSettings.MaxNotificationsPerChannel</code>, Standardwert 1000) ist die größte Anzahl von Mitgliedern, die ein Kanal haben darf, damit @here, @all und @channel funktionieren. In größeren Kanälen sind diese Erwähnungen und die Eingabeindikatoren deaktiviert.</p>

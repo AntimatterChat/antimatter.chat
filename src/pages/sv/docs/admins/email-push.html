@@ -1,0 +1,136 @@
+title: E-post- och pushaviseringar
+description: Konfigurera Antimatters utgående e-post (SMTP) för inbjudningar, lösenordsåterställningar och aviseringar, samt pushaviseringar till mobilappen via din egen push-proxy.
+guide: admins
+order: 6
+nav: E-post och push
+lead: Antimatter skickar e-post för inbjudningar, lösenordsåterställningar, verifiering och missade meddelanden, samt pushaviseringar till mobilappen via en push-proxy. Ingen av delarna fungerar förrän du har konfigurerat den.
+source: 4e9b08a2674b
+---
+<h2 id="smtp">Utgående e-post (SMTP)</h2>
+<p>Antimatter skickar e-post via en SMTP-server som du tillhandahåller: din organisations mailserver eller en tjänst för transaktionell e-post. Utan den kan inte personer återställa ett glömt lösenord, e-postinbjudningar och verifiering når inte fram, och ingen får e-postaviseringar om missade meddelanden.</p>
+<p>Ställ in det i <b>Systemkonsol › Miljö › SMTP</b>, eller med variabler:</p>
+<table>
+<thead><tr><th>Inställning</th><th>Nyckel och variabel</th><th>Standard</th></tr></thead>
+<tbody>
+<tr><td><b>SMTP Server</b></td><td><code>EmailSettings.SMTPServer</code>, <code>AM_EMAILSETTINGS_SMTPSERVER</code></td><td><code>localhost</code></td></tr>
+<tr><td><b>SMTP serverport</b></td><td><code>EmailSettings.SMTPPort</code>, <code>AM_EMAILSETTINGS_SMTPPORT</code></td><td><code>10025</code></td></tr>
+<tr><td><b>Aktivera SMTP-autentisering</b></td><td><code>EmailSettings.EnableSMTPAuth</code>, <code>AM_EMAILSETTINGS_ENABLESMTPAUTH</code></td><td>av utan anslutningssäkerhet, på med den</td></tr>
+<tr><td><b>Användarnamn på SMTP-server</b></td><td><code>EmailSettings.SMTPUsername</code>, <code>AM_EMAILSETTINGS_SMTPUSERNAME</code></td><td>tom</td></tr>
+<tr><td><b>Lösenord SMTP-server</b></td><td><code>EmailSettings.SMTPPassword</code>, <code>AM_EMAILSETTINGS_SMTPPASSWORD</code></td><td>tom</td></tr>
+<tr><td><b>Anslutningssäkerhet</b></td><td><code>EmailSettings.ConnectionSecurity</code>, <code>AM_EMAILSETTINGS_CONNECTIONSECURITY</code></td><td>Ingen (tom); eller <code>TLS</code> eller <code>STARTTLS</code></td></tr>
+<tr><td><b>Ignorera verifiering av server-certifikat</b></td><td><code>EmailSettings.SkipServerCertificateVerification</code></td><td>av. Låt den vara av i produktionsmiljö.</td></tr>
+</tbody>
+</table>
+<p>Använd <code>STARTTLS</code> på port 587 eller <code>TLS</code> på port 465, enligt vad din leverantör anger. Klicka sedan på <b>Testa anslutningen</b> på samma sida: Antimatter skickar ett testmejl till din egen adress.</p>
+<p>En typisk uppsättning med Docker Compose, i <code>compose.override.yaml</code> bredvid <code>compose.yaml</code>:</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_EMAILSETTINGS_CONNECTIONSECURITY: STARTTLS
+      AM_EMAILSETTINGS_ENABLESMTPAUTH: "true"
+      AM_EMAILSETTINGS_SMTPUSERNAME: chat@example.com
+      AM_EMAILSETTINGS_SMTPPASSWORD: ${SMTP_PASSWORD}
+      AM_EMAILSETTINGS_FEEDBACKNAME: Antimatter
+      AM_EMAILSETTINGS_FEEDBACKEMAIL: chat@example.com
+      AM_EMAILSETTINGS_REPLYTOADDRESS: chat@example.com</code></pre>
+<p>Placera <code>SMTP_PASSWORD</code> i <code>.env</code>. Webbplatsens compose-fil placerar servern på det standardnätverket, som har internetåtkomst, så den kan nå en extern SMTP-server.</p>
+
+<h3>Inställningar för avsändare och aviseringse-post</h3>
+<p>I <b>Systemkonsol › Site-konfiguration › Aviseringar</b>:</p>
+<table>
+<thead><tr><th>Inställning</th><th>Nyckel</th><th>Standard</th></tr></thead>
+<tbody>
+<tr><td><b>Aktivera meddelande via e-post</b></td><td><code>EmailSettings.SendEmailNotifications</code></td><td>på</td></tr>
+<tr><td><b>Visningsnamn i meddelande</b></td><td><code>EmailSettings.FeedbackName</code></td><td>tom</td></tr>
+<tr><td><b>Meddelande från adress</b></td><td><code>EmailSettings.FeedbackEmail</code></td><td><code>test@example.com</code>: ändra den</td></tr>
+<tr><td><b>Svara-till adress för meddelanden</b></td><td><code>EmailSettings.ReplyToAddress</code></td><td><code>test@example.com</code>: ändra den</td></tr>
+<tr><td><b>Mejladress för supportmejl</b></td><td><code>SupportSettings.SupportEmail</code></td><td>tom</td></tr>
+<tr><td><b>E-postadress i sidfot</b></td><td><code>EmailSettings.FeedbackOrganization</code></td><td>tom</td></tr>
+<tr><td><b>Innehåll e-postmeddelande</b></td><td><code>EmailSettings.EmailNotificationContentsType</code></td><td>Skicka fullständiga meddelandeinnehåll (<code>full</code>) eller en generell beskrivning med endast avsändarens namn (<code>generic</code>)</td></tr>
+<tr><td><b>Aktivera massbearbetning av e-post</b></td><td><code>EmailSettings.EnableEmailBatching</code></td><td>av. På, så kan personer välja att få missade meddelanden grupperade i ett e-postmeddelande var 15:e minut eller var timme, istället för ett e-postmeddelande per meddelande.</td></tr>
+<tr><td><b>Använd kanalnamn i e-postaviseringar</b></td><td><code>EmailSettings.UseChannelInEmailNotifications</code></td><td>Av</td></tr>
+<tr><td><b>Aktivera läget Förhandsgranskning av banner</b></td><td><code>EmailSettings.EnablePreviewModeBanner</code></td><td>på: medan e-postaviseringar är av, visar en banner för administratörer att e-post inte är konfigurerad</td></tr>
+</tbody>
+</table>
+<p>Avsändaradressen måste vara en adress som din SMTP-server är tillåten att skicka som. Ställ in SPF och DKIM för dess domän, annars kan e-postmeddelanden hamna i skräpposten.</p>
+<p>E-postrelaterade inloggningsinställningar (till exempel om nya konton måste verifiera sin adress och om inbjudningar kan skickas per e-post) finns under <a href="{{root}}docs/admins/authentication.html">Inloggning och konton</a>.</p>
+
+<h2 id="push">Pushaviseringar till mobilappen</h2>
+<h3>Så fungerar push</h3>
+<p>Antimatter kommunicerar aldrig direkt med Apple eller Google. För varje avisering anropar det en <b>push-proxy</b> som har mobilappens autentiseringsuppgifter och vidarebefordrar aviseringen till Apple (APNs) för iPhones och till Google (Firebase Cloud Messaging) för Android-telefoner. Apple och Google levererar bara en avisering när den skickas med de autentiseringsuppgifter som tillhör den app den avser. En push-proxy fungerar alltså med en bygg av mobilappen: den vars autentiseringsuppgifter den har.</p>
+<ul>
+<li>Antimatter driver ingen offentlig push-proxy. Du driver själv Antimatters push-proxy med de autentiseringsuppgifter som tillhör den bygg av mobilappen som dina användare installerar.</li>
+<li>Antimatter skickar aldrig aviseringar till Mattermosts push-tjänster, vare sig test- eller hostade: de levererar bara till Mattermosts egna mobilappar. Om servern är inställd på en av deras adresser (till exempel <code>https://push-test.mattermost.com</code>, som äldre Mattermost-konfigurationer använder), skickas inget och en varning loggas vid start.</li>
+</ul>
+<p>En ny server har ingen push-aviseringsserver, så den skickar inga pushaviseringar förrän du har ställt in adressen till din push-proxy. Förrän dess fungerar mobilappen men får inga aviseringar.</p>
+
+<h3>Kör push-proxyn</h3>
+<p>Push-proxyn finns i <a href="https://github.com/AntimatterChat/push-proxy">push-proxy</a>-repositoryn. Dess README förklarar hur man får de två autentiseringsuppgifterna, som kommer från de konton som publicerar din bygg av mobilappen:</p>
+<ul>
+<li><b>Android</b>: en tjänstekontosfil för det Firebase-projekt som din Android-bygg använder.</li>
+<li><b>iOS</b>: en APNs-autentiseringsnyckel (<code>AuthKey_&lt;KEY ID&gt;.p8</code>) för det Apple-utvecklaraccount som publicerar din iOS-bygg, med dess nyckel-ID och team-ID.</li>
+</ul>
+<p>Placera dem bredvid <code>compose.yaml</code>, tillsammans med proxyns konfigurationsfil:</p>
+<pre><code>push-proxy/
+  config/antimatter-push-proxy.json
+  certs/AuthKey_ABCDE12345.p8
+  certs/firebase-service-account.json</code></pre>
+<p><code>push-proxy/config/antimatter-push-proxy.json</code>, med din bundle identifier, nyckel-ID och team-ID:</p>
+<pre><code>{
+    "ListenAddress": ":8066",
+    "ThrottlePerSec": 300,
+    "ThrottleMemoryStoreSize": 50000,
+    "ThrottleVaryByHeader": "X-Forwarded-For",
+    "EnableMetrics": false,
+    "SendTimeoutSec": 30,
+    "RetryTimeoutSec": 8,
+    "ApplePushSettings": [
+        {
+            "Type": "apple_rn",
+            "ApplePushUseDevelopment": false,
+            "ApplePushTopic": "chat.antimatter.app",
+            "AppleAuthKeyFile": "./certs/AuthKey_ABCDE12345.p8",
+            "AppleAuthKeyID": "ABCDE12345",
+            "AppleTeamID": "FGHIJ67890"
+        }
+    ],
+    "AndroidPushSettings": [
+        {
+            "Type": "android_rn",
+            "ServiceFileLocation": "./certs/firebase-service-account.json"
+        }
+    ],
+    "EnableConsoleLog": true,
+    "EnableFileLog": false,
+    "LogFormat": "plain",
+    "LogLevel": "info"
+}</code></pre>
+<p><code>ApplePushTopic</code> är din byggs iOS-bundle identifier. <code>ApplePushUseDevelopment</code> är <code>true</code> endast för bygg som installerats från Xcode. Samtal ringer på iPhones via VoIP-push, som använder samma nyckel och inte kräver något mer här.</p>
+<p>Sajten har en färdig tillägg till compose-filen, <a href="{{root}}compose.push.example.yaml">compose.push.example.yaml</a>. Proxyns bild är inte publicerad ännu, så den byggs från repot vid första tillfället:</p>
+<pre><code>curl -fsSLO https://antimatter.chat/compose.push.example.yaml
+docker compose -f compose.yaml -f compose.push.example.yaml --profile push up -d
+docker compose -f compose.yaml -f compose.push.example.yaml logs push-proxy</code></pre>
+<p>Vid start anger proxyns logg varje pushmål den har konfigurerat och loggar ett fel för sådana vars autentiseringsuppgifter den inte kan läsa. Proxyn publicerar ingen port: endast Antimatter når den, på compose-nätverket.</p>
+<div class="callout warn">Pushproxyn kontrollerar inte vem som anropar den. Exponera den inte mot internet. Om den körs på en annan värd, placera den bakom HTTPS och begränsa vem som kan nå den: aviseringar kan innehålla meddelandetext.</div>
+
+<h3>Peaka Antimatter mot proxyn</h3>
+<p>I <b>Systemkonsol › Miljö › Push Notification Server</b>, sätt <b>Aktivera push-avisering</b> till <b>Skicka pushaviseringar genom din egen pushproxy</b>, och <b>Push Notification Server</b> till <code>http://push-proxy:8066</code> (eller proxyens HTTPS-adress om den körs någon annanstans). Sidan kan inte sparas med detta alternativ och ingen adress. För att sluta skicka pushaviseringar, välj <b>Skicka inte push-aviseringar</b>. Eller med variabler på tjänsten <code>antimatter</code>:</p>
+<pre><code>AM_EMAILSETTINGS_SENDPUSHNOTIFICATIONS: "true"
+AM_EMAILSETTINGS_PUSHNOTIFICATIONSERVER: http://push-proxy:8066</code></pre>
+<p>För att kontrollera: logga in med mobilappen, placera den i bakgrunden och låt ett annat konto nämna dig. Om inget kommer, leta efter <code>push</code> i Antimatters logg och i proxyns logg: de anger om enhetstypen är okänd, om en nyckel avvisades, eller om enheten tillhör en annan appversion.</p>
+
+<h3>Vad aviseringar innehåller</h3>
+<p><b>Systemkonsol › Site-konfiguration › Aviseringar › Innehåll push-meddelande</b> (<code>EmailSettings.PushNotificationContents</code>):</p>
+<table>
+<thead><tr><th>Alternativ</th><th>Värde</th></tr></thead>
+<tbody>
+<tr><td>Generisk beskrivning med endast avsändarnamn</td><td><code>generic_no_channel</code></td></tr>
+<tr><td>Generisk beskrivning med avsändar- och kanalnamn</td><td><code>generic</code></td></tr>
+<tr><td>Full meddelandehalt skickad i aviseringens last (standard)</td><td><code>full</code></td></tr>
+<tr><td>Full meddelandehalt hämtad från servern vid mottagande</td><td><code>id_loaded</code></td></tr>
+</tbody>
+</table>
+<p>Med <code>id_loaded</code> bär den avisering som går genom proxyn, Apple och Google, endast ett id, och appen hämtar meddelandet från din server: meddelandetext passerar aldrig deras tjänster. Det är det bästa valet när meddelanden är konfidentiella.</p>
+<p><b>Aviseringsgräns i kanal med många användare</b>, på sidan Push Notification Server, (<code>TeamSettings.MaxNotificationsPerChannel</code>, 1000 som standard) är det största antalet medlemmar en kanal kan ha för att @here, @all och @channel ska fungera. I större kanaler stängs dessa omnämnanden och skrivindikatorer av.</p>

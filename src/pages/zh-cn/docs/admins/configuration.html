@@ -1,0 +1,120 @@
+title: 配置
+description: Antimatter 的配置机制：数据库或 config.json 中的设置、AM_ 环境变量、系统控制台、amctl 命令行工具，以及日志的位置。
+guide: admins
+order: 3
+nav: 配置
+lead: Antimatter 存储设置的位置、三种修改方式（系统控制台、环境变量、amctl）以及日志的存放位置。
+source: e2d6546121d3
+---
+<h2 id="where">设置存储在哪里</h2>
+<p>每个服务器设置都有一个由部分（section）和键（key）组成的名称，例如 <code>ServiceSettings.SiteURL</code> 或 <code>EmailSettings.SMTPServer</code>。它们共同构成一个配置，存储在以下两个位置之一：</p>
+<ul>
+<li><b>在数据库中。</b> 站点的 compose 文件将 <code>AM_CONFIG</code> 设置为 PostgreSQL 连接 URL，因此配置是数据库中的一行记录，容器在磁盘上不保留任何数据。共享同一个数据库的多个服务器也会共享它们的配置。</li>
+<li><b>在文件中。</b> 如果没有设置 <code>AM_CONFIG</code>，服务器会读取其 <code>bin/</code> 目录旁边的 <code>config/config.json</code>（在 Docker 镜像中为 <code>/antimatter/config/config.json</code>）。antimatter-docker 的发布归档和生产环境 compose 文件就是这样工作的。请确保此文件仅对服务器用户可读：其中包含密码和密钥。</li>
+</ul>
+<p><code>AM_CONFIG</code>（或 <code>antimatter</code> 命令的 <code>--config</code> 标志）接受文件路径或 <code>postgres://</code> URL。未指定的设置将采用其默认值。</p>
+<p>要将现有配置从文件迁移到数据库，请在服务器上运行此命令，然后将 <code>AM_CONFIG</code> 设置为相同的 URL 并启动服务器：</p>
+<pre><code>amctl --local config migrate /opt/antimatter/config/config.json \
+    "postgres://antimatter:PASSWORD@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10"</code></pre>
+
+<h2 id="environment">环境变量</h2>
+<p>任何设置都可以通过环境变量提供。环境变量优先于存储的配置，因此它们非常适合用于属于部署环境的配置：数据库、站点 URL、文件存储、端口。</p>
+<h3>命名规则</h3>
+<p>先写 <code>AM_</code>，然后是部分，再然后是键，全部使用大写字母并用下划线分隔。部分或键名称内的单词之间不使用分隔符：</p>
+<table>
+<thead><tr><th>设置项</th><th>变量</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.SiteURL</code></td><td><code>AM_SERVICESETTINGS_SITEURL</code></td></tr>
+<tr><td><code>SqlSettings.DataSource</code></td><td><code>AM_SQLSETTINGS_DATASOURCE</code></td></tr>
+<tr><td><code>EmailSettings.SMTPServer</code></td><td><code>AM_EMAILSETTINGS_SMTPSERVER</code></td></tr>
+<tr><td><code>PrivacySettings.EnableUserBlocking</code></td><td><code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li>布尔值设置使用 <code>true</code> 或 <code>false</code>；数字使用普通数字。</li>
+<li>列表设置的值用空格分隔，例如 <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>。</li>
+<li>对象类型的设置接受 JSON。应用程序中唯一的此类变量是 <code>AM_PLUGINSETTINGS_PLUGINS</code>，它会一次性替换<em>所有</em>应用程序的设置：请改为在系统控制台或通过 <code>amctl</code> 设置应用程序设置（见下文）。</li>
+<li>较旧版本的 Mattermost 使用 <code>MM_</code> 前缀，例如 <code>MM_SQLSETTINGS_DATASOURCE</code>。它仍然作为遗留别名有效。当两者同时设置时，<code>AM_</code> 变量优先。</li>
+</ul>
+<p>通过变量提供的设置在系统控制台中被锁定，并附有说明：“此设置已通过环境变量设置，无法通过系统控制台更改。”它不会写入存储的配置：移除该变量后，存储的值将重新生效。</p>
+<h3>使用 Docker Compose</h3>
+<p>在 <code>antimatter</code> 服务的 <code>environment:</code> 下添加变量，或在 <code>compose.yaml</code> 旁边的 <code>compose.override.yaml</code> 中添加（Compose 会自动读取它，并且它在下载文件更新后仍然保留）：</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_LOGSETTINGS_CONSOLELEVEL: INFO</code></pre>
+<p>使用 <code>docker compose up -d</code> 应用更改，这会重新创建容器。</p>
+<h3>应用程序读取的变量</h3>
+<p>少数应用程序会读取设置在 <code>antimatter</code> 服务上的专属变量：Calls 应用程序读取 <code>AM_CALLS_*</code>（参见 <a href="{{root}}docs/admins/calls.html">通话和语音</a>），GIFs 应用程序读取 <code>AM_GIFS_SERVICE_URL</code>、<code>AM_GIFS_API_KEY</code> 和 <code>AM_GIFS_UPLOAD_KEY</code>（参见 <a href="{{root}}docs/admins/apps.html">内置应用程序</a>）。</p>
+
+<h2 id="console">系统控制台</h2>
+<p>系统控制台是 Web 应用的管理区域，供系统管理员使用。要打开它，请点击您的头像并选择<b>系统控制台</b>，或访问 <code>https://chat.example.com/admin_console</code>。其侧栏包含一个<b>文件设置</b>框，可搜索所有页面。</p>
+<figure><img src="{{root}}assets/img/shots/admin.webp" alt="The System Console, with its sidebar of sections on the left and the SAML 2.0 settings page on the right."><figcaption>系统控制台。侧栏将页面分组为报告、用户管理和环境等部分。</figcaption></figure>
+<p>其部分包括：</p>
+<ul>
+<li><b>报告</b>：统计信息和服务器日志。</li>
+<li><b>用户管理</b>：用户、群组、社区（列为团队）、频道、权限和委托管理。</li>
+<li><b>系统属性</b>：自定义个人资料属性和基于属性的访问控制。</li>
+<li><b>环境</b>：Web 服务器、数据库、文件存储、图像代理、SMTP、推送通知、速率限制、日志记录、会话时长、性能监控。</li>
+<li><b>站点配置</b>：品牌、用户和团队、通知、帖子、文件共享以及其他服务器范围的行为。</li>
+<li><b>身份验证</b>：注册、电子邮件和密码登录、多因素认证（MFA）、AD/LDAP、SAML 2.0、OAuth 2.0、OpenID Connect 以及访客访问。</li>
+<li><b>插件</b>：应用管理以及每个已安装应用的设置。</li>
+<li><b>集成</b>：Webhook、斜杠命令、机器人账号、GIF、文本转语音、CORS。</li>
+<li><b>合规性</b>：数据保留、合规性导出与监控、审计日志、自定义服务条款。</li>
+<li><b>实验性功能</b>：可能会发生变化的功能。</li>
+</ul>
+<p>在本指南中，设置的书写格式为：其在系统控制台中的路径，然后是标签，最后是配置键。例如 <b>系统控制台 › 站点配置 › 成员和团队 › 启用忽略、屏蔽和消息请求</b>（<code>PrivacySettings.EnableUserBlocking</code>）。</p>
+<p>大多数更改在点击 <b>保存</b> 后立即生效。少数设置（如监听地址、部分数据库和缓存设置）需要重启才能生效，页面中会有相应说明。</p>
+
+<h2 id="amctl">amctl 命令行工具</h2>
+<p><code>amctl</code> 用于通过命令行管理服务器：用户、社区、频道、应用、配置、任务等。它通过以下两种方式之一与服务器通信。</p>
+<h3>本地模式（在服务器上）</h3>
+<p>本地模式允许 <code>amctl</code> 通过 Unix 套接字与服务器通信，无需登录。Docker 镜像中默认开启此模式。对于通过归档文件安装的服务器，可通过 <b>ServiceSettings.EnableLocalMode</b>（<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>）开启。套接字路径默认为 <code>/var/tmp/antimatter_local.socket</code>（<code>ServiceSettings.LocalModeSocketLocation</code>）。</p>
+<pre><code># with Docker Compose
+docker compose exec antimatter amctl --local system status
+# with a release archive
+sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code></pre>
+<div class="callout warn">任何能够使用该套接字或在主机上运行 <code>docker compose exec</code> 的用户，都拥有完整的系统管理员权限。</div>
+<h3>远程模式（使用账号）</h3>
+<p>从任意机器，使用系统管理员账号（或个人访问令牌）登录，然后针对该服务器运行命令：</p>
+<pre><code>amctl auth login https://chat.example.com --name prod --username admin
+amctl system status</code></pre>
+<h3>配置命令</h3>
+<table>
+<thead><tr><th>命令</th><th>功能说明</th></tr></thead>
+<tbody>
+<tr><td><code>amctl config get ServiceSettings.SiteURL</code></td><td>打印单个设置。</td></tr>
+<tr><td><code>amctl config set TeamSettings.EnableOpenServer false</code></td><td>修改单个设置。列表类型的设置可接受多个值。</td></tr>
+<tr><td><code>amctl config patch settings.json</code></td><td>将 JSON 格式的设置文件合并到配置中。</td></tr>
+<tr><td><code>amctl config show</code></td><td>以 JSON 格式打印完整配置。</td></tr>
+<tr><td><code>amctl config edit</code></td><td>在编辑器（<code>$EDITOR</code>）中打开配置。</td></tr>
+<tr><td><code>amctl config reset</code></td><td>将设置重置为默认值。</td></tr>
+<tr><td><code>amctl config reload</code></td><td>在服务器外部进行更改后，从存储位置重新加载配置。</td></tr>
+</tbody>
+</table>
+<p>应用设置位于 <code>PluginSettings.Plugins.&lt;app id&gt;</code> 下，键名使用小写。例如，要从 Docker 主机设置 GIF 应用的服务 URL 和密钥：</p>
+<pre><code>docker compose exec -T antimatter amctl --local config patch /dev/stdin &lt;&lt;'EOF'
+{"PluginSettings": {"Plugins": {"com.antimatterchat.gifs": {
+  "serviceurl": "http://gifs:8080/v2",
+  "apikey": "the GIFS_API_KEY of your .env"
+}}}}
+EOF</code></pre>
+<p>其他常用命令：<code>amctl user create</code>、<code>amctl user deactivate</code>、<code>amctl team create</code>、<code>amctl plugin list</code>、<code>amctl plugin enable</code>、<code>amctl system supportpacket</code> 和 <code>amctl logs</code>。运行 <code>amctl help &lt;command&gt;</code> 可查看各命令的选项。</p>
+
+<h2 id="logs">日志</h2>
+<p>服务器会将日志写入两个位置，每个位置都有独立的日志级别（<code>DEBUG</code>、<code>INFO</code>、<code>WARN</code> 或 <code>ERROR</code>），可在<b>系统控制台 › 环境 › 日志</b>中设置：</p>
+<table>
+<thead><tr><th>目标</th><th>设置</th><th>默认值</th></tr></thead>
+<tbody>
+<tr><td>控制台（标准输出）</td><td><b>日志输出到控制台</b>（<code>LogSettings.EnableConsole</code>）、<b>控制台日志级别</b>（<code>LogSettings.ConsoleLevel</code>）、<b>以 JSON 输出控制台日志</b>（<code>LogSettings.ConsoleJson</code>）</td><td>开启、<code>DEBUG</code>、JSON</td></tr>
+<tr><td>文件 <code>antimatter.log</code></td><td><b>输出日志到文件</b>（<code>LogSettings.EnableFile</code>）、<b>文件日志级别</b>（<code>LogSettings.FileLevel</code>）、<b>日志文件目录</b>（<code>LogSettings.FileLocation</code>）</td><td>开启、<code>INFO</code>、与 <code>bin/</code> 目录相邻的 <code>logs/</code> 目录</td></tr>
+</tbody>
+</table>
+<p>日志文件达到 100 MB 时会进行轮转，旧文件会被压缩。</p>
+<p>该站点的 compose 文件已关闭文件日志（<code>AM_LOGSETTINGS_ENABLEFILE=false</code>），因此日志仅存在于容器的输出中：</p>
+<pre><code>docker compose logs -f antimatter
+docker compose logs --since 1h antimatter | grep -i error</code></pre>
+<p>控制台日志级别默认为 <code>DEBUG</code>，输出较为详细。在繁忙的服务器上，建议设置为 <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code>。如果使用 systemd 管理发布包，控制台输出会写入日志（<code>journalctl -u antimatter</code>），文件日志则位于 <code>/opt/antimatter/logs/antimatter.log</code>。</p>
+<p>当文件日志开启时，系统管理员还可以在<b>系统控制台 › 报告 › 服务器日志</b>中查看最新的日志行，或使用 <code>amctl logs</code> 命令查看。</p>

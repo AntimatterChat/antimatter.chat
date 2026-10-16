@@ -1,0 +1,122 @@
+title: Comandi con barra
+description: Comandi con barra personalizzati in Antimatter: come crearli, la richiesta ricevuta dal servizio, il formato della risposta, risposte effimere e in canale, risposte ritardate e completamento automatico.
+guide: developers
+order: 4
+nav: Comandi con barra
+lead: Un comando con barra personalizzato consente di digitare /qualcosa nella casella di messaggio per chiamare il proprio servizio. Antimatter invia il comando all'URL specificato e mostra la risposta, destinata solo a chi ha digitato il comando o a tutto il canale.
+source: 24dbc9730e62
+---
+<h2 id="how">Come funziona un comando con barra</h2>
+<ol>
+<li>Qualcuno digita <code>/weather Paris</code> e invia. Il testo non viene pubblicato.</li>
+<li>Antimatter invia una richiesta HTTP all'URL del comando, includendo chi l'ha digitato, dove e il testo dopo la parola di esecuzione.</li>
+<li>Il servizio risponde entro il timeout della richiesta (30 secondi di default) con un messaggio.</li>
+<li>Antimatter mostra la risposta: solo a quella persona (effimere) o nel canale per tutti.</li>
+</ol>
+<p>I comandi appartengono a una community e la parola di esecuzione è unica all'interno di essa. I comandi integrati come <code>/join</code>, <code>/msg</code> o <code>/away</code> non possono essere sostituiti. Le app (plugin) possono registrare comandi; vedere <a href="{{root}}docs/developers/apps.html#server">La parte server</a>.</p>
+
+<h2 id="create">Creare un comando</h2>
+<p>I comandi con barra personalizzati sono abilitati di default (<b>Abilita Comandi Slash Personalizzati</b> in <b>Console di Sistema › Integrazioni › Gestione integrazioni</b>, <code>ServiceSettings.EnableCommands</code>). Gli amministratori di community e gli amministratori di sistema possono crearli di default.</p>
+<ol>
+<li>Apri il tuo avatar in alto a destra, poi <b>Integrazioni › Comandi con barra</b>, poi <b>Aggiungere Comando Slash</b>.</li>
+<li>Compila il <b>Titolo</b> e la <b>Descrizione</b> (visualizzati nelle pagine delle integrazioni).</li>
+<li>Inserisci la <b>Parola di esecuzione del comando</b>, senza la barra e senza spazi, ad esempio <code>weather</code>.</li>
+<li>Inserisci l'<b>URL di richiesta</b> e scegli il <b>Metodo Richiesta</b>: <b>POST</b> (il default) o <b>GET</b>.</li>
+<li>Facoltativamente imposta un <b>Nome utente risposta</b> e un'<b>Icona di risposta</b>. Vengono utilizzati solo quando il server consente alle integrazioni di sovrascrivere nomi e icone (vedere <a href="{{root}}docs/developers/webhooks.html#identity">Nome e icona</a>).</li>
+<li>Spunta <b>Completamento automatico</b> per elencare il comando quando le persone digitano <code>/</code>, con un <b>Suggerimento per l'auto-completamento</b> (i suoi argomenti, come <code>[city]</code>) e una <b>Descrizione Autocompletamento</b>.</li>
+<li>Scegli <b>Salva</b> e copia il token visualizzato. Il tuo servizio lo usa per verificare che le richieste provengano dal tuo server.</li>
+</ol>
+<p>Con l'API: <code>POST /api/v4/commands</code> con <code>{"team_id", "trigger", "url", "method": "P", "display_name", "description", "auto_complete": true, "auto_complete_hint", "auto_complete_desc", "username", "icon_url"}</code>. Il metodo è <code>P</code> per POST o <code>G</code> per GET. <code>PUT /api/v4/commands/{command_id}/regen_token</code> emette un nuovo token.</p>
+
+<h2 id="request">La richiesta ricevuta dal servizio</h2>
+<p>Un comando POST invia un corpo form-encoded (<code>application/x-www-form-urlencoded</code>); un comando GET invia gli stessi campi nella query string. Il token è presente anche nell'intestazione <code>Authorization: Token &lt;token&gt;</code>.</p>
+<table>
+<thead><tr><th>Campo</th><th>Valore</th></tr></thead>
+<tbody>
+<tr><td><code>token</code></td><td>Il token del comando. Verificalo in ogni richiesta.</td></tr>
+<tr><td><code>command</code></td><td>Il trigger con la barra, ad esempio <code>/weather</code>.</td></tr>
+<tr><td><code>text</code></td><td>Tutto ciò che segue il trigger, ad esempio <code>Paris</code>.</td></tr>
+<tr><td><code>user_id</code>, <code>user_name</code></td><td>Chi lo ha eseguito.</td></tr>
+<tr><td><code>channel_id</code>, <code>channel_name</code></td><td>Dove è stato eseguito.</td></tr>
+<tr><td><code>team_id</code>, <code>team_domain</code></td><td>L'ID e il nome URL della community.</td></tr>
+<tr><td><code>root_id</code></td><td>Il thread, se è stato eseguito nella casella di risposta di un thread.</td></tr>
+<tr><td><code>trigger_id</code></td><td>Permette alla risposta di aprire un dialogo (vedi <a href="{{root}}docs/developers/bots.html#dialogs">Dialoghi</a>). È valido solo per un breve periodo.</td></tr>
+<tr><td><code>response_url</code></td><td>Un URL per pubblicare altre risposte in seguito (vedi <a href="#delayed">Risposte ritardate</a>).</td></tr>
+<tr><td><code>user_mentions</code>, <code>user_mentions_ids</code>, <code>channel_mentions</code>, <code>channel_mentions_ids</code></td><td>Le persone e i canali pubblici menzionati nel testo, se presenti.</td></tr>
+</tbody>
+</table>
+<div class="callout">L'<b>URL del sito</b> del server deve essere impostato affinché i comandi personalizzati possano essere eseguiti: Antimatter costruisce <code>response_url</code> a partire da questo.</div>
+
+<h2 id="response">La risposta</h2>
+<p>Rispondi con <code>200</code> in JSON (<code>Content-Type: application/json</code>):</p>
+<pre><code>{
+  "response_type": "in_channel",
+  "text": "Paris: 18 °C, light rain",
+  "attachments": []
+}</code></pre>
+<table>
+<thead><tr><th>Campo</th><th>Significato</th></tr></thead>
+<tbody>
+<tr><td><code>response_type</code></td><td><code>ephemeral</code> (valore predefinito): solo la persona che ha eseguito il comando vede la risposta, che non viene conservata dopo un ricaricamento. <code>in_channel</code>: la risposta viene pubblicata nel canale.</td></tr>
+<tr><td><code>text</code>, <code>attachments</code></td><td>Il messaggio, come per i webhook: testo Markdown e <a href="{{root}}docs/developers/webhooks.html#attachments">allegati</a>, inclusi pulsanti e menu.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code></td><td>Il nome e l'immagine da mostrare, se sono consentite le sostituzioni. Le impostazioni del comando stesso hanno la precedenza su queste.</td></tr>
+<tr><td><code>channel_id</code></td><td>Pubblica la risposta in un altro canale, di cui la persona deve essere membro.</td></tr>
+<tr><td><code>goto_location</code></td><td>Un URL da aprire una volta eseguito il comando.</td></tr>
+<tr><td><code>props</code>, <code>type</code></td><td>Proprietà aggiuntive e un tipo di post personalizzato, come per i webhook.</td></tr>
+<tr><td><code>extra_responses</code></td><td>Altre risposte, ciascuna con gli stessi campi, pubblicate dopo la prima.</td></tr>
+<tr><td><code>skip_slack_parsing</code></td><td><code>true</code> mantiene il testo così com'è, senza convertire link e menzioni in stile Slack.</td></tr>
+</tbody>
+</table>
+<p>Una risposta che non è in JSON viene visualizzata come messaggio temporaneo con il corpo come testo. <code>204 No Content</code> non mostra nulla. Qualsiasi stato diverso da 200–299 mostra un errore alla persona.</p>
+
+<h2 id="example">Servizio di esempio</h2>
+<p>Un servizio di comando minimale in Python, utilizzando solo la libreria standard:</p>
+<pre><code>import hmac
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
+
+TOKEN = "the token shown when you saved the command"
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        form = {key: values[0] for key, values in parse_qs(body).items()}
+        if not hmac.compare_digest(form.get("token", ""), TOKEN):
+            self.send_response(401)
+            self.end_headers()
+            return
+        answer = {
+            "response_type": "ephemeral",
+            "text": f"Hello @{form['user_name']}, you asked for: {form.get('text', '')}",
+        }
+        data = json.dumps(answer).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(data)
+
+HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()</code></pre>
+<p>Se il servizio viene eseguito su un indirizzo di rete privato, un amministratore di sistema deve autorizzarlo in <b>Consenti connessioni interne non verificate a</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>).</p>
+
+<h2 id="delayed">Risposte ritardate</h2>
+<p>Per le attività che richiedono più tempo del timeout, rispondi immediatamente (ad esempio con un messaggio temporaneo "Ci sto lavorando…"), quindi invia la risposta effettiva tramite POST a <code>response_url</code>. Accetta lo stesso JSON della risposta e funziona fino a 5 volte entro 30 minuti dal comando.</p>
+<pre><code>curl -X POST "$RESPONSE_URL" -H 'Content-Type: application/json' \
+  -d '{"response_type": "in_channel", "text": "Report ready: https://reports.example.com/42"}'</code></pre>
+
+<h2 id="run">Esegui un comando tramite l'API</h2>
+<p>Gli script e i bot possono eseguire qualsiasi comando, integrato o personalizzato, come se lo avessero digitato:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/commands/execute \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "command": "/weather Paris"}'</code></pre>
+<p><code>GET /api/v4/teams/{team_id}/commands/autocomplete</code> elenca i comandi che gli utenti possono completare automaticamente in una community.</p>
+
+<h2 id="autocomplete">Completamento automatico</h2>
+<p>I comandi creati nelle pagine di integrazione vengono completati automaticamente con il trigger, l'indicazione e la descrizione. I comandi registrati dalle app possono descrivere in dettaglio i sottocomandi e gli argomenti con <code>AutocompleteData</code>, a partire da <code>model.NewAutocompleteData(trigger, hint, helpText)</code>:</p>
+<ul>
+<li><code>AddCommand(sub)</code> aggiunge un sottocomando, anch'esso un <code>AutocompleteData</code>.</li>
+<li><code>AddTextArgument(helpText, hint, pattern)</code> aggiunge testo libero.</li>
+<li><code>AddStaticListArgument(helpText, required, items)</code> offre un elenco fisso di <code>AutocompleteListItem{Item, Hint, HelpText}</code>.</li>
+<li><code>AddDynamicListArgument(helpText, url, required)</code> richiede suggerimenti alla tua app mentre gli utenti digitano. L'URL è una route della tua app, ad esempio <code>/plugins/com.example.weather/cities</code>. Riceve l'utente, il canale e la community, e restituisce un elenco JSON di <code>{"Item", "Hint", "HelpText"}</code>.</li>
+</ul>
+<p>Le varianti <code>Named…</code> (<code>AddNamedTextArgument</code> e altre) aggiungono flag <code>--name value</code>. Entrambi gli interfacce web mostrano questi suggerimenti.</p>

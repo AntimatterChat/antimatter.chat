@@ -1,0 +1,107 @@
+title: 보안
+description: Antimatter 서버를 강화하는 방법: 노출할 포트, 시크릿, 레이트 리미팅, IP 필터링, 업로드 제한, 프라이버시 설정 및 사용자 차단, 세션, 서버가 외부 서비스와 맺는 연결, 취약점 보고 방법.
+guide: admins
+order: 12
+nav: 보안
+lead: Antimatter 서버를 강화하기 위한 체크리스트: 노출할 항목, 검토할 제한 및 프라이버시 설정, 서버가 연결하는 외부 서비스, 보안 문제 보고 방법.
+source: dbe2371ecf30
+---
+<h2 id="exposure">노출할 항목</h2>
+<table>
+<thead><tr><th>포트</th><th>서비스</th><th>노출 범위</th></tr></thead>
+<tbody>
+<tr><td>443/tcp, 443/udp, 80/tcp</td><td>HTTPS 프록시 (Caddy 또는 nginx)</td><td>공개: 사람들이 Antimatter에 접근하는 방법입니다.</td></tr>
+<tr><td>8443/udp 및 8443/tcp</td><td>통화 미디어</td><td>네트워크 외부에서 통화를 사용하는 경우 공개.</td></tr>
+<tr><td>8065/tcp</td><td>Antimatter 웹 서버</td><td>프록시 전용: <code>127.0.0.1</code>에 게시하세요 (<code>HTTP_PORT=127.0.0.1:8065</code>).</td></tr>
+<tr><td>8067/tcp</td><td>메트릭스</td><td>활성화된 경우 사설 네트워크 전용. 로그인 불필요.</td></tr>
+<tr><td>8074/tcp 및 udp</td><td>클러스터 구스(gossip)</td><td>클러스터 노드 간 전용.</td></tr>
+<tr><td>5432, 9000, 8080, 8066</td><td>PostgreSQL, 파일 저장소, GIF 서비스, 푸시 프록시</td><td>절대 노출하지 마세요. compose 파일은 공개 포트 없이 내부 네트워크에 유지합니다.</td></tr>
+</tbody>
+</table>
+<p>사이트의 compose 파일은 모든 컨테이너를 <code>no-new-privileges</code>로 실행하고, Antimatter를 distroless 이미지에서 권한이 없는 사용자로 실행하며, GIF 서비스를 읽기 전용 파일 시스템으로 실행합니다. 데이터베이스, 저장소 및 GIF 서비스는 인터넷 접근이 없는 네트워크에 위치합니다.</p>
+
+<h2 id="checklist">설치 후 체크리스트</h2>
+<ol>
+<li>다른 사람이 서버에 접근하기 전에 첫 번째 관리자 계정을 생성하세요 (<a href="{{root}}docs/admins/install.html#first-admin">설치</a>).</li>
+<li>Antimatter를 HTTPS로만 서빙하고, 사이트 URL을 <code>https://</code> 주소로 설정하세요 (<a href="{{root}}docs/admins/https.html">도메인 및 HTTPS</a>).</li>
+<li><code>.env</code>, <code>config.json</code> 및 TLS 키는 root(또는 서버 사용자)만 읽을 수 있도록 하세요: <code>chmod 600 .env</code>.</li>
+<li>계정 생성 권한을 설정하고, 커뮤니티가 공개되지 않는 한 <b>공개 서버</b>를 비활성화한 상태로 유지하세요. 전자우편이 정상적으로 작동하는지 확인한 후 <b>전자우편 검증</b>을 활성화하세요(<a href="{{root}}docs/admins/authentication.html">로그인 및 계정</a>).</li>
+<li>다중 인증을 활성화하고, 최소한 관리자 계정에 대해 이를 강제하거나, 아이덴티티 제공자의 것을 사용하세요.</li>
+<li>아래의 외부 연결을 검토하고, 특히 통화가 기본적으로 사용하는 STUN 서버를 확인하세요.</li>
+<li>백업을 수행하고 복원을 테스트하세요 (<a href="{{root}}docs/admins/backups-upgrades.html">백업 및 업그레이드</a>).</li>
+<li>이미지를 최신으로 유지하세요: 보안 수정 사항은 새 이미지와 함께 제공됩니다.</li>
+</ol>
+
+<h2 id="rate-limiting">레이트 리미팅</h2>
+<p>서버는 각 클라이언트가 보내는 API 요청 횟수를 제한할 수 있습니다. 기본적으로 비활성화되어 있습니다. <b>관리자 도구 › 환경 › 속도 제한</b>에서 설정합니다:</p>
+<table>
+<thead><tr><th>설정</th><th>키</th><th>기본값</th></tr></thead>
+<tbody>
+<tr><td><b>Rate Limiting 활성화</b></td><td><code>RateLimitSettings.Enable</code></td><td>꺼짐</td></tr>
+<tr><td><b>초당 최대 쿼리 수</b></td><td><code>RateLimitSettings.PerSec</code></td><td>10</td></tr>
+<tr><td><b>최대 버스트 크기</b></td><td><code>RateLimitSettings.MaxBurst</code></td><td>100</td></tr>
+<tr><td><b>메모리 저장소 크기</b></td><td><code>RateLimitSettings.MemoryStoreSize</code></td><td>10,000개 클라이언트 추적</td></tr>
+<tr><td><b>원격 주소당 Rate Limit 조절합니다</b></td><td><code>RateLimitSettings.VaryByRemoteAddr</code></td><td>켜짐</td></tr>
+<tr><td><b>사용자별로 요금 한도가 다릅니다</b></td><td><code>RateLimitSettings.VaryByUser</code></td><td>꺼짐</td></tr>
+<tr><td><b>HTTP 헤더로 속도 제한 변경</b></td><td><code>RateLimitSettings.VaryByHeader</code></td><td>빈 값</td></tr>
+</tbody>
+</table>
+<p>프록시 뒤에서는 서버가 각 클라이언트의 주소를 알아야만 주소 기반 제한이 작동합니다(<code>ServiceSettings.TrustedProxyIPHeader</code>와 <code>ServiceSettings.TrustedProxyIPs</code>, <a href="{{root}}docs/admins/https.html#client-address">프록시 뒤의 클라이언트 주소</a> 참조). 그렇지 않으면 모든 요청이 프록시에서 온 것처럼 보이며, 모든 사용자가 하나의 제한을 공유하게 됩니다. IP 필터링과 감사 로그의 주소도 마찬가지입니다.</p>
+<p>로그인 시도는 별도로 제한됩니다: <b>최대 로그인 시도 횟수</b>(10)는 비밀번호가 그 횟수만큼 실패하면 계정을 잠급니다.</p>
+
+<h2 id="ip-filtering">IP 필터링</h2>
+<p><b>관리자 도구 › 사이트 구성 › IP 필터링</b>은 IP 주소 기반의 허용 및 거부 규칙(각각 주소 또는 CIDR 범위)을 통해 서버 접근을 제한합니다. <b>IP 필터링 사용</b>을 활성화하면, 거부 규칙에 해당하는 주소나 허용 규칙이 존재할 때 허용 규칙에 해당하지 않는 사용자는 서버에 접근할 수 없습니다. 이 페이지는 관리자 자신의 주소를 차단하는 규칙을 거부합니다. 프록시 뒤에서 사용하는 경우, 먼저 클라이언트 주소를 설정해야 합니다(<a href="{{root}}docs/admins/https.html#client-address">프록시 뒤의 클라이언트 주소</a>). 그렇지 않으면 모든 요청이 프록시에서 온 것처럼 보입니다.</p>
+
+<h2 id="uploads">업로드 및 파일 공유</h2>
+<table>
+<thead><tr><th>설정</th><th>위치</th><th>기본값</th></tr></thead>
+<tbody>
+<tr><td><b>최대 파일 크기</b> (<code>FileSettings.MaxFileSize</code>)</td><td>환경 › 파일 저장소</td><td>100 MB. 프록시의 요청 크기 제한을 이 값 이상으로 유지하세요.</td></tr>
+<tr><td><b>최대 페이로드 크기(바이트)</b> (<code>ServiceSettings.MaximumPayloadSizeBytes</code>)</td><td>환경 › 웹 서버</td><td>300000: 파일 업로드를 제외한 가장 큰 API 요청</td></tr>
+<tr><td><b>파일 공유 허용</b> (<code>FileSettings.EnableFileAttachments</code>)</td><td>사이트 설정 › 파일 공유 및 다운로드</td><td>켜짐</td></tr>
+<tr><td><b>모바일에서 파일 업로드 허용</b>, <b>모바일에서 파일 다운로드 허용</b></td><td>사이트 설정 › 파일 공유 및 다운로드</td><td>켜짐</td></tr>
+<tr><td><b>공개 파일 링크 사용</b> (<code>FileSettings.EnablePublicLink</code>)</td><td>사이트 설정 › 공개 링크</td><td>비활성: 활성화하면 로그인 없이도 링크로 파일을 공유할 수 있습니다</td></tr>
+<tr><td><b>SVGs 활성화</b> (<code>ServiceSettings.EnableSVGs</code>)</td><td>사이트 설정 › 게시물</td><td>새 서버에서는 비활성: 활성화하면 SVG 이미지가 인라인으로 표시됩니다</td></tr>
+</tbody>
+</table>
+<p>Antimatter는 업로드된 파일에서 악성 코드를 검사하지 않습니다.</p>
+
+<h2 id="privacy">개인정보 설정</h2>
+<p><b>관리자 도구 › 사이트 구성 › 팀과 사용자</b>에서 설정합니다:</p>
+<table>
+<thead><tr><th>설정</th><th>키</th><th>기본값</th><th>기능</th></tr></thead>
+<tbody>
+<tr><td><b>표시할 전자우편 주소</b></td><td><code>PrivacySettings.ShowEmailAddress</code></td><td>켜짐</td><td>끄면, 관리자를 제외한 모든 사람에게 멤버의 이메일 주소가 숨겨집니다. 공개 서버에서는 끄세요.</td></tr>
+<tr><td><b>본명 표시</b></td><td><code>PrivacySettings.ShowFullName</code></td><td>켜짐</td><td>끄면, 전체 이름이 숨겨지고 대신 사용자 이름이 표시됩니다.</td></tr>
+<tr><td><b>무시, 차단 및 메시지 요청 활성화</b></td><td><code>PrivacySettings.EnableUserBlocking</code></td><td>켜짐</td><td>아래를 참조하세요.</td></tr>
+<tr><td><b>사용자가 쪽지 채널을 열 수 있도록 설정합니다</b></td><td><code>TeamSettings.RestrictDirectMessage</code></td><td>Antimatter 서버의 모든 사용자</td><td>또는 <b>팀의 모든 구성원</b>: 같은 커뮤니티에 속한 사용자만 가능합니다.</td></tr>
+</tbody>
+</table>
+<h3>무시, 차단 및 메시지 요청</h3>
+<p><b>무시, 차단 및 메시지 요청 활성화</b>가 켜져 있는 경우(기본값), 사람들은 서로를 무시하고 차단할 수 있으며, 모르는 사람으로부터의 다이렉트 메시지를 메시지 요청으로 받을 수 있도록 선택할 수 있습니다. 메시지 요청은 수락할 때까지 알림을 보내지 않습니다. 이는 공개 커뮤니티에 적합합니다. 동료들이 항상 서로에게 연락할 수 있어야 하는 직장에서는 이를 끄세요(<code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING=false</code>): 더 이상 아무것도 강제되지 않지만, 사람들이 만든 목록과 선택 사항은 유지되며, 다시 켜면 다시 적용됩니다.</p>
+
+<h2 id="sessions">세션 및 토큰</h2>
+<ul>
+<li>세션 길이 및 유휴 시간 초과: <a href="{{root}}docs/admins/authentication.html#sessions">로그인 및 계정</a>을 참조하세요. 세션이 짧을수록 분실된 노트북이나 휴대폰이 로그인된 상태로 유지되는 시간이 줄어듭니다.</li>
+<li><b>개인 액세스 토큰</b>(<code>ServiceSettings.EnableUserAccessTokens</code>, 기본값: 비활성)을 활성화하면 사용자가 API 토큰을 생성할 수 있으며, <b>개인 액세스 토큰 최대 유효 기간(일)</b>으로 유효 기간을 제한할 수 있습니다. 두 설정 모두 <b>관리자 도구 › 통합 › 통합관리</b>에 있습니다.</li>
+<li>예를 들어 보안 침해가 의심되는 경우 모든 사용자를 한꺼번에 로그아웃시키려면, <b>관리자 도구 › 사용자 관리 › 사용자</b>에서 <b>모든 세션 취소</b>를 선택하세요.</li>
+</ul>
+
+<h2 id="outbound">외부 서비스와의 연결</h2>
+<p>Antimatter는 Mattermost, Inc.가 운영하는 어떤 서비스에도 연결하지 않습니다. 텔레메트리, 충돌 보고서 또는 보안 업데이트 확인을 보내지 않으며, 제품 공지사항을 가져오지도 않습니다. Mattermost에서 가져온 설정에 Mattermost의 서비스(푸시 서비스, 앱 마켓플레이스, 공지사항 또는 통화용 STUN 서버)가 언급되어 있더라도, 서버가 해당 서비스에 연결하지 않습니다: 이러한 주소는 무시됩니다.</p>
+<p>서버와 앱은 필요한 기능과 사용자가 설정한 서비스에 대해서만 다른 외부 서비스에 연결합니다:</p>
+<table>
+<thead><tr><th>기능</th><th>연락처</th><th>기본값</th></tr></thead>
+<tbody>
+<tr><td>통화: STUN을 사용하여 공개 주소 찾기. 서버와 통화에 참여하는 각 사람은 요청을 보내며, 이는 STUN 서버에 IP 주소와 포트가 표시됩니다.</td><td>Cloudflare의 공개 STUN 서버, <code>stun.cloudflare.com</code></td><td>on, while the Calls app is enabled. To change it, see <a href="{{root}}docs/admins/calls.html#network">Calls</a>.</td></tr>
+<tr><td>링크 미리보기: 서버는 메시지에 포함된 링크의 페이지를 가져옵니다(<b>웹사이트 링크 미리보기 활성화</b>, <code>ServiceSettings.EnableLinkPreviews</code>).</td><td>사람들이 링크하는 웹사이트</td><td>on. <code>AM_SERVICESETTINGS_ENABLELINKPREVIEWS=false</code>로 끕니다.</td></tr>
+<tr><td>모바일 앱으로 푸시 알림 보내기</td><td>자체 푸시 프록시(<a href="{{root}}docs/admins/email-push.html#push">푸시 알림</a>)</td><td>주소를 설정할 때까지 off</td></tr>
+<tr><td>원격 앱 마켓플레이스(<code>PluginSettings.EnableRemoteMarketplace</code>)</td><td>설정하는 <b>마켓플레이스 URL</b></td><td>off, and no address</td></tr>
+<tr><td>이메일</td><td>SMTP 서버</td><td>기본 서버는 <code>localhost</code>입니다</td></tr>
+<tr><td>단일 로그인, AI 모델, 음성 인식 및 번역, 아웃바운드 웹훅, 그리고 메일, 캘린더, GitHub, GitLab 또는 Jira와 같은 앱</td><td>설정하는 서비스</td><td>설정할 때까지 off</td></tr>
+</tbody>
+</table>
+<p>기본적으로 서버는 이러한 기능(링크 미리보기, 웹훅, 앱)에 대해 사설 및 루프백 주소로의 연결을 거부하여, 메시지나 통합 기능이 내부 네트워크에 접근하는 것을 방지합니다. <b>신뢰할 수 없는 내부 연결을 허용</b>(<code>ServiceSettings.AllowedUntrustedInternalConnections</code>, <b>관리자 도구 › 환경 › 개발자 설정</b>에 위치)에 접근할 수 있는 내부 호스트를 나열하세요. 사이트의 compose 파일에는 <code>gifs</code>가 여기에 나열되어 있습니다.</p>
+
+<h2 id="report">취약점 보고</h2>
+<p>공개 이슈가 아닌, <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">Antimatter 보안 정책</a>에 설명된 대로 보안 문제를 비공개로 보고합니다.</p>

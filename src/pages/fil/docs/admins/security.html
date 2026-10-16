@@ -1,0 +1,107 @@
+title: Kaligtasan
+description: Pagpapatibay ng isang Antimatter server: aling port ang ipapakita, mga sekreto, rate limiting, IP filtering, mga limitasyon sa upload, mga setting sa privacy at pag-block ng user, mga session, ang mga koneksyon ng server sa mga serbisyo sa labas, at kung paano mag-uulat ng vulnerability.
+guide: admins
+order: 12
+nav: Kaligtasan
+lead: Isang checklist upang patibayin ang isang Antimatter server: ano ang ipapakita, ang mga limitasyon at setting sa privacy na dapat suriin, ang mga serbisyo sa labas na tinutukoy ng server, at kung paano mag-uulat ng isang problema sa kaligtasan.
+source: dbe2371ecf30
+---
+<h2 id="exposure">Ano ang ipapakita</h2>
+<table>
+<thead><tr><th>Port</th><th>Service</th><th>Pagpapalabas</th></tr></thead>
+<tbody>
+<tr><td>443/tcp, 443/udp, 80/tcp</td><td>Ang HTTPS proxy (Caddy o nginx)</td><td>Pampubliko: ito ang paraan ng pag-abot ng mga tao sa Antimatter.</td></tr>
+<tr><td>8443/udp at 8443/tcp</td><td>Media ng Tawag</td><td>Pampubliko, kung gumagamit ng Tawag ang mga tao mula sa labas ng iyong network.</td></tr>
+<tr><td>8065/tcp</td><td>Web server ng Antimatter</td><td>Sa proxy lamang: ipakita ito sa <code>127.0.0.1</code> (<code>HTTP_PORT=127.0.0.1:8065</code>).</td></tr>
+<tr><td>8067/tcp</td><td>Metrics</td><td>Pribadong network lamang, kapag pinagana. Walang sign-in.</td></tr>
+<tr><td>8074/tcp at udp</td><td>Gossip ng cluster</td><td>Sa pagitan ng mga node ng cluster lamang.</td></tr>
+<tr><td>5432, 9000, 8080, 8066</td><td>PostgreSQL, file storage, GIF service, push proxy</td><td>Hindi kailanman. Ang mga compose file ay nagpapanatili ng mga ito sa mga internal network na walang published port.</td></tr>
+</tbody>
+</table>
+<p>Ang compose file ng site ay nagpapatakbo rin ng bawat container gamit ang <code>no-new-privileges</code>, nagpapatakbo ng Antimatter bilang isang unprivileged user sa isang distroless image, at nagpapatakbo ng GIF service gamit ang isang read-only file system. Ang database, ang storage, at ang GIF service ay nasa network na walang access sa Internet.</p>
+
+<h2 id="checklist">Checklist pagkatapos mag-install</h2>
+<ol>
+<li>Gumawa ng unang administrator account bago maabot ng iba ang server (<a href="{{root}}docs/admins/install.html#first-admin">Pag-install</a>).</li>
+<li>I-serve ang Antimatter sa pamamagitan ng HTTPS lamang, at itakda ang site URL sa <code>https://</code> address (<a href="{{root}}docs/admins/https.html">Domain at HTTPS</a>).</li>
+<li>Panatilihing mababasa ng root (o user ng server) lamang ang <code>.env</code>, <code>config.json</code>, at mga TLS key: <code>chmod 600 .env</code>.</li>
+<li>Magdesisyon kung sino ang makakagawa ng account, itigil ang <b>Pahintulutan ang Open Server</b> maliban kung pampubliko ang komunidad, at i-on ang <b>Kinakailangan ng Email Verification</b> kapag gumana na ang email (<a href="{{root}}docs/admins/authentication.html">Sign-in at mga account</a>).</li>
+<li>I-on ang multi-factor authentication, at ipilit ito sa mga account ng administrator kahit sa minimum, o gamitin ang ng iyong identity provider.</li>
+<li>Suriin ang mga koneksyon sa labas sa ibaba, lalo na ang STUN server na ginagamit ng Tawag bilang default.</li>
+<li>Gawing backup, at subukang i-restore (<a href="{{root}}docs/admins/backups-upgrades.html">Mga backup at upgrade</a>).</li>
+<li>Panatilihing up-to-date ang mga image: ang mga security fix ay dumating kasama ang mga bagong image.</li>
+</ol>
+
+<h2 id="rate-limiting">Rate limiting</h2>
+<p>Maaaring limitahan ng server ang bilang ng API requests na ginagawa ng bawat client. Sa default, ito ay naka-off. Sa <b>System Console › Environment › Rate Limiting</b>:</p>
+<table>
+<thead><tr><th>Setting</th><th>Susi</th><th>Default</th></tr></thead>
+<tbody>
+<tr><td><b>Paganahin ang Rate Limiting</b></td><td><code>RateLimitSettings.Enable</code></td><td>Off</td></tr>
+<tr><td><b>Pinakamataas na Queries bawat Segundo</b></td><td><code>RateLimitSettings.PerSec</code></td><td>10</td></tr>
+<tr><td><b>Pinakamataas na Burst Size</b></td><td><code>RateLimitSettings.MaxBurst</code></td><td>100</td></tr>
+<tr><td><b>Memory Store Size</b></td><td><code>RateLimitSettings.MemoryStoreSize</code></td><td>10000 clients tracked</td></tr>
+<tr><td><b>Mag-iba ang rate limit ayon sa remote address</b></td><td><code>RateLimitSettings.VaryByRemoteAddr</code></td><td>on</td></tr>
+<tr><td><b>Mag-iba ang rate limit ayon sa user</b></td><td><code>RateLimitSettings.VaryByUser</code></td><td>Off</td></tr>
+<tr><td><b>Mag-iba ang rate limit ayon sa HTTP header</b></td><td><code>RateLimitSettings.VaryByHeader</code></td><td>walang laman</td></tr>
+</tbody>
+</table>
+<p>Kung nasa likod ng proxy, ang mga limitasyon base sa address ay gumagana lamang kung alam ng server ang address ng bawat client (<code>ServiceSettings.TrustedProxyIPHeader</code> at <code>ServiceSettings.TrustedProxyIPs</code>, tingnan ang <a href="{{root}}docs/admins/https.html#client-address">Client addresses behind a proxy</a>). Kung hindi, tila mula sa proxy ang lahat ng request, at iisang limit lang ang ibinahagi ng lahat. Ito rin ang nangyayari sa IP filtering at sa mga address sa audit logs.</p>
+<p>Ilimitado nang hiwalay ang mga pagtatangkang mag-sign in: ang <b>Maximum Login Attempts</b> (10) ay naglo-lock ng account pagkatapos ng ganun kalaking maling password.</p>
+
+<h2 id="ip-filtering">IP filtering</h2>
+<p><b>System Console › Konfigurasyon ng Site › IP Filtering</b> ay naglilimita ng access sa server ayon sa IP address, gamit ang mga allow at deny rule (bawat isa ay isang address o CIDR range). Kapag on ang <b>I-enable ang IP Filtering</b>, hindi makakapunta sa server ang mga taong ang address nila ay tumutugma sa isang deny rule, o walang tumutugma sa allow rule kung mayroon nang mga allow rule. Tinatanggi ng pahina ang mga rule na pindot ang sarili mong address. Kung nasa likod ng proxy, i-configure muna ang mga client address (<a href="{{root}}docs/admins/https.html#client-address">Mga client address sa likod ng proxy</a>): kung hindi, tila galing sa proxy ang lahat ng request.</p>
+
+<h2 id="uploads">Mga upload at pagbabahagi ng file</h2>
+<table>
+<thead><tr><th>Setting</th><th>Saan</th><th>Default</th></tr></thead>
+<tbody>
+<tr><td><b>Pinakamataas na Laki ng File</b> (<code>FileSettings.MaxFileSize</code>)</td><td>Environment › File Storage</td><td>100 MB. Panatilihing hindi bababa sa ito ang request size limit ng proxy.</td></tr>
+<tr><td><b>Maximum Payload Size (Bytes)</b> (<code>ServiceSettings.MaximumPayloadSizeBytes</code>)</td><td>Environment › Web Server</td><td>300000: ang pinakamalaking API request maliban sa mga file upload</td></tr>
+<tr><td><b>Pahintulutan ang File Sharing</b> (<code>FileSettings.EnableFileAttachments</code>)</td><td>Site Configuration › File Sharing and Downloads</td><td>on</td></tr>
+<tr><td><b>Pahintulutan ang File Upload sa Mobile</b>, <b>Pahintulutan ang File Downloads sa Mobile</b></td><td>Site Configuration › File Sharing and Downloads</td><td>on</td></tr>
+<tr><td><b>Paganahin ang Mga Public File Link</b> (<code>FileSettings.EnablePublicLink</code>)</td><td>Site Configuration › Public Links</td><td>off: kapag naka-on, maaaring ibahagi ng isang tao ang file gamit ang link na gumagana nang hindi kailangang mag-sign in</td></tr>
+<tr><td><b>Pahintulutan ang SVGs</b> (<code>ServiceSettings.EnableSVGs</code>)</td><td>Site Configuration › Posts</td><td>off sa bagong server: kapag naka-on, ipinapakita nang inline ang mga SVG image</td></tr>
+</tbody>
+</table>
+<p>Hindi sinuscan ng Antimatter ang mga upload para sa malware.</p>
+
+<h2 id="privacy">Mga setting sa privacy</h2>
+<p>Sa <b>System Console › Konfigurasyon ng Site › Mga User at Team</b>:</p>
+<table>
+<thead><tr><th>Setting</th><th>Susi</th><th>Default</th><th>Ginagawa nito</th></tr></thead>
+<tbody>
+<tr><td><b>Ipakita ang Email Address</b></td><td><code>PrivacySettings.ShowEmailAddress</code></td><td>on</td><td>Kung Off, ang mga email address ng mga miyembro ay nakatago sa lahat maliban sa mga admin. It-off ito sa mga pampublikong server.</td></tr>
+<tr><td><b>Ipakita ang Buong Pangalan</b></td><td><code>PrivacySettings.ShowFullName</code></td><td>on</td><td>Kung Off, ang mga buong pangalan ay nakatago at ipapakita ang mga username sa halip.</td></tr>
+<tr><td><b>Paganahin ang pag-i-ignore, pag-block, at mga message request</b></td><td><code>PrivacySettings.EnableUserBlocking</code></td><td>on</td><td>Tingnan sa ibaba.</td></tr>
+<tr><td><b>Pahintulutan ang mga user na buksan ang mga Direct Message channel sa</b></td><td><code>TeamSettings.RestrictDirectMessage</code></td><td>Anumang user sa Antimatter server</td><td>O <b>Anumang miyembro ng team</b>: mga taong nagbabahagi ng komunidad lamang.</td></tr>
+</tbody>
+</table>
+<h3>Pag-iignore, pag-block, at mga hiling sa mensahe</h3>
+<p>Kapag on ang <b>Paganahin ang pag-i-ignore, pag-block, at mga message request</b> (ang default), maaaring i-ignore at i-block ang isa’t isa, at pumili na tanggapin ang mga Direct Message mula sa mga hindi kilala bilang message request, na hindi nagpapadala ng notisikasyon hangga’t hindi tinatanggap. Angkop ito sa mga pampublikong komunidad. Sa isang workplace na dapat laging makapag-ugnayan ang mga kapwa, itigil ito (<code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING=false</code>): hindi na ipinapatupok ang anumang bagay, ngunit pinapanatili ang mga listahan at mga desisyon ng mga tao, at magkakaroon muli ng epekto kung ibabalik ito.</p>
+
+<h2 id="sessions">Mga session at token</h2>
+<ul>
+<li>Habang ng session at idle timeout: tingnan sa <a href="{{root}}docs/admins/authentication.html#sessions">Sign-in and accounts</a>. Mas maikling session nangangahulugang ang nawalang laptop o phone ay mas maikli ang panahon na naka-sign in.</li>
+<li><b>I-enable ang mga Personal Access Tokens</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, off) ay nagpapahintulot sa mga tao na gumawa ng API token; <b>Pinakamataas na Tagal ng Validity ng Personal Access Token (araw)</b> ang naglilimita sa kanila. Parehong nasa <b>System Console › Mga Integration › Pamamahala ng Integration</b>.</li>
+<li>Para palabasin ang lahat nang sabay-sabay, halimbawa pagkatapos ng posibleng paglabag: <b>Burahin ang Lahat ng Session</b> sa <b>System Console › Pamamahala ng Mga User › Mga User</b>.</li>
+</ul>
+
+<h2 id="outbound">Mga koneksyon sa mga serbisyo sa labas</h2>
+<p>Hindi nakikipag-ugnayan ang Antimatter sa anumang serbisyo na pinapatakbo ng Mattermost, Inc. Hindi nagpapadala ng telemetry, crash reports, o security update checks, at hindi humihingi ng mga product notices. Ang isang configuration na dala mula sa Mattermost na nagpapakita pa rin ng isa sa mga serbisyo ng Mattermost (ang mga push service nito, app marketplace, notices, o STUN server para sa mga tawag) ay hindi nagpapagawa ng server na makikipag-ugnayan sa kanila: ang mga address na iyon ay pinagbabalewala.</p>
+<p>Ang server at mga app ay nakikipag-ugnayan sa ibang mga serbisyo sa labas lamang para sa mga feature na nangangailangan nito, at sa mga serbisyo na iyong inuugnay:</p>
+<table>
+<thead><tr><th>Feature</th><th>Nakikipag-ugnayan</th><th>Sa default</th></tr></thead>
+<tbody>
+<tr><td>Mga tawag: paghahanap ng mga pampublikong address gamit ang STUN. Ang server at bawat tao na sumasali sa tawag ay nagpapadala ng isang hiling, na ipinapakita sa STUN server ang IP address at port nito.</td><td>Pampublikong STUN server ng Cloudflare, <code>stun.cloudflare.com</code></td><td>on, habang aktibo ang Calls app. Para baguhin ito, tingnan ang <a href="{{root}}docs/admins/calls.html#network">Calls</a>.</td></tr>
+<tr><td>Link previews: hahakot ng server ang mga pahina na nakatalik sa mga mensahe (<b>Pahintulutan ang website link previews</b>, <code>ServiceSettings.EnableLinkPreviews</code>)</td><td>ang mga website na nilalangkaw ng mga tao</td><td>on. I-off gamit ang <code>AM_SERVICESETTINGS_ENABLELINKPREVIEWS=false</code>.</td></tr>
+<tr><td>Mga push notification sa mobile app</td><td>ang sarili mong push proxy (<a href="{{root}}docs/admins/email-push.html#push">Push notifications</a>)</td><td>off hangga't hindi mo pa itinakda ang address nito</td></tr>
+<tr><td>Ang remote app marketplace (<code>PluginSettings.EnableRemoteMarketplace</code>)</td><td>ang <b>Marketplace URL</b> na itinakda mo</td><td>off, at walang address</td></tr>
+<tr><td>Email</td><td>ang SMTP server mo</td><td>ang default na server ay <code>localhost</code></td></tr>
+<tr><td>Single sign-on, AI models, speech-to-text at translation, outgoing webhooks, at mga app tulad ng Mail, Calendar, GitHub, GitLab o Jira</td><td>ang mga serbisyo na iyong ikakalkula</td><td>off hangga't hindi mo pa ito ikakalkula</td></tr>
+</tbody>
+</table>
+<p>Sa pamamagitan ng default, tumatanggi ang server na makonekta sa mga pribado at loopback na address para sa mga ito (link previews, webhooks, apps), kaya hindi maaaring gamitin ang isang mensahe o integration upang maabot ang iyong internal network. Ilista ang mga internal na host na maaaring maabot sa <b>Pahintulutan ang mga untrusted internal connections sa</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>, sa <b>System Console › Environment › Developer</b>); ang compose file ng site ay nakalista ang <code>gifs</code> doon.</p>
+
+<h2 id="report">Pag-uulat ng vulnerability</h2>
+<p>Uulat ng mga problema sa seguridad nang pribado, ayon sa paliwanag sa <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">Antimatter security policy</a>, hindi sa mga public na issue.</p>

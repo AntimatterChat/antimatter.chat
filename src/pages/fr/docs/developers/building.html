@@ -1,0 +1,102 @@
+title: Compilation à partir du code source
+description: Comment compiler Antimatter à partir du code source : le serveur Go, les interfaces web Fusion et classique, un serveur de développement, les tests, les archives de publication, l'image Docker, ainsi que les applications de bureau et mobiles.
+guide: developers
+order: 7
+nav: Compilation à partir du code source
+lead: Cette page explique comment compiler et exécuter Antimatter à partir de son code source, que ce soit pour y travailler ou pour créer vos propres versions. Elle couvre le serveur et les interfaces web, qui se trouvent dans un même dépôt, puis l'image Docker et les applications.
+source: dfdf67f34f6e
+---
+<h2 id="requirements">Prérequis</h2>
+<ul>
+<li><b>Aller à</b>, à la version dans <code>server/go.mod</code> (1.26.7 à la date de rédaction).</li>
+<li><b>Node.js et npm</b>, aux versions indiquées dans <code>.nvmrc</code> et <code>webapp/package.json</code> (Node 24.11.1 avec npm 11.6.2). Avec <a href="https://mise.jdx.dev">mise</a>, le fichier <code>mise.toml</code> du dépôt installe la bonne version de Node.</li>
+<li><b>Docker</b> avec Compose : l'environnement de développement exécute PostgreSQL et quelques autres services dans des conteneurs.</li>
+<li><b>make</b>, <b>git</b>, et une machine sous Linux ou macOS.</li>
+<li><b>Mémoire</b> : la compilation des interfaces web est la partie la plus gourmande. Prévoyez 16 Go de RAM ; voir <a href="#memory">Compilation et mémoire</a>.</li>
+</ul>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter.git
+cd antimatter</code></pre>
+<p>Le dépôt contient le serveur dans <code>server/</code>, les interfaces web dans <code>webapp/</code> (Fusion dans <code>webapp/fusion</code>, l'interface classique dans <code>webapp/channels</code>, et les paquets partagés dans <code>webapp/platform</code>), ainsi que les tests de bout en bout dans <code>e2e-tests/</code>.</p>
+
+<h2 id="dev-server">Exécuter un serveur de développement</h2>
+<pre><code>cd server
+make run</code></pre>
+<p><code>make run</code> démarre les conteneurs de développement (PostgreSQL, Redis, un capteur d'e-mails et des outils de supervision), place les builds de l'application web, démarre le serveur en arrière-plan avec <code>go run</code>, et lance le surveillant de l'application web, qui recompile l'interface classique à chaque modification. Ouvrez <code>http://localhost:8065</code> et créez un compte : le premier devient l'administrateur système.</p>
+<table>
+<thead><tr><th>Commande (dans <code>server/</code>)</th><th>Fonction</th></tr></thead>
+<tbody>
+<tr><td><code>make run-server</code>, <code>make run-client</code></td><td>Démarrer uniquement le serveur, ou uniquement le surveillant de l'application web.</td></tr>
+<tr><td><code>make restart-server</code></td><td>Redémarrer le serveur après avoir modifié le code Go.</td></tr>
+<tr><td><code>make stop</code></td><td>Arrêter le serveur, le surveillant et les conteneurs.</td></tr>
+<tr><td><code>make debug-server</code></td><td>Exécuter le serveur sous le débogueur Delve.</td></tr>
+<tr><td><code>make run-cli ARGS="-version"</code></td><td>Exécuter une commande du serveur.</td></tr>
+<tr><td><code>make config-reset</code></td><td>Réinitialiser <code>config/config.json</code> aux valeurs par défaut.</td></tr>
+<tr><td><code>make clean</code>, <code>make nuke</code></td><td>Supprimer les fichiers de compilation ; <code>nuke</code> supprime également les données de développement.</td></tr>
+</tbody>
+</table>
+<p>La base de données de développement est <code>postgres://mmuser:mostest_password@localhost/mattermost_test</code>, la source de données par défaut du serveur. Choisissez quels conteneurs démarrer avec <code>ENABLED_DOCKER_SERVICES</code>, dans un fichier <code>server/config.override.mk</code> ou dans votre environnement (voir <code>server/config.mk</code>).</p>
+
+<h2 id="webapp">Les interfaces web</h2>
+<p>Dans <code>webapp/</code> :</p>
+<pre><code>npm install      # also builds the shared packages
+npm run build    # the classic interface, then Fusion</code></pre>
+<p>Les builds sont placés dans <code>webapp/channels/dist</code> (classique) et <code>webapp/fusion/dist</code> (Fusion). <code>make client</code> dans <code>server/</code> les lie en tant que <code>server/client</code> et <code>server/client-fusion</code>, où le serveur les sert : classique sous <code>/static/</code>, Fusion sous <code>/static/fusion/</code>.</p>
+<ul>
+<li><code>npm run run</code> (ou <code>make run</code> dans <code>webapp/</code>) surveille et reconstruit l'interface classique. Ajoutez <code>WATCH_FUSION=true</code> pour reconstruire également Fusion.</li>
+<li><code>npm run dev-server</code> (<code>make dev</code>) exécute le serveur de développement de webpack à la place : classique sur le port 9005, Fusion sur le port 9006.</li>
+<li>Pour afficher l'une ou l'autre interface dans le navigateur, ajoutez <code>?webui=fusion</code> ou <code>?webui=classic</code> à l'adresse de n'importe quelle page.</li>
+</ul>
+
+<h2 id="tests">Tests et vérifications</h2>
+<table>
+<thead><tr><th>Commande</th><th>Où</th><th>Fonction</th></tr></thead>
+<tbody>
+<tr><td><code>make test-server</code></td><td><code>server/</code></td><td>La suite de tests du serveur, contre les conteneurs de développement. Elle prend beaucoup de temps.</td></tr>
+<tr><td><code>make test-server-quick</code></td><td><code>server/</code></td><td>Uniquement les tests courts.</td></tr>
+<tr><td><code>go test ./channels/app/... -run TestName</code></td><td><code>server/</code></td><td>Un paquet ou un test, avec les conteneurs en cours d'exécution (<code>make start-docker</code>).</td></tr>
+<tr><td><code>make check-style</code></td><td><code>server/</code></td><td>go vet, golangci-lint et les autres vérifications Go.</td></tr>
+<tr><td><code>make test</code></td><td><code>webapp/</code></td><td>Les tests unitaires de l'application web (Jest), dans tous les paquets.</td></tr>
+<tr><td><code>npm run test -- &lt;pattern&gt;</code></td><td><code>webapp/fusion</code></td><td>Certains des tests de Fusion.</td></tr>
+<tr><td><code>make check-style</code>, <code>make check-types</code></td><td><code>webapp/</code></td><td>ESLint et TypeScript.</td></tr>
+<tr><td><code>make i18n-extract</code></td><td><code>server/</code> et <code>webapp/</code></td><td>Met à jour les fichiers de chaînes en anglais après avoir ajouté ou modifié des chaînes (voir <a href="{{root}}docs/developers/contributing.html#translations">Traductions</a>).</td></tr>
+</tbody>
+</table>
+<p>Exécutez <code>make modules-tidy</code> plutôt que <code>go mod tidy</code> dans <code>server/</code>.</p>
+
+<h2 id="release">Archives de publication</h2>
+<pre><code>cd webapp &amp;&amp; npm run build &amp;&amp; cd ..
+cd server
+make build-linux       # the antimatter and amctl binaries
+make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
+<p><code>make build</code> construit les interfaces web et les binaires Linux en une seule fois. L'archive contient <code>bin/antimatter</code>, <code>bin/amctl</code>, un <code>config/config.json</code> par défaut, les deux interfaces web, les modèles, les polices et les traductions. Autres plateformes : <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>. Les archives n'incluent pas les applications intégrées ; l'image Docker, si.</p>
+
+<h2 id="docker">L'image Docker</h2>
+<p>Le dépôt <a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> construit les images publiées, le serveur avec ses applications, entièrement dans Docker :</p>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter-docker.git
+cd antimatter-docker
+scripts/build-all.sh                     # from the main branches on GitHub
+SOURCES=local scripts/build-all.sh       # from your checkouts next to this folder
+VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatter app</code></pre>
+<p>Il nécessite Docker avec buildx, Python 3, git et gpg, environ 16 Go de RAM et 30 Go de disque. Le résultat est chargé en tant que <code>ghcr.io/antimatterchat/antimatter:dev</code> ; essayez-le avec <code>ANTIMATTER_IMAGE=ghcr.io/antimatterchat/antimatter:dev docker compose -f compose.local.yml up -d</code>. <code>plugins.json</code> liste les applications et les versions construites, et le README du dépôt explique les variantes.</p>
+<div class="callout warn"><code>build-all.sh</code> signe les applications intégrées avec la clé de signature Antimatter, et la construction de l'image refuse les applications non signées. Sans cette clé privée, dont seuls les mainteneurs disposent, exécutez les premières étapes seules : <code>scripts/fetch-sources.sh</code>, <code>scripts/build-plugins.sh</code> (paquets d'applications dans <code>out/plugins/</code>) et <code>scripts/build-server.sh</code> (archives du serveur dans <code>out/server/</code>).</div>
+
+<h2 id="memory">Compilation et mémoire</h2>
+<p>Les interfaces web sont de grandes compilations webpack, et le manque de mémoire est l'échec de compilation le plus courant.</p>
+<ul>
+<li><code>npm run build</code> compile l'interface classique puis Fusion l'une après l'autre, et non en même temps, afin de limiter le pic de consommation. Ne les exécutez pas en parallèle vous-même.</li>
+<li>L'outil de minification démarre un travailleur par processeur. Sur une machine dotée de nombreux cœurs mais de peu de mémoire, limitez les processeurs visibles par la compilation : <code>taskset -c 0-5 npm run build</code>.</li>
+<li>Si Node manque d'espace mémoire, augmentez sa limite : <code>NODE_OPTIONS=--max-old-space-size=6144</code>. La compilation Docker utilise cette valeur (<code>BUILD_NODE_OPTIONS</code> dans <code>build.env</code>).</li>
+<li>Évitez d'exécuter simultanément la suite de tests complète du serveur, une compilation web et une compilation Docker sur une petite machine.</li>
+</ul>
+
+<h2 id="apps">Les applications</h2>
+<p>Chaque application (plugin) possède son propre dépôt et son propre Makefile ; <code>make dist</code> compile son paquet. Consultez <a href="{{root}}docs/developers/apps.html#build">Compiler, installer et déboguer</a>.</p>
+<h3>Application de bureau</h3>
+<p>L'<a href="https://github.com/AntimatterChat/desktop-app">application de bureau</a> est une application Electron. Avec Node.js 24 ou ultérieur :</p>
+<pre><code>npm install --allow-git=all
+npm run build          # development build, into dist/
+npm start              # run it
+npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
+<p>Les paramètres de compilation, tels que les serveurs à préconfigurer, se trouvent dans <code>src/common/config/buildConfig.ts</code>.</p>
+<h3>Application mobile</h3>
+<p>L'<a href="https://github.com/AntimatterChat/mobile-app">application mobile</a> est une application React Native ; son README liste les commandes (<code>npm run ios</code>, <code>npm run android</code>). Pour compiler votre propre copie, vous avez également besoin de vos propres clés de signature, d'un projet Firebase pour les notifications Android, d'une clé APNs pour iOS, et d'un <a href="https://github.com/AntimatterChat/push-proxy">proxy de notifications</a> contenant ces identifiants.</p>

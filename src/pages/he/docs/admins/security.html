@@ -1,0 +1,107 @@
+title: אבטחה
+description: התקנת שרת Antimatter: אילו פורטים לחשוף, סודות, הגבלת קצב, סינון כתובות IP, הגבלות העלאה, הגדרות פרטיות וחסימת משתמשים, סשנים, החיבורים שהשרת מבצע לשירותים חיצוניים, ואופן הדיווח על פגיעות.
+guide: admins
+order: 12
+nav: אבטחה
+lead: רשימת בדיקה להתקנת שרת Antimatter: מה לחשוף, הגבלות והגדרות פרטיות לבדיקה, השירותים החיצוניים שהשרת מתקשר אליהם, ואופן הדיווח על בעיית אבטחה.
+source: dbe2371ecf30
+---
+<h2 id="exposure">מה לחשוף</h2>
+<table>
+<thead><tr><th>פורט</th><th>שירות</th><th>חשיפה</th></tr></thead>
+<tbody>
+<tr><td>443/tcp, 443/udp, 80/tcp</td><td>פרוקסי HTTPS (Caddy או nginx)</td><td>ציבורי: כך הגולשים מגיעים ל-Antimatter.</td></tr>
+<tr><td>8443/udp ו-8443/tcp</td><td>מדיה לשיחות</td><td>ציבורי, אם משתמשים משתמשים בשיחות מחוץ לרשת שלך.</td></tr>
+<tr><td>8065/tcp</td><td>שרת ה-Web של Antimatter</td><td>לפרוקסי בלבד: פרסמו אותו על <code>127.0.0.1</code> (<code>HTTP_PORT=127.0.0.1:8065</code>).</td></tr>
+<tr><td>8067/tcp</td><td>מדידות</td><td>רשת פרטית בלבד, כאשר מופעל. אין התחברות.</td></tr>
+<tr><td>8074/tcp ו-udp</td><td>Gossip של קלאסטר</td><td>בין צמדי הקלאסטר בלבד.</td></tr>
+<tr><td>5432, 9000, 8080, 8066</td><td>PostgreSQL, אחסון קבצים, שירות GIF, פרוקסי דחיפה</td><td>לעולם לא. קבצי ה-compose שומרים אותם על רשתות פנימיות בלי פורט מפורסם.</td></tr>
+</tbody>
+</table>
+<p>קובץ ה-compose של האתר מפעיל גם כל קונטיינר עם <code>no-new-privileges</code>, מפעיל את Antimatter כמשתמש ללא הרשאות על镜像 distroless, ומפעיל את שירות GIF עם מערכת קבצים בלבד לקריאה. המסד הנתונים, האחסון ושירות GIF נמצאים על רשת בלי גישה לאינטרנט.</p>
+
+<h2 id="checklist">רשימת בדיקה לאחר התקנה</h2>
+<ol>
+<li>צרו חשבון מנהל ראשון לפני שמישהו אחר יכול להגיע לשרת (<a href="{{root}}docs/admins/install.html#first-admin">התקנה</a>).</li>
+<li>השגיחו Antimatter רק דרך HTTPS, והגדירו את כתובת האתר לכתובת <code>https://</code> (<a href="{{root}}docs/admins/https.html">דומיין ו-HTTPS</a>).</li>
+<li>השאירו את <code>.env</code>, <code>config.json</code> ומפתחות TLS קריאים על ידי root (או משתמש השרת) בלבד: <code>chmod 600 .env</code>.</li>
+<li>קבעו谁能 יצור חשבונות, השאירו את <b>הפעלת שרת פתוח</b> כבוי אלא אם הקהילה ציבורית, והפעילו את <b>דרישת אימות כתובת דוא״ל</b> ברגע שהדוא״ל עובד (<a href="{{root}}docs/admins/authentication.html">התחברות וחשבונות</a>).</li>
+<li>הפעילו אימות רב-גורמי, והטילו אותו לפחות על חשבונות המנהלים, או השתמשו בזה של ספק הזהות שלכם.</li>
+<li>בדקו את החיבורים החיצוניים להלן, ובפרט שרת STUN ששיחות משתמשות בו כברירת מחדל.</li>
+<li>בצעו גיבוי ובדקו שחזור (<a href="{{root}}docs/admins/backups-upgrades.html">גיבויים ושדרוגים</a>).</li>
+<li>שמרו על עדכנות התמונות: תיקוני אבטחה מגיעים עם תמונות חדשות.</li>
+</ol>
+
+<h2 id="rate-limiting">הגבלת קצב</h2>
+<p>השרת יכול להגביל את מספר בקשות ה-API שכל לקוח שולח. ההגדרה כבויה כברירת מחדל. ב<b>קונסולת מערכת › סביבה › הגבלת קצב</b>:</p>
+<table>
+<thead><tr><th>הגדרה</th><th>מפתח</th><th>ברירת מחדל</th></tr></thead>
+<tbody>
+<tr><td><b>הפעלת הגבלת קצב</b></td><td><code>RateLimitSettings.Enable</code></td><td>כבוי</td></tr>
+<tr><td><b>מספר שאילתות מקסימלי לשנייה</b></td><td><code>RateLimitSettings.PerSec</code></td><td>10</td></tr>
+<tr><td><b>גודל Burst מקסימלי</b></td><td><code>RateLimitSettings.MaxBurst</code></td><td>100</td></tr>
+<tr><td><b>גודל מאגר זיכרון</b></td><td><code>RateLimitSettings.MemoryStoreSize</code></td><td>10000 לקוחות נעקבים</td></tr>
+<tr><td><b>מגוון הגבלת קצב לפי כתובת רחוקה</b></td><td><code>RateLimitSettings.VaryByRemoteAddr</code></td><td>דלוק</td></tr>
+<tr><td><b>מגוון הגבלת קצב לפי משתמש</b></td><td><code>RateLimitSettings.VaryByUser</code></td><td>כבוי</td></tr>
+<tr><td><b>מגוון הגבלת קצב לפי HTTP header</b></td><td><code>RateLimitSettings.VaryByHeader</code></td><td>ריק</td></tr>
+</tbody>
+</table>
+<p>מאחורי פרוקסי, הגבלות לפי כתובת עובדות רק אם השרת יודע את כתובת כל לקוח (<code>ServiceSettings.TrustedProxyIPHeader</code> ו-<code>ServiceSettings.TrustedProxyIPs</code>, ראו <a href="{{root}}docs/admins/https.html#client-address">כתובות לקוחות מאחורי פרוקסי</a>). אחרת, כל הבקשות נראות כאילו הן מגיעות מהפרוקסי, וכולם משתפים הגבלה אחת. הדבר נכון גם לגבי סינון IP ולגבי הכתובות ביומני הביקורת.</p>
+<p>ניסיונות התחברות מוגבלים בנפרד: <b>מספר ניסיונות התחברות מקסימלי</b> (10) נעל את החשבון לאחר מספר כשלונות זהה.</p>
+
+<h2 id="ip-filtering">סינון IP</h2>
+<p><b>קונסולת מערכת › הגדרות האתר › סינון כתובות IP</b> מגביל גישה לשרת לפי כתובת IP, עם כללי אישור ודחייה (כתובת או טווח CIDR לכל אחד). כאשר <b>הפעלת סינון IP</b> מופעל, אנשים שכתובתם תואמת לכלל דחייה, או שאין להם כלל אישור כאשר קיימים כללי אישור, לא יכולים להגיע לשרת. העמוד דוחה כללים שחוסמים את כתובתכם. מאחורי פרוקסי, הגדירו תחילה כתובות לקוח (<a href="{{root}}docs/admins/https.html#client-address">כתובות לקוח מאחורי פרוקסי</a>): אחרת כל הבקשה נראית כאילו מגיעה מהפרוקסי.</p>
+
+<h2 id="uploads">העלאות ושיתוף קבצים</h2>
+<table>
+<thead><tr><th>הגדרה</th><th>מיקום</th><th>ברירת מחדל</th></tr></thead>
+<tbody>
+<tr><td><b>גודל קובץ מקסימלי</b> (<code>FileSettings.MaxFileSize</code>)</td><td>סביבה › אחסון קבצים</td><td>100 MB. יש לשמור את הגבלת גודל הבקשה של הפרוקסי לפחות בגודל זה.</td></tr>
+<tr><td><b>גודל מטען מרבי (בתים)</b> (<code>ServiceSettings.MaximumPayloadSizeBytes</code>)</td><td>סביבה › שרת אינטרנט</td><td>300000: בקשת ה-API הגדולה ביותר שאינה העלאת קבצים</td></tr>
+<tr><td><b>אפשרות שיתוף קבצים</b> (<code>FileSettings.EnableFileAttachments</code>)</td><td>תצורת האתר › שיתוף קבצים והורדות</td><td>דלוק</td></tr>
+<tr><td><b>אפשרות העלאת קבצים במובייל</b>, <b>אפשרות הורדת קבצים במכשירים ניידים</b></td><td>תצורת האתר › שיתוף קבצים והורדות</td><td>דלוק</td></tr>
+<tr><td><b>הפעלת קישורי קבצים ציבוריים</b> (<code>FileSettings.EnablePublicLink</code>)</td><td>תצורת האתר › קישורים ציבוריים</td><td>כבוי: כאשר מופעל, אנשים יכולים לשתף קובץ עם קישור שפועל ללא התחברות</td></tr>
+<tr><td><b>הפעלת SVGs</b> (<code>ServiceSettings.EnableSVGs</code>)</td><td>תצורת האתר › פוסטים</td><td>כבוי בשרת חדש: כאשר מופעל, תמונות SVG מוצגות בתוך הטקסט</td></tr>
+</tbody>
+</table>
+<p>Antimatter אינו סורק העלאות לחיפוש תוכנות זדוניות.</p>
+
+<h2 id="privacy">הגדרות פרטיות</h2>
+<p>ב<b>קונסולת מערכת › הגדרות האתר › משתמשים וצוותים</b>:</p>
+<table>
+<thead><tr><th>הגדרה</th><th>מפתח</th><th>ברירת מחדל</th><th>מה היא עושה</th></tr></thead>
+<tbody>
+<tr><td><b>הצגת כתובת דוא"ל</b></td><td><code>PrivacySettings.ShowEmailAddress</code></td><td>דלוק</td><td>כשכבוי, כתובות האימייל של החברים מוסתרות מכולם מלבד מנהלים. כווה זאת בשרתים ציבוריים.</td></tr>
+<tr><td><b>הצגת שם מלא</b></td><td><code>PrivacySettings.ShowFullName</code></td><td>דלוק</td><td>כשכבוי, שמות מלאים מוסתרים ומוצגים במקומם שמרי משתמש.</td></tr>
+<tr><td><b>הפעלת התעלמות, חסימה ובקשות הודעה</b></td><td><code>PrivacySettings.EnableUserBlocking</code></td><td>דלוק</td><td>ראו להלן.</td></tr>
+<tr><td><b>אפשרות למשתמשים לפתוח ערוצי הודעות ישירות עם</b></td><td><code>TeamSettings.RestrictDirectMessage</code></td><td>כל משתמש בשרת Antimatter</td><td>או <b>כל חבר בצוות</b>: רק אנשים ששוכרים קהילה.</td></tr>
+</tbody>
+</table>
+<h3>התעלמות, חסימה ובקשות הודעה</h3>
+<p>כש<b>הפעלת התעלמות, חסימה ובקשות הודעה</b> פעיל (הברירת המחדל), אנשים יכולים להתעלם זה מזה ולחסום, ובחירה לקבל הודעות ישירות מאנשים שאינם מכירים כבקשות הודעה, שאינן מודיעות עליהן עד שהן מתקבלות. זה מתאים לקהילות ציבוריות. במקום עבודה שבו עמיתים חייבים תמיד להיות יכולים להגיע זה לזה, כווה זאת (<code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING=false</code>): אף אחד מהכללים לא אכוף יותר, אבל הרשימות והבחירות שהאנשים עשו נשמרות, ויחולו שוב אם תחזיר את ההגדרה לפעילה.</p>
+
+<h2 id="sessions">מסעות ותוקנים</h2>
+<ul>
+<li>אורכי מסעות ותזמון יציאה מסיבה: ראו <a href="{{root}}docs/admins/authentication.html#sessions">התחברות וחשבונות</a>. מסעות קצרים יותר אומרים שהמחשב או הטלפון האבוד נשאר מחובר למשך זמן קצר יותר.</li>
+<li><b>הפעל אסימוני גישה אישיים</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, כבוי) מאפשר לאנשים ליצור טוקנים ל-API; <b>משך חיים מקסימלי לטוקן גישה אישי (ימים)</b> מגביל אותם. שניהם נמצאים ב<b>קונסולת מערכת › אינטגרציות › ניהול אינטגרציות</b>.</li>
+<li>כדי להסיר את כל המשתמשים מהמערכת בבת אחת, למשל לאחר חשד לפרצה: <b>ביטול כל ההתחברות</b> ב<b>קונסולת מערכת › ניהול משתמשים › משתמשים</b>.</li>
+</ul>
+
+<h2 id="outbound">חיבורים לשירותים חיצוניים</h2>
+<p>Antimatter אינו מתקשר עם שירות כלשהו שמופעל על ידי Mattermost, Inc. הוא אינו שולח טלמטריה, דוחות תקלות או בדיקות עדכוני אבטחה, ואינו מושך הודעות מוצר. תצורה שהועברה מ-Mattermost שעדיין מזכירה אחד משירותי Mattermost (שירותי ההדחפה שלו, שוק האפליקציות שלו, ההודעות שלו או שרת STUN שלו לשיחות) אינה גורמת לשרת להתקשר אליהם: הכתובות האלה מותעלמות.</p>
+<p>השרת והאפליקציות מתקשרים עם שירותים חיצוניים אחרים רק עבור התכונות שדורשות זאת, ועם השירותים שאתה מתקין:</p>
+<table>
+<thead><tr><th>תכונה</th><th>מתקשר עם</th><th>בברירת המחדל</th></tr></thead>
+<tbody>
+<tr><td>שיחות: מציאת כתובות ציבוריות באמצעות STUN. השרת וכל אדם המצטרף לשיחה שולחים בקשה, המציגה לשרת STUN את כתובת ה-IP ואת הפורט שלו.</td><td>שרת STUN הציבורי של Cloudflare, <code>stun.cloudflare.com</code></td><td>פעיל, כל עוד אפליקציית השיחות מופעלת. כדי לשנות זאת, ראו <a href="{{root}}docs/admins/calls.html#network">שיחות</a>.</td></tr>
+<tr><td>תצוגות מקדימות לקישורים: השרת מושך את העמודים המקושרים בהודעות (<b>הפעלת תצוגות מקדימות לקישורי אתרים</b>, <code>ServiceSettings.EnableLinkPreviews</code>)</td><td>האתרים אליהם משתמשים מקשרים</td><td>פעיל. ניתן לכבות עם <code>AM_SERVICESETTINGS_ENABLELINKPREVIEWS=false</code>.</td></tr>
+<tr><td>התראות דחוף לאפליקציה המובייל</td><td>פרוקסי ההתראות שלך (<a href="{{root}}docs/admins/email-push.html#push">התראות דחוף</a>)</td><td>כבוי עד שאתה מגדיר את הכתובת שלו</td></tr>
+<tr><td>שוק האפליקציות הרחוק (<code>PluginSettings.EnableRemoteMarketplace</code>)</td><td>ה<b>כתובת (URL) של שוק התוספים</b> שהגדרתם</td><td>כבוי, ואין כתובת</td></tr>
+<tr><td>דואל</td><td>שרת SMTP שלך</td><td>השרת ברירת המחדל הוא <code>localhost</code></td></tr>
+<tr><td>כניסה מאוחדת, מודלי בינה מלאכותית, תמלול דיבור, תרגום, Webhooks יוצאים, ואפליקציות כמו דואל, לוח שנה, GitHub, GitLab או Jira</td><td>השירותים שאתה מציב</td><td>כבויים עד שאתה מציב אותם</td></tr>
+</tbody>
+</table>
+<p>ברירת המחדל, השרת מסרב להתחבר לכתובות פרטיות ולכתובות loopback עבור פונקציות אלו (תצוגות מקדימות של קישורים, Webhooks, אפליקציות), כך שהודעה או אינטגרציה לא יכולות לשמש להגעה לרשת הפנימית שלך. רשום את המארחים הפנימיים שהוא רשאי להגיע אליהם ב<b>אפשרות חיבורים פנימיים לא אמורים אל</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>, ב<b>קונסולת מערכת › סביבה › מפתח</b>); קובץ ה-compose של האתר מרשם שם את <code>gifs</code>.</p>
+
+<h2 id="report">דיווח על פגיעות</h2>
+<p>יש לדווח על בעיות אבטחה בסתר, כמתואר ב<a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">מדיניות האבטחה של Antimatter</a>, ולא בטיקים ציבוריים.</p>

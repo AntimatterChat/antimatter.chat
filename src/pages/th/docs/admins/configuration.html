@@ -1,0 +1,120 @@
+title: การตั้งค่า
+description: การทำงานของระบบการตั้งค่าใน Antimatter: การตั้งค่าในฐานข้อมูลหรือใน config.json, ตัวแปรสภาพแวดล้อม AM_, System Console, เครื่องมือบรรทัดคำสั่ง amctl และตำแหน่งของบันทึกเหตุการณ์ (logs)
+guide: admins
+order: 3
+nav: การตั้งค่า
+lead: ตำแหน่งที่ Antimatter เก็บการตั้งค่า, วิธีเปลี่ยนค่าสามแบบ (System Console, ตัวแปรสภาพแวดล้อม, amctl) และตำแหน่งของบันทึกเหตุการณ์ (logs)
+source: e2d6546121d3
+---
+<h2 id="where">ตำแหน่งที่เก็บการตั้งค่า</h2>
+<p>การตั้งค่าของเซิร์ฟเวอร์แต่ละรายการมีชื่อที่ประกอบด้วยส่วน (section) และคีย์ (key) เช่น <code>ServiceSettings.SiteURL</code> หรือ <code>EmailSettings.SMTPServer</code> ทั้งสองส่วนประกอบกันเป็นค่าการตั้งค่าหนึ่งรายการ ซึ่งเก็บไว้ในสองตำแหน่ง:</p>
+<ul>
+<li><b>ในฐานข้อมูล.</b> ไฟล์ compose ของไซต์ตั้งค่า <code>AM_CONFIG</code> เป็น URL การเชื่อมต่อ PostgreSQL ทำให้ค่าการตั้งค่าเป็นแถวในฐานข้อมูล และคอนเทนเนอร์ไม่เก็บข้อมูลใด ๆ บนดิสก์ เซิร์ฟเวอร์หลายตัวที่ใช้ฐานข้อมูลร่วมกันจะใช้ค่าการตั้งค่าร่วมกันด้วย</li>
+<li><b>ในไฟล์.</b> หากไม่มี <code>AM_CONFIG</code> เซิร์ฟเวอร์จะอ่าน <code>config/config.json</code> ที่อยู่ข้างเคียงกับไดเรกทอรี <code>bin/</code> (ใน Docker image คือ <code>/antimatter/config/config.json</code>) อาร์ไคฟ์สำหรับเผยแพร่และไฟล์ compose สำหรับใช้งานจริงของ antimatter-docker ทำงานในลักษณะนี้ อนุญาตให้ผู้ใช้ของเซิร์ฟเวอร์อ่านไฟล์นี้ได้เท่านั้น เนื่องจากไฟล์นี้เก็บรหัสผ่านและคีย์ต่าง ๆ</li>
+</ul>
+<p><code>AM_CONFIG</code> (หรือแฟลก <code>--config</code> ของคำสั่ง <code>antimatter</code>) รับได้ทั้งเส้นทางไฟล์หรือ URL <code>postgres://</code> ค่าการตั้งค่าที่ไม่ได้ระบุจะรับค่าเริ่มต้น</p>
+<p>若要ย้ายค่าการตั้งค่าที่มีอยู่จากไฟล์ไปยังฐานข้อมูล ให้รันคำสั่งนี้บนเซิร์ฟเวอร์ จากนั้นเริ่มเซิร์ฟเวอร์โดยตั้งค่า <code>AM_CONFIG</code> เป็น URL เดิม:</p>
+<pre><code>amctl --local config migrate /opt/antimatter/config/config.json \
+    "postgres://antimatter:PASSWORD@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10"</code></pre>
+
+<h2 id="environment">ตัวแปรสภาพแวดล้อม</h2>
+<p>การตั้งค่าใด ๆ สามารถกำหนดผ่านตัวแปรสภาพแวดล้อมได้ ตัวแปรสภาพแวดล้อมมีลำดับความสำคัญสูงกว่าค่าการตั้งค่าที่เก็บไว้ ทำให้เหมาะสำหรับสิ่งที่เกี่ยวข้องกับระบบการติดตั้ง เช่น ฐานข้อมูล, URL ของไซต์, ที่เก็บไฟล์ และพอร์ต</p>
+<h3>กฎการตั้งชื่อ</h3>
+<p>เขียน <code>AM_</code> ตามด้วยชื่อส่วน (section) และชื่อคีย์ (key) โดยใช้ตัวพิมพ์ใหญ่และคั่นด้วยเครื่องหมายขีดล่าง คำภายในชื่อส่วนหรือชื่อคีย์ไม่คั่นด้วยเครื่องหมาย:</p>
+<table>
+<thead><tr><th>การตั้งค่า</th><th>ตัวแปร</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.SiteURL</code></td><td><code>AM_SERVICESETTINGS_SITEURL</code></td></tr>
+<tr><td><code>SqlSettings.DataSource</code></td><td><code>AM_SQLSETTINGS_DATASOURCE</code></td></tr>
+<tr><td><code>EmailSettings.SMTPServer</code></td><td><code>AM_EMAILSETTINGS_SMTPSERVER</code></td></tr>
+<tr><td><code>PrivacySettings.EnableUserBlocking</code></td><td><code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li>ค่าการตั้งค่าที่เป็นค่าจริง/เท็จ (true/false) ใช้ <code>true</code> หรือ <code>false</code>; ตัวเลขเป็นตัวเลขธรรมดา</li>
+<li>ค่าการตั้งค่าที่เป็นรายการ (list) ใช้ค่าที่คั่นด้วยช่องว่าง เช่น <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code></li>
+<li>การตั้งค่าที่เป็นอ็อบเจกต์ต้องเป็น JSON ตัวแปรเดียวสำหรับแอปคือ <code>AM_PLUGINSETTINGS_PLUGINS</code> ซึ่งแทนที่การตั้งค่าของแอป<em>ทุกตัว</em>พร้อมกัน: ตั้งค่าแอปในคอนโซลระบบหรือด้วย <code>amctl</code> แทน (ดูด้านล่าง)</li>
+<li>การติดตั้ง Mattermost รุ่นเก่าใช้คำนำหน้า <code>MM_</code> เช่น <code>MM_SQLSETTINGS_DATASOURCE</code> ซึ่งยังทำงานได้เป็นชื่อเดิม (legacy alias) เมื่อตั้งทั้งสองตัว ตัวแปร <code>AM_</code> จะชนะ</li>
+</ul>
+<p>การตั้งค่าที่กำหนดด้วยตัวแปรจะถูกล็อกในคอนโซลระบบ พร้อมข้อความว่า "การตั้งค่านี้ถูกตั้งผ่านตัวแปรสภาพแวดล้อม ไม่สามารถเปลี่ยนผ่านคอนโซลระบบได้" ไม่ถูกเขียนลงในค่าที่บันทึกไว้: ลบตัวแปรออกและค่าที่บันทึกไว้จะกลับมาใช้</p>
+<h3>ใช้กับ Docker Compose</h3>
+<p>เพิ่มตัวแปรภายใต้ <code>environment:</code> ของบริการ <code>antimatter</code> หรือใน <code>compose.override.yaml</code> ข้าง <code>compose.yaml</code> (Compose จะอ่านโดยอัตโนมัติ และอยู่รอดจากการอัปเดตไฟล์ที่ดาวน์โหลด):</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_LOGSETTINGS_CONSOLELEVEL: INFO</code></pre>
+<p>ใช้การเปลี่ยนแปลงด้วย <code>docker compose up -d</code> ซึ่งสร้างคอนเทนเนอร์ใหม่</p>
+<h3>ตัวแปรที่แอปอ่าน</h3>
+<p>แอปบางตัวอ่านตัวแปรของตัวเองที่ตั้งในบริการ <code>antimatter</code>: แอป Calls อ่าน <code>AM_CALLS_*</code> (ดู <a href="{{root}}docs/admins/calls.html">Calls and voice</a>) และแอป GIFs อ่าน <code>AM_GIFS_SERVICE_URL</code>, <code>AM_GIFS_API_KEY</code> และ <code>AM_GIFS_UPLOAD_KEY</code> (ดู <a href="{{root}}docs/admins/apps.html">Bundled apps</a>)</p>
+
+<h2 id="console">คอนโซลระบบ</h2>
+<p>คอนโซลระบบ (System Console) เป็นพื้นที่สำหรับระบบผู้ดูแล (system administrator) ของแอปพลิเคชันบนเว็บ เพื่อเปิดใช้งาน ให้คลิกที่รูปโปรไฟล์ของคุณแล้วเลือก <b>คอนโซลระบบ</b> หรือไปที่ <code>https://chat.example.com/admin_console</code> แถบด้านข้าง (sidebar) ของคอนโซลระบบมีกล่อง <b>ค้นหาการตั้้งค่า</b> ที่ใช้ค้นหาได้ทุกระบบ</p>
+<figure><img src="{{root}}assets/img/shots/admin.webp" alt="The System Console, with its sidebar of sections on the left and the SAML 2.0 settings page on the right."><figcaption>คอนโซลระบบ แถบด้านข้างจัดกลุ่มหน้าเป็นหมวดหมู่ เช่น Reporting, User Management และ Environment</figcaption></figure>
+<p>หมวดหมู่มีดังนี้:</p>
+<ul>
+<li><b>การรายงาน</b>: สถิติและล็อกของเซิรฟ์เวอร์</li>
+<li><b>การจัดการผ้้ใช้</b>: ผู้ใช้, กลุ่ม, ชุมชน (แสดงในรายชื่อเป็นทีม), ช่อง, สิทธิ์ และการมอบหมายสิทธิ์ผู้ดูแล</li>
+<li><b>คุณลักษณะของระบบ</b>: คุณลลักษณะโปรไฟล์แบบกำหนดเอง และการเข้าถึงตามคุณลลักษณะ</li>
+<li><b>สภาพแวดล้อง</b>: เซิรฟ์เวอร์เว็บ, ฐานข้อมูล, การเก็บไฟล์, image proxy, SMTP, การแจ้งเตือนแบบ push, การจำกัดอัตรา (rate limiting), การบันทึกล็อก, ระยะเวลาเซสชัน, การตรวจสอบประสิทธิภาพ</li>
+<li><b>การตั้่งค่าไซต์</b>: การสร้างแบรนด์, ผู้ใช้และทีม, การแจ้งเตือน, โพสต์, การแชร์ไฟล์ และพฤติกรรมระดับเซิรฟ์เวอร์อื่นๆ</li>
+<li><b>การยืนยันตัวตน</b>: การสมัครสมาชิก การเข้าสู่ระบบด้วยอีเมลและรหัสผ่าน MFA AD/LDAP SAML 2.0 OAuth 2.0 OpenID Connect และการเข้าถึงสำหรับแขก</li>
+<li><b>ปลั๊กอิน</b>: การจัดการแอปและการตั้งค่าของแต่ละแอปที่ติดตั้ง</li>
+<li><b>อินทิเกรชัน</b>: เว็บฮุค, คำสั่้งสแลช, บัญชีบอท, GIF, การแปลงข้อความเป็นเสียง, CORS</li>
+<li><b>การปฏิบัติตามกฎระเบียบ</b>: การเก็บข้อมูล การส่งออกและการตรวจสอบการปฏิบัติตามกฎระเบียบ การบันทึกการตรวจสอบ และข้อกำหนดการให้บริการแบบกำหนดเอง</li>
+<li><b>การทดลอง</b>: ฟีเจอร์ที่อาจมีการเปลี่ยนแปลง</li>
+</ul>
+<p>ในคู่มือนี้ การตั้้งค่าแต่ละรายการจะเขียนในรูปของเส้นทางในคอนโซลระบบ ตามด้วยป้ายชื่อ (label) และคีย์การตั้้งค่า (configuration key) ตัวอย่างเช่น <b>คอนโซลระบบ › การตั้้งค่าไซต์ › ผู้ใช้และทีม › เปิดใช้งานการเพิกเฉย การบล็อก และคำขอร้องข้อความ</b> (<code>PrivacySettings.EnableUserBlocking</code>)</p>
+<p>การเปลี่ยนแปลงส่วนใหญ่จะมีผลทันทีเมื่อคุณคลิก <b>บันทึก</b> บางส่วน (เช่น ที่อยู่การรับฟัง การตั้งค่าฐานข้อมูลและแคชบางส่วน) ต้องรีสตาร์ท และหน้าจะแจ้งให้ทราบ</p>
+
+<h2 id="amctl">เครื่องมือบรรทัดคำสั่ง amctl</h2>
+<p><code>amctl</code> จัดการเซิร์ฟเวอร์จากบรรทัดคำสั่ง: ผู้ใช้ ชุมชน ช่อง แอป การตั้งค่า งาน และอื่น ๆ มันสื่อสารกับเซิร์ฟเวอร์ด้วยสองวิธี</p>
+<h3>โหมดโลคอล บนเซิร์ฟเวอร์</h3>
+<p>โหมดโลคอลทำให้ <code>amctl</code> สื่อสารกับเซิร์ฟเวอร์ผ่าน Unix socket โดยไม่ต้องเข้าสู่ระบบ เปิดใช้งานใน Docker image อยู่แล้ว บนเซิร์ฟเวอร์ที่ติดตั้งจากไฟล์อาร์ไคฟ ให้เปิดใช้งานด้วย <b>ServiceSettings.EnableLocalMode</b> (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>) Socket คือ <code>/var/tmp/antimatter_local.socket</code> เป็นค่าเริ่มต้น (<code>ServiceSettings.LocalModeSocketLocation</code>)</p>
+<pre><code># with Docker Compose
+docker compose exec antimatter amctl --local system status
+# with a release archive
+sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code></pre>
+<div class="callout warn">ผู้ที่สามารถใช้ socket หรือรัน <code>docker compose exec</code> บนโฮสต์ จะมีสิทธิ์ผู้ดูแลระบบเต็มรูปแบบ</div>
+<h3>ระยะไกล ด้วยบัญชี</h3>
+<p>จากเครื่องใดก็ได้ เข้าสู่ระบบด้วยบัญชีผู้ดูแลระบบ (หรือโทเคนการเข้าถึงส่วนบุคคล) จากนั้นรันคำสั่งกับเซิร์ฟเวอร์นั้น:</p>
+<pre><code>amctl auth login https://chat.example.com --name prod --username admin
+amctl system status</code></pre>
+<h3>คำสั่งการตั้งค่า</h3>
+<table>
+<thead><tr><th>คำสั่ง</th><th>สิ่งที่ทำ</th></tr></thead>
+<tbody>
+<tr><td><code>amctl config get ServiceSettings.SiteURL</code></td><td>พิมพ์การตั้งค่าหนึ่งรายการ</td></tr>
+<tr><td><code>amctl config set TeamSettings.EnableOpenServer false</code></td><td>เปลี่ยนการตั้งค่าหนึ่งรายการ การตั้งค่าแบบรายการรับค่าหลายค่า</td></tr>
+<tr><td><code>amctl config patch settings.json</code></td><td>รวมไฟล์ JSON ของการตั้งค่าเข้ากับการตั้งค่า</td></tr>
+<tr><td><code>amctl config show</code></td><td>พิมพ์การตั้งค่าทั้งหมดเป็น JSON</td></tr>
+<tr><td><code>amctl config edit</code></td><td>เปิดการตั้งค่าในโปรแกรมแก้ไขของคุณ (<code>$EDITOR</code>)</td></tr>
+<tr><td><code>amctl config reset</code></td><td>รีเซ็ตการตั้งค่าเป็นค่าเริ่มต้น</td></tr>
+<tr><td><code>amctl config reload</code></td><td>โหลดการตั้งค่าใหม่จากที่เก็บข้อมูล หลังจากมีการเปลี่ยนแปลงจากภายนอกเซิร์ฟเวอร์</td></tr>
+</tbody>
+</table>
+<p>การตั้งค่าแอปอยู่ภายใต้ <code>PluginSettings.Plugins.&lt;app id&gt;</code> โดยมีคีย์เป็นตัวพิมพ์เล็ก ตัวอย่างเช่น เพื่อตั้งค่า URL และคีย์ของบริการแอป GIF จาก Docker host:</p>
+<pre><code>docker compose exec -T antimatter amctl --local config patch /dev/stdin &lt;&lt;'EOF'
+{"PluginSettings": {"Plugins": {"com.antimatterchat.gifs": {
+  "serviceurl": "http://gifs:8080/v2",
+  "apikey": "the GIFS_API_KEY of your .env"
+}}}}
+EOF</code></pre>
+<p>คำสั่งท่ีมีประโยชน์อ่ืน ๆ: <code>amctl user create</code>, <code>amctl user deactivate</code>, <code>amctl team create</code>, <code>amctl plugin list</code>, <code>amctl plugin enable</code>, <code>amctl system supportpacket</code> และ <code>amctl logs</code> รัน <code>amctl help &lt;command&gt;</code> เพื่อดูตัวเลือกของแต้ละคำสั่ง</p>
+
+<h2 id="logs">ล็อก</h2>
+<p>เซิรฟ์เวอร์จะเขียนล็อกไปยังสองที่ แต่ละที่มีระดับ (level) ของตัวเอง (<code>DEBUG</code>, <code>INFO</code>, <code>WARN</code> หรือ <code>ERROR</code>) ซึ่งตั้้งใน <b>คอนโซลระบบ › สภาพแวดล้อง › การบันทึกล็อก</b>:</p>
+<table>
+<thead><tr><th>ปลายทาง</th><th>การตั้่งค่า</th><th>ค่าเริ่มต้น</th></tr></thead>
+<tbody>
+<tr><td>คอนโซล (standard output)</td><td><b>ออกโล่กข้้อมูลไป console</b> (<code>LogSettings.EnableConsole</code>), <b>ระดับคอนโซล log</b> (<code>LogSettings.ConsoleLevel</code>), <b>ออกโล่ก console logs เป็น JSON</b> (<code>LogSettings.ConsoleJson</code>)</td><td>เปิิด, <code>DEBUG</code>, JSON</td></tr>
+<tr><td>ไฟล์ <code>antimatter.log</code></td><td><b>อปัต์พุต log ลงไฟล์</b> (<code>LogSettings.EnableFile</code>), <b>ระดับไฟล์ log</b> (<code>LogSettings.FileLevel</code>), <b>ไดเรกทอรีไฟล์ log</b> (<code>LogSettings.FileLocation</code>)</td><td>เปิิด, <code>INFO</code>, โฟลเดอร์ <code>logs/</code> ท่ีอยู้ข้าง ๆ <code>bin/</code></td></tr>
+</tbody>
+</table>
+<p>ไฟล์ล็อกจะถุกหมุน (rotate) ท่ี 100 MB และไฟล์เก่าน์จะถุกบีบอัด</p>
+<p>ไฟล์ compose ของไซต์จะปิดการบันทึกล็อกลงไฟล์ (<code>AM_LOGSETTINGS_ENABLEFILE=false</code>) ท่ีทำให้ล็อกอยู้เพีียงใน output ของคอนเทนเนอร์:</p>
+<pre><code>docker compose logs -f antimatter
+docker compose logs --since 1h antimatter | grep -i error</code></pre>
+<p>ระดับคอนโซลเริ่มต้นที่ <code>DEBUG</code> ท่ีละเอียดมาก บนเซิร์ฟเวอร์ท่ีไม่ว่าง ให้ตั้่ง <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code> เมื่อบนท่ีมี release archive ใต้ systemd, output ของคอนโซลจะไปอยู้ใน journal (<code>journalctl -u antimatter</code>) และไฟล์จะอยู้ที่ <code>/opt/antimatter/logs/antimatter.log</code></p>
+<p>เมื่อบันทึกล็อกลงไฟล์เปิดใช้งานอยู่ ผู้ดูแลระบบสามารถอ่านบรรทัดล็อกล่าสุดได้ที่ <b>คอนโซลระบบ › การรายงาน › ล็อกเซิรฟ์เวอร์</b> หรือด้วย <code>amctl logs</code></p>

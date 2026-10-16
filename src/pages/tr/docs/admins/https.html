@@ -1,0 +1,161 @@
+title: Alan adı, HTTPS ve geri yönlendirmeli proxy'ler
+description: Antimatter'i kendi alan adınız üzerinden HTTPS ile, pakete ekli Caddy profili veya kendi nginx geri yönlendirmeli proxy'niz aracılığıyla sunun ve site URL'sini ile istemci adreslerini doğru şekilde ayarlayın.
+guide: admins
+order: 4
+nav: Alan adı ve HTTPS
+lead: Antimatter'i, compose dosyasındaki Caddy profili veya kendi geri yönlendirmeli proxy'niz aracılığıyla HTTPS destekli bir alan adında barındırın ve site URL'si ile istemci adreslerini doğru şekilde yapılandırın.
+source: 69e8779d356e
+---
+<h2 id="site-url">Site URL'si</h2>
+<p>Site URL'si (<code>ServiceSettings.SiteURL</code>), kullanıcıların Antimatter'e erişmek için kullandığı adresdir; örneğin <code>https://chat.example.com</code>. Sunucu, bu adresi e-posta ve bildirimlerdeki bağlantılarda, oturum açma yönlendirmelerinde (OAuth, OpenID Connect, SAML), mobil ve masaüstü uygulamalarda ve isteklerin nereden geldiğini denetlemek için kullanır. Tarayıcının adres çubuğundaki adresle birebir aynı olacak şekilde ayarlayın: şema, alan adı ve varsayılan olmayan bir port varsa port; sonda eğik çizgi olmadan.</p>
+<ul>
+<li>Site'nin compose dosyası ile: <code>.env</code> içindeki <code>SITE_URL</code>.</li>
+<li>Başka yerlerde: <code>AM_SERVICESETTINGS_SITEURL</code> veya <b>Sistem Konsolu › Ortam › Site sunucusu › Site adresi</b>.</li>
+</ul>
+<p>Site URL'si yanlışsa, kimlik sağlayıcıyla oturum açma başarısız olur, e-postalardaki bağlantılar yanlış yere gider ve uygulamalar bağlantı kuramayabilir. Alan adını değiştirdikten sonra, bu adresi burada ve tüm kimlik sağlayıcılarının yönlendirme URL'lerinde güncelleyin.</p>
+
+<h2 id="caddy">Pakete ekli Caddy profili ile HTTPS</h2>
+<p>Site'nin <code>compose.yaml</code> dosyası, <code>https</code> profili içinde bir <a href="https://caddyserver.com">Caddy</a> hizmeti içerir. Bu hizmet, Let's Encrypt'ten sertifika alır, sertifikayı kendisi yeniler, HTTP trafiğini HTTPS'e yönlendirir ve her şeyi (WebSocket'ler dahil) Antimatter'e iletir.</p>
+<ol>
+<li>Alan adınızın DNS kaydını (A ve IPv6 için AAAA) sunucuya yönlendirin.</li>
+<li>Firewall'da 80/tcp, 443/tcp ve 443/udp (HTTP/3) portlarını açın. Let's Encrypt'in 80 veya 443 portuna İnternet üzerinden erişebilmesi gerekir.</li>
+<li>Alan adını <code>.env</code> dosyasına ekleyin ve site URL'sini ayarlayın:
+<pre><code>echo "DOMAIN=chat.example.com" &gt;&gt; .env
+sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env</code></pre></li>
+<li>Profil ile başlatın:
+<pre><code>docker compose --profile https up -d</code></pre></li>
+</ol>
+<p>Daha sonraki her <code>docker compose up</code> komutuna <code>--profile https</code> parametresini ekleyin veya düz <code>docker compose up -d</code> komutunun bu profili içermesi için <code>.env</code> dosyasına <code>COMPOSE_PROFILES=https</code> ekleyin. Caddy, sertifikalarını <code>https</code> hacminde saklar.</p>
+<p>Antimatter'in kendi portu, ana makinede yayımlanmaya devam eder (<code>HTTP_PORT</code>, varsayılan olarak 8065). Caddy ön plandayken, bu portu yalnızca sunucu kendisi için kullanın:</p>
+<pre><code>echo "HTTP_PORT=127.0.0.1:8065" &gt;&gt; .env
+docker compose --profile https up -d</code></pre>
+<p>Caddy, Antimatter'e o port üzerinden değil, dahili <code>edge</code> ağı üzerinden erişir; bu nedenle kullanıcılarınız için hiçbir şey değişmez.</p>
+
+<h2 id="nginx">Kendi geri yönlendirmeli proxy'nizle (nginx)</h2>
+<p>Sunucu zaten nginx veya başka bir vekil çalıştırıyorsa, <code>https</code> profilini devre dışı bırakın ve vekili Antimatter'ın 8065 portuna yönlendirin. Vekil şunları yapmalıdır:</p>
+<ul>
+<li>websocket yükseltmelerini iletmelidir (web uygulaması ve mobil uygulamalar <code>/api/v4/websocket</code> üzerinde bir websocket açık tutar, bazı uygulamalar kendi websocket'lerini açar);</li>
+<li>en büyük yükleme boyutuna (<b>En büyük dosya boyutu</b>, varsayılan olarak 100 MB) en az eşit olan istek gövdelerini kabul edin;</li>
+<li>uzun ömürlü bağlantıları açık tutmalıdır (websocket'ler, büyük yükleme ve indirmeler);</li>
+<li><code>Host</code> başlığını ve istemcinin adresini iletmelidir.</li>
+</ul>
+<p>antimatter-docker'daki üretim şablonundan uyarlanmış tam bir sunucu bloğu. Alan adını ve sertifika yollarını değiştirin:</p>
+<pre><code>upstream antimatter {
+    server 127.0.0.1:8065;
+    keepalive 64;
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+proxy_cache_path /var/cache/nginx/antimatter levels=1:2 keys_zone=antimatter_cache:10m
+                 max_size=3g inactive=120m use_temp_path=off;
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name chat.example.com;
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name chat.example.com;
+
+    ssl_certificate     /etc/ssl/chat.example.com/fullchain.pem;
+    ssl_certificate_key /etc/ssl/chat.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:AntimatterSSL:10m;
+    ssl_session_tickets off;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # At least FileSettings.MaxFileSize (100 MB by default).
+    client_max_body_size 100M;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade           $http_upgrade;
+    proxy_set_header Connection        $connection_upgrade;
+    proxy_buffers 256 16k;
+    proxy_buffer_size 16k;
+
+    location ~ ^/api/v[0-9]+/(users/)?websocket$ {
+        client_body_timeout 60s;
+        send_timeout 300s;
+        lingering_timeout 5s;
+        proxy_connect_timeout 90s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 90s;
+        proxy_pass http://antimatter;
+    }
+
+    location / {
+        proxy_read_timeout 600s;
+        proxy_cache antimatter_cache;
+        proxy_cache_revalidate on;
+        proxy_cache_min_uses 2;
+        proxy_cache_use_stale timeout;
+        proxy_cache_lock on;
+        proxy_pass http://antimatter;
+    }
+}</code></pre>
+<p>Dosyayı <code>nginx -t</code> ile kontrol edin ve <code>systemctl reload nginx</code> ile uygulayın. Sunucu <code>X-Content-Type-Options</code>, <code>Referrer-Policy</code>, <code>Permissions-Policy</code> ve <code>X-Frame-Options</code> başlıklarını kendisi gönderir; yalnızca HSTS vekile aittir. HTTPS çalışmaya başladığında <code>max-age</code> değerini artırın ve yalnızca tüm alt alan adları HTTPS kullanıyorsa <code>includeSubDomains</code> ekleyin.</p>
+<p>Docker Compose ve ana makinede nginx kullanıldığında, yukarıdaki <code>upstream</code> yayınlanan 8065 portuna işaret eder. Bunu yalnızca <code>127.0.0.1</code> üzerinde yayınlayın (<code>HTTP_PORT=127.0.0.1:8065</code>), böylece kimse vekili atlayamaz.</p>
+<p>antimatter-docker deposu, nginx'in bir konteynerde ve Let's Encrypt'in certbot üzerinden kullanıldığı tam bir kurulum içerir; <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">deploy/compose</a> dizininde bulunur.</p>
+
+<h3>Diğer vekiller</h3>
+<p>Yukarıdaki dört maddeyi karşılayan herhangi bir vekil çalışır. Sesli ve görüntülü aramalar asla vekil üzerinden geçmez: kendi portlarını kullanırlar, bkz. <a href="{{root}}docs/admins/calls.html">Aramalar ve ses</a>.</p>
+
+<h2 id="client-address">Vekil arkasındaki istemci adresleri</h2>
+<p>Vekil arkasında her istek vekilden geliyormuş gibi görünür. Gerçek istemci adresini günlüğe kaydetmek, istemci başına hız sınırlamaları uygulamak ve IP filtreleme kullanmak için sunucuya adresi hangi başlığın taşıdığını ve hangi vekillere güvenebileceğini bildirin. Bu ayarların hiçbirinin Sistem Konsolu alanında karşılığı yoktur: bunları <code>config.json</code> içinde veya değişkenlerle ayarlayın.</p>
+<table>
+<thead><tr><th>Anahtar ve değişken</th><th>Varsayılan</th><th>Ne işe yarar</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.TrustedProxyIPHeader</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER</code></td><td>boş: sunucu bağlantının adresini kullanır</td><td>İstemcinin adresini taşıyan başlıklar, örneğin <code>X-Forwarded-For</code>. İstekte bulunan ilk başlık kullanılır.</td></tr>
+<tr><td><code>ServiceSettings.TrustedProxyIPs</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code></td><td>boş</td><td>Vekillerinizin adresleri veya CIDR aralıkları, örneğin <code>172.29.71.0/28</code>. Başlıklar yalnızca bunlardan birinden gelen istekler için geçerlidir.</td></tr>
+</tbody>
+</table>
+<p>Bir değişkende birden fazla değeri boşluklarla ayırın: <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>. Sunucu, <code>TrustedProxyIPs</code> içindeki bir girdinin ne bir IP adresi ne de bir CIDR aralığı olduğu bir yapılandırmayı reddeder.</p>
+<h3>Sunucunun istemcinin adresini nasıl bulduğu</h3>
+<p>Her vekil, isteği hangi adresten aldığını <code>X-Forwarded-For</code> başlığının sağına ekler. İstemcinin başlığın kendisinde gönderdiği her şey solda kalır. Böylece sunucu başlığı sağdan okur, güvenilir vekillerinizin adreslerini atlar ve istemcinin adresi olarak ilk diğer adresi alır. Bir istemci, kendi başlığını göndererek adresini seçemez.</p>
+<ul>
+<li>Tek bir vekilin arkasında, <code>TrustedProxyIPHeader</code> tek başına doğru adresi verir: sunucu başlığın en sağdaki adresini alır. <code>TrustedProxyIPs</code> değerini de ayarlayana kadar başlangıçta bir uyarı kaydeder. Bu yapılandırma yapılmazsa, 8065 portuna doğrudan ulaşabilen herkes başlığı ayarlayabilir; bu yüzden bu portu yalnızca <code>127.0.0.1</code> üzerinde veya özel bir ağda yayınlayın.</li>
+<li>Birden fazla vekilin arkasında, örneğin kendi vekilinizin önünde bir CDN veya yük dengeleyici varsa, hepsini <code>TrustedProxyIPs</code> içinde listeleyin. Aksi halde sunucu, dış vekilin adresini istemcinin adresi olarak alır.</li>
+<li>Vekil, yukarıdaki nginx örneğinde yaptığı gibi başlığı gördüğü adresle değiştirebilir (<code>X-Forwarded-For $remote_addr</code>) veya başlığa ekleyebilir (nginx'in <code>$proxy_add_x_forwarded_for</code> değeri). İkisi de çalışır.</li>
+</ul>
+<h3>Hangi adreslerin listeleneceği</h3>
+<p>Vekilin isteklerinin geldiği adresi, Antimatter'in gördüğü şekilde listeleyin.</p>
+<ul>
+<li>Sitein compose dosyası ve Caddy kullanıldığında bu zaten yapılmıştır: Caddy, Antimatter'e <code>edge</code> ağı üzerinden ulaşır ve compose dosyası <code>TrustedProxyIPHeader</code> değerini <code>X-Forwarded-For</code> olarak, <code>TrustedProxyIPs</code> değerini ise bu ağın aralığı olan <code>EDGE_SUBNET</code> olarak (<code>.env</code> dosyasında değiştirmediyseniz <code>172.29.71.0/28</code>) ayarlar. <code>EDGE_SUBNET</code> değeri, ağlarınızdan biriyle örtüşüyorsa değiştirin.</li>
+<li>antimatter-docker'daki üretim kurulumu, nginx konteyneri için <code>FRONTEND_SUBNET</code> değeriyle aynı işlemi yapar.</li>
+<li>nginx ana makinede ve Antimatter Docker'da olduğunda, istekler Antimatter'e yayınlanan port üzerinden ulaşır, genellikle compose projesinin ağının geçiş adresinden (<code>docker network inspect</code> komutu bunu gösterir). <code>compose.override.yaml</code> dosyasında <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code> değerini bu adrese ayarlayın.</li>
+<li>Docker olmadan, aynı ana makinede nginx kullanıldığında adres <code>127.0.0.1</code> (nginx IPv6 üzerinden bağlanıyorsa <code>::1</code>).</li>
+</ul>
+
+<h2 id="builtin-tls">Aracı olmadan TLS</h2>
+<p>Sunucu, <b>Sistem Konsolu › Ortam › Site sunucusu</b> bölümünde HTTPS trafiğini kendisi de sunabilir: <b>Bağlantı güvenliği</b> TLS olarak ayarlanır (<code>ServiceSettings.ConnectionSecurity</code>), <b>TLS sertifika dosyası</b> ve <b>TLS anahtar dosyası</b> (<code>ServiceSettings.TLSCertFile</code>, <code>ServiceSettings.TLSKeyFile</code>) tanımlanır veya <b>Let's Encrypt kullanılsın</b> seçilir (<code>ServiceSettings.UseLetsEncrypt</code>). Bu durumda sunucunun 443 portunu dinlemesi gerekir (<b>Dinlenecek adres</b>, <code>ServiceSettings.ListenAddress</code>, varsayılan olarak <code>:8065</code>) ve <code>ServiceSettings.Forward80To443</code> 80 portunu yönlendirir. Geri proxy (reverse proxy) çalıştırmak ve yenilemek daha kolaydır ve bu kılavuz bu yapıyı varsayar.</p>
+
+<h2 id="timeouts">Sunucu zaman aşımıları ve istek boyutu</h2>
+<p>Sunucunun kendi web sunucusuna ait ayarları, <b>Sistem Konsolu › Ortam › Site sunucusu</b> bölümünde bulunur:</p>
+<table>
+<thead><tr><th>Ayar</th><th>Anahtar</th><th>Varsayılan</th></tr></thead>
+<tbody>
+<tr><td><b>Dinlenecek adres</b></td><td><code>ServiceSettings.ListenAddress</code></td><td><code>:8065</code></td></tr>
+<tr><td><b>Okuma zaman aşımı</b></td><td><code>ServiceSettings.ReadTimeout</code></td><td>300 saniye</td></tr>
+<tr><td><b>Yazma zaman aşımı</b></td><td><code>ServiceSettings.WriteTimeout</code></td><td>300 saniye</td></tr>
+<tr><td>Boşta kalma zaman aşımı (Sistem Konsolu'nda alan yok)</td><td><code>ServiceSettings.IdleTimeout</code></td><td>60 saniye</td></tr>
+<tr><td><b>En büyük yük boyutu (Bayt)</b></td><td><code>ServiceSettings.MaximumPayloadSizeBytes</code></td><td><a href="{{root}}docs/admins/security.html">Güvenlik</a> bölümüne bakın</td></tr>
+</tbody>
+</table>
+<p>Proxy'nin kendi zaman aşım sürelerini normal istekler için bu değerlerden en az uzun tutun ve gövde boyutunu en az <b>En büyük dosya boyutu</b> kadar ayarlayın.</p>

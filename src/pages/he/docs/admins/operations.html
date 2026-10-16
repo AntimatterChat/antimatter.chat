@@ -1,0 +1,85 @@
+title: פעילות
+description: ניהול Antimatter ביום־יום: בדיקות בריאות, מדדים וניטור, אפליקציית Metrics, חבילות תמיכה, חיפוש והרחבה, זמינות גבוהה, שמירת נתונים, ייצואים לצורך עמידה בתקנות ויומני ביקורת, ותיקונים לבעיות נפוצות.
+guide: admins
+order: 11
+nav: פעילות
+lead: שמירה על עין פקוחה על השרת, יכולת להכיל יותר משתמשים, קביעת תקופת שמירת הנתונים, ותיקון הבעיות שבהן נתקלים מנהלים לעיתים קרובות.
+source: 32577b38c3db
+---
+<h2 id="health">בדיקות בריאות</h2>
+<ul>
+<li><code>amctl --local system status</code> (בתוך המיכל: <code>docker compose exec antimatter amctl --local system status</code>). בדיקת הבריאות של תמונת Docker מריצה את הפקודה כל 30 שניות, כך ש<code>docker compose ps</code> מציג <code>healthy</code> או <code>unhealthy</code>.</li>
+<li><code>GET /api/v4/system/ping</code> עונה ללא הצורך בהתחברות, עבור מנוע ניטור חיצוני או מאזן עומס: <code>curl -fsS https://chat.example.com/api/v4/system/ping</code>.</li>
+<li><code>antimatter db ping</code> בודק שהמסד הנתונים נגיש עם ההגדרות שנקבעו.</li>
+<li><b>קונסולת מערכת › דיווחים › סטטיסטיקות מערכת</b> מציגה את מספר המשתמשים, ההודעות והמסכים, ו<b>אופטימיזציית מרחב עבודה</b> מציגה רשימה של בעיות הגדרה שיש לבחון.</li>
+</ul>
+
+<h2 id="metrics">מדידות</h2>
+<p>השרת יכול לפרסם מדדים Prometheus: קצבי בקשות ומשך זמן, חיבורי websocket, שימוש במסד הנתונים ובמטמון, משימות, גיחות פלאגין ועוד. הפעילו אותם ב<b>קונסולת מערכת › סביבה › ניטור ביצועים</b>:</p>
+<table>
+<thead><tr><th>הגדרה</th><th>מפתח ומשתנה</th><th>ברירת מחדל</th></tr></thead>
+<tbody>
+<tr><td><b>הפעלת ניטור ביצועים</b></td><td><code>MetricsSettings.Enable</code>, <code>AM_METRICSSETTINGS_ENABLE</code></td><td>כבוי</td></tr>
+<tr><td><b>כתובת האזנה</b></td><td><code>MetricsSettings.ListenAddress</code>, <code>AM_METRICSSETTINGS_LISTENADDRESS</code></td><td><code>:8067</code></td></tr>
+<tr><td><b>הפעלת ניטור ביצועים לצד הלקוח</b></td><td><code>MetricsSettings.EnableClientMetrics</code></td><td>דל: דפדפנים ואפליקציות מדווחים על זמני התגובה שלהם</td></tr>
+</tbody>
+</table>
+<p>Prometheus אוסף אז את <code>http://&lt;server&gt;:8067/metrics</code>. כל מדד מפורסם תחת שם Mattermost שלו (<code>mattermost_…</code>) ותחת שם Antimatter שלו (<code>antimatter_…</code>), כך שלוחות מחוונים קיימים של Mattermost ממשיכים לעבוד. אפליקציות מפרסמות מדדים משלהן, למשל אפליקציית Agents ב<code>/plugins/mattermost-ai/metrics</code>.</p>
+<p>פורט המדדים אינו דורש התחברות: יש לשמור אותו ברשת פרטית. קובץ compose של האתר אינו פורסם אותו; כדי לאסוף אותו מהמארח, יש להוסיף <code>"127.0.0.1:8067:8067"</code> ל<code>ports</code> של שירות <code>antimatter</code>.</p>
+<h3>אפליקציית Metrics</h3>
+<p>ללא שרת Prometheus, אפליקציית Metrics (כבוי כברירת מחדל, ראו <a href="{{root}}docs/admins/apps.html">אפליקציות מובנות</a>) אוספת את אותם מדדים למסד נתונים זמני קטן בתוך Antimatter: כל 60 שניות, עם שמירה למשך 15 ימים. היא מפעילה את נקודת המדדים (metrics endpoint) בעת ההתחלה. העמוד שלה ב<b>קונסולת מערכת › תוספים</b> מציג את גודל מסד הנתונים ומאפשר להוריד גיבויים (dumps) של הנתונים, לניתוח עצמאי או לצירוף לדיווח תקלה; יום המדדים האחרון נוסף גם לחבילת התמיכה.</p>
+
+<h2 id="support-packet">חבילת תמיכה</h2>
+<p>חבילת תמיכה היא קובץ zip המכיל את מה שנדרש לאבחון תקלה: גרסאות, סטטיסטיקות, ההגדרות עם הסודות מוסרים, רשימת האפליקציות והמשימות, סכמת מסד הנתונים, יומן האירועים האחרון ופרופילי ביצוע. יצירת חבילה מתבצעת באמצעות <code>amctl system supportpacket</code>, או בקונסולת המערכת מתפריט החלק העליון של סרגל הצד (<b>תמיכה מסחרית</b>, שם ניתן לבחור מה לכלול). קראו את התוכן לפני שאתם משתפים אותו: הוא אינו מכיל הודעות, אך הוא כן מכיל שמות של קהילות, משתמשים והגדרות.</p>
+
+<h2 id="scaling">ביצועים והרחבה</h2>
+<p>שרת אחד עם 2 ליבות CPU ו-4 GB זיכרון יכול לשרת מאות משתמשים. לפני הוספת שרתים נוספים, יש לבדוק את:</p>
+<ul>
+<li><b>מסד הנתונים.</b> PostgreSQL מבצע את רוב העבודה: יש להעניק לו אחסון מהיר וזיכרון. רפליקציות קריאה (read replicas) יכולות לקלוט את עומס הקריאה (<code>SqlSettings.DataSourceReplicas</code>, רשימת כתובות חיבור).</li>
+<li><b>חיפוש.</b> כברירת מחדל, חיפוש בהודעות מתבצע במסד הנתונים. עבור שרתים גדולים, Elasticsearch או OpenSearch יכולים לקלוט את החיפוש והאינדוקס: <b>קונסולת מערכת › סביבה › Elasticsearch</b> (<code>ElasticsearchSettings</code>: <b>סוג ביקורת חיפוש</b> Elasticsearch או OpenSearch, <b>כתובת חיבור לשרת</b>, פרטי התחברות, ואז הפעלת אינדוקס, בניית האינדקס והפעלת חיפוש).</li>
+<li><b>שיחות.</b> מדיה של שיחות מהווה את העומס הכבד ביותר. יש להעביר אותה לשרת rtcd: ראו <a href="{{root}}docs/admins/calls.html#rtcd">שיחות וקול</a>.</li>
+<li><b>קבצים פתוחים.</b> כל משתמש מחובר שומר חיבור websocket פתוח. קובץ compose לייצור של antimatter-docker מעלה את הגבול ל-49152 (<code>ulimits: nofile</code>); יש לבצע את אותו דבר עם systemd (<code>LimitNOFILE</code>).</li>
+<li><b>יומנים.</b> יש להוריד את <code>LogSettings.ConsoleLevel</code> ל<code>INFO</code> או <code>WARN</code>: רמת <code>DEBUG</code> רושמת הרבה מאוד בשרת עמוס.</li>
+</ul>
+<h3>זמינות גבוהה</h3>
+<p>ניתן להריץ מספר שרתי Antimatter כעלוקה מאחורי מאזן עומס, ללא צורך ברישיון. עליהם לשתף את אותה בסיס נתוני PostgreSQL, את אותו אחסון קבצים S3, ואת ההגדרות שבבסיס הנתונים (<code>AM_CONFIG</code>). ב<b>קונסולת מערכת › סביבה › זמינות גבוהה</b> (<code>ClusterSettings</code>): הפעילו את <b>הפעלת מצב זמינות גבוהה</b> (<code>ClusterSettings.Enable</code>), נסו לכל צומת את אותו <b>שם העלוקה</b> (<code>ClusterSettings.ClusterName</code>), וודאו שהצמתים יכולים להגיע זה לזה דרך פורט ה-gossip, <b>8074</b> TCP ו-UDP (<code>ClusterSettings.GossipPort</code>). הצמתים מזהים זה את זה באמצעות בסיס הנתונים. מאזן העומס חייב להעביר websockets. עבור שיחות בתוך עלוקה, השתמשו ב-rtcd.</p>
+
+<h2 id="retention">שמירת נתונים</h2>
+<p>ברירת המחדל, Antimatter שומר כל הודעה וקובץ לצמיתות. כדי למחוק אוטומטית פריטים ישנים, עבורו ל<b>קונסולת מערכת › עמידה בתקנים › מדיניות שמירת נתונים</b>:</p>
+<ul>
+<li><b>מדיניות שמירה גלובלית</b> מגדירה את <b>שמירת ערוצים והודעות ישירות</b> ואת <b>שמירת קבצים</b> לכל השרת: <b>שמירה לצמיתות</b>, או מספר שעות, ימים או שנים (<code>DataRetentionSettings.EnableMessageDeletion</code>, <code>MessageRetentionHours</code>, <code>EnableFileDeletion</code>, <code>FileRetentionHours</code>).</li>
+<li><b>מדיניות שמירה מותאמת אישית</b> מגדירה משך זמן נוסף לקהילות וערוצים נבחרים.</li>
+<li>משיבת המחיקה מורצת כל יום בשעה שאתם בוחרים (<code>DataRetentionSettings.DeletionJobStartTime</code>, ברירת המחדל <code>02:00</code> UTC). <b>הרצת משימת מחיקה עכשיו</b> מריצה אותה מיידית, ו<b>יומן מדיניות</b> מפרט מה נמחק בכל הרצה.</li>
+</ul>
+<div class="callout warn">הודעות וקבצים שנמחקו נעלמים לצמיתות, הן מבסיס הנתונים והן מאחסון הקבצים. בדקו את משכי הזמן לפני הפעלת מדיניות, וזכרו שהגיבויים שלכם עדיין מכילים את הנתונים שנמחקו עד שיתפוגו.</div>
+
+<h2 id="compliance">ייצוא עמידה בתקנים ויומני ביקורת</h2>
+<ul>
+<li><b>קונסולת מערכת › עמידה בתקנים › ייצוא עמידה בתקנים</b> מייצא את כל ההודעות והקבצים כל יום (<b>הפעלת ייצוא עמידה בתקנים</b>, <code>MessageExportSettings.EnableExport</code>, כבוי ברירת המחדל; <b>שעת ייצוא העמידה בתקן</b>, ברירת המחדל <code>01:00</code>) באחד מהפורמטים שמערכות הארכיון קוראות: CSV, Actiance XML, או Global Relay (קובץ zip, או EML שנשלח דרך SMTP). <code>amctl compliance-export</code> מריץ ומוריד ייצואים משורת הפקודה.</li>
+<li><b>ניטור עמידה בתקנים</b> (<code>ComplianceSettings</code>) כותב דוחות יומיים לספרייה. זהו המנגנון הישן; עדיף להשתמש בייצוא עמידה בתקנים.</li>
+<li><b>יומן ביקורת</b> (בטא, <code>ExperimentalAuditSettings</code>) רשם אירועי ניהול ואבטחה (התחברויות, שינויי הרשאות והגדרות) לקובץ ייעודי.</li>
+<li><b>תנאי שימוש מותאמים אישית</b> מבקשים מכל המשתמשים לקבל את תנאי השימוש לפני השימוש ב-Antimatter, ושוב לאחר שאתה משנה אותם.</li>
+</ul>
+
+<h2 id="troubleshooting">בעיות נפוצות</h2>
+<h3>"לא ניתן להתחבר לשרת", או שההודעות מופיעות רק לאחר רענון</h3>
+<p>החיבור websocket לא עובר. ודא שהפרוקסי ההפוך מעביר את כותרות <code>Upgrade</code> ו-<code>Connection</code> (ראה <a href="{{root}}docs/admins/https.html#nginx">דוגמת nginx</a>), ושהכתובת של האתר תואמת בדיוק לכתובת בדפדפן, כולל <code>https</code>.</p>
+<h3>ההעלאות נכשלות עם "413 Request Entity Too Large"</h3>
+<p>הפרוקסי דוחה את הגודל. הגב את הגבול שלו (nginx <code>client_max_body_size</code>) לפחות ל<b>גודל קובץ מקסימלי</b> ב<b>קונסולת מערכת › סביבה › אחסון קבצים</b> (<code>FileSettings.MaxFileSize</code>, ברירת המחדל 100 MB).</p>
+<h3>המשתמשים לא יכולים להתחיל שיחות, או שהם מצטרפים אבל לא שומעים כלום</h3>
+<p>אם רק מנהלים יכולים להתחיל שיחות, כבה את <b>מצב ניסוי</b> של שיחות. אם אנשים מצטרפים אבל לא שומעים כלום, פורט המדיה חסום או שהשרת מודיע על כתובת שגויה: פתח 8443 UDP ו-TCP, והגדר <b>ICE Host Override</b> מאחורי NAT. אנשים ברשתות שחסמות את שני הפרטים זקוקים לשרת TURN. ראה <a href="{{root}}docs/admins/calls.html">שיחות וקול</a>.</p>
+<h3>מבחר ה-GIF ריק</h3>
+<p>בדוק את <b>כתובת שירות GIF</b> (<code>http://gifs:8080/v2</code> עם קובץ ה-compose של האתר) ואת <b>מפתח API</b> (ה-<code>GIFS_API_KEY</code> של <code>.env</code>) ב<b>קונסולת מערכת › תוספים › GIF</b>, ושהשירות <code>gifs</code> רץ: <code>docker compose ps gifs</code>.</p>
+<h3>אימיילים לא מגיעים</h3>
+<p>השתמש ב<b>בדיקת חיבור</b> ב<b>קונסולת מערכת › סביבה › SMTP</b>, ודא ש<b>כתובת שולח ההתראות</b> אינה עדיין <code>test@example.com</code>, וחפש ביומן את <code>smtp</code> או <code>mail</code>.</p>
+<h3>אפליקציה מציגה "נכשל בהתחלה"</h3>
+<p>חפש את המזהה שלה ביומן (<code>docker compose logs antimatter | grep &lt;app id&gt;</code>). כבה והפעל אותה בניהול תוספים כדי להפעיל אותה מחדש.</p>
+<h3>השרת לא מתחיל</h3>
+<p>קרא את סוף היומן. לרוב, המסד הנתונים אינו נגיש (בדוק <code>AM_SQLSETTINGS_DATASOURCE</code> עם <code>antimatter db ping</code>), מיגרציית מסד נתונים נכשלה (שחזר את הגיבוי שנלקח לפני ה-upgrade והגש דיווח על השגיאה), או שפורט האזינו תפוס.</p>
+<h3>נעול מחשבון המנהל</h3>
+<p>מהשרת, במצב מקומי אין צורך בסיסמה:</p>
+<pre><code>docker compose exec antimatter amctl --local user change-password admin --password 'a-new-password'
+docker compose exec antimatter amctl --local user resetmfa admin
+docker compose exec antimatter amctl --local roles system-admin admin</code></pre>
+<h3>דיווח על באג</h3>
+<p>פתחו issue במאגר <a href="https://github.com/AntimatterChat/community/issues/new/choose">Antimatter community</a>, כולל הגרסה, אופן ההתקנה, מה ביצעתם ושורות הלוג הרלוונטיות. דווחו על בעיות אבטחה בפרטיות, כמתואר ב<a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">מדיניות האבטחה</a>.</p>

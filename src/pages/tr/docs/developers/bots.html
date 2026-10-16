@@ -1,0 +1,172 @@
+title: Botlar ve etkileşimli iletiler
+description: Antimatter'da bot hesapları: oluşturma, token ve izinleri, bot olarak gönderme, doğrudan iletiler, etkileşimli düğmeler ve menüler, ayrıca diyaloglar.
+guide: developers
+order: 5
+nav: Botlar
+lead: Bir bot hesabı, bir program için oluşturulmuş bir kullanıcıdır. Kendine ait bir adı, resmi ve token'ları vardır ve adının yanında bir BOT etiketi gösterilir. Bu sayfa, herhangi bir entegrasyonun kullanabileceği iletilerin etkileşimli kısımlarını da kapsar: düğmeler, menüler ve diyaloglar.
+source: 45503666f647
+---
+<h2 id="why">Neden bir bot hesabı</h2>
+<ul>
+<li>İletileri, bir meslektaşın hesabından değil, <b>BOT</b> etiketiyle net bir kimlikten gelir.</li>
+<li>Token'ları, onu kuran kişi rol değiştirdiğinde veya ayrıldığında bile çalışmaya devam eder (sunucu, devre dışı bırakılan sahiplerin botlarını devre dışı bırakmıyorsa, aşağıda belirtildiği üzere).</li>
+<li>Botlar şifreyle giriş yapamaz ve asla web uygulamasını göremez.</li>
+</ul>
+<p>Uygulamalar, Todo veya Playbooks botları gibi kendi botlarını eklenti API'si (<code>EnsureBotUser</code>) aracılığıyla oluşturur.</p>
+
+<h2 id="enable">Bot hesaplarını etkinleştirin</h2>
+<p>Bir sistem yöneticisi, <b>Sistem Konsolu › Bütünleştirmeler › Bot hesapları</b> bölümünde <b>Bot hesabı eklenebilsin</b> seçeneğini etkinleştirir (<code>ServiceSettings.EnableBotAccountCreation</code>, <code>AM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION</code>). Bu seçenek varsayılan olarak kapalıdır. Bot oluşturabilme yetkisi, izin ayarlarında başka rollere verilmedikçe yalnızca sistem yöneticilerine aittir.</p>
+<p>Aynı sayfada, <b>Sahibi kullanımdan kaldırılan bot hesapları da kullanımdan kaldırılsın</b> seçeneği (<code>ServiceSettings.DisableBotsWhenOwnerIsDeactivated</code>, varsayılan olarak açık) botun sahibi kullanımdan kaldırıldığında botu devre dışı bırakır.</p>
+
+<h2 id="create">Bot oluşturun</h2>
+<ol>
+<li>Sağ üstteki profil resminize (avatar) tıklayın, ardından <b>Bütünleştirmeler › Bot hesapları</b> ve <b>Bot hesabı ekle</b> seçeneklerini seçin.</li>
+<li>Bir <b>Kullanıcı adı</b> (küçük harfler, rakamlar, nokta, tire ve alt çizgi) girin; isteğe bağlı olarak bir <b>Bot simgesi</b>, <b>Görüntülenecek ad</b> ve <b>Açıklama</b> ekleyin.</li>
+<li><b>Rol</b> seçin: <b>Üye</b> veya sunucuyu yöneten bir bot için <b>Sistem Yöneticisi</b>. Bir bota yalnızca ihtiyacı olan en az yetkiyi verin.</li>
+<li>Botun her herkese açık kanala iletebilmesi için <b>ileti:kanallar</b> seçeneğini işaretleyin; üye olmadan her kanala, özel kanallara ve doğrudan iletilere iletebilmesi için ise <b>ileti:tümü</b> seçeneğini kullanın.</li>
+<li>Varsayılan token'ının ne zaman sona ereceğini ayarlayın, ardından <b>Bot Hesabı Oluştur</b> seçeneğini seçin.</li>
+<li>Gösterilen erişim token'ını kopyalayın. Tekrar gösterilmez.</li>
+</ol>
+<p>Daha sonra, botun satırındaki <b>Yeni Belirteç Oluştur</b> seçeneğiyle bir belirteç ekleyebilirsiniz; her belirteç devre dışı bırakılabilir veya silinebilir. Kişisel erişim belirteçleri kişiler için kapalı olsa bile bot belirteçleri çalışmaya devam eder.</p>
+<p>API ile:</p>
+<pre><code># create the bot (you become its owner)
+curl -X POST https://chat.example.com/api/v4/bots \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username": "deploy-bot", "display_name": "Deploy", "description": "Posts deployments"}'
+
+# give it a token
+curl -X POST https://chat.example.com/api/v4/users/$BOT_USER_ID/tokens \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"description": "deploy pipeline"}'</code></pre>
+<p>Komut satırından, yönetici olarak (yerel modda değil) oturum açın: <code>amctl bot create deploy-bot --display-name Deploy --with-token --expires-in 90d</code>. Diğer uç noktalar: <code>GET /api/v4/bots</code>, <code>PUT /api/v4/bots/{bot_user_id}</code>, <code>POST /api/v4/bots/{bot_user_id}/disable</code> ve <code>/enable</code>, ayrıca sahibi değiştirmek için <code>POST /api/v4/bots/{bot_user_id}/assign/{user_id}</code>.</p>
+
+<h2 id="membership">Botu topluluklara ve kanallara ekleyin</h2>
+<p>Yeni bir bot hiçbir toplulukta yer almaz. Bunu, topluluğun üye yönetimi bölümünden veya API aracılığıyla bir kişi gibi ekleyin:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/teams/$TEAM_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"team_id": "'$TEAM_ID'", "user_id": "'$BOT_USER_ID'"}'
+
+curl -X POST https://chat.example.com/api/v4/channels/$CHANNEL_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"user_id": "'$BOT_USER_ID'"}'</code></pre>
+<p><b>ileti:kanallar</b> veya <b>ileti:tümü</b> yetkisine sahip bir bot, üye olmadan iletebilir; ancak yalnızca içinde bulunduğu kanallar için WebSocket olayları alır.</p>
+
+<h2 id="post">Bot adına gönderi yapın</h2>
+<p>Botun token'ını herhangi bir API çağrısında kullanın; en yaygın olanı <code>POST /api/v4/posts</code>'tur (bkz. <a href="{{root}}docs/developers/api.html#resources">Ana kaynaklar</a>). Birine doğrudan yazmak için önce Doğrudan ileti kanalını açın:</p>
+<pre><code># returns the channel; use its "id" as channel_id
+curl -X POST https://chat.example.com/api/v4/channels/direct \
+  -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' \
+  -d '["'$BOT_USER_ID'", "'$USER_ID'"]'</code></pre>
+<p>İnsanların söylediklerine tepki vermek için, botun token'ıyla <a href="{{root}}docs/developers/api.html#websocket">WebSocket</a> bağlantısını izleyin ve ilgilendiğiniz <code>posted</code> olaylarına yanıt verin. Döngülerden kaçınmak için botun kendi iletilerini yok sayın.</p>
+<p>Yalnızca bir kişinin görebileceği bir ileti (geçici ileti), <code>POST /api/v4/posts/ephemeral</code> ve <code>{"user_id", "post": {"channel_id", "message"}}</code> ile gönderilir. Bunun için <code>create_post_ephemeral</code> yetkisi gerekir; bu yetkiye varsayılan olarak yalnızca sistem yöneticileri sahiptir. Entegrasyonlar genellikle geçici iletileri, slash komutlarının ve düğmelerin yanıtları olarak gönderir.</p>
+
+<h2 id="interactive">Etkileşimli iletiler: düğmeler ve menüler</h2>
+<p>Ek dosyaları olan herhangi bir ileti, düğmeler ve seçim yapabileceğiniz menüler gibi eylemler taşıyabilir. Bunlar, API, webhook'lar ve slash komutu yanıtlarıyla gönderilen iletilerde çalışır. Birisi bunlardan birini kullandığında, Antimatter entegrasyonunuzun URL'sini çağırır.</p>
+<pre><code>{
+  "channel_id": "…",
+  "message": "Deploy **api 2.4.0** to production?",
+  "props": {
+    "attachments": [{
+      "actions": [
+        {
+          "id": "approve",
+          "type": "button",
+          "name": "Approve",
+          "style": "primary",
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "approve"}}
+        },
+        {
+          "id": "env",
+          "type": "select",
+          "name": "Pick an environment",
+          "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}],
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "env"}}
+        }
+      ]
+    }]
+  }
+}</code></pre>
+<ul>
+<li><code>type</code>: <code>button</code> veya <code>select</code>.</li>
+<li><code>id</code>: harfler, rakamlar, tireler ve alt çizgiler; iletilerdeki her eylem için farklı olmalıdır. Boş bırakılırsa otomatik olarak oluşturulur.</li>
+<li><code>style</code> (düğmeler): <code>default</code>, <code>primary</code>, <code>success</code>, <code>good</code>, <code>warning</code>, <code>danger</code> veya bir onaltılık renk.</li>
+<li><code>options</code> (menüler) veya <code>data_source</code>: bir kişi veya kanal seçmek için <code>users</code> veya <code>channels</code>. <code>default_option</code> bir değeri önceden seçer.</li>
+<li><code>integration.url</code>: tıklamanın gönderildiği adres. Bir uygulama (eklenti), <code>/plugins/com.example.deploy/actions</code> gibi kendi rotasını kullanabilir. <code>integration.context</code> size aittir: tıklamayla birlikte geri döner ve istemciler bunu asla görmez.</li>
+</ul>
+<h3>Entegrasyonunuzun aldığı istek</h3>
+<pre><code>{
+  "user_id": "…",
+  "user_name": "priya",
+  "channel_id": "…",
+  "channel_name": "releases",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "post_id": "…",
+  "trigger_id": "…",
+  "type": "button",
+  "context": {"release": "2.4.0", "action": "approve"}
+}</code></pre>
+<p>Bir menü için <code>type</code> değeri <code>select</code> olur ve <code>context.selected_option</code> seçilen değeri içerir.</p>
+<h3>Yanıtınız</h3>
+<pre><code>{
+  "update": {"message": "Deploy of **api 2.4.0** approved by @priya", "props": {}},
+  "ephemeral_text": "Done. The deploy starts in a minute."
+}</code></pre>
+<ul>
+<li><code>update</code>: iletinin metnini ve özelliklerini değiştirir; örneğin kullanıldıktan sonra düğmeleri kaldırmak için (boş <code>props</code>).</li>
+<li><code>ephemeral_text</code>: yalnızca tıklama yapan kişinin gördüğü bir ileti.</li>
+<li><code>goto_location</code>: açılacak bir URL.</li>
+<li>Boş bir gövde hiçbir şeyi değiştirmez.</li>
+</ul>
+<p>Sunucu, <b>Bütünleştirme isteği zaman aşımı</b> ayarına (varsayılan olarak 30 saniye) izin verdiği sürece bekler. Özel ağ adreslerindeki bütünleştirme URL'leri, webhooks'lerde olduğu gibi bir sistem yöneticisi tarafından izin verilmelidir.</p>
+
+<h2 id="dialogs">Diyaloglar</h2>
+<p>Bir diyalog, sohbetin üzerine açılan bir formdur. Bir diyalogu yalnızca kişinin o an yaptığı bir işleme (bir slash komutu veya düğme) yanıt olarak açabilirsiniz, çünkü bu isteğin <code>trigger_id</code> değerine ihtiyaç duyar. <code>trigger_id</code>, entegrasyon istek zaman aşımı boyunca geçerlidir.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/actions/dialogs/open \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "trigger_id": "'$TRIGGER_ID'",
+    "url": "https://deploy.example.com/dialog",
+    "dialog": {
+      "callback_id": "new-release",
+      "title": "New release",
+      "introduction_text": "Fill in the release details.",
+      "submit_label": "Create",
+      "notify_on_cancel": false,
+      "state": "anything you want back",
+      "elements": [
+        {"display_name": "Version", "name": "version", "type": "text", "placeholder": "2.4.0"},
+        {"display_name": "Notes", "name": "notes", "type": "textarea", "optional": true},
+        {"display_name": "Environment", "name": "env", "type": "select",
+         "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}]},
+        {"display_name": "Owner", "name": "owner", "type": "select", "data_source": "users"},
+        {"display_name": "Notify the channel", "name": "notify", "type": "bool", "default": "true"}
+      ]
+    }
+  }'</code></pre>
+<table>
+<thead><tr><th>Öğe türü</th><th>Gösterdiği içerik</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>Tek satırlık bir alan. <code>subtype</code>: <code>text</code>, <code>email</code>, <code>number</code>, <code>password</code>, <code>tel</code> veya <code>url</code>. <code>min_length</code> ve <code>max_length</code> değerleri bu alanı sınırlar.</td></tr>
+<tr><td><code>textarea</code></td><td>Çok satırlı bir alan.</td></tr>
+<tr><td><code>select</code></td><td>Bir liste: <code>options</code> veya <code>data_source</code> olarak <code>users</code>, <code>channels</code> ya da <code>data_source_url</code> ile <code>dynamic</code>. <code>multiselect</code> birden fazla değer seçmeye izin verir.</td></tr>
+<tr><td><code>bool</code></td><td>Bir onay kutusu.</td></tr>
+<tr><td><code>radio</code></td><td><code>options</code> içindeki seçeneklerden bir tanesi.</td></tr>
+<tr><td><code>date</code>, <code>datetime</code></td><td>Bir tarih veya tarih ve saat.</td></tr>
+</tbody>
+</table>
+<p>Her öğe <code>display_name</code>, <code>name</code>, <code>help_text</code>, <code>placeholder</code>, <code>default</code> ve <code>optional</code> değerlerini alır.</p>
+<p>Kişi gönderdiğinde, Antimatter diyalogun <code>url</code> adresine POST isteği gönderir:</p>
+<pre><code>{
+  "type": "dialog_submission",
+  "callback_id": "new-release",
+  "state": "anything you want back",
+  "user_id": "…",
+  "channel_id": "…",
+  "team_id": "…",
+  "submission": {"version": "2.4.0", "notes": "", "env": "staging", "owner": "…", "notify": true},
+  "cancelled": false
+}</code></pre>
+<p>Diyalogu kapatmak için boş bir gövdeyle yanıt verin veya açık bırakıp neyin yanlış olduğunu gösterin:</p>
+<pre><code>{"errors": {"version": "This version already exists."}}</code></pre>
+<p><code>{"error": "…"}</code> tüm form için bir mesaj gösterir. <code>notify_on_cancel</code> kullanıldığında, diyalog kapatıldığında <code>"cancelled": true</code> gönderilir. Uygulamalarda diyaloglar aynı şekilde çalışır: eklenti API'sinin <code>OpenInteractiveDialog</code> metodu aynı isteği alır.</p>

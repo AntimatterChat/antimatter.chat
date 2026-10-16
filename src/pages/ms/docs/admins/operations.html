@@ -1,0 +1,85 @@
+title: Operasi
+description: Jalankan Antimatter dari hari ke hari: semakan kesihatan, metrik dan pemantauan, aplikasi Metrik, pakej sokongan, carian dan penskalaan, kebolehgunaan tinggi, pengekalan data, eksport pematuhan dan log audit, serta pembaikan untuk masalah biasa.
+guide: admins
+order: 11
+nav: Operasi
+lead: Pantau pelayan, pastikan ia dapat mengendalikan lebih ramai pengguna, tentukan berapa lama data hendaklah disimpan, dan betulkan masalah yang paling kerap dihadapi oleh pentadbir.
+source: 32577b38c3db
+---
+<h2 id="health">Semakan kesihatan</h2>
+<ul>
+<li><code>amctl --local system status</code> (dalam kontena: <code>docker compose exec antimatter amctl --local system status</code>). Semakan kesihatan imej Docker menjalankannya setiap 30 saat, jadi <code>docker compose ps</code> akan menunjukkan <code>healthy</code> atau <code>unhealthy</code>.</li>
+<li><code>GET /api/v4/system/ping</code> menjawab tanpa perlu log masuk, untuk pemantau luaran atau penyeimbang beban: <code>curl -fsS https://chat.example.com/api/v4/system/ping</code>.</li>
+<li><code>antimatter db ping</code> memeriksa sama ada pangkalan data boleh dicapai dengan tetapan yang dikonfigurasi.</li>
+<li><b>Konsol Sistem › Pelaporan › Statistik Sistem</b> menunjukkan bilangan pengguna, hantaran dan sesi, manakala <b>Optimisasi Ruang Kerja</b> menyenaraikan masalah konfigurasi yang perlu diperiksa.</li>
+</ul>
+
+<h2 id="metrics">Metrik</h2>
+<p>Pelayan boleh menerbitkan metrik Prometheus: kadar dan tempoh permintaan, sambungan websocket, penggunaan pangkalan data dan cache, kerja, hook plugin dan lain-lain. Aktifkannya dalam <b>Konsol Sistem › Persekitaran › Pemantauan Prestasi</b>:</p>
+<table>
+<thead><tr><th>Tetapan</th><th>Kunci dan pemboleh ubah</th><th>Lalai</th></tr></thead>
+<tbody>
+<tr><td><b>Bilakah Pemantauan Prestasi</b></td><td><code>MetricsSettings.Enable</code>, <code>AM_METRICSSETTINGS_ENABLE</code></td><td>Tutup</td></tr>
+<tr><td><b>Alamat Dengar</b></td><td><code>MetricsSettings.ListenAddress</code>, <code>AM_METRICSSETTINGS_LISTENADDRESS</code></td><td><code>:8067</code></td></tr>
+<tr><td><b>Bilakah Pemantauan Prestasi Klien</b></td><td><code>MetricsSettings.EnableClientMetrics</code></td><td>on: pelayar dan aplikasi melaporkan masa sendiri</td></tr>
+</tbody>
+</table>
+<p>Prometheus kemudian mengikis <code>http://&lt;server&gt;:8067/metrics</code>. Setiap metrik diterbitkan di bawah nama Mattermost (<code>mattermost_…</code>) dan nama Antimatter (<code>antimatter_…</code>), jadi papan pemuka Mattermost sedia ada terus berfungsi. Aplikasi menerbitkan metrik mereka sendiri, contohnya aplikasi Ejen di <code>/plugins/mattermost-ai/metrics</code>.</p>
+<p>Port metrik tidak memerlukan log masuk: simpannya dalam rangkaian peribadi. Fail compose laman web tidak menerbitkannya; untuk mengikisnya dari hos, tambah <code>"127.0.0.1:8067:8067"</code> ke dalam <code>ports</code> perkhidmatan <code>antimatter</code>.</p>
+<h3>Aplikasi Metrik</h3>
+<p>Tanpa server Prometheus, aplikasi Metrik (dimatikan secara lalai, lihat <a href="{{root}}docs/admins/apps.html">Aplikasi terikat</a>) mengumpul metrik yang sama ke dalam pangkalan data siri masa kecil di dalam Antimatter: setiap 60 saat, disimpan selama 15 hari. Ia akan mengaktifkan titik akhir metrik apabila dimulakan. Halamannya di <b>Konsol Sistem › Plugin</b> menunjukkan saiz pangkalan data dan membolehkan anda memuat turun hampuran data, untuk analisis anda sendiri atau untuk dilampirkan pada laporan pepijat; hari terkini juga ditambah ke pakej sokongan.</p>
+
+<h2 id="support-packet">Pakej sokongan</h2>
+<p>Pakej sokongan ialah fail zip yang mengandungi apa yang diperlukan untuk mendiagnosis masalah: versi, statistik, konfigurasi dengan rahsianya dibuang, senarai aplikasi dan kerja, skema pangkalan data, log terkini dan profil prestasi. Hasilkan satu dengan <code>amctl system supportpacket</code>, atau di Konsol Sistem dari menu di bahagian atas bar sisinya (<b>Sokongan Komersial</b>, yang kemudian membolehkan anda memilih apa yang ingin disertakan). Bacanya sebelum berkongsi: ia tidak mengandungi mesej, tetapi ia mengandungi nama komuniti, pengguna dan tetapan.</p>
+
+<h2 id="scaling">Prestasi dan penskalaan</h2>
+<p>Satu server dengan 2 teras CPU dan 4 GB memori boleh melayan beberapa ratus orang. Sebelum menambah server, lihat:</p>
+<ul>
+<li><b>Pangkalan data.</b> PostgreSQL melakukan sebahagian besar kerja: berikan storan pantas dan memori. Replika baca boleh mengambil beban baca (<code>SqlSettings.DataSourceReplicas</code>, senarai URL sambungan).</li>
+<li><b>Carian.</b> Mesej dicari dalam pangkalan data secara lalai. Untuk pelayan bersaiz besar, Elasticsearch atau OpenSearch boleh mengambil alih carian dan pengekstrakan: <b>Konsol Sistem › Persekitaran › Elasticsearch</b> (<code>ElasticsearchSettings</code>: <b>Jenis backend</b> Elasticsearch atau OpenSearch, <b>Alamat Pelayan Sambungan</b>, kelayakan, kemudian aktifkan pengekstrakan, bina indeks, dan aktifkan carian).</li>
+<li><b>Panggilan.</b> Media panggilan ialah beban terberat. Pindahkan ke server rtcd: lihat <a href="{{root}}docs/admins/calls.html#rtcd">Panggilan dan suara</a>.</li>
+<li><b>Fail terbuka.</b> Setiap orang yang tersambung mengekalkan websocket terbuka. Fail compose pengeluaran antimatter-docker menaikkan had kepada 49152 (<code>ulimits: nofile</code>); lakukan perkara yang sama dengan systemd (<code>LimitNOFILE</code>).</li>
+<li><b>Log.</b> Turunkan <code>LogSettings.ConsoleLevel</code> kepada <code>INFO</code> atau <code>WARN</code>: <code>DEBUG</code> merekodkan banyak pada server yang sibuk.</li>
+</ul>
+<h3>Kebolehgunaan tinggi</h3>
+<p>Beberapa pelayan Antimatter boleh beroperasi sebagai kluster di sebalik penyeimbang beban, tanpa lesen. Mereka mesti berkongsi pangkalan data PostgreSQL yang sama, storan fail S3 yang sama, dan konfigurasi dalam pangkalan data (<code>AM_CONFIG</code>). Dalam <b>Konsol Sistem › Persekitaran › Ketersediaan Tinggi</b> (<code>ClusterSettings</code>): hidupkan <b>Aktifkan Mod Kebolehgunaan Tinggi</b> (<code>ClusterSettings.Enable</code>), berikan setiap nod <b>Nama Kluster</b> (<code>ClusterSettings.ClusterName</code>) yang sama, dan benarkan nod-nod itu mencapai satu sama lain pada port gossip, <b>8074</b> TCP dan UDP (<code>ClusterSettings.GossipPort</code>). Nod mencari satu sama lain melalui pangkalan data. Penyeimbang beban mesti meneruskan websockets. Untuk panggilan dalam kluster, gunakan rtcd.</p>
+
+<h2 id="retention">Pengekalan data</h2>
+<p>Secara lalai, Antimatter menyimpan setiap mesej dan fail selamanya. Untuk memadam yang lama secara automatik, pergi ke <b>Konsol Sistem › Pematuhan › Dasar Simpanan Data</b>:</p>
+<ul>
+<li><b>Dasar Simpanan Global</b> menetapkan <b>Simpanan Saluran &amp; Mesej Terus</b> dan <b>Simpanan fail</b> untuk keseluruhan pelayan: <b>Simpan selamanya</b>, atau bilangan jam, hari atau tahun (<code>DataRetentionSettings.EnableMessageDeletion</code>, <code>MessageRetentionHours</code>, <code>EnableFileDeletion</code>, <code>FileRetentionHours</code>).</li>
+<li><b>Dasar simpanan khusus</b> menetapkan tempoh berbeza untuk komuniti dan saluran yang dipilih.</li>
+<li>Kerja penghapusan dijalankan setiap hari pada masa yang anda pilih (<code>DataRetentionSettings.DeletionJobStartTime</code>, <code>02:00</code> UTC secara lalai). <b>Laksanakan Kerja Penghapusan Sekarang</b> menjalankannya serta-merta, dan <b>Log dasar</b> menyenaraikan apa yang dipadamkan oleh setiap larian.</li>
+</ul>
+<div class="callout warn">Mesej dan fail yang dipadamkan hilang selama-lamanya, daripada pangkalan data dan daripada storan fail. Semak tempoh sebelum menghidupkan dasar, dan ingat bahawa sandaran anda masih memegang data yang dipadamkan sehingga ia tamat tempoh.</div>
+
+<h2 id="compliance">Eksport pematuhan dan log audit</h2>
+<ul>
+<li><b>Konsol Sistem › Pematuhan › Eksport Pematuhan</b> mengeksport semua mesej dan fail setiap hari (<b>Benarkan Eksport Pematuhan</b>, <code>MessageExportSettings.EnableExport</code>, lalai dimatikan; <b>Masa Eksport Pematuhan</b>, <code>01:00</code> lalai) dalam salah satu format yang dibaca oleh sistem arkib: CSV, Actiance XML, atau Global Relay (fail zip, atau EML dihantar melalui SMTP). <code>amctl compliance-export</code> menjalankan dan memuat turun eksport dari baris arahan.</li>
+<li><b>Pemantauan Pematuhan</b> (<code>ComplianceSettings</code>) menulis laporan harian ke dalam direktori. Ia adalah mekanisme yang lebih lama; lebih baik gunakan Eksport Pematuhan.</li>
+<li><b>Log Audit</b> (beta, <code>ExperimentalAuditSettings</code>) merekodkan peristiwa pentadbiran dan keselamatan (log masuk, perubahan kebenaran dan tetapan) ke dalam failnya sendiri.</li>
+<li><b>Terma Perkhidmatan Tersuai</b> meminta semua orang untuk menerima terma anda sebelum menggunakan Antimatter, dan sekali lagi selepas anda mengubahnya.</li>
+</ul>
+
+<h2 id="troubleshooting">Masalah biasa</h2>
+<h3>"Tidak dapat menyambung ke pelayan", atau mesej hanya muncul selepas muat semula</h3>
+<p>WebSocket tidak dapat melalui. Semak bahawa proksi terbalik memulakan <code>Upgrade</code> dan <code>Connection</code> (lihat <a href="{{root}}docs/admins/https.html#nginx">contoh nginx</a>), dan bahawa URL laman web sepadan dengan alamat dalam pelayar dengan tepat, termasuk <code>https</code>.</p>
+<h3>Muat naik gagal dengan "413 Request Entity Too Large"</h3>
+<p>Proksi menolak saiz tersebut. Naikkan hadnya (nginx <code>client_max_body_size</code>) kepada sekurang-kurangnya <b>Saiz Fail Maksimum</b> dalam <b>Konsol Sistem › Persekitaran › Penyimpanan Fail</b> (<code>FileSettings.MaxFileSize</code>, 100 MB lalai).</p>
+<h3>Orang tidak dapat memulakan panggilan, atau menyertai tetapi tidak mendengar apa-apa</h3>
+<p>Jika tiada siapa selain pentadbir yang dapat memulakan panggilan, matikan <b>Mod ujian</b> Panggilan. Jika orang menyertai tetapi tidak mendengar apa-apa, port media disekat atau pelayan mengumumkan alamat yang salah: buka 8443 UDP dan TCP, dan tetapkan <b>Penimpaan Host ICE</b> di belakang NAT. Orang di rangkaian yang menyekat kedua-duanya memerlukan pelayan TURN. Lihat <a href="{{root}}docs/admins/calls.html">Panggilan dan suara</a>.</p>
+<h3>Pemilih GIF kosong</h3>
+<p>Semak <b>URL perkhidmatan GIF</b> (<code>http://gifs:8080/v2</code> dengan fail compose laman web) dan <b>kunci API</b> (<code>GIFS_API_KEY</code> dari <code>.env</code>) dalam <b>Konsol Sistem › Plugin › GIFs</b>, dan bahawa perkhidmatan <code>gifs</code> berjalan: <code>docker compose ps gifs</code>.</p>
+<h3>Tiada e-mel diterima</h3>
+<p>Gunakan <b>Uji Sambungan</b> dalam <b>Konsol Sistem › Persekitaran › SMTP</b>, semak bahawa <b>Alamat Dari Pemberitahuan</b> tidak masih <code>test@example.com</code>, dan cari dalam log untuk <code>smtp</code> atau <code>mail</code>.</p>
+<h3>Aplikasi menunjukkan "Gagal bermula"</h3>
+<p>Cari idnya dalam log (<code>docker compose logs antimatter | grep &lt;app id&gt;</code>). Lumpuhkan dan aktifkannya dalam Pengurusan Plugin untuk memulakannya semula.</p>
+<h3>Pelayan tidak bermula</h3>
+<p>Baca hujung lognya. Paling kerap, pangkalan data tidak dapat dicapai (semak <code>AM_SQLSETTINGS_DATASOURCE</code> dengan <code>antimatter db ping</code>), penghijrahan pangkalan data gagal (pulihkan sandaran yang diambil sebelum peningkatan dan laporkan ralat), atau port dengar diambil.</p>
+<h3>Dikunci keluar dari akaun pentadbir</h3>
+<p>Dari pelayan, mod tempatan tidak memerlukan kata laluan:</p>
+<pre><code>docker compose exec antimatter amctl --local user change-password admin --password 'a-new-password'
+docker compose exec antimatter amctl --local user resetmfa admin
+docker compose exec antimatter amctl --local roles system-admin admin</code></pre>
+<h3>Melaporkan pepijat</h3>
+<p>Buka isu dalam <a href="https://github.com/AntimatterChat/community/issues/new/choose">repo komuniti Antimatter</a>, dengan versi, cara pemasangan, apa yang anda lakukan dan baris log yang berkaitan. Laporkan masalah keselamatan secara peribadi, seperti yang diterangkan dalam <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">dasar keselamatan</a>.</p>

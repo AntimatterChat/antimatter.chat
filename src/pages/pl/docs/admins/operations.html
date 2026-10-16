@@ -1,0 +1,85 @@
+title: Operacje
+description: Codzienne zarządzanie Antimatter: sprawdzanie stanu, metryki i monitorowanie, aplikacja Metryki, pakiety wsparcia, wyszukiwanie i skalowanie, wysoka dostępność, retencja danych, eksporty zgodności i dzienniki audytu oraz rozwiązania najczęstszych problemów.
+guide: admins
+order: 11
+nav: Operacje
+lead: Nadzoruj serwer, zwiększ jego wydajność, ustal, jak długo przechowywać dane, i naprawiaj problemy, z którymi administratorzy spotykają się najczęściej.
+source: 32577b38c3db
+---
+<h2 id="health">Sprawdzanie stanu</h2>
+<ul>
+<li><code>amctl --local system status</code> (w kontenerze: <code>docker compose exec antimatter amctl --local system status</code>). Sprawdzanie stanu obrazu Docker uruchamia to polecenie co 30 sekund, więc <code>docker compose ps</code> wyświetla <code>healthy</code> lub <code>unhealthy</code>.</li>
+<li><code>GET /api/v4/system/ping</code> odpowiada bez konieczności zalogowania, co przydaje się zewnętrznym monitorom lub load balancerom: <code>curl -fsS https://chat.example.com/api/v4/system/ping</code>.</li>
+<li><code>antimatter db ping</code> sprawdza, czy baza danych jest dostępna z zainstalowanymi ustawieniami.</li>
+<li><b>Konsola systemu › Raportowanie › Statystyki systemu</b> pokazuje liczbę użytkowników, wiadomości i sesji, a <b>Optymalizacja przestrzeni roboczej</b> wymienia problemy z konfiguracją do sprawdzenia.</li>
+</ul>
+
+<h2 id="metrics">Metryki</h2>
+<p>Serwer może publikować metryki Prometheus: częstotliwość i czas trwania żądań, połączenia websocket, wykorzystanie bazy danych i pamięci podręcznej, zadania, hooki wtyczek i wiele więcej. Włącz je w <b>Konsola systemu › Środowisko › Monitorowanie wydajności</b>:</p>
+<table>
+<thead><tr><th>Ustawienie</th><th>Klucz i zmienna</th><th>Domyślnie</th></tr></thead>
+<tbody>
+<tr><td><b>Włącz monitorowanie wydajności</b></td><td><code>MetricsSettings.Enable</code>, <code>AM_METRICSSETTINGS_ENABLE</code></td><td>Wyłączone</td></tr>
+<tr><td><b>Adres nasłuchiwania</b></td><td><code>MetricsSettings.ListenAddress</code>, <code>AM_METRICSSETTINGS_LISTENADDRESS</code></td><td><code>:8067</code></td></tr>
+<tr><td><b>Włącz monitorowanie wydajności klienta</b></td><td><code>MetricsSettings.EnableClientMetrics</code></td><td>włączone: przeglądarki i aplikacje raportują własne czasy odpowiedzi</td></tr>
+</tbody>
+</table>
+<p>Prometheus pobiera następnie dane z <code>http://&lt;server&gt;:8067/metrics</code>. Każda metryka jest publikowana pod nazwą Mattermost (<code>mattermost_…</code>) i nazwą Antimatter (<code>antimatter_…</code>), dzięki czemu istniejące pulpity Mattermost nadal działają. Aplikacje publikują własne metryki, na przykład aplikacja Agenci pod <code>/plugins/mattermost-ai/metrics</code>.</p>
+<p>Port metryk nie wymaga logowania: utrzymuj go w sieci prywatnej. Plik compose witryny go nie publikuje; aby pobierać dane z hosta, dodaj <code>"127.0.0.1:8067:8067"</code> do sekcji <code>ports</code> usługi <code>antimatter</code>.</p>
+<h3>Aplikacja Metryki</h3>
+<p>Bez serwera Prometheus aplikacja Metrics (wyłączona domyślnie, patrz <a href="{{root}}docs/admins/apps.html">Wbudowane aplikacje</a>) zbiera te same metryki do małej bazy danych szeregów czasowych wewnątrz Antimatter: co 60 sekund, z zachowaniem danych przez 15 dni. Aktywuje punkt końcowy metryk przy starcie. Jej strona w <b>Konsola systemu › Wtyczki</b> pokazuje rozmiar bazy danych i umożliwia pobranie zrzutów danych do własnej analizy lub dołączenia do zgłoszenia błędu; najnowszy dzień jest również dodawany do pakietów wsparcia.</p>
+
+<h2 id="support-packet">Pakiet wsparcia</h2>
+<p>Pakiet wsparcia to plik zip zawierający wszystko, co jest potrzebne do zdiagnozowania problemu: wersje, statystyki, konfigurację z usuniętymi danymi wrażliwymi, listę aplikacji i zadań, schemat bazy danych, ostatnie dzienniki oraz profile wydajności. Możesz go wygenerować za pomocą polecenia <code>amctl system supportpacket</code> lub w Konsoli systemu z menu u góry paska bocznego (<b>Wsparcie Komercyjne</b>, co następnie pozwala wybrać, co ma być zawarte). Przeczytaj go przed udostępnieniem: nie zawiera wiadomości, ale zawiera nazwy społeczności, użytkowników oraz ustawień.</p>
+
+<h2 id="scaling">Wydajność i skalowanie</h2>
+<p>Jeden serwer z 2 rdzeniami CPU i 4 GB pamięci obsługuje kilkuset użytkowników. Przed dodawaniem kolejnych serwerów sprawdź:</p>
+<ul>
+<li><b>Baza danych.</b> PostgreSQL wykonuje większość pracy: zapewnij mu szybkie magazynowanie i pamięć. Odczyty mogą być rozłożone na repliki odczytu (<code>SqlSettings.DataSourceReplicas</code>, lista adresów URL połączeń).</li>
+<li><b>Szukaj</b>. Wiadomości są domyślnie wyszukiwane w bazie danych. W przypadku dużych serwerów wyszukiwanie i indeksowanie może przejąć Elasticsearch lub OpenSearch: <b>Konsola systemu › Środowisko › Elasticsearch</b> (<code>ElasticsearchSettings</code>: <b>Typ zaplecza</b> Elasticsearch lub OpenSearch, <b>Adres połączenia z serwerem</b>, dane uwierzytelniające, a następnie włącz indeksowanie, zbuduj indeks i włącz wyszukiwanie).</li>
+<li><b>Połączenia</b>. Media z połączeń generują największe obciążenie. Przenieś je na serwer rtcd: zobacz <a href="{{root}}docs/admins/calls.html#rtcd">Połączenia i głos</a>.</li>
+<li><b>Otwarte pliki.</b> Każdy połączony użytkownik utrzymuje otwarty websocket. Produkcyjny plik compose z antimatter-docker podnosi limit do 49152 (<code>ulimits: nofile</code>); zrób to samo w systemd (<code>LimitNOFILE</code>).</li>
+<li><b>Logi.</b> Obniż <code>LogSettings.ConsoleLevel</code> do <code>INFO</code> lub <code>WARN</code>: <code>DEBUG</code> generuje dużo logów na zajętym serwerze.</li>
+</ul>
+<h3>Wysoka dostępność</h3>
+<p>Wiele serwerów Antimatter może działać jako klastrowy za balancerem obciążenia, bez licencji. Muszą one współdzielić tę samą bazę danych PostgreSQL, to samo magazynowanie plików S3 oraz konfigurację w bazie danych (<code>AM_CONFIG</code>). W <b>Konsola systemu › Środowisko › Wysoka Dostępność</b> (<code>ClusterSettings</code>): włącz <b>Włącz tryb Wysokiej Dostępności</b> (<code>ClusterSettings.Enable</code>), nadaj każdemu węzłowi tę samą <b>Nazwę klastra</b> (<code>ClusterSettings.ClusterName</code>) i upewnij się, że węzły mogą się nawzajem osiągnąć na porcie gossip, <b>8074</b> TCP i UDP (<code>ClusterSettings.GossipPort</code>). Węzły znajdują się nawzajem za pośrednictwem bazy danych. Balancer obciążenia musi przekazywać websockety. W przypadku połączeń w klastrze użyj rtcd.</p>
+
+<h2 id="retention">Zasady przechowywania danych</h2>
+<p>Domyślnie Antimatter przechowuje wszystkie wiadomości i pliki na zawsze. Aby automatycznie usuwać starsze dane, przejdź do <b>Konsola systemu › Zgodność › Zasady przechowywania danych</b>:</p>
+<ul>
+<li><b>Globalna polityka przechowywania danych</b> ustawia <b>Przechowywanie kanałów i wiadomości bezpośrednich</b> oraz <b>Przechowywanie plików</b> dla całego serwera: <b>Zachowaj na zawsze</b> lub określoną liczbę godzin, dni lub lat (<code>DataRetentionSettings.EnableMessageDeletion</code>, <code>MessageRetentionHours</code>, <code>EnableFileDeletion</code>, <code>FileRetentionHours</code>).</li>
+<li><b>Własne zasady przechowywania</b> ustawiają inny czas przechowywania dla wybranych społeczności i kanałów.</li>
+<li>Zadanie usuwania jest uruchamiane codziennie o wybranej przez Ciebie godzinie (<code>DataRetentionSettings.DeletionJobStartTime</code>, domyślnie <code>02:00</code> UTC). Opcja <b>Uruchom teraz zadanie usuwania</b> uruchamia je natychmiast, a <b>Dziennik polityki</b> zawiera listę elementów usuniętych podczas każdego uruchomienia.</li>
+</ul>
+<div class="callout warn">Usunięte wiadomości i pliki są trwale usuwane z bazy danych i magazynu plików. Sprawdź okresy przechowywania przed włączeniem zasady i pamiętaj, że Twoje kopie zapasowe nadal zawierają usunięte dane do czasu ich wygaśnięcia.</div>
+
+<h2 id="compliance">Eksport zgodności i dzienniki audytu</h2>
+<ul>
+<li>Sekcja <b>Konsola systemu › Zgodność › Eksport zgodności</b> eksportuje codziennie wszystkie wiadomości i pliki (opcja <b>Włącz raport zgodności</b>, <code>MessageExportSettings.EnableExport</code>, domyślnie wyłączona; <b>Czas eksportu zgodności</b>, domyślnie <code>01:00</code>) w jednym z formatów czytanych przez systemy archiwizacji: CSV, Actiance XML lub Global Relay (plik zip lub EML wysłany przez SMTP). Polecenie <code>amctl compliance-export</code> pozwala uruchamiać i pobierać eksporty z wiersza poleceń.</li>
+<li><b>Monitorowanie zgodności</b> (<code>ComplianceSettings</code>) zapisuje codzienne raporty do katalogu. Jest to starszy mechanizm; zalecane jest korzystanie z Eksportu zgodności.</li>
+<li>Funkcja <b>Rejestrowanie audytów</b> (beta, <code>ExperimentalAuditSettings</code>) zapisuje zdarzenia administracyjne i bezpieczeństwa (logowania, zmiany uprawnień i ustawień) do osobnego pliku.</li>
+<li>Opcja <b>Własne zasady użytkowania</b> wymaga od wszystkich użytkowników akceptacji Twoich zasad przed rozpoczęciem korzystania z Antimatter oraz ponownie po ich zmianie.</li>
+</ul>
+
+<h2 id="troubleshooting">Częste problemy</h2>
+<h3>„Nie można połączyć się z serwerem” lub wiadomości pojawiają się dopiero po odświeżeniu</h3>
+<p>Połączenie websocket nie przechodzi. Sprawdź, czy proxy odwrotne przekazuje nagłówki <code>Upgrade</code> i <code>Connection</code> (patrz <a href="{{root}}docs/admins/https.html#nginx">przykład dla nginx</a>), oraz czy adres URL witryny dokładnie odpowiada adresowi w przeglądarce, w tym protokołu <code>https</code>.</p>
+<h3>Przesyłanie plików kończy się błędem „413 Request Entity Too Large”</h3>
+<p>Proxy odrzuca rozmiar żądania. Zwiększ jego limit (w nginx: <code>client_max_body_size</code>) do wartości nie mniejszej niż <b>Maksymalny rozmiar pliku</b> w <b>Konsola systemu › Środowisko › Magazyn plików</b> (<code>FileSettings.MaxFileSize</code>, domyślnie 100 MB).</p>
+<h3>Użytkownicy nie mogą rozpocząć rozmów lub dołączają, ale nic nie słyszą</h3>
+<p>Jeśli tylko administratorzy mogą rozpoczynać rozmowy, wyłącz <b>Tryb testowy</b> dla Rozmów. Jeśli użytkownicy dołączają, ale nic nie słyszą, port mediów jest zablokowany lub serwer podaje zły adres: otwórz porty 8443 UDP i TCP oraz ustaw <b>Nadpisanie hosta ICE</b> za NAT. Użytkownicy w sieciach blokujących oba protokoły potrzebują serwera TURN. Patrz <a href="{{root}}docs/admins/calls.html">Rozmowy i głos</a>.</p>
+<h3>Wybór GIF jest pusty</h3>
+<p>W sekcji <b>Konsola systemu › Wtyczki › GIFy</b> sprawdź <b>Adres URL usługi GIF</b> (<code>http://gifs:8080/v2</code> w pliku compose witryny) oraz <b>Klucz API</b> (<code>GIFS_API_KEY</code> z pliku <code>.env</code>), a także czy usługa <code>gifs</code> działa: <code>docker compose ps gifs</code>.</p>
+<h3>Nie dochodzą e-maile</h3>
+<p>W sekcji <b>Konsola systemu › Środowisko › SMTP</b> użyj opcji <b>Sprawdź połączenie</b>, upewnij się, że <b>Powiadomienie z adresu</b> nie jest nadal ustawione na <code>test@example.com</code>, a następnie wyszukaj w dzienniku frazy <code>smtp</code> lub <code>mail</code>.</p>
+<h3>Aplikacja wyświetla „Nie udało się uruchomić”</h3>
+<p>Znajdź jej identyfikator w dzienniku (<code>docker compose logs antimatter | grep &lt;app id&gt;</code>). Wyłącz i włącz ją w Zarządzaniu wtyczkami, aby ją uruchomić ponownie.</p>
+<h3>Serwer nie startuje</h3>
+<p>Przeczytaj koniec jego dziennika. Najczęściej baza danych jest niedostępna (sprawdź <code>AM_SQLSETTINGS_DATASOURCE</code> poleceniem <code>antimatter db ping</code>), migracja bazy danych się nie powiodła (przywróć kopię zapasową wykonaną przed aktualizacją i zgłoś błąd) lub port nasłuchiwania jest zajęty.</p>
+<h3>Utrata dostępu do konta administratora</h3>
+<p>Na serwerze tryb lokalny nie wymaga hasła:</p>
+<pre><code>docker compose exec antimatter amctl --local user change-password admin --password 'a-new-password'
+docker compose exec antimatter amctl --local user resetmfa admin
+docker compose exec antimatter amctl --local roles system-admin admin</code></pre>
+<h3>Zgłaszanie błędu</h3>
+<p>Otwórz zgłoszenie w <a href="https://github.com/AntimatterChat/community/issues/new/choose">repozytorium społeczności Antimatter</a>, podając wersję, sposób instalacji, wykonane czynności oraz istotne linie dziennika. Problemy bezpieczeństwa zgłaszaj prywatnie, zgodnie z <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">polityką bezpieczeństwa</a>.</p>

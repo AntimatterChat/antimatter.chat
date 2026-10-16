@@ -1,0 +1,164 @@
+title: REST API
+description: Antimatter کا REST API: بنیادی URL، ذاتی رسائی ٹوکنز، سیشن ٹوکنز اور OAuth، اہم وسائل، پیجینیشن، خرابیاں، ریٹ لمٹس، WebSocket ایونٹ اسٹریم اور کلائنٹ لائبریریز۔
+guide: developers
+order: 2
+nav: REST API
+lead: Antimatter ایپس جو کچھ بھی کرتی ہیں، وہ سب اسی HTTP API کے ذریعے ہوتی ہیں، اس لیے آپ کے اسکرپٹس بھی یہی کر سکتے ہیں۔ یہ صفحہ وضاحت کرتا ہے کہ آپ کیسے تصدیق (authenticate) کریں، کون سے وسائل آپ سب سے زیادہ استعمال کریں گے، ریسپانس اور خرابیاں کیسے نظر آتی ہیں، اور WebSocket کے ذریعے ایونٹس کو براہِ راست کیسے فالو کریں۔
+source: f4b8c83efdba
+---
+<h2 id="basics">بنیادی باتیں</h2>
+<ul>
+<li><b>بنیادی URL</b>: <code>https://chat.example.com/api/v4</code>۔ نیچے دیے گئے تمام اینڈ پوائنٹس اس کے حوالے سے ہیں۔</li>
+<li><b>فارمیٹ</b>: اندر اور باہر JSON، سوائے فائل اپ لوڈز (multipart) کے۔ <code>Content-Type: application/json</code> بھیجیں۔</li>
+<li><b>آئی ڈیز</b>: ہر آبجیکٹ کے پاس ایک 26 حروف پر مشتمل <code>id</code> ہوتا ہے۔ اوقات Unix epoch کے بعد کے ملی سیکنڈز میں ہوتے ہیں (<code>create_at</code>، <code>update_at</code>، <code>delete_at</code>؛ 0 کا مطلب ہے "حذف نہیں کیا گیا")۔</li>
+<li><b>کمیونٹیز ٹیمز ہیں</b>: API انہیں <code>teams</code> کہتا ہے، جن کے ساتھ <code>team_id</code> ہوتا ہے۔</li>
+<li><b>آپ خود</b>: جہاں بھی پاتھ <code>user_id</code> لیتا ہے، <code>me</code> کے مطلب ہیں سائنڈ ان صارف، جیسے <code>GET /users/me</code>۔</li>
+</ul>
+<p>اینڈ پوائنٹس کی مکمل فہرست سرور کے کوڈ میں موجود ہے: روٹس <code>server/channels/api4/*.go</code> میں اعلان کیے گئے ہیں اور ٹائپس <code>server/public/model</code> میں۔ ریپوزٹری کے <code>api/v4/source</code> فولڈر میں موجود OpenAPI وضاحت Mattermost سے وراثت میں ملے اینڈ پوائنٹس کو کور کرتی ہے، Antimatter کے اضافوں کو نہیں۔</p>
+
+<h2 id="auth">تصدیق (Authentication)</h2>
+<p>ہر درخواست، سوائے سائن ان کرنے اور کچھ عوامی اینڈ پوائنٹس کے، <code>Authorization</code> ہیڈر میں ٹوکن کی ضرورت ہوتی ہے:</p>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" https://chat.example.com/api/v4/users/me</code></pre>
+<p>وہاں تین قسم کے ٹوکنز قبول کیے جاتے ہیں: ذاتی رسائی ٹوکنز، سیشن ٹوکنز اور OAuth رسائی ٹوکنز۔ <code>Authorization: Token …</code> بھی قبول کیا جاتا ہے۔ کوئری سٹرنگ (<code>?access_token=</code>) میں ٹوکنز صرف OAuth رسائی ٹوکنز کے لیے قبول کیے جاتے ہیں۔</p>
+
+<h3>ذاتی رسائی ٹوکنز (اسکرپٹس کے لیے سفارش کردہ)</h3>
+<p>ذاتی رسائی ٹوکن آپ کی طرح کام کرتا ہے، جب تک آپ اسے ایک میعادِ ختم نہ دیں، اس کی میعاد ختم نہیں ہوتی، اور اسے کسی بھی وقت منسوخ کیا جا سکتا ہے۔ ذاتی رسائی ٹوکنز پہلے سے بند ہوتے ہیں:</p>
+<ol>
+<li>سسٹم ایڈمن <b>سسٹم کنسول › انضمامات › انٹیگریشن مینجمنٹ</b> میں <b>پرسونل ایکسس ٹوکنز فعال کریں</b> کو آن کرتا ہے (<code>ServiceSettings.EnableUserAccessTokens</code>، <code>AM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS</code>)۔</li>
+<li>ہر اس شخص کے لیے جو ٹوکنز بنانے کا حق رکھتا ہے، سسٹم ایڈمن <b>سسٹم کنسول › صارفین کا انتظام › صارفین</b> کھولتا ہے، اس شخص کے مینیو میں <b>کرداروں کا انتظام</b> منتخب کرتا ہے اور <b>اس اکاؤنٹ کو پرسونل ایکسس ٹوکنز بنانے کی اجازت دیں</b> پر ٹک لگاتا ہے۔ سسٹم ایڈمنز ہمیشہ انہیں بنا سکتے ہیں۔</li>
+<li>شخص اپنا ایواٹار (avatar) اوپر دائیں جانب کھولتا ہے، پھر <b>پروفائل اور ترتیبات › سیکیورٹی</b> پر جاتا ہے۔ <b>ذاتی رسائی ٹوکنز</b> کے تحت، وہ ٹوکن کے مقصد کی وضاحت کرتا ہے اور <b>ٹوکن بنائیں</b> منتخب کرتا ہے۔ ٹوکن صرف ایک بار دکھایا جاتا ہے: اسے کاپی کریں۔</li>
+</ol>
+<p>API کے ذریعے: <code>POST /users/{user_id}/tokens</code> کے ساتھ <code>{"description": "backup script", "expires_at": 0}</code> (<code>expires_at</code> ملی سیکنڈ میں؛ 0 کے لیے کوئی مدت نہیں)۔ جواب کے <code>token</code> فیلڈ میں راز (secret) ہوتا ہے؛ اس کا <code>id</code> وہ ہے جسے آپ اسے منسوخ کرنے کے لیے استعمال کرتے ہیں (<code>POST /users/tokens/revoke</code> کے ساتھ <code>{"token_id": "…"}</code>)۔ کمانڈ لائن سے: <code>amctl token generate &lt;user&gt; &lt;description&gt;</code>۔</p>
+<p>سسٹم ایڈمن اسی سسٹم کنسول پیج پر <b>زیادہ سے زیادہ پرسونل ایکسس ٹوکن کی مدت (دن)</b> کے ذریعے ٹوکنز کی مدت کو محدود کر سکتا ہے۔</p>
+
+<h3>سیشن ٹوکنز</h3>
+<p>پاس ورڈ کے ساتھ سائن ان کرنے پر <code>Token</code> ریسپانس ہیڈر میں ایک سیشن ٹوکن واپس آتا ہے، جو اسی قسم کا سیشن ہے جو ایپس استعمال کرتی ہیں:</p>
+<pre><code>curl -i -X POST https://chat.example.com/api/v4/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login_id": "maya", "password": "…"}'</code></pre>
+<p>ملٹی فیکٹر اتھنٹیکیشن والا اکاؤنٹ کے لیے <code>"token": "123456"</code> شامل کریں۔ سیشنز سرور کے سیشن ترتیبات کے مطابق ختم ہوتے ہیں، اور لاگین انڈپوائنٹ ریٹ لیمٹڈ ہے (فی سیکنڈ 5 درخواستیں)۔ <code>POST /users/logout</code> سیشن کو ختم کرتا ہے۔</p>
+<div class="callout">براؤزرز کوکیز کے ذریعے اتھنٹیکیشن کرتے ہیں۔ کوکیز کے ذریعے اتھنٹیکٹڈ درخواست کو GET کے علاوہ کسی بھی چیز کے لیے <code>X-CSRF-Token</code> ہیڈر بھی بھیجنا ہوگا؛ <code>Authorization</code> ہیڈر میں موجود ٹوکن کو CSRF ہیڈر کی ضرورت نہیں ہوتی۔</div>
+
+<h3>OAuth 2.0 ایپس</h3>
+<p>لوگوں کو اپنے Antimatter اکاؤنٹ کے ساتھ اپنی ایپلیکیشن میں سائن ان کرنے کی اجازت دینے کے لیے، ایک OAuth 2.0 ایپ رجسٹر کریں۔ Antimatter پھر OAuth پرووائڈر بن جاتا ہے:</p>
+<ol>
+<li><b>OAuth 2.0 سروس پرووائیڈر فعال کریں</b> کو آن ہونا ضروری ہے (<b>سسٹم کنسول › انضمامات › انٹیگریشن مینجمنٹ</b>، <code>ServiceSettings.EnableOAuthServiceProvider</code>، جو پہلے سے آن ہے)۔</li>
+<li>جس شخص کے پاس OAuth ایپس کو منظم کرنے کا حق ہے (پہلے سے سسٹم ایڈمنز)، وہ اپنا ایواٹار کھولتا ہے، پھر <b>انضمامات › OAuth 2.0 ایپس</b> پر جاتا ہے، اور اپنی callback URLs کے ساتھ ایپ شامل کرتا ہے۔ اسے client ID اور client secret ملتا ہے۔</li>
+<li>آپ کی ایپ لوگوں کو <code>https://chat.example.com/oauth/authorize</code> پر بھیجتی ہے، جہاں <code>response_type=code</code>، <code>client_id</code>، <code>redirect_uri</code> اور <code>state</code> شامل ہوتے ہیں۔ <code>code_challenge_method=S256</code> کے ساتھ PKCE کی حمایت کی جاتی ہے۔</li>
+<li>یہ کوڈ کو <code>POST https://chat.example.com/oauth/access_token</code> پر تبدیل کرتی ہے (پہلے <code>grant_type=authorization_code</code>، پھر تجدید کے لیے <code>refresh_token</code>)، اور API کو <code>Authorization: Bearer &lt;access token&gt;</code> کے ساتھ کال کرتی ہے۔</li>
+</ol>
+<p>صارفین <b>پروفائل اور ترتیبات › سیکیورٹی › آپ کی تصدیق شدہ ایپس</b> میں وہ ایپس دیکھتے ہیں جنہیں انہوں نے تصدیق دی ہے۔</p>
+
+<h2 id="resources">بنیادی وسائل</h2>
+<table>
+<thead><tr><th>کیا</th><th>اینڈ پوائنٹس</th></tr></thead>
+<tbody>
+<tr><td>آپ اور دیگر لوگ</td><td><code>GET /users/me</code>، <code>GET /users/{user_id}</code>، <code>GET /users/username/{username}</code>، <code>POST /users/ids</code> (IDs کی فہرست)، <code>POST /users/search</code>، <code>GET /users?in_team=…&amp;in_channel=…</code></td></tr>
+<tr><td>کمیونٹیز</td><td><code>GET /users/me/teams</code>, <code>GET /teams/{team_id}</code>, <code>GET /teams/name/{name}</code>, <code>PUT /teams/{team_id}/patch</code>, <code>GET /teams/{team_id}/members</code>, <code>POST /teams/{team_id}/members</code></td></tr>
+<tr><td>چینلز</td><td><code>GET /users/me/teams/{team_id}/channels</code>، <code>GET /teams/name/{team}/channels/name/{channel}</code>، <code>POST /channels</code>، <code>POST /channels/direct</code> (دو صارفین کے IDs)، <code>POST /channels/group</code>، <code>POST /channels/{channel_id}/members</code></td></tr>
+<tr><td>پیغامات (posts)</td><td><code>POST /posts</code>, <code>GET /posts/{post_id}</code>, <code>PUT /posts/{post_id}/patch</code>, <code>DELETE /posts/{post_id}</code>, <code>GET /channels/{channel_id}/posts</code>, <code>GET /posts/{post_id}/thread</code>, <code>POST /teams/{team_id}/posts/search</code></td></tr>
+<tr><td>ردعمل</td><td><code>POST /reactions</code> کے ساتھ <code>{"user_id", "post_id", "emoji_name"}</code>، <code>DELETE /users/{user_id}/posts/{post_id}/reactions/{emoji_name}</code></td></tr>
+<tr><td>فائلیں</td><td><code>POST /files</code> (multipart: <code>channel_id</code> اور <code>files</code>)، پھر واپس آنے والے IDs کو پیغام کے <code>file_ids</code> میں ڈالیں؛ <code>GET /files/{file_id}</code></td></tr>
+<tr><td>ترجیحات</td><td><code>GET /users/me/preferences</code>, <code>PUT /users/me/preferences</code></td></tr>
+<tr><td>انٹیکریشنز</td><td><code>/hooks/incoming</code>، <code>/hooks/outgoing</code>، <code>/commands</code>، <code>/bots</code>، <code>/oauth/apps</code> (اگلے صفحات دیکھیں)</td></tr>
+<tr><td>سرور</td><td><code>GET /system/ping</code> (صحت، ٹوکن کی ضرورت نہیں)، <code>GET /config/client?format=old</code> (ترتیبات جو کلائنٹس دیکھتے ہیں)</td></tr>
+</tbody>
+</table>
+
+<h3>پیغام بھیجیں</h3>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "message": "Backup finished: **42 GB** in 3 min"}'</code></pre>
+<p>پیغامات Markdown میں ہوتے ہیں۔ سلسلے میں جواب دینے کے لیے <code>"root_id"</code> (سلسلے کا پہلا پیغام) شامل کریں، فائلوں کے لیے <code>"file_ids"</code> اور منسلک فائلوں اور دیگر اضافی چیزوں کے لیے <code>"props"</code> (دیکھیں <a href="{{root}}docs/developers/webhooks.html#attachments">منسلک فائلیں</a>)۔</p>
+
+<h3>چینل کا ID تلاش کریں</h3>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" \
+  https://chat.example.com/api/v4/teams/name/lumen-labs/channels/name/ops-alerts</code></pre>
+<p>نام چینل کے لنک میں موجود ہیں: <code>/lumen-labs/channels/ops-alerts</code>۔</p>
+
+<h2 id="pagination">صفحات کی تقسیم</h2>
+<p>فہرست کے اِنڈ پوائنٹس <code>page</code> (0 سے) اور <code>per_page</code> (ڈیفالٹ 60، زیادہ سے زیادہ 200) لیتے ہیں۔ اگلے صفحے کے لیے پوچھتے رہیں جب تک کہ کوئی صفحہ <code>per_page</code> سے چھوٹا نہ آ جائے۔</p>
+<p>کسی چینل کے پیغامات (<code>GET /channels/{channel_id}/posts</code>) بھی <code>since</code> (وقت: اس وقت کے بعد ہر تبدیلی) یا <code>before</code> اور <code>after</code> (پوسٹ ID) قبول کرتے ہیں۔ یہ ایک پوسٹ فہرست کے طور پر واپس آتے ہیں: <code>{"order": [IDs, newest first], "posts": {ID: post}, "next_post_id", "prev_post_id"}</code>۔</p>
+
+<h2 id="errors">غلطیاں</h2>
+<p>غلطیاں عام HTTP اسٹیٹس کوڈز (400 غلط ان پٹ، 401 سائن ان نہیں کیا، 403 اجازت نہیں، 404 نہیں ملا، 501 فیچر بند) اور ایک JSON باڈی استعمال کرتی ہیں:</p>
+<pre><code>{
+  "id": "api.context.permissions.app_error",
+  "message": "You do not have the appropriate permissions.",
+  "detailed_error": "",
+  "request_id": "jz8zm5nunpbt8f3gpqsz5dq6so",
+  "status_code": 403
+}</code></pre>
+<p>اپنے کوڈ میں <code>id</code> استعمال کریں: <code>message</code> صارف کی زبان میں ترجمہ کیا جاتا ہے۔ <code>detailed_error</code> خالی رہتا ہے جب تک کہ سرور ڈویلپر موڈ (<code>ServiceSettings.EnableDeveloper</code>) میں چل رہا ہو۔ سرور کے ایڈمن کو <code>request_id</code> کا حوالہ دیں: یہ لاگز میں موجود ہے۔</p>
+
+<h2 id="rate-limits">ریٹ لمٹس</h2>
+<p>ریٹ لیمٹنگ پہلے سے بند ہے۔ جب سسٹم ایڈمن اسے آن کرتا ہے (<b>سسٹم کنسول › ماحول › ریٹ لیمٹنگ</b>)، تو پہلے سے ہر کلائنٹ کو 100 کے بارسٹس کے ساتھ فی سیکنڈ 10 درخواستیں ملتی ہیں، جو IP ایڈریس یا صارف کی بنیاد پر گنئی جاتی ہیں۔ جوابات میں <code>X-RateLimit-Limit</code>، <code>X-RateLimit-Remaining</code> اور <code>X-RateLimit-Reset</code> شامل ہوتے ہیں؛ حد سے اوپر، سرور <code>429</code> کے ساتھ <code>Retry-After</code> ہیڈر (سیکنڈز میں) جواب دیتا ہے۔ کچھ endpoints، جیسے سائن ان کرنا، ترتیب سے قطع نظر اپنی الگ حد رکھتے ہیں۔</p>
+<p>اسکرپٹس لکھیں جو 429 پر انتظار کریں اور دوبارہ کوشش کریں، اور پولنگ سے بچیں: WebSocket کو فولو کریں۔</p>
+
+<h2 id="websocket">WebSocket ایونٹ اسٹریم</h2>
+<p><code>wss://chat.example.com/api/v4/websocket</code> سے منسلک ہوں۔ تصدیق کے لیے یا تو کنکشن درخواست پر <code>Authorization: Bearer</code> ہیڈر استعمال کریں، یا اسے پہلا پیغام بھیجیں:</p>
+<pre><code>{"seq": 1, "action": "authentication_challenge", "data": {"token": "…"}}</code></pre>
+<p>سرور ایک <code>hello</code> ایونٹ بھیجتا ہے، پھر ہر چیز کے لیے ایک ایونٹ جو آپ دیکھنے کی اجازت رکھتے ہیں:</p>
+<pre><code>{
+  "event": "posted",
+  "data": {"channel_id": "…", "channel_type": "O", "post": "{\"id\":\"…\",\"message\":\"Hello\",…}"},
+  "broadcast": {"channel_id": "…", "team_id": "", "user_id": "", "omit_users": null},
+  "seq": 4
+}</code></pre>
+<p>نوٹ کریں کہ <code>data.post</code> پوسٹ JSON اسٹرنگ کے طور پر ہے۔ عام ایونٹس: <code>posted</code>، <code>post_edited</code>، <code>post_deleted</code>، <code>reaction_added</code>، <code>reaction_removed</code>، <code>typing</code>، <code>status_change</code>، <code>user_added</code>، <code>direct_added</code>۔ ایپس اپنے اپنے ایونٹس بھیجتی ہیں، جن کے نام <code>custom_&lt;app id&gt;_&lt;event&gt;</code> ہوتے ہیں۔</p>
+<p>آپ ایکشنز بھی بھیج سکتے ہیں، ہر ایک میں بڑھتا ہوا <code>seq</code>: <code>user_typing</code> کے ساتھ <code>{"channel_id", "parent_id"}</code>، یا <code>get_statuses</code>۔ جب کنکشن ٹوٹے تو دوبارہ منسلک ہوں، اور <code>since</code> کے ساتھ وہ چیزیں لائیں جو آپ نے چھوڑ دی (دیکھیں <a href="#pagination">Pagination</a>)۔</p>
+<p>Antimatter ان ایونٹس کو شامل کرتا ہے: <code>community_attributes_updated</code>، <code>member_timeouts_updated</code>، <code>post_put_on_top</code>، <code>post_removed_from_top</code>، <code>server_categories_updated</code>، <code>channel_overrides_updated</code> اور <code>category_overrides_updated</code>۔</p>
+
+<h2 id="clients">کلائنٹ لائبریریز</h2>
+<ul>
+<li><b>جائیں</b>: <code>server/public/model</code> میں <code>model.Client4</code> (import <code>github.com/mattermost/mattermost/server/public/model</code>)۔ <code>model.NewAPIv4Client(url)</code>، پھر <code>client.SetToken(token)</code>؛ <code>model.NewWebSocketClient4(wsURL, token)</code> events کو فالو کرتا ہے۔ Antimatter کی کاپی اپنے endpoints کے لیے طریقے شامل کرتی ہے، جیسے <code>UpdateMessageRequest</code>، <code>PutPostOnTop</code> اور <code>ExportChannel</code>۔</li>
+<li><b>TypeScript</b>: <code>webapp/platform/client</code> میں <code>@mattermost/client</code> کا <code>Client4</code> کلاس، جس کے ٹائپس <code>webapp/platform/types</code> میں ہیں۔ Antimatter کے ریپوزٹری میں موجود کاپی Antimatter کے اندروپوائنٹس کو شامل کرتی ہے؛ Mattermost کے ذریعے npm پر شائع شدہ پیکج میں یہ شامل نہیں ہیں۔</li>
+</ul>
+<pre><code>package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/mattermost/mattermost/server/public/model"
+)
+
+func main() {
+	client := model.NewAPIv4Client("https://chat.example.com")
+	client.SetToken("…")
+	post, _, err := client.CreatePost(context.Background(), &amp;model.Post{
+		ChannelId: "…",
+		Message:   "Hello from Go",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("posted", post.Id)
+}</code></pre>
+
+<h2 id="antimatter">Antimatter API میں کیا شامل کرتا ہے</h2>
+<p>یہ اندروپوائنٹس اور فیلڈز Mattermost سرور پر موجود نہیں ہیں۔ ان سب کے لیے ایک سیشن درکار ہے۔</p>
+<table>
+<thead><tr><th>اندروپوائنٹ</th><th>یہ کیا کرتا ہے</th></tr></thead>
+<tbody>
+<tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> اسی راستے پر<br><code>PATCH</code>، <code>DELETE …/fields/{field_id}</code></td><td>کمیونٹی ایٹری بیٹس: پروفائل کے فیلڈز جو کمیونٹی کے ایڈمنز اپنے ارکان کے لیے تعریف کرتے ہیں (زیادہ سے زیادہ 20)۔ ارکان انہیں پڑھ سکتے ہیں؛ کمیونٹی ایڈمنز انہیں بناتے اور تبدیل کرتے ہیں۔</td></tr>
+<tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> اسی راستے پر<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>کسی رکن کے ایٹری بیٹ ویلیوز، <code>{field_id: value}</code> کی شکل میں۔ ارکان اپنے خود کے ویلیوز سیٹ کرتے ہیں (ایڈمن کے زیرِ انتظام والوں کے سوا)؛ ایڈمنز کسی بھی رکن کے ویلیوز سیٹ کر سکتے ہیں۔ تلاش کے لیے <code>{"user_ids": [...]}</code> (زیادہ سے زیادہ 200) استعمال ہوتا ہے۔</td></tr>
+<tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>ٹائم آؤٹس: <code>{"until": time, "reason": "…"}</code> کسی کو اس وقت تک کمیونٹی میں پوسٹ کرنے، ردعمل دینے اور اپ لوڈ کرنے سے روکتا ہے (زیادہ سے زیادہ 28 دن)؛ <code>"until": 0</code> اسے ہٹا دیتا ہے۔ میڈریشن ویو میں یہ بتایا جاتا ہے کہ وہ کب شامل ہوئے اور حال ہی میں کتنی پوسٹس کی ہیں۔</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>چینل کے اوپر رکھے گئے پیغامات (زیادہ سے زیادہ 10)۔ <code>{"duration": ms}</code>، زیادہ سے زیادہ 30 دن؛ 0 اسے ہٹائے جانے تک برقرار رکھتا ہے۔ چینل میں پوسٹ کرنے کی اجازت درکار ہے۔</td></tr>
+<tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>آپ کے اپنے پیغام کے درخواست پر عمل کرتا ہے: <code>{"action": "accept"}</code>، <code>"dismiss"</code>، یا <code>"request"</code> تاکہ ایک گفتگو کو دوبارہ درخواستوں میں شامل کیا جا سکے۔ یہ آپ کے چینل ممبر کو واپس کرتا ہے۔</td></tr>
+<tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>کسی چینل میں کسی کردار یا شخص کی کیا صلاحیتیں ہیں، اور کن کرداروں کو کردار سے بند شدہ چینل نظر آتا ہے۔</td></tr>
+<tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>کمیونٹی کے مشترکہ چینل کیٹگریز، اور وہ اوور رائڈز جو کسی کیٹگری کے ہر چینل پر لاگو ہوتی ہیں۔</td></tr>
+<tr><td><code>GET /groups/{group_id}/team_role</code><br><code>PUT …/team_role/permissions</code></td><td>وہ اجازتیں جو کمیونٹی کا کردار دیتا ہے۔</td></tr>
+<tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>کسی متن پر کمیونٹی کے آٹو لنکس کے قواعد آزمائے۔</td></tr>
+<tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>کسی چینل کے پیغامات کو CSV کے طور پر ڈاؤن لوڈ کریں (زیادہ سے زیادہ 50,000)، جو لوگ چینل پڑھ سکتے ہیں۔</td></tr>
+<tr><td><code>GET /posts/{post_id}/speech</code></td><td>پیغام جو ٹیکسٹ ٹو سپیچ ترتیب دینے پر آڈیو کے طور پر پڑھا جاتا ہے۔</td></tr>
+</tbody>
+</table>
+<h3>نئے فیلڈز</h3>
+<ul>
+<li><b>کمیونٹیز</b> (<code>Team</code>، اور <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (ہر شخص ہر چینل میں شامل ہے جسے وہ دیکھ سکتا ہے، جیسے Discord میں)، <code>default_channel_id</code> (جہاں نئے لوگ پہنچتے ہیں؛ خالی ہونے کا مطلب Town Square ہے)، <code>hide_role_colors</code>، <code>require_team_badges</code>، <code>onboarding</code> اور <code>autolinks</code> (دونوں JSON سٹرنگز)۔</li>
+<li><b>ان لائن جوابات</b>: ایک پوسٹ جس میں <code>"props": {"reply_to": "&lt;post id&gt;"}</code> ہو، اسی چینل کے اس پیغام کو کوٹ کرتی ہے۔ اس کے مصنف کو مطلع نہ کرنے کے لیے <code>"reply_to_mention": false</code> شامل کریں۔ سرور <code>metadata.reply_to</code> میں کوٹ شدہ پیغام کا مختصر تعارف بھرتا ہے۔</li>
+<li><b>اسپائلرز</b>: <code>"props": {"spoiler": true}</code> پوسٹ کے متن اور فائلوں کو چھپا دیتا ہے جب تک قاری انہیں دیکھنے کا انتخاب نہ کر لے۔</li>
+<li><b>نظرانداز کرنا اور بلاک کرنا</b> ترجیحات ہیں: کیٹگری <code>user_block</code>، دوسرے شخص کے ID کے نام پر، جس کی قدر <code>ignore</code> یا <code>block</code> ہے۔ براہِ راست پیغام کی درخواست کے طور پر انتظار کرنے کا معاملہ آپ کے چینل کے رکن کے <code>notify_props.dm_request</code> میں ہے (<code>pending</code>، <code>accepted</code> یا <code>dismissed</code>)۔</li>
+<li><b>پیغام کی منسلک فائل</b> <code>stages</code> اور <code>chart</code> لے سکتی ہے: دیکھیں <a href="{{root}}docs/developers/webhooks.html#cards">کارڈز</a>۔</li>
+</ul>

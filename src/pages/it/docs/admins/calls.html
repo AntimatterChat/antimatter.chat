@@ -1,0 +1,126 @@
+title: Chiamate e voce
+description: Configura le chiamate e i canali vocali di Antimatter: porta media, NAT e STUN, TURN, modalità di test, video, server rtcd esterno, trascrizione e sottotitoli in tempo reale con un modello speech-to-text personalizzato, e registrazioni.
+guide: admins
+order: 5
+nav: Chiamate e voce
+lead: Le chiamate e i canali vocali inviano audio, video e condivisione dello schermo direttamente al server sulla sua porta dedicata. Questa pagina illustra la parte di rete, le impostazioni da verificare dopo l'installazione e la trascrizione con un modello speech-to-text gestito in autonomia.
+source: 16057458346f
+---
+<h2 id="overview">Come funzionano le chiamate</h2>
+<p>Le chiamate sono fornite dall'app <b>Chiamate</b> (id <code>com.mattermost.calls</code>), installata e abilitata di default. I canali vocali (app <b>Canali vocali</b>, immagine <code>antimatter-next</code>) sono sale di chiamata permanenti basate su Chiamate: richiedono che Chiamate sia abilitata e utilizzano le stesse impostazioni, porte e server.</p>
+<p>L'app Chiamate esegue un server media all'interno di Antimatter. L'app web, l'app desktop e le app mobili si connettono ad esso tramite WebRTC:</p>
+<ul>
+<li>la segnalazione passa attraverso la normale connessione web (il proxy HTTPS);</li>
+<li>il <b>media</b> (audio, video, condivisione dello schermo) no: va direttamente al server sulla porta delle chiamate, <b>8443 UDP e TCP</b> di default.</li>
+</ul>
+<p>Le impostazioni si trovano in <b>Console di Sistema › Plugins › Chiamate</b>. Ciascuna di esse può anche essere impostata con una variabile d'ambiente <code>AM_CALLS_</code> sul servizio <code>antimatter</code>, che in tal caso ha la priorità rispetto alla Console di Sistema e blocca l'impostazione lì. I nomi legacy <code>MM_CALLS_</code> funzionano anch'essi.</p>
+
+<h2 id="after-install">Verifica queste impostazioni dopo l'installazione</h2>
+<ol>
+<li><b>Apri la porta delle chiamate.</b> Consenti 8443/udp e 8443/tcp nel firewall del server e del tuo provider cloud.</li>
+<li><b>Disattiva la modalità di test.</b> La <b>Modalità di test</b> (<code>DefaultEnabled</code>) è attiva di default: solo gli amministratori di sistema possono avviare chiamate nei canali, in modo da verificare che le chiamate funzionino prima che tutti possano usarle. Impostala su <b>Disattivo</b> in <b>Console di Sistema › Plugins › Chiamate</b>, oppure imposta <code>AM_CALLS_DEFAULT_ENABLED=true</code>.</li>
+<li><b>Decidi per il video.</b> <b>Abilita chiamate video nei messaggi diretti (Sperimentale)</b> (<code>EnableVideo</code>, <code>AM_CALLS_ENABLE_VIDEO</code>) è disattivato di default. Finché è disattivato, nessuno può accendere la fotocamera, nemmeno nei canali vocali. Quando è attivo, le fotocamere funzionano nelle chiamate dei messaggi diretti e nei canali vocali (a meno che <b>Consenti video nei canali vocali</b> dell'app Canali vocali non sia disattivato).</li>
+<li><b>Dietro NAT, imposta l'indirizzo pubblico</b> (sezione successiva).</li>
+</ol>
+
+<h2 id="network">Porte, NAT e STUN</h2>
+<table>
+<thead><tr><th>Impostazione</th><th>Variabile</th><th>Predefinito</th></tr></thead>
+<tbody>
+<tr><td><b>Porta server RTC (UDP)</b></td><td><code>AM_CALLS_UDP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>Porta server RTC (TCP)</b></td><td><code>AM_CALLS_TCP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>Indirizzo server RTC (UDP)</b>, <b>(TCP)</b></td><td><code>AM_CALLS_UDP_SERVER_ADDRESS</code>, <code>AM_CALLS_TCP_SERVER_ADDRESS</code></td><td>vuoto: tutti gli indirizzi</td></tr>
+<tr><td><b>Sovrascrivi host ICE</b></td><td><code>AM_CALLS_ICE_HOST_OVERRIDE</code></td><td>vuoto: trovato tramite STUN</td></tr>
+<tr><td><b>Sovrascrivi porta host ICE</b></td><td><code>AM_CALLS_ICE_HOST_PORT_OVERRIDE</code></td><td>vuoto: la porta del server</td></tr>
+<tr><td><b>Configurazioni server ICE</b></td><td><code>AM_CALLS_ICE_SERVERS_CONFIGS</code></td><td><code>[{"urls":["stun:stun.cloudflare.com:3478"]}]</code></td></tr>
+<tr><td><b>(Sperimentale) Abilita il supporto IPv6</b></td><td>(Console di Sistema)</td><td>disattivato</td></tr>
+</tbody>
+</table>
+<p>Le porte devono essere comprese tra 80 e 49151. Con il file compose del sito, modifica <code>CALLS_PORT</code> in <code>.env</code>: imposta entrambe le variabili e pubblica la porta, con lo stesso numero sull'host e nel contenitore. I client provano prima UDP e, in caso di errore, passano a TCP sulla stessa porta.</p>
+<h3>L'indirizzo a cui i client inviano i media</h3>
+<p>Il server indica a ciascun client l'indirizzo a cui inviare i media (il suo "candidato host"). Di default, trova il proprio indirizzo pubblico interrogando un server STUN, un servizio pubblico che risponde con l'indirizzo e la porta da cui proviene la richiesta. Il valore predefinito è il server STUN pubblico di Cloudflare, <code>stun:stun.cloudflare.com:3478</code>. Non è solo il server a usarlo: ogni client che partecipa a una chiamata lo interroga anche per il proprio indirizzo pubblico. Il server STUN vede solo indirizzi IP e porte, mai audio, video o messaggi delle chiamate.</p>
+<p>Un server che ha ancora salvato il server STUN di Mattermost (<code>stun.global.calls.mattermost.com</code>) in <b>Configurazioni server ICE</b>, ad esempio dopo un passaggio da Mattermost, usa invece quello di Cloudflare. L'impostazione salvata non viene modificata.</p>
+<p>Imposta l'indirizzo manualmente quando:</p>
+<ul>
+<li>il server è dietro un NAT o ha più indirizzi pubblici: imposta <b>Sovrascrivi host ICE</b> sull'indirizzo IP pubblico (o su un nome host che vi si risolva);</li>
+<li>il NAT mappa una porta pubblica diversa da 8443: imposta anche <b>Sovrascrivi porta host ICE</b> su quella porta pubblica;</li>
+<li>il server non ha accesso a Internet, o non si vuole che server e client contattino un server STUN esterno: imposta <b>Sovrascrivi host ICE</b> e svuota l'elenco STUN con <code>AM_CALLS_ICE_SERVERS_CONFIGS=[]</code>. Con <b>Sovrascrivi host ICE</b> impostato, il server non interroga più un server STUN per il proprio indirizzo; l'elenco vuoto impedisce ai client di farlo.</li>
+</ul>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ICE_HOST_OVERRIDE: 203.0.113.10
+      AM_CALLS_ICE_SERVERS_CONFIGS: "[]"</code></pre>
+<p>Per mantenere STUN senza terze parti, esegui un tuo server STUN (un server TURN come coturn risponde anche alle richieste STUN) e elenca in <b>Configurazioni server ICE</b> al posto di quello predefinito, come nell'esempio TURN qui sotto.</p>
+<p>Su una rete locale, usa l'indirizzo LAN del server. Riavvia il server dopo aver modificato porte, indirizzi o impostazioni ICE, oppure disattiva e riattiva l'app Chiamate: il server media viene configurato all'avvio dell'app.</p>
+
+<h2 id="turn">TURN, per firewall restrittivi</h2>
+<p>Alcune reti bloccano sia UDP che le connessioni in uscita verso porte TCP non standard. Le persone che vi si trovano necessitano di un server TURN, che inoltra i media attraverso una porta raggiungibile (spesso la 443). Antimatter non ne include uno; esegui un server TURN come coturn e aggiungilo a <b>Configurazioni server ICE</b>, un elenco JSON:</p>
+<pre><code>[
+  {"urls": ["stun:turn.example.com:3478"]},
+  {"urls": ["turn:turn.example.com:3478?transport=udp", "turns:turn.example.com:443?transport=tcp"]}
+]</code></pre>
+<ul>
+<li>Con un segreto condiviso (il <code>use-auth-secret</code> di coturn), inserisci lo stesso segreto in <b>Segreto di autenticazione statica TURN</b> (<code>AM_CALLS_TURN_STATIC_AUTH_SECRET</code>): il server fornisce a ciascun client credenziali a breve scadenza, valide per <b>Scadenza credenziali TURN (minuti)</b> (240 di default).</li>
+<li>Con credenziali fisse, aggiungi invece <code>"username"</code> e <code>"credential"</code> alla voce TURN.</li>
+<li><b>TURN lato server</b> (disabilitato di default) utilizza anche i server TURN per le connessioni avviate dal server.</li>
+</ul>
+
+<h2 id="general">Altre impostazioni delle chiamate</h2>
+<table>
+<thead><tr><th>Impostazione</th><th>Variabile</th><th>Predefinito</th><th>Funzione</th></tr></thead>
+<tbody>
+<tr><td><b>Numero massimo di partecipanti alla chiamata</b></td><td><code>AM_CALLS_MAX_CALL_PARTICIPANTS</code></td><td>0 (nessun limite)</td><td>Numero massimo di persone in una singola chiamata.</td></tr>
+<tr><td><b>Consenti la condivisione dello schermo</b></td><td>(Console di Sistema)</td><td>on</td><td>Permette ai partecipanti di condividere il proprio schermo.</td></tr>
+<tr><td><b>Abilita il trillo della chiamata</b></td><td><code>AM_CALLS_ENABLE_RINGING</code></td><td>on</td><td>Fa suonare gli altri partecipanti a un messaggio diretto o di gruppo quando una chiamata inizia in quel contesto.</td></tr>
+<tr><td><b>Abilita simulcast per la condivisione dello schermo (Sperimentale)</b></td><td>(Console di Sistema)</td><td>disattivato</td><td>Invia le condivisioni dello schermo in più qualità.</td></tr>
+<tr><td><b>Abilita codec AV1 per la condivisione dello schermo (Sperimentale)</b></td><td>(Console di Sistema)</td><td>disattivato</td><td>Ignorato quando il simulcast è attivo.</td></tr>
+</tbody>
+</table>
+<p>L'app Canali vocali ha due impostazioni, in <b>Console di Sistema › Plugins › Canali vocali</b>: <b>Unisciti quando si apre un canale vocale</b> (attivo di default) e <b>Consenti video nei canali vocali</b> (attivo di default, ma vedi il video sopra). Gli amministratori della community trasformano un canale in un canale vocale nelle sue impostazioni.</p>
+<div class="callout">Per disabilitare completamente le chiamate, disabilita l'app Chiamate in <b>Console di Sistema › Plugins › Gestione plugin</b>, oppure imposta <code>AM_CALLS_DISABLE=true</code>. Anche i canali vocali smetteranno di funzionare.</div>
+
+<h2 id="rtcd">Server più grandi: un rtcd esterno</h2>
+<p>Di default, un server Antimatter gestisce tutti i media delle chiamate. Per molte chiamate simultanee, o per tenere i media separati dal server di chat, l'app Chiamate può delegare i media a <b>rtcd</b>, un server media separato (il <code>rtcd</code> open source di Mattermost, versione 0.17 o successiva). Imposta <b>URL del servizio RTCD</b> (<code>AM_CALLS_RTCD_SERVICE_URL</code>), ad esempio <code>https://rtcd.example.com</code>: tutte le chiamate passeranno quindi attraverso di esso e i client invieranno i propri media alla porta di rtcd anziché a quella di Antimatter. Le credenziali possono essere fornite con <code>AM_CALLS_RTCD_CLIENT_ID</code> e <code>AM_CALLS_RTCD_AUTH_KEY</code>; in loro assenza, l'app si registra autonomamente con rtcd. Non è necessaria una licenza. L'app Chiamate mostra agli amministratori un avviso che raccomanda rtcd quando sul server sono spesso presenti più di 50 persone in chiamata contemporaneamente.</p>
+
+<h2 id="transcription">Trascrizione e sottotitoli in tempo reale</h2>
+<p>Antimatter può trascrivere le chiamate con un modello speech-to-text che esegui tu stesso e mostrare sottotitoli in tempo reale mentre le persone parlano. Antimatter utilizza qualsiasi server che offra un endpoint <code>/v1/audio/transcriptions</code> compatibile con OpenAI, come un server Whisper sulla tua rete. Non è necessario alcun servizio aggiuntivo da parte di Antimatter.</p>
+<h3>Come funziona</h3>
+<ul>
+<li>L'ospite di una chiamata avvia la trascrizione con <b>Trascrivi la chiamata</b> nei controlli della chiamata. Un badge <b>Trascrizione in corso</b> avvisa tutti.</li>
+<li>L'app di ciascun partecipante ascolta il proprio microfono, divide il parlato in brevi frammenti (fino a 12 secondi, mai mentre è in silenzio) e li invia ad Antimatter, che li inoltra al tuo server speech-to-text.</li>
+<li>Con i sottotitoli in tempo reale attivi, il testo di ogni frammento viene mostrato immediatamente ai partecipanti come sottotitolo.</li>
+<li>Quando la trascrizione si arresta o la chiamata termina, il bot Chiamate pubblica la trascrizione come file di testo e file di sottotitoli WebVTT, nel thread della chiamata (nei canali vocali, nel canale).</li>
+<li>Con <b>Riassumi trascrizioni</b> attivo, l'agente predefinito dell'app Agenti pubblica anche un riassunto nel thread (vedi <a href="{{root}}docs/admins/ai.html">IA</a>).</li>
+</ul>
+<figure><img src="{{root}}assets/img/shots/transcript.webp" alt="A call's thread: the Calls bot has posted the transcript as a text file, and an AI agent has posted a summary below it."><figcaption>Dopo la chiamata, la trascrizione e il suo riassunto nel thread della chiamata.</figcaption></figure>
+<h3>Configurazione</h3>
+<p>Imposta questi parametri sul servizio <code>antimatter</code>:</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ENABLE_TRANSCRIPTIONS: "true"
+      AM_CALLS_TRANSCRIBE_API: openai
+      AM_CALLS_TRANSCRIBE_API_OPEN_AIURL: http://stt.internal:8000/v1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL: whisper-1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY: ""
+      AM_CALLS_ENABLE_LIVE_CAPTIONS: "true"
+      AM_CALLS_LIVE_CAPTIONS_LANGUAGE: en</code></pre>
+<table>
+<thead><tr><th>Impostazione</th><th>Variabile</th><th>Cosa inserire</th></tr></thead>
+<tbody>
+<tr><td><b>Abilita trascrizioni delle chiamate (Beta)</b></td><td><code>AM_CALLS_ENABLE_TRANSCRIPTIONS</code></td><td><code>true</code></td></tr>
+<tr><td><b>API trascrittore chiamate</b></td><td><code>AM_CALLS_TRANSCRIBE_API</code></td><td><code>openai</code> (visualizzato come "API compatibile con OpenAI (senza servizio job)")</td></tr>
+<tr><td><b>URL API speech-to-text</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AIURL</code></td><td>L'URL base dell'API, fino a e incluso <code>/v1</code>.</td></tr>
+<tr><td><b>Modello speech-to-text</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL</code></td><td>Il nome del modello come lo conosce l'API, ad esempio <code>whisper-1</code>. Obbligatorio.</td></tr>
+<tr><td><b>Chiave API speech-to-text</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY</code></td><td>Inviata come token bearer. Lasciala vuota se l'API non ne richiede una.</td></tr>
+<tr><td><b>Abilita sottotitoli in tempo reale (Beta)</b></td><td><code>AM_CALLS_ENABLE_LIVE_CAPTIONS</code></td><td><code>true</code> per i sottotitoli durante la chiamata.</td></tr>
+<tr><td><b>Lingua dei sottotitoli in tempo reale</b></td><td><code>AM_CALLS_LIVE_CAPTIONS_LANGUAGE</code></td><td>La lingua parlata, indicata con un codice di due lettere (<code>en</code> di default). Viene inviata anche all'API di speech-to-text per le trascrizioni, quindi impostala anche se non usi i sottotitoli.</td></tr>
+<tr><td><b>Riassumi le trascrizioni</b></td><td><code>AM_CALLS_SUMMARIZE_TRANSCRIPTIONS</code></td><td><code>true</code> per un riassunto generato dall'IA dopo la chiamata.</td></tr>
+</tbody>
+</table>
+<div class="callout">Nella Console di Sistema, le impostazioni per le trascrizioni compaiono solo quando <b>Abilita registrazioni delle chiamate</b> è attivo, anche se questo tipo di trascrizione non richiede una registrazione. Impostandole con le variabili sopra si evita questo problema. Non abilitare le registrazioni insieme al transcriber <code>openai</code>: in tal caso, l'avvio di una registrazione provocherebbe il tentativo di avviare il transcriber del job-service, che fallirebbe.</div>
+<p>L'audio di tutti i partecipanti che parlano mentre la trascrizione è attiva viene inviato al server di speech-to-text configurato, e la trascrizione viene pubblicata in un punto leggibile da tutti i membri del canale. Informa gli utenti e, se le chiamate sono riservate, mantieni quel server all'interno della tua rete.</p>
+
+<h2 id="recordings">Registrazioni</h2>
+<p>La registrazione delle chiamate (e la trascrizione con i transcriber integrati <code>whisper.cpp</code> o Azure) avviene in container separati avviati da un job service, <code>calls-offloader</code> di Mattermost, che è open-source e che devi tu stesso distribuire accanto ad Antimatter. Le impostazioni sono <b>Abilita registrazioni delle chiamate</b> (<code>AM_CALLS_ENABLE_RECORDINGS</code>, disattivata di default), <b>URL del job service</b> (<code>AM_CALLS_JOB_SERVICE_URL</code>), <b>Durata massima della registrazione delle chiamate</b> (60 minuti di default, da 15 a 180) e <b>Qualità della registrazione delle chiamate</b> (bassa, media o alta; media di default). Non è necessaria una licenza. Per sole trascrizioni e sottotitoli, la configurazione di speech-to-text descritta sopra è più semplice: non richiede un job service.</p>

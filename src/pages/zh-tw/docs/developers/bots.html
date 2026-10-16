@@ -1,0 +1,172 @@
+title: 機器人与互动消息
+description: Antimatter 中的机器人账号：创建方式、令牌与权限、以机器人身份发布消息、私人讯息、互动按钮与菜单，以及对话框。
+guide: developers
+order: 5
+nav: 机器人
+lead: 机器人账号是专为程序建立的用户。它拥有独立的使用者名称、头像与令牌，并在名称旁显示「BOT」标签。本页也涵盖消息的互动元素：按钮、菜单与对话框，任何整合皆可使用。
+source: 45503666f647
+---
+<h2 id="why">为何使用机器人账号</h2>
+<ul>
+<li>其消息来自明确的身份，并带有 <b>機器人</b> 标签，而非来自同事的账号。</li>
+<li>即使建立者变更角色或离开，其令牌仍可继续运作（除非伺服器停用已停权拥有者的机器人，详见下文）。</li>
+<li>机器人无法使用密码登入，也永远不会看到网页应用。</li>
+</ul>
+<p>应用程式会通过插件 API（<code>EnsureBotUser</code>）建立自己的机器人，例如待办事项或操作手册机器人。</p>
+
+<h2 id="enable">启用机器人账号</h2>
+<p>系统管理员需在 <b>系统控制台 › 整合 › 机器人账号</b> 中启用 <b>啟用建立機器人帳號</b>（<code>ServiceSettings.EnableBotAccountCreation</code>、<code>AM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION</code>）。此功能预设关闭。仅系统管理员可建立机器人，除非在权限设定中赋予其他角色此权限。</p>
+<p>在同一页面中，<b>當擁有者被停權時停用機器人帳號</b>（<code>ServiceSettings.DisableBotsWhenOwnerIsDeactivated</code>，预设开启）会在拥有者账号被停权时停用该机器人。</p>
+
+<h2 id="create">建立机器人</h2>
+<ol>
+<li>点选右上角的头像，接著选择 <b>整合 › 机器人账号</b>，然后点选 <b>新增機器人帳號</b>。</li>
+<li>输入 <b>使用者名稱</b>（仅限小写字母、数字、句点、连字符与底線），并可选择 <b>機器人圖示</b>、<b>顯示名稱</b> 与 <b>敘述</b>。</li>
+<li>选择 <b>角色</b>：<b>成員</b>，或用于管理伺服器的 <b>系統管理員</b>。请仅赋予机器人所需的最小权限。</li>
+<li>勾选 <b>post:channels</b> 以允许其在所有公开频道发布消息，或勾选 <b>post:all</b> 以允许其在所有频道（包含私人频道与私人讯息）发布消息，无需成为成员。</li>
+<li>设定其预设令牌的过期时间，然后选择 <b>建立機器人帳號</b>。</li>
+<li>复制显示的存取令牌。此令牌不会再次显示。</li>
+</ol>
+<p>稍后，在机器人列中点选 <b>建立新令牌</b> 可新增令牌，且每个令牌皆可停用或删除。即使个人存取令牌对一般用户关闭，机器人令牌仍可运作。</p>
+<p>使用 API：</p>
+<pre><code># create the bot (you become its owner)
+curl -X POST https://chat.example.com/api/v4/bots \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username": "deploy-bot", "display_name": "Deploy", "description": "Posts deployments"}'
+
+# give it a token
+curl -X POST https://chat.example.com/api/v4/users/$BOT_USER_ID/tokens \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"description": "deploy pipeline"}'</code></pre>
+<p>從命令列以管理員身分登入（非本地模式）：<code>amctl bot create deploy-bot --display-name Deploy --with-token --expires-in 90d</code>。其他端點：<code>GET /api/v4/bots</code>、<code>PUT /api/v4/bots/{bot_user_id}</code>、<code>POST /api/v4/bots/{bot_user_id}/disable</code> 和 <code>/enable</code>，以及 <code>POST /api/v4/bots/{bot_user_id}/assign/{user_id}</code> 以變更其擁有者。</p>
+
+<h2 id="membership">將機器人加入社群與頻道</h2>
+<p>新的機器人不會自動加入任何社群。請像添加人員一樣，透過社群的成員管理或 API 將其加入：</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/teams/$TEAM_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"team_id": "'$TEAM_ID'", "user_id": "'$BOT_USER_ID'"}'
+
+curl -X POST https://chat.example.com/api/v4/channels/$CHANNEL_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"user_id": "'$BOT_USER_ID'"}'</code></pre>
+<p>具有 <b>post:channels</b> 或 <b>post:all</b> 權限的機器人即使不是成員也可以發布訊息，但它只會收到其所加入頻道的 WebSocket 事件。</p>
+
+<h2 id="post">以機器人名義發布訊息</h2>
+<p>在任何 API 呼叫中使用機器人的令牌；<code>POST /api/v4/posts</code> 是最常用的（請參閱 <a href="{{root}}docs/developers/api.html#resources">主要資源</a>）。若要直接寫信給某人，請先開啟私人訊息頻道：</p>
+<pre><code># returns the channel; use its "id" as channel_id
+curl -X POST https://chat.example.com/api/v4/channels/direct \
+  -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' \
+  -d '["'$BOT_USER_ID'", "'$USER_ID'"]'</code></pre>
+<p>若要對他人的發言做出反應，請使用機器人的令牌追蹤 <a href="{{root}}docs/developers/api.html#websocket">WebSocket</a>，並回應您關注的 <code>posted</code> 事件。請忽略機器人自己的訊息以避免循環。</p>
+<p>只有特定人員可見的訊息（暫時性訊息）是透過 <code>POST /api/v4/posts/ephemeral</code> 和 <code>{"user_id", "post": {"channel_id", "message"}}</code> 發送的。這需要 <code>create_post_ephemeral</code> 權限，預設只有系統管理員擁有。整合通常會將暫時性訊息作為對斜線指令和按鈕的回應發送。</p>
+
+<h2 id="interactive">互動式訊息：按鈕和選單</h2>
+<p>任何包含附件的訊息都可以攜帶操作：按鈕和供選擇的選單。這些功能適用於透過 API、Webhook 和斜線指令回應發布的訊息。當有人使用其中一個操作時，Antimatter 會呼叫您的整合 URL。</p>
+<pre><code>{
+  "channel_id": "…",
+  "message": "Deploy **api 2.4.0** to production?",
+  "props": {
+    "attachments": [{
+      "actions": [
+        {
+          "id": "approve",
+          "type": "button",
+          "name": "Approve",
+          "style": "primary",
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "approve"}}
+        },
+        {
+          "id": "env",
+          "type": "select",
+          "name": "Pick an environment",
+          "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}],
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "env"}}
+        }
+      ]
+    }]
+  }
+}</code></pre>
+<ul>
+<li><code>type</code>：<code>button</code> 或 <code>select</code>。</li>
+<li><code>id</code>：字母、數字、連字號和底線，訊息中的每個操作必須不同。如果省略，系統會自動生成。</li>
+<li><code>style</code>（按鈕）：<code>default</code>、<code>primary</code>、<code>success</code>、<code>good</code>、<code>warning</code>、<code>danger</code>，或十六進位顏色碼。</li>
+<li><code>options</code>（選單），或 <code>data_source</code>：<code>users</code> 或 <code>channels</code> 以選擇人員或頻道。<code>default_option</code> 會預先選取一個值。</li>
+<li><code>integration.url</code>：點擊事件將被發送至此處。應用程式（外掛程式）可以使用自己的路由，例如 <code>/plugins/com.example.deploy/actions</code>。<code>integration.context</code> 由您定義：它會隨點擊事件回傳，且用戶端不會看到它。</li>
+</ul>
+<h3>您的整合接收到的請求</h3>
+<pre><code>{
+  "user_id": "…",
+  "user_name": "priya",
+  "channel_id": "…",
+  "channel_name": "releases",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "post_id": "…",
+  "trigger_id": "…",
+  "type": "button",
+  "context": {"release": "2.4.0", "action": "approve"}
+}</code></pre>
+<p>對於選單，<code>type</code> 為 <code>select</code>，而 <code>context.selected_option</code> 包含所選的值。</p>
+<h3>您的回應</h3>
+<pre><code>{
+  "update": {"message": "Deploy of **api 2.4.0** approved by @priya", "props": {}},
+  "ephemeral_text": "Done. The deploy starts in a minute."
+}</code></pre>
+<ul>
+<li><code>update</code>：取代訊息的文字與屬性，例如在按鈕使用後移除它們（使用空的 <code>props</code>）。</li>
+<li><code>ephemeral_text</code>：只有點擊者才能看到的訊息。</li>
+<li><code>goto_location</code>：要開啟的 URL。</li>
+<li>空回應體不會變更任何內容。</li>
+</ul>
+<p>伺服器會等待，直到達到<b>整合請求超時</b>的時間限制（預設為 30 秒）。位於私人網路位址的整合 URL 必須經過系統管理員允許，如同 Webhook 一樣。</p>
+
+<h2 id="dialogs">對話框</h2>
+<p>對話框是覆蓋在聊天視窗上的表單。您只能在回應使用者剛執行的動作（例如斜線指令或按鈕）時開啟它，因為它需要該請求的 <code>trigger_id</code>。<code>trigger_id</code> 的有效期限與整合請求超時時間相同。</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/actions/dialogs/open \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "trigger_id": "'$TRIGGER_ID'",
+    "url": "https://deploy.example.com/dialog",
+    "dialog": {
+      "callback_id": "new-release",
+      "title": "New release",
+      "introduction_text": "Fill in the release details.",
+      "submit_label": "Create",
+      "notify_on_cancel": false,
+      "state": "anything you want back",
+      "elements": [
+        {"display_name": "Version", "name": "version", "type": "text", "placeholder": "2.4.0"},
+        {"display_name": "Notes", "name": "notes", "type": "textarea", "optional": true},
+        {"display_name": "Environment", "name": "env", "type": "select",
+         "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}]},
+        {"display_name": "Owner", "name": "owner", "type": "select", "data_source": "users"},
+        {"display_name": "Notify the channel", "name": "notify", "type": "bool", "default": "true"}
+      ]
+    }
+  }'</code></pre>
+<table>
+<thead><tr><th>元素類型</th><th>顯示內容</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>單行欄位。<code>subtype</code>：可以是 <code>text</code>、<code>email</code>、<code>number</code>、<code>password</code>、<code>tel</code> 或 <code>url</code>。<code>min_length</code> 和 <code>max_length</code> 用於限制長度。</td></tr>
+<tr><td><code>textarea</code></td><td>多行欄位。</td></tr>
+<tr><td><code>select</code></td><td>清單：<code>options</code>，或 <code>data_source</code> 為 <code>users</code>、<code>channels</code>，或帶有 <code>data_source_url</code> 的 <code>dynamic</code>。<code>multiselect</code> 允許選擇多個值。</td></tr>
+<tr><td><code>bool</code></td><td>核取方塊。</td></tr>
+<tr><td><code>radio</code></td><td>從 <code>options</code> 中選擇一個選項。</td></tr>
+<tr><td><code>date</code>, <code>datetime</code></td><td>日期，或日期與時間。</td></tr>
+</tbody>
+</table>
+<p>每個元素都接受 <code>display_name</code>、<code>name</code>、<code>help_text</code>、<code>placeholder</code>、<code>default</code> 和 <code>optional</code>。</p>
+<p>當使用者提交時，Antimatter 會向對話框的 <code>url</code> 發送 POST 請求：</p>
+<pre><code>{
+  "type": "dialog_submission",
+  "callback_id": "new-release",
+  "state": "anything you want back",
+  "user_id": "…",
+  "channel_id": "…",
+  "team_id": "…",
+  "submission": {"version": "2.4.0", "notes": "", "env": "staging", "owner": "…", "notify": true},
+  "cancelled": false
+}</code></pre>
+<p>回應空內容以關閉對話框，或保持開啟狀態並顯示錯誤訊息：</p>
+<pre><code>{"errors": {"version": "This version already exists."}}</code></pre>
+<p><code>{"error": "…"}</code> 會顯示整個表單的訊息。若使用 <code>notify_on_cancel</code>，關閉對話框時會發送 <code>"cancelled": true</code>。對話框在應用程式中的運作方式相同：外掛程式 API 的 <code>OpenInteractiveDialog</code> 接受相同的請求。</p>

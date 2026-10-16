@@ -1,0 +1,120 @@
+title: Konfigurasjon
+description: Slik fungerer Antimatters konfigurasjon: innstillinger i databasen eller i config.json, AM_-miljøvariabler, Systemkonsollen, kommandolinjeverktøyet amctl og hvor loggene ligger.
+guide: admins
+order: 3
+nav: Konfigurasjon
+lead: Hvor Antimatter lagrer innstillingene, de tre måtene å endre dem på (Systemkonsoll, miljøvariabler, amctl) og hvor loggene havner.
+source: e2d6546121d3
+---
+<h2 id="where">Hvor innstillingene ligger</h2>
+<p>Hver serverinnstilling har et navn bestående av en seksjon og en nøkkel, for eksempel <code>ServiceSettings.SiteURL</code> eller <code>EmailSettings.SMTPServer</code>. Sammen danner de én konfigurasjon, som lagres på ett av to steder:</p>
+<ul>
+<li><b>I databasen.</b> Stedets compose-fil setter <code>AM_CONFIG</code> til PostgreSQL-forbindelses-URL-en, slik at konfigurasjonen er en rad i databasen og beholderen ikke lagrer noe på disken. Flere servere som deler én database, deler også konfigurasjonen sin.</li>
+<li><b>I en fil.</b> Uten <code>AM_CONFIG</code> leser serveren <code>config/config.json</code> ved siden av <code>bin/</code>-mappen (<code>/antimatter/config/config.json</code> i Docker-bildet). Utgavearkivet og produksjonscompose-filene i antimatter-docker fungerer på denne måten. Hold denne filen bare lesbar for serverens bruker: den inneholder passord og nøkler.</li>
+</ul>
+<p><code>AM_CONFIG</code> (eller <code>--config</code>-flagget til <code>antimatter</code>-kommandoen) godtar enten en filsti eller en <code>postgres://</code>-URL. Innstillinger du utelater, får standardverdien.</p>
+<p>For å flytte en eksisterende konfigurasjon fra en fil til databasen, kjør dette på serveren, og start deretter serveren med <code>AM_CONFIG</code> satt til samme URL:</p>
+<pre><code>amctl --local config migrate /opt/antimatter/config/config.json \
+    "postgres://antimatter:PASSWORD@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10"</code></pre>
+
+<h2 id="environment">Miljøvariabler</h2>
+<p>Enhver innstilling kan også gis som en miljøvariabel. Variablene har forrang over den lagrede konfigurasjonen, noe som gjør dem velegnet for det som hører til utrollingen: databasen, stedets URL, filopplagringen og portene.</p>
+<h3>Navngivningsregel</h3>
+<p>Skriv <code>AM_</code>, deretter seksjonen, deretter nøkkelen, i store bokstaver og separert med understreker. Ordene i en seksjons- eller nøkkelnavn er ikke separert:</p>
+<table>
+<thead><tr><th>Innstilling</th><th>Variabel</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.SiteURL</code></td><td><code>AM_SERVICESETTINGS_SITEURL</code></td></tr>
+<tr><td><code>SqlSettings.DataSource</code></td><td><code>AM_SQLSETTINGS_DATASOURCE</code></td></tr>
+<tr><td><code>EmailSettings.SMTPServer</code></td><td><code>AM_EMAILSETTINGS_SMTPSERVER</code></td></tr>
+<tr><td><code>PrivacySettings.EnableUserBlocking</code></td><td><code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li>Innstillinger som er sanne eller falske, tar <code>true</code> eller <code>false</code>; tall er vanlige tall.</li>
+<li>Listeinnstillinger tar verdiene sine separert med mellomrom, for eksempel <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>.</li>
+<li>Innstillinger som er objekter, tar JSON. Den eneste slike variabelen for apper er <code>AM_PLUGINSETTINGS_PLUGINS</code>, og den erstatter innstillingene for <em>alle</em> apper samtidig: sett appinnstillingene i Systemkonsollen eller med <code>amctl</code> i stedet (se nedenfor).</li>
+<li>Tidligere Mattermost-installasjoner bruker prefikset <code>MM_</code>, for eksempel <code>MM_SQLSETTINGS_DATASOURCE</code>. Det fungerer fortsatt som et arvelig alias. Når begge er satt, vinner <code>AM_</code>-variabelen.</li>
+</ul>
+<p>En innstilling som er gitt av en variabel er låst i Systemkonsollen, med merknaden «Denne innstillingen er satt gjennom en miljøvariabel. Den kan ikke endres gjennom Systemkonsollen.» Den skrives ikke til den lagrede konfigurasjonen: fjern variabelen, og den lagrede verdien gjelder igjen.</p>
+<h3>Med Docker Compose</h3>
+<p>Legg til variabler under <code>environment:</code> for <code>antimatter</code>-tjenesten, eller i en <code>compose.override.yaml</code> ved siden av <code>compose.yaml</code> (Compose leser den automatisk, og den overlever oppdateringer av den nedlastede filen):</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_LOGSETTINGS_CONSOLELEVEL: INFO</code></pre>
+<p>Bruk <code>docker compose up -d</code> for å anvende endringer, noe som lager containeren på nytt.</p>
+<h3>Variabler som leses av appene</h3>
+<p>Noen apper leser sine egne variabler, som er satt på <code>antimatter</code>-tjenesten: Calls-appen leser <code>AM_CALLS_*</code> (se <a href="{{root}}docs/admins/calls.html">Samtaler og tale</a>), og GIFs-appen leser <code>AM_GIFS_SERVICE_URL</code>, <code>AM_GIFS_API_KEY</code> og <code>AM_GIFS_UPLOAD_KEY</code> (se <a href="{{root}}docs/admins/apps.html">Inkluderte apper</a>).</p>
+
+<h2 id="console">Systemkonsollen</h2>
+<p>Systemkonsollen er administrasjonsområdet i nettappen, for systemadministratorer. For å åpne den, klikker du på profilbildet ditt og velger <b>Systemkonsoll</b>, eller går til <code>https://chat.example.com/admin_console</code>. Sidefeltet har en <b>Finn innstillinger</b>-boks som søker i alle sider.</p>
+<figure><img src="{{root}}assets/img/shots/admin.webp" alt="The System Console, with its sidebar of sections on the left and the SAML 2.0 settings page on the right."><figcaption>Systemkonsollen. Sidefeltet grupperer sidene i seksjoner som Reporting, User Management og Environment.</figcaption></figure>
+<p>Seksjonene er:</p>
+<ul>
+<li><b>Rapportering</b>: statistikk og serverlogger.</li>
+<li><b>Brukeradministrasjon</b>: brukere, grupper, samfunn (listet som team), kanaler, tillatelser og delegert administrasjon.</li>
+<li><b>Systemattributter</b>: egendefinerte profilattributter og attributtbasert tilgang.</li>
+<li><b>Miljø</b>: webserver, database, filopplagring, bildeproxy, SMTP, pushvarsler, hastighetsbegrensning, logging, sessjonslengder og ytelsesovervåking.</li>
+<li><b>Nettstedsoppsett</b>: merkevare, brukere og team, varsler, innlegg, fildeling og andre serveromfattende oppførsler.</li>
+<li><b>Autentisering</b>: registrering, pålogging med e-post og passord, MFA, AD/LDAP, SAML 2.0, OAuth 2.0, OpenID Connect og gjestetilgang.</li>
+<li><b>Plugins</b>: appadministrasjon og innstillingene for hver installert app.</li>
+<li><b>Integrasjoner</b>: webhooks, skråstrek-kommandoer, bot-kontoer, GIF-er, tekst til tale, CORS.</li>
+<li><b>Samsvar</b>: dataoppbevaring, samsvarseksport og -overvåking, revisjonslogging og egendefinerte vilkår og betingelser.</li>
+<li><b>Eksperimentell</b>: funksjoner som kan endres.</li>
+</ul>
+<p>I denne veiledningen skrives en innstilling som stien i Systemkonsollen, deretter etiketten, deretter konfigurasionstasten, for eksempel <b>Systemkonsoll › Nettstedsoppsett › Brukere og team › Aktiver ignorering, blokkering og meldingsforespørsler</b> (<code>PrivacySettings.EnableUserBlocking</code>).</p>
+<p>De fleste endringene gjelder så snart du klikker på <b>Lagre</b>. Noen (lytteadressen, noen database- og cacheinnstillinger) krever en omstart, og siden sier dette.</p>
+
+<h2 id="amctl">Kommandolinjeværktøyet amctl</h2>
+<p><code>amctl</code> administrerer en server fra kommandolinjen: brukere, samfunn, kanaler, apper, konfigurasjon, jobber og mer. Den kommuniserer med serveren på én av to måter.</p>
+<h3>Lokal modus, på serveren</h3>
+<p>Lokal modus lar <code>amctl</code> snakke med serveren gjennom en Unix-socket, uten pålogging. Den er aktiv i Docker-bildet. På en server installert fra et arkiv, aktiveres den med <b>Tjenesteanalyse.EnableLocalMode</b> (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>). Socketen er <code>/var/tmp/antimatter_local.socket</code> som standard (<code>ServiceSettings.LocalModeSocketLocation</code>).</p>
+<pre><code># with Docker Compose
+docker compose exec antimatter amctl --local system status
+# with a release archive
+sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code></pre>
+<div class="callout warn">Alle som kan bruke socketen, eller kjøre <code>docker compose exec</code> på vertsmaskinen, har full systemadministratorrett.</div>
+<h3>Fjern, med en konto</h3>
+<p>Fra en hvilken som helst maskin, logg inn med en systemadministrator-konto (eller et personlig tilgangstoken), og kjør deretter kommandoer mot den serveren:</p>
+<pre><code>amctl auth login https://chat.example.com --name prod --username admin
+amctl system status</code></pre>
+<h3>Konfigurasjonskommandoer</h3>
+<table>
+<thead><tr><th>Kommando</th><th>Hva det gjør</th></tr></thead>
+<tbody>
+<tr><td><code>amctl config get ServiceSettings.SiteURL</code></td><td>Skriver ut én innstilling.</td></tr>
+<tr><td><code>amctl config set TeamSettings.EnableOpenServer false</code></td><td>Endrer én innstilling. Listeinnstillinger tar flere verdier.</td></tr>
+<tr><td><code>amctl config patch settings.json</code></td><td>Slår sammen en JSON-fil med innstillinger i konfigurasjonen.</td></tr>
+<tr><td><code>amctl config show</code></td><td>Skriver ut hele konfigurasjonen som JSON.</td></tr>
+<tr><td><code>amctl config edit</code></td><td>Åpner konfigurasjonen i editor din (<code>$EDITOR</code>).</td></tr>
+<tr><td><code>amctl config reset</code></td><td>Tilbakestiller innstillingene til standardverdiene.</td></tr>
+<tr><td><code>amctl config reload</code></td><td>Laster inn konfigurasjonen fra der den er lagret, etter en endring gjort utenfor serveren.</td></tr>
+</tbody>
+</table>
+<p>Appinnstillinger ligger under <code>PluginSettings.Plugins.&lt;app id&gt;</code>, med nøkler i små bokstaver. For eksempel, for å sette GIFs-appens tjeneste-URL og nøkkel fra Docker-verten:</p>
+<pre><code>docker compose exec -T antimatter amctl --local config patch /dev/stdin &lt;&lt;'EOF'
+{"PluginSettings": {"Plugins": {"com.antimatterchat.gifs": {
+  "serviceurl": "http://gifs:8080/v2",
+  "apikey": "the GIFS_API_KEY of your .env"
+}}}}
+EOF</code></pre>
+<p>Andre nyttige kommandoer: <code>amctl user create</code>, <code>amctl user deactivate</code>, <code>amctl team create</code>, <code>amctl plugin list</code>, <code>amctl plugin enable</code>, <code>amctl system supportpacket</code> og <code>amctl logs</code>. Kjør <code>amctl help &lt;command&gt;</code> for hver sin valgmulighet.</p>
+
+<h2 id="logs">Logger</h2>
+<p>Serveren skriver loggen sin til to steder, der hvert har sitt eget nivå (<code>DEBUG</code>, <code>INFO</code>, <code>WARN</code> eller <code>ERROR</code>), som settes i <b>Systemkonsoll › Miljø › Logging</b>:</p>
+<table>
+<thead><tr><th>Mål</th><th>Innstillinger</th><th>Standardverdier</th></tr></thead>
+<tbody>
+<tr><td>Konsollen (standardutdata)</td><td><b>Skriv ut logger til konsoll</b> (<code>LogSettings.EnableConsole</code>), <b>Konsollloggnivå</b> (<code>LogSettings.ConsoleLevel</code>), <b>Skriv ut konsolllogger som JSON</b> (<code>LogSettings.ConsoleJson</code>)</td><td>på, <code>DEBUG</code>, JSON</td></tr>
+<tr><td>En fil, <code>antimatter.log</code></td><td><b>Skriv ut logger til fil</b> (<code>LogSettings.EnableFile</code>), <b>Filloggnivå</b> (<code>LogSettings.FileLevel</code>), <b>Filloggmappe</b> (<code>LogSettings.FileLocation</code>)</td><td>på, <code>INFO</code>, <code>logs/</code>-mappen ved siden av <code>bin/</code></td></tr>
+</tbody>
+</table>
+<p>Loggfiler roteres ved 100 MB, og de gamle komprimeres.</p>
+<p>Nettstedets compose-fil slår av fillogging (<code>AM_LOGSETTINGS_ENABLEFILE=false</code>), så loggene finnes bare i containerens utdata:</p>
+<pre><code>docker compose logs -f antimatter
+docker compose logs --since 1h antimatter | grep -i error</code></pre>
+<p>Konsollnivået er <code>DEBUG</code> som standard, noe som er detaljert. På en travl server bør du sette <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code>. Med et utgavearkiv under systemd går konsollutdataene til journalen (<code>journalctl -u antimatter</code>), og filen til <code>/opt/antimatter/logs/antimatter.log</code>.</p>
+<p>Når fillogging er slått på, kan systemadministratorer også lese de siste logglinjene i <b>Systemkonsoll › Rapportering › Serverlogger</b>, eller med <code>amctl logs</code>.</p>

@@ -1,0 +1,107 @@
+title: Zabezpečení
+description: Zpevnění serveru Antimatter: které porty vystavit, tajná data, omezení rychlosti, filtrování IP adres, limity nahrávání, nastavení soukromí a blokování uživatelů, relace, připojení, které server vytváří k externím službám, a jak nahlásit zranitelnost.
+guide: admins
+order: 12
+nav: Zabezpečení
+lead: Seznam úkolů pro zpevnění serveru Antimatter: co vystavit, které limity a nastavení soukromí je třeba zkontrolovat, jaké externí služby server kontaktuje a jak nahlásit bezpečnostní problém.
+source: dbe2371ecf30
+---
+<h2 id="exposure">Co vystavit</h2>
+<table>
+<thead><tr><th>Port</th><th>Služba</th><th>Vystavení</th></tr></thead>
+<tbody>
+<tr><td>443/tcp, 443/udp, 80/tcp</td><td>Váš HTTPS proxy (Caddy nebo nginx)</td><td>Veřejné: takto se lidé dostanou k Antimatteru.</td></tr>
+<tr><td>8443/udp a 8443/tcp</td><td>Média pro hovory</td><td>Veřejné, pokud lidé používají hovory zvenčí vaší sítě.</td></tr>
+<tr><td>8065/tcp</td><td>Webový server Antimatter</td><td>Pouze pro proxy: publikujte ho na <code>127.0.0.1</code> (<code>HTTP_PORT=127.0.0.1:8065</code>).</td></tr>
+<tr><td>8067/tcp</td><td>Metriky</td><td>Pouze ve vnitřní síti, pokud je zapnuté. Bez přihlášení.</td></tr>
+<tr><td>8074/tcp a udp</td><td>Gossip v klastru</td><td>Pouze mezi uzly klastru.</td></tr>
+<tr><td>5432, 9000, 8080, 8066</td><td>PostgreSQL, úložiště souborů, služba GIF, push proxy</td><td>Nikdy. Soubory compose je drží na vnitřních sítích bez publikovaného portu.</td></tr>
+</tbody>
+</table>
+<p>Soubor compose webu také spouští každý kontejner s <code>no-new-privileges</code>, spouští Antimatter jako neprivilegovaného uživatele na obrazu distroless a spouští službu GIF se souborovým systémem pouze pro čtení. Databáze, úložiště a služba GIF jsou na síti bez přístupu na Internet.</p>
+
+<h2 id="checklist">Seznam úkolů po instalaci</h2>
+<ol>
+<li>Vytvořte první účet administrátora, než se k serveru může dostat kdokoli jiný (<a href="{{root}}docs/admins/install.html#first-admin">Instalace</a>).</li>
+<li>Poskytujte Antimatter pouze přes HTTPS a nastavte adresu webu na adresu <code>https://</code> (<a href="{{root}}docs/admins/https.html">Doména a HTTPS</a>).</li>
+<li>Nechte soubory <code>.env</code>, <code>config.json</code> a TLS klíče čitelné pouze rootem (nebo uživatelem serveru): <code>chmod 600 .env</code>.</li>
+<li>Rozhodněte, kdo může vytvářet účty, nechte <b>Povolit otevřený server</b> vypnuté, pokud komunita není veřejná, a zapněte <b>Vyžadovat ověření e-mailu</b>, jakmile bude e-mail fungovat (<a href="{{root}}docs/admins/authentication.html">Přihlášení a účty</a>).</li>
+<li>Zapněte vícefaktorové ověřování a vynuťte ho alespoň pro účty administrátorů, nebo použijte ověřování vašeho poskytovatele identit.</li>
+<li>Zkontrolujte níže uvedené externí připojení, zejména STUN server, který hovory používají ve výchozím nastavení.</li>
+<li>Vytvořte zálohu a otestujte obnovu (<a href="{{root}}docs/admins/backups-upgrades.html">Zálohy a aktualizace</a>).</li>
+<li>Držte obrazy aktuální: bezpečnostní opravy přicházejí s novými obrazy.</li>
+</ol>
+
+<h2 id="rate-limiting">Omezení rychlosti</h2>
+<p>Server může omezit počet požadavků na API, které každý klient provede. Ve výchozím nastavení je vypnuto. V <b>Systémová konzole › Prostředí › Omezení frekvence</b>:</p>
+<table>
+<thead><tr><th>Nastavení</th><th>Klíč</th><th>Výchozí</th></tr></thead>
+<tbody>
+<tr><td><b>Povolit omezování rychlosti</b></td><td><code>RateLimitSettings.Enable</code></td><td>Vypnuto</td></tr>
+<tr><td><b>Maximální počet dotazů za sekundu</b></td><td><code>RateLimitSettings.PerSec</code></td><td>10</td></tr>
+<tr><td><b>Maximální velikost závalu</b></td><td><code>RateLimitSettings.MaxBurst</code></td><td>100</td></tr>
+<tr><td><b>Velikost úložiště v paměti</b></td><td><code>RateLimitSettings.MemoryStoreSize</code></td><td>10 000 sledovaných klientů</td></tr>
+<tr><td><b>Lišit omezování rychlosti podle vzdálené adresy</b></td><td><code>RateLimitSettings.VaryByRemoteAddr</code></td><td>zapnuto</td></tr>
+<tr><td><b>Lišit omezování rychlosti podle uživatele</b></td><td><code>RateLimitSettings.VaryByUser</code></td><td>Vypnuto</td></tr>
+<tr><td><b>Lišit omezování rychlosti podle HTTP hlavičky</b></td><td><code>RateLimitSettings.VaryByHeader</code></td><td>prázdné</td></tr>
+</tbody>
+</table>
+<p>Za proxy serverem fungují omezení podle adresy pouze tehdy, když server zná adresu každého klienta (<code>ServiceSettings.TrustedProxyIPHeader</code> a <code>ServiceSettings.TrustedProxyIPs</code>, viz <a href="{{root}}docs/admins/https.html#client-address">Adresy klientů za proxy</a>). Jinak se zdá, že všechny požadavky pocházejí z proxy, a všichni sdílejí jedno omezení. To platí i pro filtrování IP adres a pro adresy v auditních záznamech.</p>
+<p>Pokusy o přihlášení se omezují samostatně: <b>Maximální počet pokusů o přihlášení</b> (10) zablokuje účet po tolikrát neúspěšném zadání hesla.</p>
+
+<h2 id="ip-filtering">Filtrovaní IP adres</h2>
+<p><b>Systémová konzole › Konfigurace webu › Filtrování IP</b> omezuje přístup ke serveru podle IP adresy pomocí pravidel pro povolení a zamítnutí (každé pravidlo obsahuje adresu nebo CIDR rozsah). Když je <b>Zapnout filtrování IP adres</b> zapnuté, nemohou se ke serveru dostat lidé, jejichž adresa odpovídá pravidlu pro zamítnutí, nebo nemají povolené pravidlo, pokud nějaká pravidla pro povolení existují. Stránka zamítá pravidla, která by zablokovala vaši vlastní adresu. Za proxy serverem nejdřív nastavte adresy klientů (<a href="{{root}}docs/admins/https.html#client-address">Adresy klientů za proxy</a>), jinak by se zdálo, že všechny požadavky přicházejí z proxy.</p>
+
+<h2 id="uploads">Nahrávání a sdílení souborů</h2>
+<table>
+<thead><tr><th>Nastavení</th><th>Kde</th><th>Výchozí</th></tr></thead>
+<tbody>
+<tr><td><b>Maximální velikost souboru</b> (<code>FileSettings.MaxFileSize</code>)</td><td>Prostředí › Úložiště souborů</td><td>100 MB. Omezení velikosti požadavků proxy serveru nechte alespoň na této hodnotě.</td></tr>
+<tr><td><b>Maximální velikost datového přenosu (bajty)</b> (<code>ServiceSettings.MaximumPayloadSizeBytes</code>)</td><td>Prostředí › Webový server</td><td>300 000: největší požadavek na API kromě nahrávání souborů</td></tr>
+<tr><td><b>Povolit sdílení souborů</b> (<code>FileSettings.EnableFileAttachments</code>)</td><td>Konfigurace webu › Sdílení a stahování souborů</td><td>zapnuto</td></tr>
+<tr><td><b>Povolit nahrávání souborů na mobilních zařízeních</b>, <b>Povolit stahování souborů na mobilu</b></td><td>Konfigurace webu › Sdílení a stahování souborů</td><td>zapnuto</td></tr>
+<tr><td><b>Povolit veřejné odkazy na soubory</b> (<code>FileSettings.EnablePublicLink</code>)</td><td>Konfigurace webu › Veřejné odkazy</td><td>vypnuto: když je zapnuto, lidé mohou soubor sdílet odkazem, který funguje bez přihlášení</td></tr>
+<tr><td><b>Povolit SVG</b> (<code>ServiceSettings.EnableSVGs</code>)</td><td>Konfigurace webu › Příspěvky</td><td>na novém serveru vypnuto: když je zapnuto, SVG obrázky se zobrazují přímo v textu</td></tr>
+</tbody>
+</table>
+<p>Antimatter nenaskenuje nahrávané soubory na malware.</p>
+
+<h2 id="privacy">Nastavení soukromí</h2>
+<p>V <b>Systémová konzole › Konfigurace webu › Uživatelé a týmy</b>:</p>
+<table>
+<thead><tr><th>Nastavení</th><th>Klíč</th><th>Výchozí</th><th>Co dělá</th></tr></thead>
+<tbody>
+<tr><td><b>Zobrazit e-mailovou adresu</b></td><td><code>PrivacySettings.ShowEmailAddress</code></td><td>zapnuto</td><td>Vypnuto, e-mailové adresy členů jsou skryté před všemi kromě administrátorů. Na veřejných serverech ji vypněte.</td></tr>
+<tr><td><b>Zobrazit celé jméno</b></td><td><code>PrivacySettings.ShowFullName</code></td><td>zapnuto</td><td>Vypnuto, celá jména jsou skrytá a místo nich se zobrazují uživatelská jména.</td></tr>
+<tr><td><b>Povolit ignorování, blokování a žádosti o zprávy</b></td><td><code>PrivacySettings.EnableUserBlocking</code></td><td>zapnuto</td><td>Viz níže.</td></tr>
+<tr><td><b>Povolit uživatelům otevírat kanály přímých zpráv s</b></td><td><code>TeamSettings.RestrictDirectMessage</code></td><td>Libovolným uživatelem na serveru Antimatter</td><td>nebo <b>Libovolný člen týmu</b>: pouze lidé, kteří sdílejí komunitu.</td></tr>
+</tbody>
+</table>
+<h3>Ignorování, blokování a žádosti o zprávy</h3>
+<p>Pokud je <b>Povolit ignorování, blokování a žádosti o zprávy</b> zapnuto (výchozí stav), lidé si mohou navzájem ignorovat a blokovat a mohou si vybrat, aby přímé zprávy od neznámých osob přijímali jako žádosti o zprávy, které je neupozorní, dokud je nepřijmou. To vyhovuje veřejným komunitám. V pracovním prostředí, kde se musí kolegové vždy moci navzájem kontaktovat, tuto možnost vypněte (<code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING=false</code>): nic z toho se pak nedonucuje, ale seznamy a volby, které lidé provedli, se zachovají a znovu se použijí, pokud to zapnete zpět.</p>
+
+<h2 id="sessions">Relace a tokeny</h2>
+<ul>
+<li>Délka relací a časový limit nečinnosti: viz <a href="{{root}}docs/admins/authentication.html#sessions">Přihlášení a účty</a>. Kratší relace znamenají, že ztracený notebook nebo telefon zůstane přihlášen po kratší dobu.</li>
+<li><b>Povolit osobní přístupové tokeny</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, vypnuto) umožňuje lidem vytvářet API tokeny; <b>Maximální platnost osobního přístupového tokenu (dny)</b> je omezuje. Oba se nacházejí v <b>Systémová konzole › Integrace › Správa integrací</b>.</li>
+<li>Chcete-li všechny najednou odhlásit, například po podezření na kompromitaci: <b>Zrušit všechny relace</b> v <b>Systémová konzole › Správa uživatelů › Uživatelé</b>.</li>
+</ul>
+
+<h2 id="outbound">Připojení k externím službám</h2>
+<p>Antimatter nekontaktuje žádnou službu provozovanou společností Mattermost, Inc. Neodesílá žádnou telemetrii, hlášení o pádech ani kontroly bezpečnostních aktualizací a nezískává žádná produktová oznámení. Konfigurace přenesená z Mattermostu, která stále uvádí jednu ze služeb Mattermost (její push služby, její tržiště aplikací, její oznámení nebo její STUN server pro hovory), nedělá server kontaktující: tyto adresy se ignorují.</p>
+<p>Server a aplikace se připojují k jiným externím službám pouze pro funkce, které je potřebují, a ke službám, které vy nastavíte:</p>
+<table>
+<thead><tr><th>Funkce</th><th>Kontakty</th><th>Ve výchozím nastavení</th></tr></thead>
+<tbody>
+<tr><td>Hovory: hledání veřejných adres pomocí STUN. Server a každý, kdo se připojí k hovoru, pošle požadavek, který STUN serveru zobrazí jeho IP adresu a port.</td><td>Veřejný STUN server Cloudflare, <code>stun.cloudflare.com</code></td><td>zapnuto, pokud je aplikace Hovory povolená. Změnit to můžete v části <a href="{{root}}docs/admins/calls.html#network">Hovory</a>.</td></tr>
+<tr><td>Náhledy odkazů: server načítá stránky, na které odkazují zprávy (<b>Povolit náhledy odkazů na weby</b>, <code>ServiceSettings.EnableLinkPreviews</code>)</td><td>weby, na které lidé odkazují</td><td>zapnuto. Vypnout pomocí <code>AM_SERVICESETTINGS_ENABLELINKPREVIEWS=false</code>.</td></tr>
+<tr><td>Push oznámení do mobilní aplikace</td><td>vlastní push proxy (<a href="{{root}}docs/admins/email-push.html#push">Push oznámení</a>)</td><td>vypnuto, dokud nenastavíte její adresu</td></tr>
+<tr><td>Trh s aplikacemi (<code>PluginSettings.EnableRemoteMarketplace</code>)</td><td>nastavená <b>URL tržiště</b></td><td>vypnuto, adresa nenastavena</td></tr>
+<tr><td>E-mail</td><td>váš SMTP server</td><td>výchozí server je <code>localhost</code></td></tr>
+<tr><td>Jednotné přihlašování, AI modely, přepis řeči a překlad, odchozí webhooks a aplikace, jako jsou Pošta, Kalendář, GitHub, GitLab nebo Jira</td><td>služby, které nastavíte</td><td>vypnuto, dokud je nenastavíte</td></tr>
+</tbody>
+</table>
+<p>Ve výchozím nastavení server odmítá připojení k privátním a smyčkovým adresám pro tyto služby (náhledy odkazů, webhooks, aplikace), aby se zpráva nebo integrace nedala zneužít k přístupu do vašeho interního sítě. Interní hostitele, ke kterým je připojení povoleno, uvádějte v <b>Povolit nespolehlivé interní připojení k</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>, v <b>Systémová konzole › Prostředí › Vývojář</b>); v souboru compose projektu je zde uveden <code>gifs</code>.</p>
+
+<h2 id="report">Nahlášení zranitelnosti</h2>
+<p>Bezpečnostní problémy nahlázejte soukromě, jak je popsáno v <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">bezpečnostní politice Antimatter</a>, nikoli ve veřejných problémech.</p>

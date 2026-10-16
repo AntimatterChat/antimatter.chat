@@ -1,0 +1,113 @@
+title: Aanmelden en accounts
+description: Bepaal wie een account op Antimatter kan aanmaken en hoe mensen zich aanmelden: e-mail en wachtwoord, wachtwoordregels, meervoudige verificatie, OpenID Connect, GitLab, Google, Entra ID, SAML 2.0, AD/LDAP en gastaccounts.
+guide: admins
+order: 9
+nav: Aanmelden en accounts
+lead: Bepaal wie een account kan aanmaken en hoe mensen zich aanmelden. Elke aanmeldmethode van Antimatter werkt zonder licentie, inclusief single sign-on en directories.
+source: b4466d5ccfe1
+---
+<h2 id="signup">Wie een account kan aanmaken</h2>
+<p>Direct na de installatie, controleer <b>Systeemconsole › Authenticatie › Registreren</b>. Met de standaardinstellingen kan iedereen met een uitnodigingslink naar een community een account aanmaken, maar niemand kan zich registreren zonder een link.</p>
+<table>
+<thead><tr><th>Instelling</th><th>Sleutel</th><th>Standaardwaarde</th><th>Wat het doet</th></tr></thead>
+<tbody>
+<tr><td><b>Accounts aanmaken toestaan</b></td><td><code>TeamSettings.EnableUserCreation</code></td><td>aan</td><td>Uit: niemand kan een account aanmaken via welke methode dan ook; alleen beheerders kunnen dat (Systeemconsole of <code>amctl user create</code>).</td></tr>
+<tr><td><b>Open server activeren</b></td><td><code>TeamSettings.EnableOpenServer</code></td><td>Uit</td><td>Aan: iedereen die de server bereikt kan zich aanmelden met een e-mailadres, zonder uitnodiging. Gebruik dit alleen voor publieke communities.</td></tr>
+<tr><td><b>Nieuwe systeem- en teamleden beperken tot specifieke e-maildomeinen</b></td><td><code>TeamSettings.RestrictCreationToDomains</code></td><td>leeg</td><td>Door komma’s gescheiden domeinen, bijvoorbeeld <code>example.com, example.org</code>: alleen adressen van deze domeinen kunnen een account aanmaken.</td></tr>
+<tr><td><b>E-mailuitnodigingen inschakelen</b></td><td><code>ServiceSettings.EnableEmailInvitations</code></td><td>uit op een nieuwe server</td><td>Staat leden toe om mensen per e-mail uit te nodigen (vereist <a href="{{root}}docs/admins/email-push.html">SMTP</a>). <b>Maak wachtende e-mailuitnodigingen ongeldig</b> annuleert de uitnodigingen die nog niet zijn geaccepteerd; ze verlopen na 48 uur in elk geval.</td></tr>
+</tbody>
+</table>
+<p>Communitybeheerders bepalen ook wie hun community kan joinen, met uitnodigingslinks en hun eigen toegestane domeinen: zie de gids <a href="{{root}}docs/communities/index.html">Een community runnen</a>.</p>
+<p>Vanaf de opdrachtregel: <code>amctl user create</code> (voeg <code>--system-admin</code> of <code>--guest</code> toe), <code>amctl user invite</code>, <code>amctl user deactivate</code>, <code>amctl roles system-admin &lt;user&gt;</code> om iemand een systeembeheerder te maken, en <code>amctl roles member &lt;user&gt;</code> om dat ongedaan te maken.</p>
+
+<h2 id="email-password">E-mail en wachtwoord</h2>
+<p>In <b>Systeemconsole › Authenticatie › E-mail</b>:</p>
+<table>
+<thead><tr><th>Instelling</th><th>Sleutel</th><th>Standaardwaarde</th></tr></thead>
+<tbody>
+<tr><td><b>Inschakelen van het maken van een account met e-mail</b></td><td><code>EmailSettings.EnableSignUpWithEmail</code></td><td>aan. Zet dit uit wanneer iedereen zich aanmeldt via single sign-on.</td></tr>
+<tr><td><b>Vereist e-mail verificatie</b></td><td><code>EmailSettings.RequireEmailVerification</code></td><td>uit. Zet dit aan zodra <a href="{{root}}docs/admins/email-push.html">e-mail</a> werkt: mensen bevestigen dan hun adres voordat ze zich kunnen aanmelden.</td></tr>
+<tr><td><b>Inschakelen van inloggen met e-mail</b></td><td><code>EmailSettings.EnableSignInWithEmail</code></td><td>aan</td></tr>
+<tr><td><b>Inschakelen van inloggen met gebruikersnaam</b></td><td><code>EmailSettings.EnableSignInWithUsername</code></td><td>aan</td></tr>
+</tbody>
+</table>
+<p>In <b>Systeemconsole › Authenticatie › Wachtwoord</b>:</p>
+<table>
+<thead><tr><th>Instelling</th><th>Sleutel</th><th>Standaardwaarde</th></tr></thead>
+<tbody>
+<tr><td><b>Minimale Wachtwoordlengte</b></td><td><code>PasswordSettings.MinimumLength</code></td><td>8 (5 tot 72)</td></tr>
+<tr><td><b>Wachtwoord vereisten</b>: kleine letters, hoofdletters, cijfer, symbool</td><td><code>PasswordSettings.Lowercase</code>, <code>.Uppercase</code>, <code>.Number</code>, <code>.Symbol</code></td><td>alles uit</td></tr>
+<tr><td><b>Maximum aantal aanmeldingspogingen</b></td><td><code>ServiceSettings.MaximumLoginAttempts</code></td><td>10: na zoveel mislukte pogingen wordt het account vergrendeld tot het wachtwoord via e-mail is gereset</td></tr>
+<tr><td><b>Link Wachtwoord-vergeten inschakelen</b></td><td><code>PasswordSettings.EnableForgotLink</code></td><td>aan</td></tr>
+</tbody>
+</table>
+<p>Een lengte van 12 of meer is veiliger dan regels voor tekens. Om het wachtwoord van iemand te resetten: <b>Systeemconsole › Gebruikersbeheer › Gebruikers</b>, of <code>amctl user change-password &lt;user&gt; --password &lt;new&gt;</code>.</p>
+
+<h2 id="mfa">Meerfactorauthenticatie</h2>
+<p>Multi-factor authenticatie (MFA) voegt een code toe van een authenticator-app naast het wachtwoord. Het geldt voor accounts die inloggen met e-mail of AD/LDAP; bij single sign-on, gebruik de MFA van uw identiteitsprovider. In <b>Systeemconsole › Authenticatie › MFA</b>:</p>
+<ul>
+<li><b>Aanzetten multi-factor authenticatie</b> (<code>ServiceSettings.EnableMultifactorAuthentication</code>, uit): mensen kunnen MFA aanzetten in hun beveiligingsinstellingen.</li>
+<li><b>Multi-factor authenticatie afdwingen</b> (<code>ServiceSettings.EnforceMultifactorAuthentication</code>, uit): iedereen moet het instellen, bij registratie of bij de volgende inlogpoging.</li>
+</ul>
+<p>Als iemand hun apparaat verliest: <code>amctl user resetmfa &lt;user&gt;</code>, of reset het vanaf hun pagina in <b>Systeemconsole › Gebruikersbeheer › Gebruikers</b>.</p>
+
+<h2 id="sso">Single sign-on</h2>
+<p>Antimatter kan gebruikers aanmelden via uw identiteitsprovider. Bij de eerste aanmelding maakt het hun account (als accountcreatie is toegestaan) aan op basis van de naam, het e-mailadres en de gebruikersnaam die de provider verstuurt.</p>
+<h3>OpenID Connect, GitLab, Google en Entra ID</h3>
+<p>Ga naar <b>Systeemconsole › Authenticatie › OpenId Connect</b>, en kies onder <b>Selecteer aanbieder</b>: GitLab, Google Apps, Entra ID (Office 365) of <b>OpenID Connect (Andere)</b> voor een andere provider (Keycloak, Authentik, Zitadel, Okta, Auth0…).</p>
+<ol>
+<li>Maak in uw provider een toepassing (een "client") van het type web aan, met deze redirect-URI, voor de URL van uw site:
+<table>
+<thead><tr><th>Provider</th><th>Redirect-URI</th></tr></thead>
+<tbody>
+<tr><td>OpenID Connect (Anders)</td><td><code>https://chat.example.com/signup/openid/complete</code></td></tr>
+<tr><td>GitLab</td><td><code>https://chat.example.com/signup/gitlab/complete</code></td></tr>
+<tr><td>Google</td><td><code>https://chat.example.com/signup/google/complete</code></td></tr>
+<tr><td>Entra ID</td><td><code>https://chat.example.com/signup/office365/complete</code></td></tr>
+</tbody>
+</table></li>
+<li>In Antimatter, vul het <b>Discovery eindpunt</b> in (de <code>/.well-known/openid-configuration</code> URL van de provider; voor GitLab, de <b>GitLab Site URL</b> in plaats daarvan), de <b>Klant ID</b> en het <b>Client geheim</b>. Voor andere providers, ook de <b>Knopnaam</b> en <b>Knopkleur</b> van de inlogknop.</li>
+<li><b>Gebruik de voorkeursgebruikersnaam</b> (GitLab en andere providers) haalt de Antimatter-gebruikersnaam uit de <code>preferred_username</code>-claim van de provider.</li>
+<li>Sla op, meld af en probeer de nieuwe knop op de aanmeldpagina.</li>
+</ol>
+<p>De instellingen worden opgeslagen in <code>OpenIdSettings</code>, <code>GitLabSettings</code>, <code>GoogleSettings</code> of <code>Office365Settings</code> (bijvoorbeeld <code>AM_OPENIDSETTINGS_ENABLE</code>, <code>AM_OPENIDSETTINGS_DISCOVERYENDPOINT</code>, <code>AM_OPENIDSETTINGS_ID</code>, <code>AM_OPENIDSETTINGS_SECRET</code>). De oudere OAuth 2.0-pagina verschijnt alleen voor servers die nog een OAuth 2.0-configuratie voor GitLab, Google of Entra ID hebben.</p>
+<h3>SAML 2.0</h3>
+<p>Schakel in <b>Systeem console › Authenticatie › SAML 2.0</b> <b>Aanmelden met SAML 2.0 Inschakelen</b> (<code>SamlSettings.Enable</code>) in en vul in wat uw identiteitsprovider u verstrekt: de <b>Identiteitsprovider Metadata URL</b>, of de <b>SAML SSO URL</b>, de <b>Identity Provider Issuer URL</b> en het <b>Identity Provider publiek certificaat</b>. Aan de kant van de identiteitsprovider:</p>
+<ul>
+<li>Login-URL van de serviceprovider (assertion consumer service): <code>https://chat.example.com/login/sso/saml</code>;</li>
+<li>De metadata van Antimatter, voor providers die deze importeren: <code>https://chat.example.com/api/v4/saml/metadata</code>.</li>
+</ul>
+<p>Koppel de attributen die uw provider verstuurt: ten minste het <b>E-mail attribuut</b> en het <b>Gebruikersnaam Attribuut</b>, en optioneel de ID, voornaam, achternaam, bijnaam, functie, taal, gast- en beheerderattributen. <b>Handtekening verifiëren</b> en <b>Inschakelen van versleuteling</b> zijn standaard ingeschakeld (versleuteling vereist een serviceprovider-sleutel en certificaat; alleen RSA-sleutels worden ondersteund); <b>Aanvraag ondertekenen</b> is uit. Het handtekeningalgoritme is standaard RSAwithSHA256.</p>
+<h3>AD/LDAP</h3>
+<p>In <b>Systeem console › Authenticatie › AD/LDAP</b> koppelt een stap-voor-stap-pagina Antimatter aan Active Directory of een andere LDAP-server: de server en poort (<code>LdapSettings.LdapServer</code>, <code>LdapSettings.LdapPort</code>, standaard 389), de verbindingsbeveiliging (geen, TLS of STARTTLS), de basis-DN en een bind-account (<code>BaseDN</code>, <code>BindUsername</code>, <code>BindPassword</code>), filters voor gebruikers, gasten, beheerders en groepen, en de attributen voor e-mail, gebruikersnaam, ID, namen en foto. Mensen kunnen zich daarna aanmelden met hun directory-login.</p>
+<p>Een synchronisatiejob wordt elke 60 minuten uitgevoerd (<code>LdapSettings.SyncIntervalMinutes</code>) om namen bij te werken en personen die uit de directory zijn verwijderd, te deactiveren; voer deze nu uit met <code>amctl ldap sync</code>. LDAP-groepen kunnen worden gekoppeld aan gemeenschappen en kanalen in <b>Systeem console › Gebruikersbeheer › Groepen</b>. SAML-accounts kunnen ook gesynchroniseerd worden met AD/LDAP (<b>Synchronisatie van SAML-accounts met AD/LDAP inschakelen</b>).</p>
+<h3>Bestaande accounts verplaatsen</h3>
+<p>Om bestaande e-mailaccounts over te zetten naar single sign-on, verplaatst <code>amctl user migrate-auth email saml users.json</code> (of <code>ldap</code>) ze in bulk. Een gebruiker kan ook de eigen aanmeldmethode wijzigen in de beveiligingsinstellingen wanneer <b>Overdracht van verificatie toestaan</b> (<code>ServiceSettings.ExperimentalEnableAuthenticationTransfer</code>, in <b>Systeem console › Experimenteel › Functies</b>) is ingeschakeld.</p>
+
+<h2 id="guests">Gastaccounts</h2>
+<p>Gasten zijn personen buiten uw organisatie die alleen de kanalen zien waartoe ze zijn uitgenodigd. Schakel ze in via <b>Systeem console › Authenticatie › Gasttoegang</b>:</p>
+<table>
+<thead><tr><th>Instelling</th><th>Sleutel</th><th>Standaardwaarde</th></tr></thead>
+<tbody>
+<tr><td><b>Gasttoegang Inschakelen</b></td><td><code>GuestAccountsSettings.Enable</code></td><td>Uit</td></tr>
+<tr><td><b>Goedgekeurde gastdomeinen</b></td><td><code>GuestAccountsSettings.RestrictCreationToDomains</code></td><td>leeg: gasten mogen elk e-maildomein hebben</td></tr>
+<tr><td><b>Multi-factor authenticatie afdwingen</b></td><td><code>GuestAccountsSettings.EnforceMultifactorAuthentication</code></td><td>uit; alleen beschikbaar wanneer MFA voor iedereen is ingeschakeld en verplicht</td></tr>
+<tr><td><b>Gast-tag verbergen</b></td><td><code>GuestAccountsSettings.HideTags</code></td><td>uit: er wordt een "guest"-label naast de naam getoond</td></tr>
+</tbody>
+</table>
+<p>Wanneer ingeschakeld, nodigen communitybeheerders gasten uit voor specifieke kanalen. Beheerders kunnen een lid demoveren tot gast met <code>amctl user demote</code>, en een gast promoveren tot lid met <code>amctl user promote</code>.</p>
+
+<h2 id="sessions">Sessies</h2>
+<p>De duur van de aanmelding wordt ingesteld in <b>Systeem console › Omgeving › Sessielengte</b>:</p>
+<table>
+<thead><tr><th>Instelling</th><th>Sleutel</th><th>Standaard op een nieuwe server</th></tr></thead>
+<tbody>
+<tr><td><b>Lengte van sessie uitbreiden met activiteit</b></td><td><code>ServiceSettings.ExtendSessionLengthWithActivity</code></td><td>aan: sessies worden vernieuwd terwijl mensen Antimatter gebruiken</td></tr>
+<tr><td><b>Sessieduur AD/LDAP en e-mail (uren)</b></td><td><code>ServiceSettings.SessionLengthWebInHours</code></td><td>720 uur (30 dagen)</td></tr>
+<tr><td><b>Sessieduur voor mobiel (uren)</b></td><td><code>ServiceSettings.SessionLengthMobileInHours</code></td><td>720 uur</td></tr>
+<tr><td><b>Sessieduur voor SSO (uren)</b></td><td><code>ServiceSettings.SessionLengthSSOInHours</code></td><td>720 uur</td></tr>
+<tr><td><b>Timeout bij inactiviteit van sessie (minuten)</b></td><td><code>ServiceSettings.SessionIdleTimeoutInMinutes</code></td><td>43200 minuten (30 dagen); alleen zichtbaar wanneer sessies niet worden verlengd door activiteit</td></tr>
+<tr><td><b>Sessies beëindigen als wachtwoord wordt gewijzigd</b></td><td><code>ServiceSettings.TerminateSessionsOnPasswordChange</code></td><td>aan</td></tr>
+</tbody>
+</table>
+<p>Om iedereen tegelijk af te melden, gebruikt u <b>Alle Sessies Intrekken</b> in <b>Systeem console › Gebruikersbeheer › Gebruikers</b>. Om één persoon af te melden, opent u diens pagina daar.</p>

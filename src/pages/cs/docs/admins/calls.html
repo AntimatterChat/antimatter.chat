@@ -1,0 +1,126 @@
+title: Hovory a hlas
+description: Nastavení hovorů a hlasových kanálů v Antimatter: mediální port, NAT a STUN, TURN, testovací režim, video, externí rtcd server, přepis a titulky v reálném čase s vlastním speech-to-text modelem a nahrávky.
+guide: admins
+order: 5
+nav: Hovory a hlas
+lead: Hovory a hlasové kanály odesílají audio, video a sdílení obrazovky přímo na server na jeho vlastním portu. Tato stránka popisuje síťovou stránku, nastavení, která je třeba zkontrolovat po instalaci, a přepis pomocí speech-to-text modelu, který provozujete sami.
+source: 16057458346f
+---
+<h2 id="overview">Jak hovory fungují</h2>
+<p>Hovory zajišťuje aplikace <b>Hovory</b> (id <code>com.mattermost.calls</code>), která je nainstalována a povolená ve výchozím nastavení. Hlasové kanály (aplikace <b>Hlasové kanály</b>, obraz <code>antimatter-next</code>) jsou trvalé místnosti pro hovory postavené na aplikaci Hovory: vyžadují povolenou aplikaci Hovory a používají stejné nastavení, porty a servery.</p>
+<p>Aplikace Hovory spouští mediální server uvnitř Antimatter. Webová aplikace, desktopová aplikace a mobilní aplikace se k němu připojují pomocí WebRTC:</p>
+<ul>
+<li>signalling probíhá přes běžné webové připojení (váš HTTPS proxy);</li>
+<li><b>media</b> (audio, video, sdílení obrazovky) ne: putuje přímo na server na portu pro hovory, ve výchozím nastavení <b>8443 UDP a TCP</b>.</li>
+</ul>
+<p>Nastavení najdete v <b>Systémová konzole › Pluginy › Hovory</b>. Každé z nich lze také nastavit pomocí proměnné prostředí <code>AM_CALLS_</code> na službě <code>antimatter</code>, která má pak přednost před Systémovou konzolí a zamkne nastavení. Fungují také starší názvy <code>MM_CALLS_</code>.</p>
+
+<h2 id="after-install">Po instalaci zkontrolujte tyto položky</h2>
+<ol>
+<li><b>Otevřete port pro hovory.</b> Povolte 8443/udp a 8443/tcp v firewallu serveru a vašeho cloudového poskytovatele.</li>
+<li><b>Vypněte testovací režim.</b> <b>Testovací režim</b> (<code>DefaultEnabled</code>) je ve výchozím nastavení zapnutý: hovory v kanálech mohou spouštět pouze systémoví administrátoři, takže můžete ověřit, že hovory fungují, než je začnou používat všichni. Nastavte na <b>Vypnuto</b> v <b>Systémová konzole › Pluginy › Hovory</b> nebo nastavte <code>AM_CALLS_DEFAULT_ENABLED=true</code>.</li>
+<li><b>Rozhodněte se ohledně videa.</b> <b>Povolit videohovory v přímých zprávách (Experimentální)</b> (<code>EnableVideo</code>, <code>AM_CALLS_ENABLE_VIDEO</code>) je ve výchozím nastavení vypnuto. Zatímco je vypnuto, nikdo nemůže zapnout kameru, ani v hlasových kanálech. Když je zapnuto, kamery fungují v hovorech přímých zpráv a v hlasových kanálech (pokud není vypnuto <b>Povolit video v hlasových kanálech</b> v aplikaci Hlasové kanály).</li>
+<li><b>Za NAT nastavte veřejnou adresu</b> (následující sekce).</li>
+</ol>
+
+<h2 id="network">Porty, NAT a STUN</h2>
+<table>
+<thead><tr><th>Nastavení</th><th>Proměnná</th><th>Výchozí</th></tr></thead>
+<tbody>
+<tr><td><b>Port RTC serveru (UDP)</b></td><td><code>AM_CALLS_UDP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>Port RTC serveru (TCP)</b></td><td><code>AM_CALLS_TCP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>Adresa RTC serveru (UDP)</b>, <b>(TCP)</b></td><td><code>AM_CALLS_UDP_SERVER_ADDRESS</code>, <code>AM_CALLS_TCP_SERVER_ADDRESS</code></td><td>prázdné: všechny adresy</td></tr>
+<tr><td><b>Přepsání ICE hostitele</b></td><td><code>AM_CALLS_ICE_HOST_OVERRIDE</code></td><td>prázdné: nalezeno přes STUN</td></tr>
+<tr><td><b>Přepsání ICE host portu</b></td><td><code>AM_CALLS_ICE_HOST_PORT_OVERRIDE</code></td><td>prázdné: port serveru</td></tr>
+<tr><td><b>Konfigurace ICE serverů</b></td><td><code>AM_CALLS_ICE_SERVERS_CONFIGS</code></td><td><code>[{"urls":["stun:stun.cloudflare.com:3478"]}]</code></td></tr>
+<tr><td><b>(Experimentální) Povolit podporu IPv6</b></td><td>(Systémová konzole)</td><td>Vypnuto</td></tr>
+</tbody>
+</table>
+<p>Porty musí být v rozmezí od 80 do 49151. V souboru compose webu změňte <code>CALLS_PORT</code> v <code>.env</code>: nastaví obě proměnné a zveřejní port, stejný číslo na hostiteli i v kontejneru. Klientské aplikace nejdřív zkusí UDP a při neúspěchu přejdou na TCP na stejném portu.</p>
+<h3>Adresa, na kterou klienti posílají média</h3>
+<p>Server sdělí každému klientovi adresu, na kterou má posílat média (jeho „host candidate“). Ve výchozím nastavení najde svou veřejnou adresu tak, že se zeptá STUN serveru, veřejné služby, která odpoví adresou a portem, ze kterých přišel požadavek. Výchozím nastavením je veřejný STUN server Cloudflare, <code>stun:stun.cloudflare.com:3478</code>. Používá ho ne jen server: každý klient, který se připojí k hovoru, se ho také zeptá na svou vlastní veřejnou adresu. STUN server vidí jen IP adresy a porty, nikdy zvuk, video ani zprávy z hovorů.</p>
+<p>Server, který má v <b>Konfiguraci ICE serverů</b> stále uložený STUN server Mattermost (<code>stun.global.calls.mattermost.com</code>), například po přechodu z Mattermost, místo něj používá STUN server Cloudflare. Uložené nastavení se nezmění.</p>
+<p>Adresu nastavte ručně, když:</p>
+<ul>
+<li>server je za NAT, nebo má více veřejných adres: nastavte <b>Přepsání ICE hosta</b> na veřejnou IP adresu (nebo na jméno hostitele, které se na ni přeloží);</li>
+<li>NAT mapuje jiný veřejný port na 8443: nastavte také <b>Přepsání ICE host portu</b> na ten veřejný port;</li>
+<li>server nemá přístup na Internet, nebo nechcete, aby se server i klienti spojovali s externím STUN serverem: nastavte <b>Přepsání ICE hosta</b> a vyprázdněte seznam STUN serverů pomocí <code>AM_CALLS_ICE_SERVERS_CONFIGS=[]</code>. Když je nastaveno <b>Přepsání ICE hosta</b>, server se už neptá STUN serveru na svou adresu; prázdný seznam zabrání klientům, aby se ho ptali.</li>
+</ul>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ICE_HOST_OVERRIDE: 203.0.113.10
+      AM_CALLS_ICE_SERVERS_CONFIGS: "[]"</code></pre>
+<p>Pokud chcete STUN bez třetí strany, spusťte vlastní STUN server (TURN server, např. coturn, také odpovídá na STUN požadavky) a v <b>Konfiguraci ICE serverů</b> ho nahraďte tímto, jako v příkladu TURN níže.</p>
+<p>Pouze v lokální síti použijte LAN adresu serveru. Po změně portů, adres nebo nastavení ICE server restartujte, nebo vypněte a zapněte aplikaci Hovory: mediální server se nastaví při spuštění aplikace.</p>
+
+<h2 id="turn">TURN, pro přísné firewally</h2>
+<p>Některé sítě blokují jak UDP, tak odchozí připojení na neobvyklé TCP porty. Uživatelé na těchto sítích potřebují TURN server, který přenáší média přes port, na který se mohou připojit (často 443). Antimatter TURN server neobsahuje; spusťte TURN server, například coturn, a přidejte ho do <b>Nastavení ICE serverů</b>, což je JSON seznam:</p>
+<pre><code>[
+  {"urls": ["stun:turn.example.com:3478"]},
+  {"urls": ["turn:turn.example.com:3478?transport=udp", "turns:turn.example.com:443?transport=tcp"]}
+]</code></pre>
+<ul>
+<li>Při použití sdíleného hesla (coturn <code>use-auth-secret</code>) zadejte stejné heslo do <b>Statické autentizační tajemství TURN</b> (<code>AM_CALLS_TURN_STATIC_AUTH_SECRET</code>): server každému klientovi vydá krátkodobé přihlašovací údaje, platné po dobu <b>Platnosti přihlašovacích údajů TURN (minuty)</b> (výchozí hodnota je 240).</li>
+<li>Při pevných přihlašovacích údajích přidejte do záznamu TURN místo toho <code>"username"</code> a <code>"credential"</code>.</li>
+<li><b>Server-side TURN</b> (výchozí stav je vypnuto) používá TURN servery i pro připojení, která iniciuje server.</li>
+</ul>
+
+<h2 id="general">Další nastavení hovorů</h2>
+<table>
+<thead><tr><th>Nastavení</th><th>Proměnná</th><th>Výchozí</th><th>Co dělá</th></tr></thead>
+<tbody>
+<tr><td><b>Maximální počet účastníků hovoru</b></td><td><code>AM_CALLS_MAX_CALL_PARTICIPANTS</code></td><td>0 (bez omezení)</td><td>Nejvyšší počet lidí v jednom hovoru.</td></tr>
+<tr><td><b>Povolit sdílení obrazovky</b></td><td>(Systémová konzole)</td><td>zapnuto</td><td>Umožňuje účastníkům sdílet svou obrazovku.</td></tr>
+<tr><td><b>Povolit zvonění při hovoru</b></td><td><code>AM_CALLS_ENABLE_RINGING</code></td><td>zapnuto</td><td>Při zahájení hovoru v přímé nebo skupinové zprávě zvoní ostatním lidem v této konverzaci.</td></tr>
+<tr><td><b>Povolit simulcast pro sdílení obrazovky (Experimentální)</b></td><td>(Systémová konzole)</td><td>Vypnuto</td><td>Odesílá sdílení obrazovky v několika kvalitách.</td></tr>
+<tr><td><b>Povolit kodek AV1 pro sdílení obrazovky (Experimentální)</b></td><td>(Systémová konzole)</td><td>Vypnuto</td><td>Ignoruje se, pokud je simulcast zapnutý.</td></tr>
+</tbody>
+</table>
+<p>Aplikace Hlasové kanály má dvě nastavení, v <b>Systémová konzole › Pluginy › Hlasové kanály</b>: <b>Připojit se při otevření hlasového kanálu</b> (výchozí stav je zapnuto) a <b>Povolit video v hlasových kanálech</b> (výchozí stav je zapnuto, ale viz video výše). Komunitní administrátoři přemění kanál na hlasový kanál v jeho nastaveních.</p>
+<div class="callout">Pokud chcete hovory zcela vypnout, zakážte aplikaci Hovory v <b>Systémová konzole › Pluginy › Správa pluginů</b> nebo nastavte <code>AM_CALLS_DISABLE=true</code>. Hlasové kanály pak také přestanou fungovat.</div>
+
+<h2 id="rtcd">Větší servery: externí rtcd</h2>
+<p>Ve výchozím nastavení nese všechny mediální data hovorů jeden server Antimatter. Pro mnoho současných hovorů, nebo pokud chcete média oddělit od chatovacího serveru, může aplikace Hovory předat média samostatnému mediálnímu serveru <b>rtcd</b> (open-source <code>rtcd</code> od Mattermost, verze 0.17 nebo novější). Nastavte <b>URL služby RTCD</b> (<code>AM_CALLS_RTCD_SERVICE_URL</code>), například <code>https://rtcd.example.com</code>: všechny hovory pak proběhnou přes něj a klienti pošlou svá média na vlastní port rtcd, nikoli na port Antimatter. Přístupová data lze zadat pomocí <code>AM_CALLS_RTCD_CLIENT_ID</code> a <code>AM_CALLS_RTCD_AUTH_KEY</code>; bez nich se aplikace sama zaregistruje u rtcd. Licence není potřeba. Aplikace Hovory zobrazí administrátorům varování s doporučením použít rtcd, pokud se na serveru často současně v hovorech nachází více než 50 lidí.</p>
+
+<h2 id="transcription">Přepis a titulky v reálném čase</h2>
+<p>Antimatter může přepisovat hovory pomocí modelu pro převod řeči na text, který provozujete sami, a zobrazovat titulky v reálném čase, zatímco lidé mluví. Antimatter využívá jakýkoli server, který nabízí endpoint <code>/v1/audio/transcriptions</code> kompatibilní s OpenAI, například server Whisper vaší sítě. Žádná další služba od Antimatter není potřeba.</p>
+<h3>Jak to funguje</h3>
+<ul>
+<li>Hostitele hovoru spustí přepis pomocí <b>Přepsat hovor</b> v ovládacích prvkách hovoru. Odznak <b>Přepisování</b> informuje všechny účastníky.</li>
+<li>Aplikace každého účastníka naslouchá jeho vlastní mikrofonu, rozseká řeč na krátké úseky (do 12 sekund, nikdy při ztlumeném zvuku) a pošle je do Antimatter, který je předá vašemu serveru pro převod řeči na text.</li>
+<li>Pokud jsou zapnuté titulky v reálném čase, text každého úseku se účastníkům okamžitě zobrazí jako titulek.</li>
+<li>Když se přepis zastaví nebo hovor skončí, bot Hovory pošle přepis jako soubor s textem a soubor s titulky ve formátu WebVTT do vlákna hovoru (v hlasových kanálech do kanálu).</li>
+<li>Pokud je zapnuto <b>Shrnutí přepisů</b>, výchozí agent aplikace Agenti pošle do vlákna také shrnutí (viz <a href="{{root}}docs/admins/ai.html">AI</a>).</li>
+</ul>
+<figure><img src="{{root}}assets/img/shots/transcript.webp" alt="A call's thread: the Calls bot has posted the transcript as a text file, and an AI agent has posted a summary below it."><figcaption>Po hovoru: přepis a jeho shrnutí ve vláknu hovoru.</figcaption></figure>
+<h3>Nastavení</h3>
+<p>Na službě <code>antimatter</code> nastavte:</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ENABLE_TRANSCRIPTIONS: "true"
+      AM_CALLS_TRANSCRIBE_API: openai
+      AM_CALLS_TRANSCRIBE_API_OPEN_AIURL: http://stt.internal:8000/v1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL: whisper-1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY: ""
+      AM_CALLS_ENABLE_LIVE_CAPTIONS: "true"
+      AM_CALLS_LIVE_CAPTIONS_LANGUAGE: en</code></pre>
+<table>
+<thead><tr><th>Nastavení</th><th>Proměnná</th><th>Co zadat</th></tr></thead>
+<tbody>
+<tr><td><b>Povolit přepisování hovorů (Beta)</b></td><td><code>AM_CALLS_ENABLE_TRANSCRIPTIONS</code></td><td><code>true</code></td></tr>
+<tr><td><b>API pro přepisování hovorů</b></td><td><code>AM_CALLS_TRANSCRIBE_API</code></td><td><code>openai</code> (zobrazí se jako "OpenAI-compatible API (no job service)")</td></tr>
+<tr><td><b>URL API pro převod řeči na text</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AIURL</code></td><td>Základní URL API, včetně <code>/v1</code>.</td></tr>
+<tr><td><b>Model pro převod řeči na text</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL</code></td><td>Název modelu, jak ho zná API, například <code>whisper-1</code>. Povinné.</td></tr>
+<tr><td><b>API klíč pro převod řeči na text</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY</code></td><td>Odesílá se jako bearer token. Nechte prázdné, pokud API žádný klíč nevyžaduje.</td></tr>
+<tr><td><b>Povolit titulky v reálném čase (Beta)</b></td><td><code>AM_CALLS_ENABLE_LIVE_CAPTIONS</code></td><td><code>true</code> pro titulky v reálném čase během hovoru.</td></tr>
+<tr><td><b>Jazyk titulků v reálném čase</b></td><td><code>AM_CALLS_LIVE_CAPTIONS_LANGUAGE</code></td><td>Mluvený jazyk jako dvoumístný kód (výchozí je <code>en</code>). Tento kód se odesílá i do rozhraní pro přepis řeči, proto ho nastavte i v případě, že titulky nebudete používat.</td></tr>
+<tr><td><b>Shrnutí přepisů</b></td><td><code>AM_CALLS_SUMMARIZE_TRANSCRIPTIONS</code></td><td><code>true</code> pro AI shrnutí po skončení hovoru.</td></tr>
+</tbody>
+</table>
+<div class="callout">V Systémové konzoli se nastavení přepisů zobrazí až po zapnutí možnosti <b>Povolit nahrávání hovorů</b>, přestože tento typ přepisu nahrávání nevyžaduje. Nastavení pomocí proměnných výše tomu zabrání. Nepoužívejte nahrávání hovorů společně s přepisovačem <code>openai</code>: spuštění nahrávání by pak pokusilo o spuštění přepisovače služby pro úlohy a selhalo.</div>
+<p>Zvuk všech, kdo mluví, když je přepis zapnutý, se odesílá na server pro přepis řeči, který jste nakonfigurovali. Přepis se poté zveřejní na místě, kde ho může přečíst každý v kanálu. Informujte o tom své uživatele a pokud jsou hovory důvěrné, nechte tento server ve vlastní síti.</p>
+
+<h2 id="recordings">Nahrávky</h2>
+<p>Nahrávání hovorů (a přepisování pomocí vestavěných přepisovačů <code>whisper.cpp</code> nebo Azure) běží v samostatných kontejnerech spouštěných službou pro úlohy, open-source projektem <code>calls-offloader</code> od Mattermost, který sami nasadíte vedle Antimatter. Nastavení zahrnují <b>Povolit nahrávání hovorů</b> (<code>AM_CALLS_ENABLE_RECORDINGS</code>, výchozí je vypnuto), <b>URL služby pro úlohy</b> (<code>AM_CALLS_JOB_SERVICE_URL</code>), <b>Maximální délka nahrávky hovoru</b> (výchozí je 60 minut, rozsah 15 až 180) a <b>Kvalita nahrávky hovoru</b> (nízká, střední nebo vysoká; výchozí je střední). Licenční klíč není potřeba. Pokud potřebujete pouze přepisy a titulky, je jednodušší použít výše uvedené nastavení pro přepis řeči, které nevyžaduje službu pro úlohy.</p>

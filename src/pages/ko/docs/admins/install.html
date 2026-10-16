@@ -1,0 +1,168 @@
+title: Antimatter 설치
+description: Docker Compose 또는 릴리스 아카이브로 Antimatter를 설치하고, 이미지를 선택한 후 처음 시작하여 첫 번째 시스템 관리자를 생성합니다.
+guide: admins
+order: 2
+nav: 설치
+lead: 준비된 compose 파일로 Antimatter를 설치하거나, 올바른 이미지를 선택하거나, 릴리스 아카이브에서 서버를 실행합니다. 그런 다음 첫 번째 관리자 계정을 생성합니다.
+source: 64cd522c4946
+---
+<h2 id="compose">Docker Compose로 설치</h2>
+<p>이것이 권장하는 방법입니다. 하나의 compose 파일로 Antimatter, PostgreSQL, 파일 저장소 및 GIF 서비스를 실행합니다. Docker Engine 및 Compose 플러그인(<code>docker compose</code>)이 설치된 Linux 서버, 2개의 CPU 코어 및 4GB 이상의 메모리가 필요합니다.</p>
+
+<h3>1. compose 파일 다운로드</h3>
+<pre><code>mkdir antimatter &amp;&amp; cd antimatter
+curl -fsSLO https://antimatter.chat/compose.yaml</code></pre>
+
+<h3>2. .env 파일 생성</h3>
+<p>compose 파일은 같은 디렉터리의 <code>.env</code> 파일에서 설정을 읽습니다. 랜덤한 시크릿을 사용하여 파일을 생성하세요:</p>
+<pre><code>cat &gt; .env &lt;&lt;EOF
+SITE_URL=http://localhost:8065
+POSTGRES_PASSWORD=$(openssl rand -hex 24)
+S3_SECRET_KEY=$(openssl rand -hex 24)
+GIFS_API_KEY=$(openssl rand -hex 24)
+EOF
+chmod 600 .env</code></pre>
+<p><code>SITE_URL</code>을 사람들이 브라우저에 입력할 주소로 설정하세요. 예를 들어 로컬 네트워크에서는 <code>http://192.168.1.20:8065</code>, 도메인을 사용하는 경우 <code>https://chat.example.com</code>입니다. <code>.env</code> 파일을 보관하세요: 데이터베이스와 저장소가 첫 시작 시 이 비밀번호를 사용하며, 백업을 복원할 때에도 동일한 파일이 필요합니다.</p>
+
+<h3>3. 시작</h3>
+<pre><code>docker compose up -d
+docker compose ps</code></pre>
+<p>첫 시작에는 1~2분이 소요됩니다: PostgreSQL이 데이터베이스를 생성하고, 원샷 <code>bucket</code> 서비스가 저장소 버킷을 생성하며, 원샷 <code>gifs-stickers</code> 서비스가 시작 스티커 팩을 가져오고, Antimatter가 테이블을 생성합니다. <code>docker compose logs -f antimatter</code>로 진행 상황을 추적하세요.</p>
+<p>처음부터 도메인 이름과 HTTPS를 사용하려면 <a href="{{root}}docs/admins/https.html">도메인과 HTTPS</a>를 참고하세요: compose 파일에서는 <code>.env</code>에 두 줄과 <code>https</code> 프로필만 추가하면 됩니다.</p>
+
+<h3>.env 변수</h3>
+<table>
+<thead><tr><th>변수</th><th>기본값</th><th>기능</th></tr></thead>
+<tbody>
+<tr><td><code>SITE_URL</code></td><td>필수</td><td>Antimatter의 공개 주소(<code>ServiceSettings.SiteURL</code>).</td></tr>
+<tr><td><code>POSTGRES_PASSWORD</code></td><td>필수</td><td><code>antimatter</code> 데이터베이스 사용자의 비밀번호.</td></tr>
+<tr><td><code>S3_SECRET_KEY</code></td><td>필수</td><td>파일 저장소의 시크릿 키.</td></tr>
+<tr><td><code>GIFS_API_KEY</code></td><td>필수</td><td>Antimatter가 GIF 서비스를 호출하는 데 사용하는 키.</td></tr>
+<tr><td><code>GIFS_UPLOAD_KEY</code></td><td>빈 값</td><td>사용자가 피커에서 자체 GIF와 스티커를 추가할 수 있게 합니다. 비워두면 업로드가 비활성화됩니다.</td></tr>
+<tr><td><code>DOMAIN</code></td><td>빈 값</td><td><code>https</code> 프로필을 위한 도메인 이름.</td></tr>
+<tr><td><code>HTTP_PORT</code></td><td><code>8065</code></td><td>Antimatter 웹 서버의 호스트 포트.</td></tr>
+<tr><td><code>CALLS_PORT</code></td><td><code>8443</code></td><td>통화 오디오 및 비디오의 UDP 및 TCP 포트.</td></tr>
+<tr><td><code>EDGE_SUBNET</code></td><td><code>172.29.71.0/28</code></td><td>Caddy와 Antimatter 간 네트워크의 서브넷. 기존 네트워크와 겹치는 경우 변경하세요.</td></tr>
+<tr><td><code>TZ</code></td><td><code>UTC</code></td><td>컨테이너의 시간대.</td></tr>
+<tr><td><code>ANTIMATTER_IMAGE</code></td><td><code>ghcr.io/antimatterchat/antimatter-next:latest</code></td><td>실행할 Antimatter 이미지(아래 참고).</td></tr>
+</tbody>
+</table>
+
+<h3>실행되는 것</h3>
+<table>
+<thead><tr><th>서비스</th><th>이미지</th><th>역할</th></tr></thead>
+<tbody>
+<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>서버, 웹 앱 및 번들 앱. <code>HTTP_PORT</code>와 <code>CALLS_PORT</code>를 공개합니다.</td></tr>
+<tr><td><code>postgres</code></td><td><code>postgres:17-alpine</code></td><td><code>postgres</code> 볼륨에 있는 데이터베이스.</td></tr>
+<tr><td><code>files</code></td><td><code>rustfs/rustfs</code></td><td>업로드된 파일과 설치된 앱용 S3 호환 스토리지, <code>files</code> 볼륨에 위치합니다.</td></tr>
+<tr><td><code>bucket</code></td><td><code>amazon/aws-cli</code></td><td><code>antimatter</code> 버킷을 생성한 후 종료됩니다.</td></tr>
+<tr><td><code>gifs</code></td><td><code>ghcr.io/antimatterchat/gifs-server</code></td><td>GIF 및 스티커 서비스, <code>gifs</code> 볼륨에 위치합니다.</td></tr>
+<tr><td><code>gifs-stickers</code></td><td><code>ghcr.io/antimatterchat/gifs-server</code></td><td>첫 실행 시 시작용 스티커 팩을 가져온 후 종료됩니다.</td></tr>
+<tr><td><code>https</code></td><td><code>caddy:2-alpine</code></td><td><code>https</code> 프로필에서만: 포트 80과 443에서 HTTPS를 제공합니다.</td></tr>
+</tbody>
+</table>
+<p>PostgreSQL, 스토리지 및 GIF 서비스는 인터넷 접근이 없는 내부 네트워크(<code>private</code>)에 있으며, Antimatter만 이 네트워크에 참여합니다. 이 서비스들은 포트를 공개하지 않습니다.</p>
+<p>Antimatter 컨테이너는 디스크에 아무것도 저장하지 않습니다: 설정은 데이터베이스에 있으며(<code>AM_CONFIG</code>가 이를 가리킴) 파일과 앱은 스토리지 서비스에 있습니다. 컨테이너를 언제든 삭제하고 다시 생성할 수 있습니다. 백업해야 할 모든 것은 <code>postgres</code>, <code>files</code>, <code>gifs</code> 볼륨과 <code>.env</code> 파일에 있습니다.</p>
+
+<h2 id="images">이미지 선택</h2>
+<p>두 가지 Antimatter 이미지가 공개되며, 모두 <code>linux/amd64</code>와 <code>linux/arm64</code>를 지원하며, 모든 저장소의 <code>main</code> 브랜치에서 빌드됩니다:</p>
+<table>
+<thead><tr><th>이미지</th><th>번들 앱</th><th>태그</th></tr></thead>
+<tbody>
+<tr><td><code>ghcr.io/antimatterchat/antimatter</code></td><td>에이전트, 통화, GitHub, GitLab, Jira, Kanban, 메트릭스, 플레이북.</td><td><code>latest</code>, 릴리스용 <code>X.Y.Z</code>, <code>sha-&lt;commit&gt;</code></td></tr>
+<tr><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>위 항목에 더해 음성 채널, 투표, 메일, 캘린더, 메모, 화이트보드, GIF, 할 일, 밈. 매일 밤 재빌드됩니다.</td><td><code>latest</code>, <code>nightly</code>, <code>nightly-&lt;YYYYMMDD&gt;</code>, <code>sha-&lt;commit&gt;</code></td></tr>
+</tbody>
+</table>
+<p>이 사이트의 compose 파일은 GIF 서비스와 이 사이트에서 설명하는 대부분의 앱이 해당 이미지에만 포함되어 있기 때문에 <code>antimatter-next</code>를 사용합니다. 이미지를 변경하려면 <code>.env</code>에서 <code>ANTIMATTER_IMAGE</code>를 설정하고 <code>docker compose up -d</code>를 실행하세요.</p>
+<div class="callout warn"><code>latest</code>는 사용 중인 환경이 변경됩니다. 프로덕션에서는 <code>nightly-20261015</code>나 <code>sha-&lt;commit&gt;</code>와 같은 태그를 고정하고, 업그레이드할 때 의도적으로 변경하세요. 서버는 시작 시 데이터베이스를 업그레이드하므로, 이전 백업을 복원하지 않고는 이전 이미지로 되돌리거나 <code>antimatter-next</code>에서 <code>antimatter</code>로 전환할 수 없습니다. <a href="{{root}}docs/admins/backups-upgrades.html">백업 및 업그레이드</a>를 참조하세요.</div>
+
+<h3>이미지 내부</h3>
+<ul>
+<li>서버는 <code>/antimatter</code>에 위치하며, 바이너리 <code>antimatter</code>와 <code>amctl</code>는 <code>/antimatter/bin</code>에 있습니다(<code>PATH</code>에 포함됨).</li>
+<li>권한이 없는 사용자 <code>antimatter</code>(uid 2000)로 실행되며, 셸이 없는 최소한의 distroless 기반을 사용합니다.</li>
+<li>포트: 8065(웹 및 API), 8067(메트릭스), 8074(클러스터), 8443 UDP 및 TCP(통화).</li>
+<li>로컬 모드(<code>ServiceSettings.EnableLocalMode</code>)가 켜져 있으므로 컨테이너 내부에서 <code>amctl --local</code>를 사용할 수 있습니다. 헬스 체크는 <code>amctl system status --local</code>를 실행합니다.</li>
+<li>번들된 앱은 <code>/antimatter/prepackaged_plugins</code>에 있으며, Antimatter 앱 서명 키로 서명되어 있습니다.</li>
+<li>텍스트 추출 도구(<code>pdftotext</code>, <code>wvText</code>, <code>unrtf</code>, <code>tidy</code>)가 포함되어 있어 업로드된 문서의 내용을 검색할 수 있습니다.</li>
+</ul>
+
+<h3>기타 compose 파일</h3>
+<p><a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> 저장소에는 <code>deploy/compose/</code>에 프로덕션 환경 설정이 포함되어 있습니다. 자체 인증서 또는 Let's Encrypt(certbot)를 사용하는 nginx, PostgreSQL, 선택적 GIF 서비스(프로필 <code>gifs</code>), 그리고 서버의 설정, 데이터, 로그를 위한 이름 지정 볼륨이 README에 문서화되어 있습니다. 기본적으로 안정 버전 이미지를 사용하며, S3 스토리지 대신 로컬 볼륨에 파일을 저장합니다. Caddy 대신 nginx를 선호하거나 이미 인증서를 보유하고 있는 경우 이 설정을 사용하세요.</p>
+
+<h2 id="first-admin">첫 번째 관리자 생성</h2>
+<p>브라우저에서 <code>SITE_URL</code>을 열고 계정을 생성하세요. <b>새 서버에서 생성된 첫 번째 계정은 시스템 관리자가 됩니다</b>. 이후 설정 과정은 첫 번째 커뮤니티(Antimatter에서 팀 또는 워크스페이스를 지칭하는 용어)를 만드는 단계를 안내합니다.</p>
+<p>서버가 처음 시작된 직후에 이 작업을 수행하세요. 그 전까지 서버에 가장 먼저 접속한 사람이 관리자가 됩니다. 서버가 외부에서 접근 가능하기 전에 대신 명령줄에서 계정을 생성하려면:</p>
+<pre><code>docker compose exec antimatter amctl --local user create --system-admin --email-verified \
+    --email admin@example.com --username admin --password 'a-long-password'
+docker compose exec antimatter amctl --local team create --name main --display-name "Main"
+docker compose exec antimatter amctl --local team users add main admin</code></pre>
+<p>이후 <code>SITE_URL</code>에서 로그인하세요. 명령어 앞에 공백을 추가하여 셸 히스토리에 비밀번호가 기록되지 않도록 하세요(<code>HISTCONTROL=ignorespace</code> 설정 시), 또는 로그인 후 비밀번호를 변경하세요.</p>
+<p>로그인 후 다음 단계를 진행하세요:</p>
+<ol>
+<li>누가 계정을 생성할 수 있는지 결정하세요: <a href="{{root}}docs/admins/authentication.html">로그인 및 계정</a>.</li>
+<li>초대 및 비밀번호 재설정이 작동하도록 이메일을 설정하세요: <a href="{{root}}docs/admins/email-push.html">이메일 및 푸시 알림</a>.</li>
+<li>방화벽에서 통화 포트를 열세요: <a href="{{root}}docs/admins/calls.html">통화 및 음성</a>.</li>
+<li>활성화된 앱을 확인하세요: <a href="{{root}}docs/admins/apps.html">번들된 앱</a>.</li>
+</ol>
+
+<h2 id="archive">릴리스 아카이브에서 설치</h2>
+<p>Docker 없이 서버를 실행하려면 <code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>라는 이름의 아카이브(예: <code>antimatter-linux-amd64.tar.gz</code>)를 사용합니다. 이 아카이브에는 <code>antimatter/</code> 디렉터리 하나와 그 안의 <code>bin/antimatter</code>, <code>bin/amctl</code>, <code>config/config.json</code>, 웹 앱(<code>client/</code> 및 <code>client-fusion/</code>), 이메일 템플릿, 번역 파일이 포함됩니다.</p>
+
+<h3>1. PostgreSQL 준비</h3>
+<p>Antimatter는 PostgreSQL 15 이상만 지원합니다(구버전은 로그에 오류가 발생하며 시작되지 않습니다). 사용자와 데이터베이스를 생성하세요:</p>
+<pre><code>sudo -u postgres psql &lt;&lt;'EOF'
+CREATE USER antimatter WITH PASSWORD 'a-long-password';
+CREATE DATABASE antimatter OWNER antimatter;
+EOF</code></pre>
+
+<h3>2. 압축 해제 및 설정</h3>
+<pre><code>sudo tar -xzf antimatter-linux-amd64.tar.gz -C /opt
+sudo useradd --system --user-group antimatter
+sudo mkdir -p /opt/antimatter/data
+sudo chown -R antimatter:antimatter /opt/antimatter</code></pre>
+<p><code>/opt/antimatter/config/config.json</code>(<code>SqlSettings.DataSource</code>) 또는 환경 변수를 통해 서버를 데이터베이스에 연결하고, 사이트 URL을 설정하세요:</p>
+<pre><code>AM_SQLSETTINGS_DRIVERNAME=postgres
+AM_SQLSETTINGS_DATASOURCE=postgres://antimatter:a-long-password@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10
+AM_SERVICESETTINGS_SITEURL=https://chat.example.com</code></pre>
+<p>아카이브의 <code>config.json</code>는 완전한 기본 설정 파일입니다. 시스템 콘솔에서 변경한 설정은 이 파일에 다시 저장됩니다. 대신 데이터베이스에 설정을 유지하려면 <a href="{{root}}docs/admins/configuration.html">설정</a>을 참고하세요.</p>
+
+<h3>3. 서비스로 실행</h3>
+<p><code>/etc/systemd/system/antimatter.service</code>에 systemd 유닛을 추가하세요:</p>
+<pre><code>[Unit]
+Description=Antimatter
+After=network.target postgresql.service
+
+[Service]
+Type=notify
+User=antimatter
+Group=antimatter
+WorkingDirectory=/opt/antimatter
+ExecStart=/opt/antimatter/bin/antimatter
+EnvironmentFile=-/etc/antimatter.env
+TimeoutStartSec=3600
+Restart=always
+RestartSec=10
+LimitNOFILE=49152
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+<p><code>AM_</code> 변수를 <code>/etc/antimatter.env</code>에 기록(루트만 읽을 수 있도록)한 다음:</p>
+<pre><code>sudo systemctl daemon-reload
+sudo systemctl enable --now antimatter
+journalctl -u antimatter -f</code></pre>
+<p>서버는 포트 8065에서 리스닝합니다. <code>http://&lt;server&gt;:8065</code>를 열거나, 리버스 프록시가 설정된 후에는 도메인을 사용하세요(<a href="{{root}}docs/admins/https.html">도메인과 HTTPS</a> 참고). 첫 번째 계정을 생성하면 시스템 관리자가 됩니다.</p>
+<p><code>bin/amctl</code>는 명령줄에서 실행 중인 서버를 관리합니다. 서버 자체에서는 로컬 모드를 통해 로그인 없이 사용할 수 있습니다: <code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>를 설정한 후 <code>sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code>를 실행하세요.</p>
+
+<h2 id="other-commands">기타 서버 명령</h2>
+<p>서버 실행(<code>antimatter</code> 또는 <code>antimatter server</code>) 외에도 바이너리에는 몇 가지 유지보수 명령이 있습니다. 이 명령들은 서버와 동일한 설정을 읽습니다.</p>
+<table>
+<thead><tr><th>명령</th><th>기능</th></tr></thead>
+<tbody>
+<tr><td><code>antimatter version</code></td><td>버전, 빌드 번호, 빌드 날짜, 빌드 해시를 출력합니다.</td></tr>
+<tr><td><code>antimatter db ping</code></td><td>데이터베이스에 접근할 수 있는지 확인합니다.</td></tr>
+<tr><td><code>antimatter db init</code></td><td>데이터베이스에 설정을 생성합니다(<code>AM_CONFIG</code>를 <code>postgres://</code> URL로 설정).</td></tr>
+<tr><td><code>antimatter db migrate</code></td><td>서버를 시작하지 않고 데이터베이스 마이그레이션을 적용합니다.</td></tr>
+<tr><td><code>antimatter db version</code></td><td>데이터베이스에 마지막으로 적용된 마이그레이션을 출력합니다.</td></tr>
+<tr><td><code>antimatter import bulk</code>, <code>antimatter export bulk</code></td><td>벌크 형식으로 데이터를 가져오기 또는 내보내기합니다(<a href="{{root}}docs/admins/backups-upgrades.html">백업 및 업그레이드</a> 참고).</td></tr>
+</tbody>
+</table>

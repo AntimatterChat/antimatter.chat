@@ -1,0 +1,172 @@
+title: البوتات والرسائل التفاعلية
+description: حسابات البوت في Antimatter: إنشاؤها، رموزها وصلاحياتها، النشر باسم البوت، الرسائل المباشرة، الأزرار والقوائم التفاعلية، والحوارات.
+guide: developers
+order: 5
+nav: البوتات
+lead: حساب البوت هو مستخدم مُنشأ لبرنامج. له اسمه وصورته ورموزه الخاصة، ويظهر بجانب اسمه وسم BOT. تغطي هذه الصفحة أيضاً الأجزاء التفاعلية من الرسائل: الأزرار والقوائم والحوارات، والتي يمكن لأي تكامل استخدامها.
+source: 45503666f647
+---
+<h2 id="why">لماذا حساب بوت</h2>
+<ul>
+<li>رسائله تأتي من هوية واضحة، مع وسم <b>BOT</b>، بدلاً من أن تأتي من حساب زميل.</li>
+<li>تستمر رموزه في العمل عندما يتغير دور الشخص الذي قام بإعدادها أو يغادر (ما لم يُعطّل الخادم البوتات المملوكة لأصحاب حسابات معطّلة، راجع أدناه).</li>
+<li>لا يمكن للبوتات تسجيل الدخول باستخدام كلمة مرور، ولا ترى أبداً تطبيق الويب.</li>
+</ul>
+<p>تُنشئ التطبيقات بوتاتها الخاصة، مثل بوت قائمة المهام أو دليل التشغيل، من خلال واجهة برمجة التطبيقات الإضافية (<code>EnsureBotUser</code>).</p>
+
+<h2 id="enable">تفعيل حسابات البوت</h2>
+<p>يقوم مدير النظام بتفعيل <b>تفعيل إنشاء حسابات البوت</b> في <b>وحدة التحكم بالنظام › التكاملات › حسابات البوتات</b> (<code>ServiceSettings.EnableBotAccountCreation</code>، <code>AM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION</code>). تكون هذه الخاصية معطّلة افتراضياً. لا يمكن إنشاء البوتات إلا لمديري النظام، ما لم يمنحوا هذا الحق لأدوار أخرى في إعدادات الصلاحيات.</p>
+<p>على نفس الصفحة، <b>تعطيل حسابات البوت عند تعطيل المالك</b> (<code>ServiceSettings.DisableBotsWhenOwnerIsDeactivated</code>، مفعّل افتراضياً) يُعطّل البوت عندما يُعطَّل حساب مالكه.</p>
+
+<h2 id="create">إنشاء بوت</h2>
+<ol>
+<li>افتح صورتك الرمزية في أعلى اليمين، ثم <b>التكاملات › حسابات البوتات</b>، ثم <b>إضافة حساب بوت</b>.</li>
+<li>أدخل <b>اسم المستخدم</b> (حروف صغيرة، أرقام، نقاط، شرطات وعلامات تحتية)، وإختارياً <b>أيقونة البوت</b>، و<b>الاسم المعروض</b>، و<b>الوصف</b>.</li>
+<li>اختر <b>الدور</b>: <b>عضو</b>، أو <b>مدير النظام</b> لبوت يدير الخادم. امنح البوت الحد الأدنى من الصلاحيات التي يحتاجها.</li>
+<li>علّم <b>post:channels</b> للسماح له بالنشر في كل قناة عامة، أو <b>post:all</b> لكل القنوات، بما في ذلك القنوات الخاصة والرسائل المباشرة، دون أن يكون عضواً.</li>
+<li>حدد موعد انتهاء صلاحية الرمز الافتراضي، ثم اختر <b>إنشاء حساب بوت</b>.</li>
+<li>انسخ رمز الوصول المعروض. لن يُعرض مرة أخرى.</li>
+</ol>
+<p>لاحقاً، <b>إنشاء رمز جديد</b> في صف البوت يضيف رمزاً، ويمكن تعطيل أو حذف كل رمز. تعمل رموز البوت حتى عندما تكون رموز الوصول الشخصية معطّلة للأشخاص.</p>
+<p>عبر واجهة برمجة التطبيقات:</p>
+<pre><code># create the bot (you become its owner)
+curl -X POST https://chat.example.com/api/v4/bots \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username": "deploy-bot", "display_name": "Deploy", "description": "Posts deployments"}'
+
+# give it a token
+curl -X POST https://chat.example.com/api/v4/users/$BOT_USER_ID/tokens \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"description": "deploy pipeline"}'</code></pre>
+<p>من سطر الأوامر، وتسجّل الدخول كمدير (وليس في الوضع المحلي): <code>amctl bot create deploy-bot --display-name Deploy --with-token --expires-in 90d</code>. نقاط النهاية الأخرى: <code>GET /api/v4/bots</code>، <code>PUT /api/v4/bots/{bot_user_id}</code>، <code>POST /api/v4/bots/{bot_user_id}/disable</code> و<code>/enable</code>، و<code>POST /api/v4/bots/{bot_user_id}/assign/{user_id}</code> لتغيير مالكه.</p>
+
+<h2 id="membership">أضِف البوت إلى المجتمعات والقنوات</h2>
+<p>البوت الجديد لا ينتمي إلى أي مجتمع. أضِفه كما تُضيف شخصًا، من إدارة أعضاء المجتمع أو عبر واجهة برمجة التطبيقات:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/teams/$TEAM_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"team_id": "'$TEAM_ID'", "user_id": "'$BOT_USER_ID'"}'
+
+curl -X POST https://chat.example.com/api/v4/channels/$CHANNEL_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"user_id": "'$BOT_USER_ID'"}'</code></pre>
+<p>يمكن للبوت الذي يحمل صلاحية <b>post:channels</b> أو <b>post:all</b> النشر دون أن يكون عضوًا، لكنه يستقبل أحداث WebSocket فقط للقنوات التي ينتمي إليها.</p>
+
+<h2 id="post">النشر باسم البوت</h2>
+<p>استخدم رمز البوت مع أي استدعاء لواجهة برمجة التطبيقات؛ <code>POST /api/v4/posts</code> هو الأكثر شيوعًا (انظر <a href="{{root}}docs/developers/api.html#resources">الموارد الرئيسية</a>). للكتابة إلى شخص ما مباشرةً، افتح قناة الرسالة المباشرة أولاً:</p>
+<pre><code># returns the channel; use its "id" as channel_id
+curl -X POST https://chat.example.com/api/v4/channels/direct \
+  -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' \
+  -d '["'$BOT_USER_ID'", "'$USER_ID'"]'</code></pre>
+<p>للرد على ما يقوله الناس، تابع <a href="{{root}}docs/developers/api.html#websocket">WebSocket</a> باستخدام رمز البوت وأجب عن أحداث <code>posted</code> التي تهمك. تجاهل رسائل البوت نفسه لتجنب الحلقات.</p>
+<p>تُرسل رسالة يمكن لشخص واحد فقط رؤيتها (رسالة عابرة) عبر <code>POST /api/v4/posts/ephemeral</code> و<code>{"user_id", "post": {"channel_id", "message"}}</code>. تتطلب صلاحية <code>create_post_ephemeral</code>، والتي يمتلكها مديرو النظام فقط بشكل افتراضي. عادةً ما ترسل التكاملات رسائل عابرة كإجابات على أوامر الشرطة المائلة والأزرار.</p>
+
+<h2 id="interactive">رسائل تفاعلية: أزرار وقوائم</h2>
+<p>يمكن لأي رسالة تحتوي على مرفقات أن تحمل إجراءات: أزرار، وقوائم للاختيار من بينها. تعمل هذه الإجراءات في الرسائل المنشورة عبر واجهة برمجة التطبيقات، وخطافات الويب، وإجابات أوامر الشرطة المائلة. عندما يستخدم أحدها، تستدعي Antimatter عنوان URL الخاص بتكاملك.</p>
+<pre><code>{
+  "channel_id": "…",
+  "message": "Deploy **api 2.4.0** to production?",
+  "props": {
+    "attachments": [{
+      "actions": [
+        {
+          "id": "approve",
+          "type": "button",
+          "name": "Approve",
+          "style": "primary",
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "approve"}}
+        },
+        {
+          "id": "env",
+          "type": "select",
+          "name": "Pick an environment",
+          "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}],
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "env"}}
+        }
+      ]
+    }]
+  }
+}</code></pre>
+<ul>
+<li><code>type</code>: <code>button</code> أو <code>select</code>.</li>
+<li><code>id</code>: أحرف وأرقام وشرطات وعلامات تحتية، مختلفة لكل إجراء في الرسالة. يتم توليده إذا تركته فارغًا.</li>
+<li><code>style</code> (للأزرار): <code>default</code>، <code>primary</code>، <code>success</code>، <code>good</code>، <code>warning</code>، <code>danger</code>، أو لون سداسي.</li>
+<li><code>options</code> (للقوائم)، أو <code>data_source</code>: <code>users</code> أو <code>channels</code> لاختيار شخص أو قناة. <code>default_option</code> يختار قيمة مسبقًا.</li>
+<li><code>integration.url</code>: الوجهة التي يُرسَل إليها النقر. يمكن للتطبيق (الإضافة) استخدام مساره الخاص، مثل <code>/plugins/com.example.deploy/actions</code>. أما <code>integration.context</code> فهو خاص بك: يعود مع النقر، ولا يراه العملاء أبداً.</li>
+</ul>
+<h3>الطلب الذي يستقبله تكاملك</h3>
+<pre><code>{
+  "user_id": "…",
+  "user_name": "priya",
+  "channel_id": "…",
+  "channel_name": "releases",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "post_id": "…",
+  "trigger_id": "…",
+  "type": "button",
+  "context": {"release": "2.4.0", "action": "approve"}
+}</code></pre>
+<p>في حالة القائمة، يكون <code>type</code> هو <code>select</code>، ويحتوي <code>context.selected_option</code> على القيمة المختارة.</p>
+<h3>ردّك</h3>
+<pre><code>{
+  "update": {"message": "Deploy of **api 2.4.0** approved by @priya", "props": {}},
+  "ephemeral_text": "Done. The deploy starts in a minute."
+}</code></pre>
+<ul>
+<li><code>update</code>: يستبدل نص الرسالة وخصائصها، مثلاً لإزالة الأزرار بعد استخدامها (مع <code>props</code> فارغة).</li>
+<li><code>ephemeral_text</code>: رسالة لا يراها إلا الشخص الذي نقر.</li>
+<li><code>goto_location</code>: عنوان URL يُفتح.</li>
+<li>جسم فارغ لا يُغيّر شيئاً.</li>
+</ul>
+<p>ينتظر الخادم ما تسمح به <b>مهلة انتهاء طلبات التكامل</b> (٣٠ ثانية افتراضيًا). يجب أن يُسمح بالعناوين النصية للتكاملات على عناوين الشبكات الخاصة من قِبل مدير النظام، تمامًا كما هو الحال مع خطوط الويب.</p>
+
+<h2 id="dialogs">الحوارات</h2>
+<p>الحوار هو نموذج يُفتح فوق الدردشة. يمكنك فتحه فقط رداً على شيء قام به الشخص للتو، مثل أمر شرطة مائلة أو زر، لأنه يحتاج إلى <code>trigger_id</code> الخاص بذلك الطلب. يبقى <code>trigger_id</code> صالحاً طوال مدة مهلة انتهاء طلبات التكامل.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/actions/dialogs/open \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "trigger_id": "'$TRIGGER_ID'",
+    "url": "https://deploy.example.com/dialog",
+    "dialog": {
+      "callback_id": "new-release",
+      "title": "New release",
+      "introduction_text": "Fill in the release details.",
+      "submit_label": "Create",
+      "notify_on_cancel": false,
+      "state": "anything you want back",
+      "elements": [
+        {"display_name": "Version", "name": "version", "type": "text", "placeholder": "2.4.0"},
+        {"display_name": "Notes", "name": "notes", "type": "textarea", "optional": true},
+        {"display_name": "Environment", "name": "env", "type": "select",
+         "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}]},
+        {"display_name": "Owner", "name": "owner", "type": "select", "data_source": "users"},
+        {"display_name": "Notify the channel", "name": "notify", "type": "bool", "default": "true"}
+      ]
+    }
+  }'</code></pre>
+<table>
+<thead><tr><th>نوع العنصر</th><th>ما يعرضه</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>حقل من سطر واحد. <code>subtype</code>: <code>text</code>، <code>email</code>، <code>number</code>، <code>password</code>، <code>tel</code> أو <code>url</code>. تحدّد <code>min_length</code> و<code>max_length</code> حدوده.</td></tr>
+<tr><td><code>textarea</code></td><td>حقل متعدد الأسطر.</td></tr>
+<tr><td><code>select</code></td><td>قائمة: <code>options</code>، أو <code>data_source</code> من نوع <code>users</code>، <code>channels</code>، أو <code>dynamic</code> مع <code>data_source_url</code>. يسمح <code>multiselect</code> بعدة قيم.</td></tr>
+<tr><td><code>bool</code></td><td>خانة اختيار.</td></tr>
+<tr><td><code>radio</code></td><td>اختيار واحد من بين <code>options</code>.</td></tr>
+<tr><td><code>date</code>, <code>datetime</code></td><td>تاريخ، أو تاريخ ووقت.</td></tr>
+</tbody>
+</table>
+<p>يقبل كل عنصر <code>display_name</code>، <code>name</code>، <code>help_text</code>، <code>placeholder</code>، <code>default</code> و<code>optional</code>.</p>
+<p>عندما يُرسل الشخص النموذج، يرسل Antimatter طلب POST إلى <code>url</code> الخاص بالحوار:</p>
+<pre><code>{
+  "type": "dialog_submission",
+  "callback_id": "new-release",
+  "state": "anything you want back",
+  "user_id": "…",
+  "channel_id": "…",
+  "team_id": "…",
+  "submission": {"version": "2.4.0", "notes": "", "env": "staging", "owner": "…", "notify": true},
+  "cancelled": false
+}</code></pre>
+<p>أجب بجسم فارغ لإغلاق الحوار، أو اتركه مفتوحاً وأظهر ما هو خاطئ:</p>
+<pre><code>{"errors": {"version": "This version already exists."}}</code></pre>
+<p><code>{"error": "…"}</code> يعرض رسالة للنموذج بأكمله. مع <code>notify_on_cancel</code>، يُرسل إغلاق الحوار <code>"cancelled": true</code>. تعمل الحوارات بنفس الطريقة في التطبيقات: يستقبل <code>OpenInteractiveDialog</code> في واجهة برمجة تطبيقات الإضافة الطلب نفسه.</p>

@@ -1,0 +1,313 @@
+title: Создание приложений (плагинов)
+description: Как написать приложение (плагин) для Antimatter: структура пакета и файл plugin.json, серверные хуки и API, реестр веб-приложения, поддержка интерфейса Fusion, параметры, хранилище «ключ-значение», переводы, упаковка и установка.
+guide: developers
+order: 6
+nav: Создание приложений
+lead: Приложения добавляют функции в Antimatter изнутри: серверная часть на Go, которая подключается к серверу, и веб-часть на React, которая добавляет меню, панели, типы сообщений и страницы. На этой странице показана структура приложения на примере встроенного приложения Polls, а также изменения в интерфейсе Fusion Antimatter.
+source: d9c132cac759
+---
+<h2 id="overview">Как работает приложение</h2>
+<ul>
+<li><b>Серверная часть</b> — это программа на Go. Сервер запускает её как отдельный процесс и взаимодействует с ней через RPC: он вызывает <b>хуки</b> приложения (сообщение вот-вот будет отправлено, команда была выполнена…), а приложение вызывает <b>API плагина</b> сервера (создать сообщение, прочитать пользователя, сохранить данные…). Приложение также может обслуживать HTTP-маршруты по адресу <code>/plugins/&lt;app id&gt;/</code>.</li>
+<li><b>Веб-часть</b> — это JavaScript-пакет, загружаемый в браузер вместе с веб-приложением. Он регистрирует компоненты React и обратные вызовы в <b>реестре</b>: кнопку в меню, панель, способ отрисовки типа сообщения.</li>
+<li>Любая из частей является необязательной. Приложение устанавливается как пакет <code>.tar.gz</code>, а системные администраторы активируют, деактивируют и настраивают его.</li>
+</ul>
+<div class="callout warn">Серверная часть работает с полным доступом к данным сервера. Относитесь к приложению как к коду, который вы разворачиваете на сервере.</div>
+<p>Antimatter запускает приложения, написанные для Mattermost, и наоборот, при условии, что приложение использует только хуки, доступные в обеих системах. См. <a href="#antimatter-hooks">Хуки, доступные только в Antimatter</a>.</p>
+
+<h2 id="layout">Структура пакета</h2>
+<p>Отдельного стартового шаблона нет: начните с небольшого встроенного приложения, такого как <a href="https://github.com/AntimatterChat/antimatter-plugin-polls">antimatter-plugin-polls</a> или <a href="https://github.com/AntimatterChat/antimatter-plugin-todo">antimatter-plugin-todo</a>, и измените его ID и код. Приложение Polls имеет следующую структуру:</p>
+<pre><code>antimatter-plugin-polls/
+├── plugin.json            the manifest
+├── Makefile               build, test, bundle, deploy
+├── build/                 the manifest and pluginctl helper tools (Go), setup.mk
+├── assets/icon.svg        files shipped with the bundle
+├── go.mod
+├── server/
+│   ├── main.go            plugin.ClientMain(&amp;Plugin{})
+│   ├── plugin.go          the Plugin type, OnActivate, ServeHTTP
+│   ├── manifest.go        generated from plugin.json
+│   ├── api.go, command.go, hooks.go, store.go …
+│   └── dist/              compiled binaries, one per platform
+└── webapp/
+    ├── package.json, webpack.config.js, tsconfig.json
+    ├── i18n/              en.json and one file per language
+    ├── src/index.tsx      registers the app with the web app
+    ├── src/manifest.ts    generated from plugin.json
+    ├── src/translations.ts
+    └── dist/main.js       the bundle</code></pre>
+<p>Необязательно: папка <code>public/</code>, которая предоставляется как есть по адресу <code>/plugins/&lt;app id&gt;/public/</code>.</p>
+
+<h2 id="manifest">plugin.json</h2>
+<pre><code>{
+  "id": "com.example.weather",
+  "name": "Weather",
+  "description": "Forecasts in the chat.",
+  "homepage_url": "https://github.com/example/weather",
+  "support_url": "https://github.com/example/weather/issues",
+  "icon_path": "assets/icon.svg",
+  "version": "1.0.0",
+  "min_server_version": "12.0.0",
+  "server": {
+    "executables": {
+      "linux-amd64": "server/dist/plugin-linux-amd64",
+      "linux-arm64": "server/dist/plugin-linux-arm64",
+      "darwin-amd64": "server/dist/plugin-darwin-amd64",
+      "darwin-arm64": "server/dist/plugin-darwin-arm64",
+      "windows-amd64": "server/dist/plugin-windows-amd64.exe"
+    }
+  },
+  "webapp": {"bundle_path": "webapp/dist/main.js"},
+  "settings_schema": {"settings": []}
+}</code></pre>
+<ul>
+<li><code>id</code>: уникальный и постоянный; обычно используется имя домена в обратном порядке. Он определяет маршруты, сохранённые параметры и события WebSocket.</li>
+<li><code>version</code>: семантическая версия. Встроенные приложения не указывают её в <code>plugin.json</code>; их инструмент сборки получает её из последней git-метки <code>v*</code>.</li>
+<li><code>min_server_version</code>: Antimatter сообщает <code>12.0.0</code>.</li>
+<li><code>settings_schema</code>: страница настроек приложения в Системной консоли (см. <a href="#settings">Параметры</a>).</li>
+</ul>
+<p><code>make apply</code> копирует манифест в <code>server/manifest.go</code> и <code>webapp/src/manifest.ts</code>; <code>make manifest-check</code> проверяет его.</p>
+
+<h2 id="server">Серверная часть</h2>
+<p>Серверная часть импортирует тот же Go-модуль, что и приложения Mattermost, <code>github.com/mattermost/mattermost/server/public</code>, из прокси Go-модулей. Её <code>main</code> только запускает приложение:</p>
+<pre><code>package main
+
+import "github.com/mattermost/mattermost/server/public/plugin"
+
+func main() {
+	plugin.ClientMain(&amp;Plugin{})
+}</code></pre>
+<p>Тип <code>Plugin</code> включает <code>plugin.MattermostPlugin</code>, что даёт ему <code>p.API</code>, и реализует необходимые хуки:</p>
+<pre><code>type Plugin struct {
+	plugin.MattermostPlugin
+	router *mux.Router
+}
+
+func (p *Plugin) OnActivate() error {
+	p.router = p.newRouter()
+	return p.API.RegisterCommand(&amp;model.Command{
+		Trigger:          "weather",
+		AutoComplete:     true,
+		AutoCompleteDesc: "Show the forecast",
+		AutoCompleteHint: "[city]",
+	})
+}
+
+func (p *Plugin) ExecuteCommand(c *plugin.Context, args *model.CommandArgs) (*model.CommandResponse, *model.AppError) {
+	city := strings.TrimSpace(strings.TrimPrefix(args.Command, "/weather"))
+	return &amp;model.CommandResponse{
+		ResponseType: model.CommandResponseTypeEphemeral,
+		Text:         "Forecast for " + city + ": sunny",
+	}, nil
+}
+
+func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Request) {
+	p.router.ServeHTTP(w, r)
+}</code></pre>
+<h3>Общие хуки</h3>
+<table>
+<thead><tr><th>Хук</th><th>Когда выполняется</th></tr></thead>
+<tbody>
+<tr><td><code>OnActivate</code>, <code>OnDeactivate</code></td><td>При включении или отключении приложения, а также при запуске и остановке сервера. Регистрируйте команды и ботов в <code>OnActivate</code>.</td></tr>
+<tr><td><code>OnConfigurationChange</code></td><td>При изменении настроек; загружайте их с помощью <code>p.API.LoadPluginConfiguration(&amp;cfg)</code>.</td></tr>
+<tr><td><code>ServeHTTP</code></td><td>Запросы к <code>/plugins/&lt;app id&gt;/…</code>. Сервер устанавливает заголовок <code>Mattermost-User-Id</code>, когда запрос исходит от вошедшего в систему пользователя; отклоняйте запросы без него, если они не предназначены для публичного доступа.</td></tr>
+<tr><td><code>ExecuteCommand</code></td><td>Выполнена команда, зарегистрированная приложением.</td></tr>
+<tr><td><code>MessageWillBePosted</code>, <code>MessageWillBeUpdated</code></td><td>Перед сохранением сообщения: верните изменённое сообщение или причину для его отклонения.</td></tr>
+<tr><td><code>MessageHasBeenPosted</code>, <code>MessageHasBeenUpdated</code>, <code>MessageHasBeenDeleted</code></td><td>Постфактум, для побочных эффектов.</td></tr>
+<tr><td><code>ReactionHasBeenAdded</code>, <code>ReactionHasBeenRemoved</code></td><td>Реакции.</td></tr>
+<tr><td><code>UserHasJoinedChannel</code>, <code>UserHasLeftChannel</code>, <code>UserHasJoinedTeam</code>, <code>UserHasLeftTeam</code>, <code>ChannelHasBeenCreated</code></td><td>Изменения в участниках и каналах. Команда — это сообщество.</td></tr>
+<tr><td><code>FileWillBeUploaded</code></td><td>Перед сохранением файла: измените его или отклоните.</td></tr>
+<tr><td><code>OnPluginClusterEvent</code></td><td>Сообщение от того же приложения на другом сервере кластера.</td></tr>
+</tbody>
+</table>
+<p>Полный список с точными сигнатурами находится в <code>server/public/plugin/hooks.go</code>; API — в <code>server/public/plugin/api.go</code>. Пакет <code>pluginapi</code> (<code>server/public/pluginapi</code>) оборачивает API в более удобные помощники.</p>
+<h3>Полезные вызовы API</h3>
+<ul>
+<li><code>CreatePost</code>, <code>UpdatePost</code>, <code>SendEphemeralPost</code>: публикация от имени бота приложения или от имени пользователя.</li>
+<li><code>EnsureBotUser(&amp;model.Bot{Username, DisplayName})</code>: создаёт бота приложения один раз и возвращает его ID.</li>
+<li><code>PublishWebSocketEvent("poll_updated", payload, &amp;model.WebsocketBroadcast{ChannelId: id})</code>: отправляет событие веб-приложению. Оно приходит как <code>custom_&lt;app id&gt;_poll_updated</code>.</li>
+<li><code>OpenInteractiveDialog</code>: открывает <a href="{{root}}docs/developers/bots.html#dialogs">диалог</a>.</li>
+<li><code>LogInfo</code>, <code>LogError</code> и другие: запись в журнал сервера с меткой ID приложения.</li>
+<li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: проверка того, кто имеет право на какие действия, перед выполнением действий от имени пользователя.</li>
+</ul>
+<p>Приложение выполняется на каждом сервере кластера. Храните состояние в хранилище «ключ-значение» или в базе данных, а не только в оперативной памяти.</p>
+
+<h2 id="kv">Хранение данных</h2>
+<p>У каждого приложения есть собственное хранилище «ключ-значение» в базе данных сервера:</p>
+<ul>
+<li><code>KVSet(key, value)</code>, <code>KVGet(key)</code>, <code>KVDelete(key)</code>: значениями являются байты, обычно в формате JSON. Ключи имеют длину не более 150 символов.</li>
+<li><code>KVSetWithExpiry(key, value, seconds)</code>: значение удаляется по истечении указанного времени.</li>
+<li><code>KVCompareAndSet(key, old, new)</code> и <code>KVSetWithOptions</code> с параметром <code>Atomic</code>: безопасные обновления, когда несколько запросов или серверов записывают в один и тот же ключ. Приложение Polls сохраняет каждый голос таким образом и повторяет попытку при конфликте.</li>
+<li><code>KVList(page, perPage)</code>: ключи, постранично.</li>
+</ul>
+
+<h2 id="webapp">Веб-часть приложения</h2>
+<p>Бандл регистрирует класс с помощью <code>window.registerPlugin</code>. Его метод <code>initialize</code> получает реестр и хранилище Redux:</p>
+<pre><code>import manifest from './manifest';
+
+class Plugin {
+    initialize(registry, store) {
+        registry.registerTranslations((locale) =&gt; translationsFor(locale));
+        registry.registerPostTypeComponent('custom_poll', PollPost);
+        registry.registerWebSocketEventHandler(`custom_${manifest.id}_poll_updated`, (msg) =&gt; {
+            store.dispatch(pollUpdated(JSON.parse(msg.data.poll)));
+        });
+        registry.registerReconnectHandler(() =&gt; store.dispatch(reloadPolls()));
+    }
+}
+
+window.registerPlugin(manifest.id, new Plugin());</code></pre>
+<ul>
+<li><b>Общие библиотеки.</b> Веб-приложение предоставляет React, ReactDOM, Redux, React Redux и React Intl: перечислите их как <code>externals</code> в webpack (<code>React</code>, <code>ReactDOM</code>, <code>Redux</code>, <code>ReactRedux</code>, <code>ReactIntl</code>), а не включайте собственные копии в бандл. См. <code>webpack.config.js</code> приложения Polls.</li>
+<li><b>Вызовы серверной части.</b> Выполняйте запросы к <code>${window.basename}/plugins/&lt;app id&gt;/…</code> с параметрами из <code>Client4.getOptions()</code> (из <code>mattermost-redux/client</code>): они содержат заголовки, необходимые серверу для принятия запроса от браузера.</li>
+<li><b>Собственное состояние.</b> <code>registerReducer</code> добавляет редьюсер, который хранится под ключом <code>state['plugins-&lt;app id&gt;']</code>.</li>
+<li><b>Типы.</b> Дополнительные методы реестра Antimatter отсутствуют в опубликованных типах Mattermost: Polls объявляет используемый реестр в <code>webapp/src/types/host.ts</code>.</li>
+</ul>
+<p>Методы реестра и их параметры задокументированы в коде: <code>webapp/fusion/src/plugins/registry.ts</code> (Fusion) и <code>webapp/channels/src/plugins/registry.ts</code> (классический интерфейс).</p>
+
+<h2 id="fusion">Поддержка интерфейса Fusion</h2>
+<p>В Antimatter есть два веб-интерфейса: Fusion (по умолчанию) и классический. Оба загружают одни и те же бандлы приложений и используют один и тот же реестр, но Fusion самостоятельно отрисовывает многие элементы и размещает компоненты плагинов по-своему. Тестируйте приложение в обоих интерфейсах.</p>
+<h3>Определение интерфейса</h3>
+<p>Перед загрузкой любого приложения оба интерфейса устанавливают значение <code>window.antimatterWebUI</code> в <code>'fusion'</code> или <code>'classic'</code>, а также то же значение в атрибут <code>data-am-web-ui</code> корневого элемента страницы. В Mattermost ни одно из этих значений не устанавливается.</p>
+<pre><code>export function isFusionUI(): boolean {
+    return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
+}</code></pre>
+<p>Встроенные приложения используют это для отрисовки в разных стилях. Приложение «Опросы» рисует свои карточки опросов и диалог создания в стиле Fusion, а для команды <code>/poll</code> в Fusion открывает собственный диалог. Приложения «Звонки» и «Голосовые каналы» не отображают боковую панель и всплывающие уведомления, которые Fusion заменяет собственным интерфейсом звонков. Приложение «Агенты» размещает свои действия ИИ в подменю меню сообщения, а не в панели инструментов при наведении. Собственные CSS-классы Fusion (с префиксом <code>am-</code>) и его слой диалоговых окон (элемент <code>am-layer</code>) — это то, что используют эти приложения для соответствия интерфейсу; это не задокументированный стабильный API.</p>
+<h3>Где Fusion отображает компоненты плагинов</h3>
+<table>
+<thead><tr><th>Метод реестра</th><th>Где это появляется в Fusion</th></tr></thead>
+<tbody>
+<tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>Панель приложений (app rail) — столбец значков на правом краю, между вашим аватаром и кнопкой <b>Об Antimatter</b>. Кнопки заголовка канала тоже находятся здесь, а не в самом заголовке. Скрывается, если системный администратор включит <b>Отключить панель приложений (Apps Bar)</b> (<code>ExperimentalSettings.DisableAppBar</code>, по умолчанию выключено).</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>Правая панель. Пользователи могут изменять её размер, перетаскивая край. Если приложение также является продуктом, панель предлагает <b>Открыть на отдельной странице</b>.</td></tr>
+<tr><td><code>registerChannelHeaderIcon</code></td><td>Значки в заголовке канала, после кнопок звонков; на телефонах — в меню <b>Ещё</b> заголовка.</td></tr>
+<tr><td><code>registerCallButtonAction</code></td><td>Кнопка звонка в заголовке канала; несколько провайдеров разделяют меню <b>Другие способы звонка</b>.</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>Меню <b>Другие действия</b> (⋯) сообщения, в подменю <b>Действия с сообщением</b>; также в меню <b>Действия с обсуждением</b> панели обсуждения, под <b>Другие действия</b>.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Собственное подменю тех же меню, с названием и значком приложения.</td></tr>
+<tr><td><code>registerPostActionComponent</code></td><td>Панель инструментов при наведении на сообщение, перед кнопкой ⋯.</td></tr>
+<tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>Само сообщение: его тело, под текстом, после времени, и вместо превью ссылок.</td></tr>
+<tr><td><code>registerChannelHeaderMenuAction</code></td><td>Меню <b>Настройки канала</b> (⋯ на канале в боковой панели или щелчок правой кнопкой мыши), в виде элементов с иконкой разъёма.</td></tr>
+<tr><td><code>registerMainMenuAction</code></td><td>Меню сообщества (название сообщества вверху списка каналов), под <b>Другие действия</b>, сгруппированные по приложениям.</td></tr>
+<tr><td><code>registerSidebarBrowseOrAddChannelMenuAction</code></td><td>Меню сообщества, после <b>Создать канал</b> и <b>Создать категорию</b>.</td></tr>
+<tr><td><code>registerFileUploadMethod</code></td><td>Меню <b>+</b> поля ввода (<b>Добавить к сообщению</b>), после <b>Загрузить файл</b>.</td></tr>
+<tr><td><code>registerPostEditorActionComponent</code></td><td>Панель форматирования поля ввода, когда форматирование отображается.</td></tr>
+<tr><td><code>registerAIActionMenuItemComponent</code></td><td>Меню <b>ИИ</b> поля ввода.</td></tr>
+<tr><td><code>registerFileDropdownMenuAction</code>, <code>registerFilePreviewComponent</code></td><td>Меню параметров файла и превью файла.</td></tr>
+<tr><td><code>registerUserSettings</code></td><td><b>Профиль и параметры</b>, одна вкладка на каждое приложение под заголовком <b>Плагины</b>.</td></tr>
+<tr><td><code>registerChannelSettingsTab</code></td><td>Диалог параметров канала, под заголовком <b>Приложения</b>.</td></tr>
+<tr><td><code>registerPopoverUserAttributesComponent</code>, <code>registerPopoverUserActionsComponent</code></td><td>Карточка профиля, отображаемая при клике на имя или аватар.</td></tr>
+<tr><td><code>registerLeftSidebarHeaderComponent</code>, <code>registerSidebarChannelLinkLabelComponent</code>, <code>registerChannelIconOverride</code>, <code>registerBottomTeamSidebarComponent</code></td><td>Верх списка каналов сообщества, рядом с названием канала, значком канала и нижней частью боковой панели сообщества слева.</td></tr>
+<tr><td><code>registerChannelIntro</code>, <code>registerChannelIntroButtonAction</code>, <code>registerChannelToastComponent</code>, <code>registerNewMessagesSeparatorActionComponent</code>, <code>registerChannelComposerBannerComponent</code>, <code>registerComposerPlaceholder</code></td><td>Начало истории канала, верх списка сообщений, линия непрочитанных, над полем ввода и плейсхолдер поля ввода.</td></tr>
+<tr><td><code>registerChannelTypeOption</code></td><td>Типы каналов в диалоговом окне <b>Создать канал</b>.</td></tr>
+<tr><td><code>registerSearchComponents</code></td><td>Поле поиска в заголовке канала: области приложений отображаются, когда оно пустое.</td></tr>
+<tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>Об Antimatter</b> (внизу панели приложений), под <b>Помощь</b>.</td></tr>
+<tr><td><code>registerProduct</code></td><td>Полные страницы по URL продукта, перечисленные под <b>Продукты</b> в <b>Об Antimatter</b>. Страницы продуктов сохраняют классическую структуру страницы.</td></tr>
+<tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, хуки, такие как <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>Работают как в классическом интерфейсе.</td></tr>
+<tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>Системная консоль, которая является классической в обоих интерфейсах.</td></tr>
+</tbody>
+</table>
+<h3>Что Fusion не отображает и не выполняет</h3>
+<ul>
+<li><code>registerPostDropdownMenuComponent</code> (компонент в меню сообщения), <code>registerPostCardTypeComponent</code> (карточка сообщения в правой панели) и <code>registerProductSwitcherMenuItem</code> не отображаются в основных представлениях Fusion. Используйте <code>registerPostDropdownMenuAction</code> вместо первого.</li>
+<li><code>registerMessageWillBeUpdatedHook</code> не выполняется при редактировании сообщения в Fusion. Проверяйте изменения на сервере с помощью хука <code>MessageWillBeUpdated</code>.</li>
+<li><code>registerActionAfterChannelCreation</code> выполняется только из классического диалога создания канала, который Fusion открывает из <b>Другие параметры…</b> в диалоге <b>Создать канал</b>.</li>
+<li>Компоненты панели приложений отображаются независимо от их <code>supportedProductIds</code>.</li>
+<li>Маршруты из <code>registerNeedsTeamRoute</code> и <code>registerCustomRoute</code> сохраняют классическую структуру страницы, как и продукты.</li>
+</ul>
+
+<h2 id="antimatter-hooks">Хуки, которые есть только в Antimatter</h2>
+<p>Эти методы реестра не существуют в Mattermost. Проверяйте, существует ли метод, перед его вызовом, чтобы приложение также работало там:</p>
+<pre><code>if (typeof registry.registerComposerMenuItem === 'function') {
+    registry.registerComposerMenuItem({
+        text: 'Create a poll',
+        icon: &lt;i className='icon icon-chart-bar'/&gt;,
+        fusionIcon: 'poll',
+        action: ({channelId, rootId}) =&gt; openPollCreation(channelId, rootId),
+    });
+} else {
+    registry.registerChannelHeaderButtonAction(icon, (channel) =&gt; openPollCreation(channel.id), 'Create a poll', 'Create a poll');
+}</code></pre>
+<table>
+<thead><tr><th>Метод</th><th>Что он добавляет</th></tr></thead>
+<tbody>
+<tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>Элемент в меню <b>+</b> поля ввода сообщения, в обоих интерфейсах. <code>action</code> получает <code>{channelId, rootId}</code>.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Вкладка в панели выбора эмодзи в поле ввода сообщений, например для GIF или стикеров. В Fusion вкладки с параметром <code>order</code> меньше 10 отображаются перед вкладкой «Эмодзи». Компонент принимает <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> и <code>isFusion</code>.</td></tr>
+<tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>Панель между заголовком канала и сообщениями, которая отображается для каналов, выбранных <code>matcher(state, channel)</code>. Она может скрывать сообщения и поле ввода (<code>setMessagesVisible</code>), как это делают голосовые каналы.</td></tr>
+<tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>Строка под каналом в боковой панели, например, список участников звонка. Она принимает <code>channel</code>.</td></tr>
+<tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Только для Fusion: элемент на страницах <b>Интеграции</b>, рядом с пользовательскими эмодзи. Приложение GIF добавляет туда свои пользовательские GIF и стикеры.</td></tr>
+</tbody>
+</table>
+<p><code>fusionIcon</code> указывает на иконку из набора иконок Fusion (например, <code>poll</code>, <code>sticker</code>, <code>calendar</code> или <code>image</code>; см. <code>webapp/fusion/src/fusion/components/icon</code>). Fusion отображает её вместо <code>icon</code>, чтобы элемент соответствовал остальным.</p>
+
+<h2 id="settings">Параметры</h2>
+<p><code>settings_schema</code> в <code>plugin.json</code> описывает страницу приложения в <b>Системная консоль › Плагины</b>:</p>
+<pre><code>"settings_schema": {
+  "header": "Forecasts come from the weather service below.",
+  "settings": [
+    {"key": "ServiceURL", "display_name": "Service URL", "type": "text", "default": "https://api.example.com"},
+    {"key": "Units", "display_name": "Units", "type": "dropdown", "default": "metric",
+     "options": [{"display_name": "Celsius", "value": "metric"}, {"display_name": "Fahrenheit", "value": "imperial"}]},
+    {"key": "EnableAlerts", "display_name": "Severe weather alerts", "type": "bool", "default": false,
+     "help_text": "Post alerts in the channels that follow a city."}
+  ]
+}</code></pre>
+<p>Типы параметров: <code>bool</code>, <code>text</code>, <code>longtext</code>, <code>number</code>, <code>dropdown</code>, <code>radio</code>, <code>generated</code> (случайный секрет), <code>username</code> и <code>custom</code> (отрисовывается компонентом, который веб-часть приложения регистрирует с помощью <code>registerAdminConsoleCustomSetting</code>). Параметры можно группировать в <code>sections</code>.</p>
+<p>Серверная часть читает их в структуру, поля которой соответствуют ключам:</p>
+<pre><code>type configuration struct {
+	ServiceURL   string
+	Units        string
+	EnableAlerts bool
+}
+
+func (p *Plugin) OnConfigurationChange() error {
+	var cfg configuration
+	if err := p.API.LoadPluginConfiguration(&amp;cfg); err != nil {
+		return err
+	}
+	p.setConfiguration(&amp;cfg)
+	return nil
+}</code></pre>
+<p>Администраторы также могут задавать их в конфигурации, в разделе <code>PluginSettings.Plugins.&lt;app id&gt;</code>, с ключами в нижнем регистре (см. <a href="{{root}}docs/admins/configuration.html#amctl">руководство администратора</a>).</p>
+
+<h2 id="translations">Переводы</h2>
+<p>Antimatter переведён на 37 языков, как и встроенные приложения. Веб-часть приложения делает это следующим образом:</p>
+<ol>
+<li>Записывайте каждую строку с помощью React Intl, указывая ID и английский текст: <code>&lt;FormattedMessage id='polls.create' defaultMessage='Create a poll'/&gt;</code> или <code>defineMessages</code>. Префиксуйте ID именем вашего приложения.</li>
+<li>Извлекайте английские строки в <code>webapp/i18n/en.json</code> (встроенные приложения используют <code>formatjs extract</code>).</li>
+<li>Добавьте по одному файлу для каждого языка рядом с ним, с теми же ID: <code>fr.json</code>, <code>de.json</code>, <code>pt-BR.json</code>, <code>zh-CN.json</code>…</li>
+<li>Передайте их веб-приложению, которое запрашивает язык пользователя:
+<pre><code>import fr from '../i18n/fr.json';
+import ptBR from '../i18n/pt-BR.json';
+
+const catalogs = {fr, 'pt-BR': ptBR};
+
+export function translationsFor(locale) {
+    return catalogs[locale] || catalogs[locale.split('-')[0]] || {};
+}
+
+registry.registerTranslations(translationsFor);</code></pre></li>
+</ol>
+<p>Если строка отсутствует, используется её английское значение <code>defaultMessage</code>. Для строк, которые отправляет серверная часть (ответы на команды, сообщения ботов), пакет <code>pluginapi/i18n</code> загружает файлы переводов, входящие в состав пакета (например, <code>assets/i18n</code>), и предоставляет локализатор на языке каждого пользователя.</p>
+
+<h2 id="build">Сборка, установка и отладка</h2>
+<p>Вам потребуются Go и Node.js (версия, указанная в файле <code>.nvmrc</code> приложения). В папке приложения:</p>
+<table>
+<thead><tr><th>Команда</th><th>Назначение</th></tr></thead>
+<tbody>
+<tr><td><code>make dist</code></td><td>Собирает серверную часть для всех платформ и веб-приложение, а затем записывает пакет в <code>dist/&lt;app id&gt;-&lt;version&gt;.tar.gz</code>.</td></tr>
+<tr><td><code>make test</code></td><td>Запускает тесты на Go и JavaScript.</td></tr>
+<tr><td><code>make check-style</code></td><td>Выполняет проверку кода (golangci-lint, ESLint) и проверку типов TypeScript.</td></tr>
+<tr><td><code>make deploy</code></td><td>Собирает, затем устанавливает и активирует пакет на сервере.</td></tr>
+<tr><td><code>make watch</code>, <code>make deploy-from-watch</code></td><td>Первая команда пересобирает веб-приложение при каждом сохранении; вторая упаковывает результат сборки и устанавливает его на сервер.</td></tr>
+<tr><td><code>make enable</code>, <code>make disable</code>, <code>make reset</code></td><td>Активирует, деактивирует или перезапускает приложение на сервере.</td></tr>
+<tr><td><code>make logs</code>, <code>make logs-watch</code></td><td>Показывает записи приложения в журнале сервера.</td></tr>
+<tr><td><code>make attach</code></td><td>Подключает отладчик Delve к работающей серверной части (сначала выполните сборку с <code>AM_DEBUG=1</code>).</td></tr>
+</tbody>
+</table>
+<p><code>make deploy</code> и другие серверные команды используют локальный сокет, если он найден (<code>/var/tmp/antimatter_local.socket</code> или <code>AM_LOCALSOCKETPATH</code>): выполняйте их на машине сервера с включённым локальным режимом. В противном случае они авторизуются на сервере, указанном в <code>MM_SERVICESETTINGS_SITEURL</code>, с помощью <code>AM_ADMIN_TOKEN</code> или <code>AM_ADMIN_USERNAME</code> и <code>AM_ADMIN_PASSWORD</code>. Инструменты сборки пока не читают имя <code>AM_</code> для URL сайта.</p>
+<h3>Ручная установка пакета</h3>
+<ul>
+<li>Системный администратор разрешает загрузку с помощью <code>AM_PLUGINSETTINGS_ENABLEUPLOADS=true</code> (по умолчанию отключено; переключателя в Системной консоли нет).</li>
+<li>Затем <b>Системная консоль › Плагины › Управление плагинами › Загрузить плагин</b>, или <code>amctl plugin add weather.tar.gz</code>, а затем <code>amctl plugin enable com.example.weather</code>.</li>
+<li>Если на сервере включён <b>Требовать подпись плагина</b>, он принимает только пакеты, подписанные доверенным ключом; см. <a href="{{root}}docs/admins/apps.html#other-apps">Установка других приложений</a>.</li>
+</ul>
+<div class="callout">Для быстрой итерации на сервере разработки установите на сервере <code>AM_SERVICESETTINGS_ENABLEDEVELOPER=true</code>: тогда ошибки будут содержать подробные сведения. Makefile встроенных приложений собирают серверную часть только для вашей платформы, если в вашей оболочке задана переменная <code>MM_SERVICESETTINGS_ENABLEDEVELOPER</code>.</div>

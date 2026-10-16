@@ -1,0 +1,172 @@
+title: Bot dan mesej interaktif
+description: Akaun bot dalam Antimatter: cara mencipta bot, token dan kebenaran bot, hantar mesej sebagai bot, Mesej Terus, butang dan menu interaktif, serta dialog.
+guide: developers
+order: 5
+nav: Bot
+lead: Akaun bot ialah pengguna yang dibuat untuk program. Ia mempunyai nama, gambar dan token sendiri, serta tag BOT di sebelah namanya. Halaman ini juga merangkumi bahagian interaktif mesej: butang, menu dan dialog, yang boleh digunakan oleh sebarang integrasi.
+source: 45503666f647
+---
+<h2 id="why">Mengapa akaun bot</h2>
+<ul>
+<li>Mesejnya datang daripada identiti yang jelas, dengan tag <b>BOT</b>, bukannya daripada akaun rakan sekerja.</li>
+<li>Token bot terus berfungsi apabila orang yang menetapkannya menukar peranan atau keluar (kecuali pelayan melumpuhkan bot pemilik yang dinyahaktifkan, lihat di bawah).</li>
+<li>Bot tidak boleh log masuk dengan kata laluan, dan tidak pernah melihat aplikasi web.</li>
+</ul>
+<p>Aplikasi mencipta bot mereka sendiri, seperti bot Senarai tugasan atau Buku Taktik, melalui API plugin (<code>EnsureBotUser</code>).</p>
+
+<h2 id="enable">Aktifkan akaun bot</h2>
+<p>Pentadbir sistem mengaktifkan <b>Aktifkan Penciptaan Akaun Bot</b> dalam <b>Konsol Sistem › Integrasi › Akaun bot</b> (<code>ServiceSettings.EnableBotAccountCreation</code>, <code>AM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION</code>). Ia dimatikan secara lalai. Hanya pentadbir sistem boleh mencipta bot, melainkan mereka memberikan hak ini kepada peranan lain dalam tetapan kebenaran.</p>
+<p>Pada halaman yang sama, <b>Lumpuhkan akaun bot apabila pemilik dilumpuhkan</b> (<code>ServiceSettings.DisableBotsWhenOwnerIsDeactivated</code>, diaktifkan secara lalai) mematikan bot apabila akaun pemiliknya dilumpuhkan.</p>
+
+<h2 id="create">Cipta bot</h2>
+<ol>
+<li>Buka avatar anda di bahagian kanan atas, kemudian <b>Integrasi › Akaun bot</b>, kemudian <b>Tambah Akaun Bot</b>.</li>
+<li>Masukkan <b>Nama Pengguna</b> (huruf kecil, nombor, titik, sengkang dan garisan bawah), dan secara pilihan, <b>Ikon Bot</b>, <b>Nama Paparan</b> dan <b>Penerangan</b>.</li>
+<li>Pilih <b>Peranan</b>: <b>Ahli</b>, atau <b>Pentadbir Sistem</b> untuk bot yang mengurus pelayan. Berikan bot hanya apa yang diperlukan.</li>
+<li>Tanda <b>post:channels</b> untuk membolehkannya hantar dalam setiap Saluran Awam, atau <b>post:all</b> untuk setiap saluran, termasuk Saluran Peribadi dan Mesej Terus, tanpa perlu menjadi ahli.</li>
+<li>Tetapkan bila token lalainya tamat tempoh, kemudian pilih <b>Cipta Akaun Bot</b>.</li>
+<li>Salin token akses yang dipaparkan. Ia tidak dipaparkan lagi.</li>
+</ol>
+<p>Kemudian, <b>Cipta Token Baharu</b> pada baris bot menambah token, dan setiap token boleh dilumpuhkan atau dipadamkan. Token bot berfungsi walaupun token akses peribadi dimatikan untuk pengguna.</p>
+<p>Dengan API:</p>
+<pre><code># create the bot (you become its owner)
+curl -X POST https://chat.example.com/api/v4/bots \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username": "deploy-bot", "display_name": "Deploy", "description": "Posts deployments"}'
+
+# give it a token
+curl -X POST https://chat.example.com/api/v4/users/$BOT_USER_ID/tokens \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"description": "deploy pipeline"}'</code></pre>
+<p>Dari baris arahan, log masuk sebagai pentadbir (bukan dalam mod tempatan): <code>amctl bot create deploy-bot --display-name Deploy --with-token --expires-in 90d</code>. Titik akhir lain: <code>GET /api/v4/bots</code>, <code>PUT /api/v4/bots/{bot_user_id}</code>, <code>POST /api/v4/bots/{bot_user_id}/disable</code> dan <code>/enable</code>, <code>POST /api/v4/bots/{bot_user_id}/assign/{user_id}</code> untuk mengubah pemiliknya.</p>
+
+<h2 id="membership">Tambah bot ke komuniti dan saluran</h2>
+<p>Bot baharu tidak berada dalam mana-mana komuniti. Tambahnya seperti orang biasa, daripada pengurusan ahli komuniti atau melalui API:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/teams/$TEAM_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"team_id": "'$TEAM_ID'", "user_id": "'$BOT_USER_ID'"}'
+
+curl -X POST https://chat.example.com/api/v4/channels/$CHANNEL_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"user_id": "'$BOT_USER_ID'"}'</code></pre>
+<p>Bot dengan <b>post:channels</b> atau <b>post:all</b> boleh memuat naik tanpa menjadi ahli, tetapi ia hanya menerima peristiwa WebSocket untuk saluran yang diikutinya.</p>
+
+<h2 id="post">Muat naik sebagai bot</h2>
+<p>Gunakan token bot dengan mana-mana panggilan API; <code>POST /api/v4/posts</code> adalah yang paling biasa (lihat <a href="{{root}}docs/developers/api.html#resources">Sumber utama</a>). Untuk menulis terus kepada seseorang, buka saluran Mesej Terus terlebih dahulu:</p>
+<pre><code># returns the channel; use its "id" as channel_id
+curl -X POST https://chat.example.com/api/v4/channels/direct \
+  -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' \
+  -d '["'$BOT_USER_ID'", "'$USER_ID'"]'</code></pre>
+<p>Untuk bertindak balas terhadap apa yang orang katakan, ikuti <a href="{{root}}docs/developers/api.html#websocket">WebSocket</a> dengan token bot dan jawab peristiwa <code>posted</code> yang anda pedulikan. Abaikan mesej bot sendiri untuk mengelakkan gelung.</p>
+<p>Mesej yang hanya boleh dilihat oleh satu orang (mesej sementara) dihantar dengan <code>POST /api/v4/posts/ephemeral</code> dan <code>{"user_id", "post": {"channel_id", "message"}}</code>. Ia memerlukan kebenaran <code>create_post_ephemeral</code>, yang hanya ada pada pentadbir sistem secara lalai. Integrasi biasanya menghantar mesej sementara sebagai jawapan kepada arahan garis miring dan butang.</p>
+
+<h2 id="interactive">Mesej interaktif: butang dan menu</h2>
+<p>Mana-mana mesej dengan lampiran boleh membawa tindakan: butang, dan menu untuk dipilih. Ia berfungsi dalam mesej yang dimuat naik melalui API, webhook dan jawapan arahan garis miring. Apabila seseorang menggunakannya, Antimatter memanggil URL integrasi anda.</p>
+<pre><code>{
+  "channel_id": "…",
+  "message": "Deploy **api 2.4.0** to production?",
+  "props": {
+    "attachments": [{
+      "actions": [
+        {
+          "id": "approve",
+          "type": "button",
+          "name": "Approve",
+          "style": "primary",
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "approve"}}
+        },
+        {
+          "id": "env",
+          "type": "select",
+          "name": "Pick an environment",
+          "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}],
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "env"}}
+        }
+      ]
+    }]
+  }
+}</code></pre>
+<ul>
+<li><code>type</code>: <code>button</code> atau <code>select</code>.</li>
+<li><code>id</code>: huruf, nombor, sengkang dan garisan bawah, berbeza untuk setiap tindakan mesej. Ia dijana apabila anda tidak memasukkannya.</li>
+<li><code>style</code> (butang): <code>default</code>, <code>primary</code>, <code>success</code>, <code>good</code>, <code>warning</code>, <code>danger</code>, atau warna heks.</li>
+<li><code>options</code> (menu), atau <code>data_source</code>: <code>users</code> atau <code>channels</code> untuk memilih orang atau saluran. <code>default_option</code> pramilih satu nilai.</li>
+<li><code>integration.url</code>: ke mana klik dihantar. Aplikasi (plugin) boleh menggunakan laluan miliknya sendiri, seperti <code>/plugins/com.example.deploy/actions</code>. <code>integration.context</code> adalah milik anda: ia dikembalikan bersama klik, dan klien tidak pernah melihatnya.</li>
+</ul>
+<h3>Permintaan yang diterima oleh integrasi anda</h3>
+<pre><code>{
+  "user_id": "…",
+  "user_name": "priya",
+  "channel_id": "…",
+  "channel_name": "releases",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "post_id": "…",
+  "trigger_id": "…",
+  "type": "button",
+  "context": {"release": "2.4.0", "action": "approve"}
+}</code></pre>
+<p>Untuk menu, <code>type</code> ialah <code>select</code> dan <code>context.selected_option</code> memegang nilai yang dipilih.</p>
+<h3>Jawapan anda</h3>
+<pre><code>{
+  "update": {"message": "Deploy of **api 2.4.0** approved by @priya", "props": {}},
+  "ephemeral_text": "Done. The deploy starts in a minute."
+}</code></pre>
+<ul>
+<li><code>update</code>: menggantikan teks dan sifat mesej, contohnya untuk membutang butang sekali digunakan (kosong <code>props</code>).</li>
+<li><code>ephemeral_text</code>: mesej yang hanya dilihat oleh orang yang mengklik.</li>
+<li><code>goto_location</code>: URL untuk dibuka.</li>
+<li>Badan kosong tidak mengubah apa-apa.</li>
+</ul>
+<p>Pelayan menunggu selama yang dibenarkan oleh <b>Masa tamat permintaan integrasi</b> (30 saat secara lalai). URL integrasi pada alamat rangkaian peribadi mesti dibenarkan oleh pentadbir sistem, seperti untuk webhook.</p>
+
+<h2 id="dialogs">Dialog</h2>
+<p>Dialog ialah borang yang dibuka di atas sembang. Anda hanya boleh membukanya sebagai jawapan kepada sesuatu yang baru dilakukan oleh pengguna, arahan garis miring atau butang, kerana ia memerlukan <code>trigger_id</code> daripada permintaan tersebut. <code>trigger_id</code> sah selama tempoh masa tamat permintaan integrasi.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/actions/dialogs/open \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "trigger_id": "'$TRIGGER_ID'",
+    "url": "https://deploy.example.com/dialog",
+    "dialog": {
+      "callback_id": "new-release",
+      "title": "New release",
+      "introduction_text": "Fill in the release details.",
+      "submit_label": "Create",
+      "notify_on_cancel": false,
+      "state": "anything you want back",
+      "elements": [
+        {"display_name": "Version", "name": "version", "type": "text", "placeholder": "2.4.0"},
+        {"display_name": "Notes", "name": "notes", "type": "textarea", "optional": true},
+        {"display_name": "Environment", "name": "env", "type": "select",
+         "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}]},
+        {"display_name": "Owner", "name": "owner", "type": "select", "data_source": "users"},
+        {"display_name": "Notify the channel", "name": "notify", "type": "bool", "default": "true"}
+      ]
+    }
+  }'</code></pre>
+<table>
+<thead><tr><th>Jenis elemen</th><th>Apa yang dipaparkan</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>Medan satu baris. <code>subtype</code>: <code>text</code>, <code>email</code>, <code>number</code>, <code>password</code>, <code>tel</code> atau <code>url</code>. <code>min_length</code> dan <code>max_length</code> mengehadkannya.</td></tr>
+<tr><td><code>textarea</code></td><td>Medan pelbagai baris.</td></tr>
+<tr><td><code>select</code></td><td>Senarai: <code>options</code>, atau <code>data_source</code> <code>users</code>, <code>channels</code>, atau <code>dynamic</code> dengan <code>data_source_url</code>. <code>multiselect</code> membenarkan beberapa nilai.</td></tr>
+<tr><td><code>bool</code></td><td>Kotak semak.</td></tr>
+<tr><td><code>radio</code></td><td>Satu pilihan antara <code>options</code>.</td></tr>
+<tr><td><code>date</code>, <code>datetime</code></td><td>Tarikh, atau tarikh dan masa.</td></tr>
+</tbody>
+</table>
+<p>Setiap elemen mengambil <code>display_name</code>, <code>name</code>, <code>help_text</code>, <code>placeholder</code>, <code>default</code> dan <code>optional</code>.</p>
+<p>Apabila pengguna menghantar, Antimatter POST ke <code>url</code> dialog:</p>
+<pre><code>{
+  "type": "dialog_submission",
+  "callback_id": "new-release",
+  "state": "anything you want back",
+  "user_id": "…",
+  "channel_id": "…",
+  "team_id": "…",
+  "submission": {"version": "2.4.0", "notes": "", "env": "staging", "owner": "…", "notify": true},
+  "cancelled": false
+}</code></pre>
+<p>Jawab dengan badan kosong untuk menutup dialog, atau biarkan ia terbuka dan tunjukkan apa yang salah:</p>
+<pre><code>{"errors": {"version": "This version already exists."}}</code></pre>
+<p><code>{"error": "…"}</code> memaparkan mesej untuk keseluruhan borang. Dengan <code>notify_on_cancel</code>, menutup dialog menghantar <code>"cancelled": true</code>. Dialog berfungsi dengan cara yang sama dalam aplikasi: <code>OpenInteractiveDialog</code> API plugin mengambil permintaan yang sama.</p>

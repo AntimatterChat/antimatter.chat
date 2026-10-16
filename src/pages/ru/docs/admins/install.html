@@ -1,0 +1,168 @@
+title: Установка Antimatter
+description: Установите Antimatter с помощью Docker Compose или из архива релиза, выберите образ, запустите его в первый раз и создайте первого системного администратора.
+guide: admins
+order: 2
+nav: Установка
+lead: Установите Antimatter с помощью готового файла compose, выберите подходящий образ или запустите сервер из архива релиза. Затем создайте первую учётную запись администратора.
+source: 64cd522c4946
+---
+<h2 id="compose">Установка с помощью Docker Compose</h2>
+<p>Это рекомендуемый способ. Один файл compose запускает Antimatter, PostgreSQL, хранилище файлов и службу GIF. Вам понадобится сервер на Linux с Docker Engine и его плагином Compose (<code>docker compose</code>), 2 ядра CPU и 4 ГБ оперативной памяти или больше.</p>
+
+<h3>1. Скачайте файл compose</h3>
+<pre><code>mkdir antimatter &amp;&amp; cd antimatter
+curl -fsSLO https://antimatter.chat/compose.yaml</code></pre>
+
+<h3>2. Создайте файл .env</h3>
+<p>Файл compose читает свои настройки из файла <code>.env</code> в той же директории. Создайте его со случайными секретами:</p>
+<pre><code>cat &gt; .env &lt;&lt;EOF
+SITE_URL=http://localhost:8065
+POSTGRES_PASSWORD=$(openssl rand -hex 24)
+S3_SECRET_KEY=$(openssl rand -hex 24)
+GIFS_API_KEY=$(openssl rand -hex 24)
+EOF
+chmod 600 .env</code></pre>
+<p>Укажите в <code>SITE_URL</code> адрес, который пользователи будут вводить в браузере, например <code>http://192.168.1.20:8065</code> в локальной сети или <code>https://chat.example.com</code> с доменным именем. Сохраните файл <code>.env</code>: база данных и хранилище используют эти пароли с первого запуска, и вам понадобится тот же файл для восстановления из резервной копии.</p>
+
+<h3>3. Запустите</h3>
+<pre><code>docker compose up -d
+docker compose ps</code></pre>
+<p>Первый запуск занимает минуту-две: PostgreSQL создаёт базу данных, одноразовая служба <code>bucket</code> создаёт хранилище, одноразовая служба <code>gifs-stickers</code> импортирует стартовый набор стикеров, а Antimatter создаёт свои таблицы. Следите за процессом с помощью <code>docker compose logs -f antimatter</code>.</p>
+<p>Чтобы использовать доменное имя и HTTPS с самого начала, см. <a href="{{root}}docs/admins/https.html">Домен и HTTPS</a>: с файлом compose это всего две дополнительные строки в <code>.env</code> и профиль <code>https</code>.</p>
+
+<h3>Переменные .env</h3>
+<table>
+<thead><tr><th>Переменная</th><th>Значение по умолчанию</th><th>Назначение</th></tr></thead>
+<tbody>
+<tr><td><code>SITE_URL</code></td><td>обязательный</td><td>Публичный адрес Antimatter (<code>ServiceSettings.SiteURL</code>).</td></tr>
+<tr><td><code>POSTGRES_PASSWORD</code></td><td>обязательный</td><td>Пароль пользователя базы данных <code>antimatter</code>.</td></tr>
+<tr><td><code>S3_SECRET_KEY</code></td><td>обязательный</td><td>Секретный ключ хранилища файлов.</td></tr>
+<tr><td><code>GIFS_API_KEY</code></td><td>обязательный</td><td>Ключ, который Antimatter использует для обращения к службе GIF.</td></tr>
+<tr><td><code>GIFS_UPLOAD_KEY</code></td><td>пусто</td><td>Позволяет пользователям добавлять собственные GIF и стикеры из панели выбора. Если оставить пустым, загрузка будет отключена.</td></tr>
+<tr><td><code>DOMAIN</code></td><td>пусто</td><td>Ваше доменное имя, для профиля <code>https</code>.</td></tr>
+<tr><td><code>HTTP_PORT</code></td><td><code>8065</code></td><td>Порт хоста веб-сервера Antimatter.</td></tr>
+<tr><td><code>CALLS_PORT</code></td><td><code>8443</code></td><td>UDP- и TCP-порт для аудио и видео звонков.</td></tr>
+<tr><td><code>EDGE_SUBNET</code></td><td><code>172.29.71.0/28</code></td><td>Подсеть сети между Caddy и Antimatter. Измените, если она пересекается с одной из ваших сетей.</td></tr>
+<tr><td><code>TZ</code></td><td><code>UTC</code></td><td>Часовой пояс контейнеров.</td></tr>
+<tr><td><code>ANTIMATTER_IMAGE</code></td><td><code>ghcr.io/antimatterchat/antimatter-next:latest</code></td><td>Образ Antimatter для запуска (см. ниже).</td></tr>
+</tbody>
+</table>
+
+<h3>Что запускается</h3>
+<table>
+<thead><tr><th>Служба</th><th>Образ</th><th>Роль</th></tr></thead>
+<tbody>
+<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>Сервер, веб-приложение и встроенные приложения. Публикует <code>HTTP_PORT</code> и <code>CALLS_PORT</code>.</td></tr>
+<tr><td><code>postgres</code></td><td><code>postgres:17-alpine</code></td><td>База данных, в томе <code>postgres</code>.</td></tr>
+<tr><td><code>files</code></td><td><code>rustfs/rustfs</code></td><td>Хранилище, совместимое с S3, для загруженных файлов и установленных приложений, в томе <code>files</code>.</td></tr>
+<tr><td><code>bucket</code></td><td><code>amazon/aws-cli</code></td><td>Создаёт бакет <code>antimatter</code>, а затем завершает работу.</td></tr>
+<tr><td><code>gifs</code></td><td><code>ghcr.io/antimatterchat/gifs-server</code></td><td>Сервис GIF и стикеров, в томе <code>gifs</code>.</td></tr>
+<tr><td><code>gifs-stickers</code></td><td><code>ghcr.io/antimatterchat/gifs-server</code></td><td>Импортирует стартовый набор стикеров при первом запуске, а затем завершает работу.</td></tr>
+<tr><td><code>https</code></td><td><code>caddy:2-alpine</code></td><td>Только для профиля <code>https</code>: HTTPS на портах 80 и 443.</td></tr>
+</tbody>
+</table>
+<p>PostgreSQL, хранилище и сервис GIF находятся во внутренней сети (<code>private</code>) без доступа в Интернет, к которой присоединяется только Antimatter. Ни один из них не публикует порты.</p>
+<p>Контейнер Antimatter ничего не хранит на диске: его параметры находятся в базе данных (<code>AM_CONFIG</code> указывает на неё), а файлы и приложения — в сервисе хранилища. Вы можете удалить и пересоздать контейнер в любой момент. Всё, что нужно резервировать, находится в томах <code>postgres</code>, <code>files</code> и <code>gifs</code>, а также в вашем файле <code>.env</code>.</p>
+
+<h2 id="images">Выберите образ</h2>
+<p>Опубликованы два образа Antimatter, оба для <code>linux/amd64</code> и <code>linux/arm64</code>, и оба собраны из ветки <code>main</code> каждого репозитория:</p>
+<table>
+<thead><tr><th>Образ</th><th>Встроенные приложения</th><th>Теги</th></tr></thead>
+<tbody>
+<tr><td><code>ghcr.io/antimatterchat/antimatter</code></td><td>Агенты, звонки, GitHub, GitLab, Jira, Kanban, метрики и плейбуки.</td><td><code>latest</code>, <code>X.Y.Z</code> для релизов, <code>sha-&lt;commit&gt;</code></td></tr>
+<tr><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>То же самое, плюс голосовые каналы, опросы, почта, календарь, заметки, доски для рисования, GIF, списки дел и мемы. Пересобирается каждую ночь.</td><td><code>latest</code>, <code>nightly</code>, <code>nightly-&lt;YYYYMMDD&gt;</code>, <code>sha-&lt;commit&gt;</code></td></tr>
+</tbody>
+</table>
+<p>Файл compose сайта использует <code>antimatter-next</code>, потому что сервис GIF и большинство приложений, описанных на этом сайте, доступны только в этом образе. Чтобы сменить образ, задайте <code>ANTIMATTER_IMAGE</code> в <code>.env</code> и выполните <code>docker compose up -d</code>.</p>
+<div class="callout warn">Содержимое тега <code>latest</code> может измениться. В продакшене закрепляйте за собой конкретный тег, например <code>nightly-20261015</code> или <code>sha-&lt;commit&gt;</code>, и меняйте его осознанно при обновлении. Сервер обновляет свою базу данных при запуске, поэтому вы не сможете вернуться к более старому образу или перейти с <code>antimatter-next</code> на <code>antimatter</code>, не восстановив резервную копию, сделанную до этого. См. <a href="{{root}}docs/admins/backups-upgrades.html">Резервное копирование и обновления</a>.</div>
+
+<h3>Внутри образа</h3>
+<ul>
+<li>Сервер находится в <code>/antimatter</code>, бинарные файлы <code>antimatter</code> и <code>amctl</code> — в <code>/antimatter/bin</code> (в <code>PATH</code>).</li>
+<li>Он работает от имени непривилегированного пользователя <code>antimatter</code> (uid 2000) на минималистичном distroless-базовом образе, без оболочки.</li>
+<li>Порты: 8065 (веб и API), 8067 (метрики), 8074 (кластер), 8443 UDP и TCP (звонки).</li>
+<li>Режим локального хранилища (<code>ServiceSettings.EnableLocalMode</code>) включён, поэтому <code>amctl --local</code> работает внутри контейнера. Проверка работоспособности выполняется с помощью команды <code>amctl system status --local</code>.</li>
+<li>Встроенные приложения находятся в <code>/antimatter/prepackaged_plugins</code> и подписаны ключом подписи приложений Antimatter.</li>
+<li>Инструменты для извлечения текста (<code>pdftotext</code>, <code>wvText</code>, <code>unrtf</code>, <code>tidy</code>) включены в состав, что позволяет искать по содержимому загруженных документов.</li>
+</ul>
+
+<h3>Другие файлы compose</h3>
+<p>В репозитории <a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> есть конфигурация для продакшена в <code>deploy/compose/</code>: nginx с собственными сертификатами или Let's Encrypt (certbot), PostgreSQL, опциональный сервис GIF (профиль <code>gifs</code>) и именованные тома для конфигурации, данных и журналов сервера, описанные в README. По умолчанию используется стабильный образ, а файлы хранятся на локальном томе, а не в S3. Используйте этот вариант, если предпочитаете nginx Caddy или уже имеете сертификаты.</p>
+
+<h2 id="first-admin">Создание первого администратора</h2>
+<p>Откройте <code>SITE_URL</code> в браузере и создайте аккаунт. <b>Первый аккаунт, созданный на новом сервере, становится системным администратором</b>, после чего мастер настройки проведёт вас через создание первого сообщества (так в Antimatter называются команды или рабочие пространства).</p>
+<p>Сделайте это сразу после первого запуска: до этого момента любой, кто первым достигнет сервера, станет его администратором. Чтобы создать аккаунт из командной строки, пока сервер недоступен извне:</p>
+<pre><code>docker compose exec antimatter amctl --local user create --system-admin --email-verified \
+    --email admin@example.com --username admin --password 'a-long-password'
+docker compose exec antimatter amctl --local team create --name main --display-name "Main"
+docker compose exec antimatter amctl --local team users add main admin</code></pre>
+<p>Затем войдите на <code>SITE_URL</code>. Начните команду с пробела, чтобы пароль не попал в историю команд (при <code>HISTCONTROL=ignorespace</code>), либо смените пароль после входа.</p>
+<p>Дальнейшие шаги после входа:</p>
+<ol>
+<li>Определите, кто может создавать аккаунты: <a href="{{root}}docs/admins/authentication.html">Вход и аккаунты</a>.</li>
+<li>Настройте электронную почту, чтобы приглашения и сброс пароля работали: <a href="{{root}}docs/admins/email-push.html">Электронная почта и push-уведомления</a>.</li>
+<li>Откройте порт для звонков в файрволе: <a href="{{root}}docs/admins/calls.html">Звонки и голосовые каналы</a>.</li>
+<li>Проверьте, какие приложения включены: <a href="{{root}}docs/admins/apps.html">Встроенные приложения</a>.</li>
+</ol>
+
+<h2 id="archive">Установка из архива релиза</h2>
+<p>Без Docker сервер запускается из архива с именем <code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code> (например, <code>antimatter-linux-amd64.tar.gz</code>). Он содержит единственный каталог <code>antimatter/</code> с файлами <code>bin/antimatter</code>, <code>bin/amctl</code>, <code>config/config.json</code>, веб-приложениями (<code>client/</code> и <code>client-fusion/</code>), шаблонами электронной почты и переводами.</p>
+
+<h3>1. Подготовка PostgreSQL</h3>
+<p>Antimatter поддерживает только PostgreSQL версии 15 и новее (более старые версии запускаются, но в журнале появляется ошибка). Создайте пользователя и базу данных:</p>
+<pre><code>sudo -u postgres psql &lt;&lt;'EOF'
+CREATE USER antimatter WITH PASSWORD 'a-long-password';
+CREATE DATABASE antimatter OWNER antimatter;
+EOF</code></pre>
+
+<h3>2. Распаковка и настройка</h3>
+<pre><code>sudo tar -xzf antimatter-linux-amd64.tar.gz -C /opt
+sudo useradd --system --user-group antimatter
+sudo mkdir -p /opt/antimatter/data
+sudo chown -R antimatter:antimatter /opt/antimatter</code></pre>
+<p>Укажите серверу базу данных, либо в <code>/opt/antimatter/config/config.json</code> (<code>SqlSettings.DataSource</code>), либо с помощью переменных окружения, и задайте URL сайта:</p>
+<pre><code>AM_SQLSETTINGS_DRIVERNAME=postgres
+AM_SQLSETTINGS_DATASOURCE=postgres://antimatter:a-long-password@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10
+AM_SERVICESETTINGS_SITEURL=https://chat.example.com</code></pre>
+<p>Файл <code>config.json</code> в архиве — это полная конфигурация по умолчанию: изменения, внесённые в Системной консоли, сохраняются обратно в этот файл. Чтобы хранить конфигурацию в базе данных, см. <a href="{{root}}docs/admins/configuration.html">Конфигурация</a>.</p>
+
+<h3>3. Запуск как службы</h3>
+<p>Единица systemd, файл <code>/etc/systemd/system/antimatter.service</code>:</p>
+<pre><code>[Unit]
+Description=Antimatter
+After=network.target postgresql.service
+
+[Service]
+Type=notify
+User=antimatter
+Group=antimatter
+WorkingDirectory=/opt/antimatter
+ExecStart=/opt/antimatter/bin/antimatter
+EnvironmentFile=-/etc/antimatter.env
+TimeoutStartSec=3600
+Restart=always
+RestartSec=10
+LimitNOFILE=49152
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+<p>Разместите переменные <code>AM_</code> в файле <code>/etc/antimatter.env</code> (доступном только для root), затем выполните:</p>
+<pre><code>sudo systemctl daemon-reload
+sudo systemctl enable --now antimatter
+journalctl -u antimatter -f</code></pre>
+<p>Сервер слушает порт 8065. Откройте <code>http://&lt;server&gt;:8065</code> или ваш домен, если настроен обратный прокси (см. <a href="{{root}}docs/admins/https.html">Домен и HTTPS</a>), и создайте первый аккаунт: он станет системным администратором.</p>
+<p>Утилита <code>bin/amctl</code> управляет работающим сервером из командной строки. На самом сервере она работает без входа через локальный режим: установите <code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>, затем выполните <code>sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code>.</p>
+
+<h2 id="other-commands">Другие команды сервера</h2>
+<p>Помимо запуска сервера (<code>antimatter</code> или <code>antimatter server</code>), бинарный файл содержит несколько служебных команд. Они читают ту же конфигурацию, что и сервер.</p>
+<table>
+<thead><tr><th>Команда</th><th>Назначение</th></tr></thead>
+<tbody>
+<tr><td><code>antimatter version</code></td><td>Выводит версию, номер сборки, дату сборки и хэш сборки.</td></tr>
+<tr><td><code>antimatter db ping</code></td><td>Проверяет доступность базы данных.</td></tr>
+<tr><td><code>antimatter db init</code></td><td>Создаёт конфигурацию в базе данных (при установленном <code>AM_CONFIG</code> с URL в формате <code>postgres://</code>).</td></tr>
+<tr><td><code>antimatter db migrate</code></td><td>Применяет миграции базы данных без запуска сервера.</td></tr>
+<tr><td><code>antimatter db version</code></td><td>Выводит последнюю применённую миграцию базы данных.</td></tr>
+<tr><td><code>antimatter import bulk</code>, <code>antimatter export bulk</code></td><td>Импортирует или экспортирует данные в пакетном формате (см. <a href="{{root}}docs/admins/backups-upgrades.html">Резервные копии и обновления</a>).</td></tr>
+</tbody>
+</table>

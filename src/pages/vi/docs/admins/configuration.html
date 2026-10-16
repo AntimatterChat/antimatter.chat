@@ -1,0 +1,120 @@
+title: Cấu hình
+description: Cách hoạt động của cấu hình trong Antimatter: các cài đặt trong cơ sở dữ liệu hoặc trong config.json, các biến môi trường AM_, Bảng điều khiển Hệ thống, công cụ dòng lệnh amctl, và vị trí lưu trữ nhật ký.
+guide: admins
+order: 3
+nav: Cấu hình
+lead: Nơi Antimatter lưu các cài đặt, ba cách để thay đổi chúng (Bảng điều khiển Hệ thống, biến môi trường, amctl), và vị trí lưu trữ nhật ký.
+source: e2d6546121d3
+---
+<h2 id="where">Nơi lưu trữ các cài đặt</h2>
+<p>Mỗi cài đặt máy chủ đều có một tên bao gồm một phần (section) và một khóa (key), chẳng hạn như <code>ServiceSettings.SiteURL</code> hoặc <code>EmailSettings.SMTPServer</code>. Chúng cùng nhau tạo thành một cấu hình, được lưu trữ trong một trong hai vị trí:</p>
+<ul>
+<li><b>Trong cơ sở dữ liệu.</b> Tệp compose của trang web đặt <code>AM_CONFIG</code> thành URL kết nối PostgreSQL, do đó cấu hình là một dòng trong cơ sở dữ liệu và container không lưu trữ gì trên đĩa. Nhiều máy chủ chia sẻ một cơ sở dữ liệu cũng sẽ chia sẻ cấu hình của chúng.</li>
+<li><b>Trong một tệp.</b> Nếu không có <code>AM_CONFIG</code>, máy chủ sẽ đọc <code>config/config.json</code> nằm cạnh thư mục <code>bin/</code> của nó (<code>/antimatter/config/config.json</code> trong ảnh Docker). Tệp lưu trữ phát hành và các tệp compose cho môi trường sản xuất của antimatter-docker hoạt động theo cách này. Hãy giữ tệp này chỉ có thể được đọc bởi người dùng của máy chủ: nó chứa các mật khẩu và khóa.</li>
+</ul>
+<p><code>AM_CONFIG</code> (hoặc cờ <code>--config</code> của lệnh <code>antimatter</code>) chấp nhận một đường dẫn tệp hoặc một URL <code>postgres://</code>. Các cài đặt mà bạn bỏ qua sẽ lấy giá trị mặc định của chúng.</p>
+<p>Để di chuyển một cấu hình hiện có từ tệp sang cơ sở dữ liệu, hãy chạy lệnh này trên máy chủ, sau đó khởi động máy chủ với <code>AM_CONFIG</code> được đặt thành cùng một URL:</p>
+<pre><code>amctl --local config migrate /opt/antimatter/config/config.json \
+    "postgres://antimatter:PASSWORD@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10"</code></pre>
+
+<h2 id="environment">Biến môi trường</h2>
+<p>Bất kỳ cài đặt nào cũng có thể được cung cấp dưới dạng biến môi trường. Các biến này có ưu tiên cao hơn cấu hình đã lưu trữ, điều này khiến chúng phù hợp cho những gì thuộc về triển khai: cơ sở dữ liệu, URL trang web, lưu trữ tệp, các cổng.</p>
+<h3>Quy tắc đặt tên</h3>
+<p>Ghi <code>AM_</code>, sau đó là phần (section), sau đó là khóa (key), viết hoa và phân tách bằng dấu gạch dưới. Các từ bên trong tên phần hoặc khóa không được phân tách:</p>
+<table>
+<thead><tr><th>Cài đặt</th><th>Biến</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.SiteURL</code></td><td><code>AM_SERVICESETTINGS_SITEURL</code></td></tr>
+<tr><td><code>SqlSettings.DataSource</code></td><td><code>AM_SQLSETTINGS_DATASOURCE</code></td></tr>
+<tr><td><code>EmailSettings.SMTPServer</code></td><td><code>AM_EMAILSETTINGS_SMTPSERVER</code></td></tr>
+<tr><td><code>PrivacySettings.EnableUserBlocking</code></td><td><code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li>Các cài đặt dạng true và false nhận giá trị <code>true</code> hoặc <code>false</code>; các số là số thuần túy.</li>
+<li>Các cài đặt dạng danh sách nhận các giá trị của chúng được phân tách bằng khoảng trắng, ví dụ <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>.</li>
+<li>Các cài đặt dạng đối tượng nhận JSON. Biến duy nhất như vậy cho các ứng dụng là <code>AM_PLUGINSETTINGS_PLUGINS</code>, và nó thay thế cài đặt của <em>mọi</em> ứng dụng cùng một lúc: hãy đặt cài đặt ứng dụng trong Bảng điều khiển Hệ thống hoặc bằng <code>amctl</code> thay thế (xem bên dưới).</li>
+<li>Các cài đặt Mattermost cũ hơn sử dụng tiền tố <code>MM_</code>, ví dụ <code>MM_SQLSETTINGS_DATASOURCE</code>. Nó vẫn hoạt động như một alias kế thừa. Khi cả hai đều được đặt, biến <code>AM_</code> sẽ có hiệu lực.</li>
+</ul>
+<p>Một cài đặt được cung cấp bởi biến sẽ bị khóa trong Bảng điều khiển Hệ thống, kèm theo ghi chú "Cài đặt này đã được thiết lập thông qua một biến môi trường. Nó không thể được thay đổi thông qua Bảng điều khiển Hệ thống." Nó không được ghi vào cấu hình đã lưu: hãy xóa biến và giá trị đã lưu sẽ lại được áp dụng.</p>
+<h3>Với Docker Compose</h3>
+<p>Thêm các biến dưới <code>environment:</code> của dịch vụ <code>antimatter</code>, hoặc trong tệp <code>compose.override.yaml</code> đặt cạnh <code>compose.yaml</code> (Compose sẽ đọc nó tự động và nó sẽ được giữ nguyên sau các bản cập nhật của tệp đã tải xuống):</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_LOGSETTINGS_CONSOLELEVEL: INFO</code></pre>
+<p>Áp dụng các thay đổi bằng <code>docker compose up -d</code>, điều này sẽ tạo lại container.</p>
+<h3>Các biến được đọc bởi các ứng dụng</h3>
+<p>Một số ứng dụng đọc các biến riêng của chúng, được đặt trên dịch vụ <code>antimatter</code>: ứng dụng Calls đọc <code>AM_CALLS_*</code> (xem <a href="{{root}}docs/admins/calls.html">Cuộc gọi và thoại</a>), và ứng dụng GIFs đọc <code>AM_GIFS_SERVICE_URL</code>, <code>AM_GIFS_API_KEY</code> và <code>AM_GIFS_UPLOAD_KEY</code> (xem <a href="{{root}}docs/admins/apps.html">Ứng dụng tích hợp sẵn</a>).</p>
+
+<h2 id="console">Bảng điều khiển Hệ thống</h2>
+<p>Bảng điều khiển Hệ thống là khu vực quản trị của ứng dụng web, dành cho quản trị viên hệ thống. Để mở nó, hãy nhấp vào ảnh hồ sơ của bạn và chọn <b>Bảng điều khiển Hệ thống</b>, hoặc truy cập <code>https://chat.example.com/admin_console</code>. Thanh bên của nó có một ô <b>Tìm cài đặt</b> để tìm kiếm trên mọi trang.</p>
+<figure><img src="{{root}}assets/img/shots/admin.webp" alt="The System Console, with its sidebar of sections on the left and the SAML 2.0 settings page on the right."><figcaption>Bảng điều khiển Hệ thống. Thanh bên nhóm các trang thành các phần như Báo cáo, Quản lý người dùng và Môi trường.</figcaption></figure>
+<p>Các phần của nó bao gồm:</p>
+<ul>
+<li><b>Báo cáo</b>: thống kê và nhật ký máy chủ.</li>
+<li><b>Quản lý người dùng</b>: người dùng, nhóm, cộng đồng (được liệt kê dưới dạng Nhóm), kênh, quyền và quản trị ủy quyền.</li>
+<li><b>Thuộc tính hệ thống</b>: các thuộc tính hồ sơ tùy chỉnh và truy cập dựa trên thuộc tính.</li>
+<li><b>Môi trường</b>: máy chủ web, cơ sở dữ liệu, lưu trữ tệp, proxy hình ảnh, SMTP, thông báo đẩy, giới hạn tần suất, ghi nhật ký, thời lượng phiên, giám sát hiệu suất.</li>
+<li><b>Cấu hình trang web</b>: thương hiệu, người dùng và nhóm, thông báo, bài đăng, chia sẻ tệp và các hành vi trên toàn máy chủ khác.</li>
+<li><b>Xác thực</b>: đăng ký, đăng nhập bằng email và mật khẩu, MFA, AD/LDAP, SAML 2.0, OAuth 2.0, OpenID Connect và truy cập khách.</li>
+<li><b>Các plugin</b>: quản lý ứng dụng và cài đặt của từng ứng dụng đã cài.</li>
+<li><b>Tích hợp</b>: webhook, lệnh gạch chéo, tài khoản bot, GIFs, chuyển văn bản thành giọng nói, CORS.</li>
+<li><b>Compliance</b>: lưu trữ dữ liệu, xuất dữ liệu và giám sát tuân thủ, ghi nhật ký kiểm toán, điều khoản dịch vụ tùy chỉnh.</li>
+<li><b>Thử nghiệm</b>: các tính năng có thể thay đổi.</li>
+</ul>
+<p>Trong hướng dẫn này, một cài đặt được viết theo đường dẫn của nó trong Bảng điều khiển Hệ thống, sau đó là nhãn của nó, rồi đến khóa cấu hình, ví dụ <b>Bảng điều khiển Hệ thống › Cấu hình trang web › Người dùng và Nhóm › Bật tính năng bỏ qua, chặn và yêu cầu nhắn tin</b> (<code>PrivacySettings.EnableUserBlocking</code>).</p>
+<p>Hầu hết các thay đổi có hiệu lực ngay khi bạn nhấp vào <b>Lưu</b>. Một số (địa chỉ nghe, một số cài đặt cơ sở dữ liệu và bộ nhớ đệm) cần khởi động lại, và trang sẽ ghi rõ điều này.</p>
+
+<h2 id="amctl">Công cụ dòng lệnh amctl</h2>
+<p><code>amctl</code> quản lý máy chủ từ dòng lệnh: người dùng, cộng đồng, kênh, ứng dụng, cấu hình, tác vụ và nhiều hơn nữa. Nó giao tiếp với máy chủ theo một trong hai cách.</p>
+<h3>Chế độ cục bộ, trên máy chủ</h3>
+<p>Chế độ cục bộ cho phép <code>amctl</code> giao tiếp với máy chủ thông qua một socket Unix, mà không cần đăng nhập. Chế độ này được bật trong ảnh Docker. Trên máy chủ được cài đặt từ một tệp lưu trữ, hãy bật nó bằng <b>ServiceSettings.EnableLocalMode</b> (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>). Socket mặc định là <code>/var/tmp/antimatter_local.socket</code> (<code>ServiceSettings.LocalModeSocketLocation</code>).</p>
+<pre><code># with Docker Compose
+docker compose exec antimatter amctl --local system status
+# with a release archive
+sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code></pre>
+<div class="callout warn">Bất kỳ ai có thể sử dụng socket, hoặc chạy <code>docker compose exec</code> trên máy chủ, đều có quyền quản trị viên hệ thống đầy đủ.</div>
+<h3>Từ xa, với một tài khoản</h3>
+<p>Từ bất kỳ máy nào, hãy đăng nhập bằng tài khoản quản trị viên hệ thống (hoặc token truy cập cá nhân), sau đó chạy các lệnh đối với máy chủ đó:</p>
+<pre><code>amctl auth login https://chat.example.com --name prod --username admin
+amctl system status</code></pre>
+<h3>Lệnh cấu hình</h3>
+<table>
+<thead><tr><th>Lệnh</th><th>Chức năng</th></tr></thead>
+<tbody>
+<tr><td><code>amctl config get ServiceSettings.SiteURL</code></td><td>In ra một cài đặt.</td></tr>
+<tr><td><code>amctl config set TeamSettings.EnableOpenServer false</code></td><td>Thay đổi một cài đặt. Các cài đặt dạng danh sách nhận nhiều giá trị.</td></tr>
+<tr><td><code>amctl config patch settings.json</code></td><td>Ghép một tệp JSON chứa các cài đặt vào cấu hình.</td></tr>
+<tr><td><code>amctl config show</code></td><td>In ra toàn bộ cấu hình dưới dạng JSON.</td></tr>
+<tr><td><code>amctl config edit</code></td><td>Mở cấu hình trong trình soạn thảo của bạn (<code>$EDITOR</code>).</td></tr>
+<tr><td><code>amctl config reset</code></td><td>Đặt lại các cài đặt về giá trị mặc định.</td></tr>
+<tr><td><code>amctl config reload</code></td><td>Tải lại cấu hình từ nơi nó được lưu trữ, sau một thay đổi được thực hiện bên ngoài máy chủ.</td></tr>
+</tbody>
+</table>
+<p>Các cài đặt ứng dụng nằm dưới <code>PluginSettings.Plugins.&lt;app id&gt;</code>, với các khóa viết thường. Ví dụ, để đặt URL dịch vụ và khóa của ứng dụng GIF từ máy chủ Docker:</p>
+<pre><code>docker compose exec -T antimatter amctl --local config patch /dev/stdin &lt;&lt;'EOF'
+{"PluginSettings": {"Plugins": {"com.antimatterchat.gifs": {
+  "serviceurl": "http://gifs:8080/v2",
+  "apikey": "the GIFS_API_KEY of your .env"
+}}}}
+EOF</code></pre>
+<p>Các lệnh hữu ích khác: <code>amctl user create</code>, <code>amctl user deactivate</code>, <code>amctl team create</code>, <code>amctl plugin list</code>, <code>amctl plugin enable</code>, <code>amctl system supportpacket</code> và <code>amctl logs</code>. Chạy <code>amctl help &lt;command&gt;</code> để xem các tùy chọn của từng lệnh.</p>
+
+<h2 id="logs">Nhật ký</h2>
+<p>Máy chủ ghi nhật ký của nó vào hai nơi, mỗi nơi có mức riêng (<code>DEBUG</code>, <code>INFO</code>, <code>WARN</code> hoặc <code>ERROR</code>), được thiết lập trong <b>Bảng điều khiển Hệ thống › Môi trường › Nhật ký</b>:</p>
+<table>
+<thead><tr><th>Đích đến</th><th>Cài đặt</th><th>Mặc định</th></tr></thead>
+<tbody>
+<tr><td>Console (đầu ra chuẩn)</td><td><b>Xuất nhật ký ra bảng điều khiển</b> (<code>LogSettings.EnableConsole</code>), <b>Mức Nhật ký Bảng điều khiển</b> (<code>LogSettings.ConsoleLevel</code>), <b>Nhật ký bảng điều khiển xuất dưới dạng JSON</b> (<code>LogSettings.ConsoleJson</code>)</td><td>bật, <code>DEBUG</code>, JSON</td></tr>
+<tr><td>Một tệp, <code>antimatter.log</code></td><td><b>Xuất nhật ký vào tệp</b> (<code>LogSettings.EnableFile</code>), <b>Cấp độ nhật ký tệp</b> (<code>LogSettings.FileLevel</code>), <b>Thư mục Nhật ký Tệp</b> (<code>LogSettings.FileLocation</code>)</td><td>bật, <code>INFO</code>, thư mục <code>logs/</code> nằm cạnh <code>bin/</code></td></tr>
+</tbody>
+</table>
+<p>Tệp nhật ký được xoay vòng ở 100 MB và các tệp cũ được nén.</p>
+<p>Tệp compose của trang web tắt nhật ký tệp (<code>AM_LOGSETTINGS_ENABLEFILE=false</code>), vì vậy nhật ký chỉ có trong đầu ra của container:</p>
+<pre><code>docker compose logs -f antimatter
+docker compose logs --since 1h antimatter | grep -i error</code></pre>
+<p>Mức console mặc định là <code>DEBUG</code>, khá chi tiết. Trên máy chủ bận rộn, hãy đặt <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code>. Với bản phát hành lưu trữ dưới systemd, đầu ra console sẽ đi vào journal (<code>journalctl -u antimatter</code>) và tệp sẽ nằm ở <code>/opt/antimatter/logs/antimatter.log</code>.</p>
+<p>Khi nhật ký tệp được bật, quản trị viên hệ thống cũng có thể đọc các dòng nhật ký mới nhất trong <b>Bảng điều khiển Hệ thống › Báo cáo › Nhật ký máy chủ</b>, hoặc bằng <code>amctl logs</code>.</p>

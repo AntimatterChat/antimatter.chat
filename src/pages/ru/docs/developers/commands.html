@@ -1,0 +1,122 @@
+title: Команды с косой чертой
+description: Пользовательские команды с косой чертой в Antimatter: создание, запрос, который получает ваш сервис, формат ответа, ответы только для отправителя и для всего канала, отложенные ответы и автодополнение.
+guide: developers
+order: 4
+nav: Команды с косой чертой
+lead: Пользовательская команда с косой чертой позволяет пользователям вводить /что-то в поле сообщения, чтобы вызвать ваш сервис. Antimatter отправляет команду на ваш URL и отображает ваш ответ — либо только для этого пользователя, либо для всего канала.
+source: 24dbc9730e62
+---
+<h2 id="how">Как работает команда с косой чертой</h2>
+<ol>
+<li>Пользователь вводит <code>/weather Paris</code> и отправляет. Текст не публикуется.</li>
+<li>Antimatter отправляет HTTP-запрос на URL команды, включая данные о том, кто ввёл команду, где и какой текст следует после ключевого слова.</li>
+<li>Ваш сервис отвечает в пределах тайм-аута запроса (по умолчанию 30 секунд) сообщением.</li>
+<li>Antimatter отображает ответ: только для этого пользователя (эфемерный) или в канале для всех.</li>
+</ol>
+<p>Команды принадлежат сообществу, и ключевое слово уникально в пределах сообщества. Встроенные команды, такие как <code>/join</code>, <code>/msg</code> или <code>/away</code>, нельзя заменить. Приложения (плагины) также могут регистрировать команды; см. <a href="{{root}}docs/developers/apps.html#server">Серверная часть</a>.</p>
+
+<h2 id="create">Создание команды</h2>
+<p>Пользовательские команды с косой чертой включены по умолчанию (<b>Включить пользовательские быстрые команды</b> в <b>Системная консоль › Интеграции › Управление интеграцией</b>, <code>ServiceSettings.EnableCommands</code>). Администраторы сообществ и системные администраторы могут создавать их по умолчанию.</p>
+<ol>
+<li>Откройте свой аватар в правом верхнем углу, затем <b>Интеграции › Слэш-команды</b>, затем <b>Добавить быструю команду</b>.</li>
+<li>Заполните <b>Заголовок</b> и <b>Описание</b> (отображаются на страницах интеграций).</li>
+<li>Введите <b>Ключевое слово</b>, без косой черты и без пробелов, например <code>weather</code>.</li>
+<li>Введите <b>URL запроса</b> и выберите <b>Метод запроса</b>: <b>POST</b> (по умолчанию) или <b>GET</b>.</li>
+<li>При необходимости задайте <b>Имя пользователя для ответа</b> и <b>Значок ответа</b>. Они используются только в том случае, если сервер позволяет интеграциям заменять имена и значки (см. <a href="{{root}}docs/developers/webhooks.html#identity">Имя и значок</a>).</li>
+<li>Отметьте <b>Автодополнение</b>, чтобы команда отображалась в списке, когда пользователи вводят <code>/</code>, с <b>Подсказкой для автодополнения</b> (её аргументами, например <code>[city]</code>) и <b>Описанием для автодополнения</b>.</li>
+<li>Выберите <b>Сохранить</b> и скопируйте отображённый токен. Ваш сервис использует его для проверки того, что запросы исходят от вашего сервера.</li>
+</ol>
+<p>Через API: <code>POST /api/v4/commands</code> с параметрами <code>{"team_id", "trigger", "url", "method": "P", "display_name", "description", "auto_complete": true, "auto_complete_hint", "auto_complete_desc", "username", "icon_url"}</code>. Значение <code>P</code> означает POST, а <code>G</code> — GET. Запрос <code>PUT /api/v4/commands/{command_id}/regen_token</code> выдаёт новый токен.</p>
+
+<h2 id="request">Запрос, который получает ваш сервис</h2>
+<p>Команда POST отправляет тело запроса в формате формы (<code>application/x-www-form-urlencoded</code>); команда GET передаёт те же поля в строке запроса. Токен также находится в заголовке <code>Authorization: Token &lt;token&gt;</code>.</p>
+<table>
+<thead><tr><th>Поле</th><th>Значение</th></tr></thead>
+<tbody>
+<tr><td><code>token</code></td><td>Токен команды. Проверяйте его при каждом запросе.</td></tr>
+<tr><td><code>command</code></td><td>Триггер с косой чертой, например <code>/weather</code>.</td></tr>
+<tr><td><code>text</code></td><td>Всё, что следует после триггера, например <code>Paris</code>.</td></tr>
+<tr><td><code>user_id</code>, <code>user_name</code></td><td>Кто выполнил команду.</td></tr>
+<tr><td><code>channel_id</code>, <code>channel_name</code></td><td>Где она была выполнена.</td></tr>
+<tr><td><code>team_id</code>, <code>team_domain</code></td><td>Идентификатор и URL-имя рабочего пространства.</td></tr>
+<tr><td><code>root_id</code></td><td>Обсуждение, если команда была выполнена в поле ответа к обсуждению.</td></tr>
+<tr><td><code>trigger_id</code></td><td>Позволяет вашему ответу открыть диалог (см. <a href="{{root}}docs/developers/bots.html#dialogs">Диалоги</a>). Действительно только в течение короткого времени.</td></tr>
+<tr><td><code>response_url</code></td><td>URL для отправки дополнительных ответов позже (см. <a href="#delayed">Отложенные ответы</a>).</td></tr>
+<tr><td><code>user_mentions</code>, <code>user_mentions_ids</code>, <code>channel_mentions</code>, <code>channel_mentions_ids</code></td><td>Участники и публичные каналы, упомянутые в тексте, если таковые есть.</td></tr>
+</tbody>
+</table>
+<div class="callout">Для работы пользовательских команд необходимо установить <b>Адрес сайта</b> на сервере: Antimatter формирует <code>response_url</code> на его основе.</div>
+
+<h2 id="response">Ответ</h2>
+<p>Ответьте <code>200</code> с JSON (<code>Content-Type: application/json</code>):</p>
+<pre><code>{
+  "response_type": "in_channel",
+  "text": "Paris: 18 °C, light rain",
+  "attachments": []
+}</code></pre>
+<table>
+<thead><tr><th>Поле</th><th>Значение</th></tr></thead>
+<tbody>
+<tr><td><code>response_type</code></td><td><code>ephemeral</code> (по умолчанию): ответ видит только тот, кто выполнил команду, и он не сохраняется после перезагрузки. <code>in_channel</code>: ответ публикуется в канале.</td></tr>
+<tr><td><code>text</code>, <code>attachments</code></td><td>Сообщение, как для вебхуков: текст в формате Markdown и <a href="{{root}}docs/developers/webhooks.html#attachments">вложения</a>, включая кнопки и меню.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code></td><td>Имя и изображение для отображения, если разрешены переопределения. Настройки самой команды имеют приоритет над этими значениями.</td></tr>
+<tr><td><code>channel_id</code></td><td>Опубликовать ответ в другом канале, участником которого должен быть пользователь.</td></tr>
+<tr><td><code>goto_location</code></td><td>URL для открытия после выполнения команды.</td></tr>
+<tr><td><code>props</code>, <code>type</code></td><td>Дополнительные свойства и пользовательский тип сообщения, как для вебхуков.</td></tr>
+<tr><td><code>extra_responses</code></td><td>Дополнительные ответы, каждый с теми же полями, публикуемые после первого.</td></tr>
+<tr><td><code>skip_slack_parsing</code></td><td><code>true</code> сохраняет текст как есть, без преобразования ссылок и упоминаний в стиле Slack.</td></tr>
+</tbody>
+</table>
+<p>Ответ, не являющийся JSON, отображается как временное сообщение с телом ответа в качестве текста. <code>204 No Content</code> ничего не отображает. Любой статус вне диапазона 200–299 показывает пользователю ошибку.</p>
+
+<h2 id="example">Пример сервиса</h2>
+<p>Минимальный сервис команды на Python, использующий только стандартную библиотеку:</p>
+<pre><code>import hmac
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
+
+TOKEN = "the token shown when you saved the command"
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        form = {key: values[0] for key, values in parse_qs(body).items()}
+        if not hmac.compare_digest(form.get("token", ""), TOKEN):
+            self.send_response(401)
+            self.end_headers()
+            return
+        answer = {
+            "response_type": "ephemeral",
+            "text": f"Hello @{form['user_name']}, you asked for: {form.get('text', '')}",
+        }
+        data = json.dumps(answer).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(data)
+
+HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()</code></pre>
+<p>Если служба работает по адресу в частной сети, системный администратор должен разрешить её в <b>Разрешить недоверенные внутренние соединения для</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>).</p>
+
+<h2 id="delayed">Отложенные ответы</h2>
+<p>Для задач, которые выполняются дольше, чем время ожидания, сразу отправьте ответ (например, временное сообщение «Работаю над этим…»), а затем отправьте реальный ответ методом POST на <code>response_url</code>. Он принимает тот же JSON, что и обычный ответ, и может быть использован до 5 раз в течение 30 минут после выполнения команды.</p>
+<pre><code>curl -X POST "$RESPONSE_URL" -H 'Content-Type: application/json' \
+  -d '{"response_type": "in_channel", "text": "Report ready: https://reports.example.com/42"}'</code></pre>
+
+<h2 id="run">Выполнение команды через API</h2>
+<p>Скрипты и боты могут выполнять любую команду, встроенную или пользовательскую, как если бы они ввели её вручную:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/commands/execute \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "command": "/weather Paris"}'</code></pre>
+<p><code>GET /api/v4/teams/{team_id}/commands/autocomplete</code> возвращает список команд, которые пользователи могут ввести с автодополнением в сообществе.</p>
+
+<h2 id="autocomplete">Автодополнение</h2>
+<p>Команды, созданные на страницах интеграций, автодополняются с их триггером, подсказкой и описанием. Команды, зарегистрированные приложениями, могут подробно описывать свои подкоманды и аргументы с помощью <code>AutocompleteData</code>, начиная с <code>model.NewAutocompleteData(trigger, hint, helpText)</code>:</p>
+<ul>
+<li><code>AddCommand(sub)</code> добавляет подкоманду, которая сама является <code>AutocompleteData</code>.</li>
+<li><code>AddTextArgument(helpText, hint, pattern)</code> добавляет аргумент свободного текста.</li>
+<li><code>AddStaticListArgument(helpText, required, items)</code> предлагает фиксированный список <code>AutocompleteListItem{Item, Hint, HelpText}</code>.</li>
+<li><code>AddDynamicListArgument(helpText, url, required)</code> запрашивает у вашего приложения предложения по мере ввода текста. URL — это маршрут вашего приложения, например <code>/plugins/com.example.weather/cities</code>. Он получает данные о пользователе, канале и сообществе и возвращает JSON-список <code>{"Item", "Hint", "HelpText"}</code>.</li>
+</ul>
+<p>Варианты <code>Named…</code> (<code>AddNamedTextArgument</code> и другие) добавляют флаги вида <code>--name value</code>. Оба веб-интерфейса отображают эти подсказки.</p>

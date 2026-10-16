@@ -1,0 +1,77 @@
+title: Auf Antimatter aufbauen
+description: Eine Anleitung für Entwickler, die Antimatter integrieren oder erweitern: die REST-API, Webhooks, Slash-Befehle, Bots, Apps (Plugins), Kompilierung aus dem Quellcode und Beiträge zum Projekt.
+guide: developers
+order: 1
+nav: Übersicht
+lead: Diese Anleitung richtet sich an Entwickler. Sie behandelt Skripte und Bots, die die API nutzen, Integrationen auf Basis von Webhooks und Slash-Befehlen, Apps (Plugins), die dem Server und der Web-App neue Funktionen hinzufügen, sowie das Kompilieren von Antimatter aus dem Quellcode, um zum Projekt beizutragen.
+source: b60d529f2c61
+---
+<h2 id="ways">Möglichkeiten, Antimatter zu erweitern</h2>
+<p>Wählen Sie das leichteste Werkzeug, das den Job erledigt. Die ersten vier benötigen keinen Zugriff auf den Server selbst; Apps laufen innerhalb des Servers.</p>
+<table>
+<thead><tr><th>Werkzeug</th><th>Funktion</th><th>Geeignet für</th></tr></thead>
+<tbody>
+<tr><td><a href="{{root}}docs/developers/api.html">REST-API</a></td><td>Alles, was die Apps tun: Nachrichten, Kanäle, Personen, Dateien, Einstellungen. Ein WebSocket sendet Ereignisse, wenn sie eintreten.</td><td>Skripte, Synchronisation mit anderen Systemen, eigene Clients.</td></tr>
+<tr><td><a href="{{root}}docs/developers/webhooks.html">Eingehende Webhooks</a></td><td>Eine geheime URL, die eine Nachricht in einen Kanal sendet, wenn etwas JSON daran sendet.</td><td>Warnungen, CI-Ergebnisse, Überwachung, Benachrichtigungen von anderen Tools.</td></tr>
+<tr><td><a href="{{root}}docs/developers/webhooks.html#outgoing">Ausgehende Webhooks</a></td><td>Antimatter ruft Ihre URL auf, wenn eine Nachricht in einem öffentlichen Kanal mit einem Auslösewort beginnt, und sendet Ihre Antwort.</td><td>Einfache, chatgesteuerte Automatisierungen.</td></tr>
+<tr><td><a href="{{root}}docs/developers/commands.html">Slash-Befehle</a></td><td>Personen tippen <code>/something</code>; Antimatter ruft Ihre URL auf und zeigt Ihre Antwort ihnen oder dem Kanal an.</td><td>Abfragen, Aktionen, die aus dem Chat gestartet werden.</td></tr>
+<tr><td><a href="{{root}}docs/developers/bots.html">Bots</a></td><td>Konten für Programme, mit eigenen Tokens, einem <b>BOT</b>-Tag sowie interaktiven Nachrichten und Dialogen.</td><td>Assistenten, Benachrichtiger, alles, was mit Menschen kommuniziert.</td></tr>
+<tr><td><a href="{{root}}docs/developers/apps.html">Apps (Plugins)</a></td><td>Code, der im Server (Go) und in der Web-App (React) ausgeführt wird: Hooks für jede Nachricht, neue Menüs, Panels, Nachrichtentypen, Seiten.</td><td>Funktionen: Umfragen, Notizen, Kalender, Integrationen, die die Benutzeroberfläche benötigen.</td></tr>
+</tbody>
+</table>
+<p>In der Benutzeroberfläche nennen die Benutzer Plugins „Apps“. Diese Anleitung verwendet „Apps (Plugins)“, wenn beide Begriffe hilfreich sind, da der Code, die API und die Konfiguration weiterhin „Plugin“ sagen.</p>
+
+<h2 id="compatibility">Kompatibilität mit Mattermost</h2>
+<p>Antimatter ist eine Gabelung (Fork) von Mattermost. Das meiste, was mit einem Mattermost-Server funktioniert, funktioniert auch mit Antimatter.</p>
+<h3>Was ist gleich</h3>
+<ul>
+<li><b>Die REST-API</b> unter <code>/api/v4</code>, ihre Authentifizierung, ihr WebSocket und ihr Fehlerformat. Der Server meldet die Version <code>12.0.0</code>, sodass Clients und Apps, die die Serverversion prüfen, einen aktuellen Mattermost sehen.</li>
+<li><b>Webhooks und Slash-Befehle</b>, einschließlich ihrer Slack-kompatiblen Payloads.</li>
+<li><b>Die Server-Plugin-API und Hooks</b>: Antimatter hat sie nicht geändert. Servercode wird gegen dasselbe Go-Modul kompiliert, <code>github.com/mattermost/mattermost/server/public</code>.</li>
+<li><b>Das Web-App-Plugin-Registry</b>: Jede <code>register…</code>-Methode des Mattermost-Registrierungsverzeichnisses existiert in beiden Web-Schnittstellen von Antimatter.</li>
+<li><b>Client-Bibliotheken</b>: Der Go-Client <code>model.Client4</code> und der TypeScript-Client <code>@mattermost/client</code> (siehe <a href="{{root}}docs/developers/api.html#clients">Client-Bibliotheken</a>).</li>
+<li><b>Plugin-Bundles</b>: Eine <code>.tar.gz</code>-Datei mit einem <code>plugin.json</code>-Manifest. Plugins, die mit dem Mattermost-Schlüssel signiert sind, werden installiert, ebenso wie solche, die mit dem Antimatter-Schlüssel signiert sind.</li>
+</ul>
+<h3>Was sich unterscheidet</h3>
+<ul>
+<li><b>Zwei Web-Schnittstellen.</b> Die neue Schnittstelle, Fusion, ist die Standardauswahl; die klassische Mattermost-Schnittstelle ist weiterhin verfügbar. Fusion rendert die meisten Plugin-Komponenten, platziert einige jedoch anders und lässt einige aus. Eine App kann erkennen, welche Schnittstelle ausgeführt wird. Siehe <a href="{{root}}docs/developers/apps.html#fusion">Unterstützung der Fusion-Schnittstelle</a>.</li>
+<li><b>Zusätzliche API.</b> Antimatter fügt Endpunkte für seine eigenen Funktionen hinzu: Community-Attribute, Timeouts, Nachrichten oben, Nachrichten-Anfragen, Kanal- und Kategorie-Überschreibungen, Kanal-Export und neue Felder für Communities. Siehe <a href="{{root}}docs/developers/api.html#antimatter">Was Antimatter zur API hinzufügt</a>.</li>
+<li><b>Zusätzliche Nachrichtenfunktionen.</b> Nachrichtenanhangs können Pipeline-Stufen und ein kleines Diagramm anzeigen; Beiträge können Inline-Antworten oder Spoiler sein.</li>
+<li><b>Zusätzliche Web-App-Hooks</b> für Apps: Ein „+“-Menüeintrag in der Komposition, Emoji-Auswahl-Registerkarten, ein Panel in der Kanalansicht, ein Fußbereich unter den Kanälen in der Seitenleiste und ein Eintrag auf den Integrationsseiten. Siehe <a href="{{root}}docs/developers/apps.html#antimatter-hooks">Hooks, die nur Antimatter hat</a>.</li>
+<li><b>Keine Lizenzen.</b> Jede Funktion ist ohne Lizenzschlüssel verfügbar. Die Endpunkte für Lizenz, Testversion und Enterprise-Upgrade sind entfernt; <code>GET /api/v4/license/client</code> bleibt für Clients, die danach fragen. Einige Apps, die für die kostenpflichtigen Editionen von Mattermost entwickelt wurden, prüfen selbst nach einer Lizenz und verweigern die Ausführung.</li>
+<li><b>Namen.</b> Teams werden in der Schnittstelle als Communities bezeichnet, aber die API und der Code sagen immer noch <code>team</code>. Umgebungsvariablen verwenden das Präfix <code>AM_</code>, das Befehlszeilen-Tool ist <code>amctl</code> und das Server-Binary ist <code>antimatter</code>.</li>
+</ul>
+
+<h2 id="code">Wo der Code liegt</h2>
+<p>Alles ist Open Source und in der <a href="https://github.com/AntimatterChat">AntimatterChat</a>-Organisation auf GitHub zu finden. Jedes Repository arbeitet auf seinem <code>main</code>-Branch.</p>
+<table>
+<thead><tr><th>Repository</th><th>Inhalt</th></tr></thead>
+<tbody>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter">antimatter</a></td><td>Der Server (Go, in <code>server/</code>), beide Web-Oberflächen (<code>webapp/fusion</code> und <code>webapp/channels</code>), der TypeScript-Client und <code>amctl</code>.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a></td><td>Die Docker-Images mit den mitgelieferten Apps sowie die Compose-Dateien.</td></tr>
+<tr><td><code>antimatter-plugin-*</code></td><td>Ein Repository pro mitgelieferter App: <a href="https://github.com/AntimatterChat/antimatter-plugin-polls">polls</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-todo">todo</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-notes">notes</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-whiteboard">whiteboard</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-calendar">calendar</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-mail">mail</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-gifs">gifs</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-memes">memes</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-voice-channels">voice-channels</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-calls">calls</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-boards">boards</a> (Kanban), <a href="https://github.com/AntimatterChat/antimatter-plugin-playbooks">playbooks</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-agents">agents</a> und <a href="https://github.com/AntimatterChat/antimatter-plugin-metrics">metrics</a>.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/gifs-server">gifs-server</a></td><td>Der selbst gehostete GIF- und Sticker-Dienst, der von der GIF-App verwendet wird.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/desktop-app">desktop-app</a>, <a href="https://github.com/AntimatterChat/mobile-app">mobile-app</a>, <a href="https://github.com/AntimatterChat/push-proxy">push-proxy</a></td><td>Die Desktop- und Mobile-Apps sowie der Dienst, der Push-Benachrichtigungen an Telefone weiterleitet.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter.chat">antimatter.chat</a></td><td>Diese Website und ihre Dokumentation.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/community">community</a></td><td>Issues und Diskussionen für alle Teile von Antimatter.</td></tr>
+</tbody>
+</table>
+
+<h2 id="first-steps">Bevor Sie beginnen</h2>
+<ul>
+<li><b>Testserver einrichten.</b> Am schnellsten geht das mit dem Docker-Image: siehe <a href="{{root}}docs/admins/install.html">Antimatter installieren</a>. Um an Antimatter selbst zu arbeiten, siehe <a href="{{root}}docs/developers/building.html">Aus dem Quellcode bauen</a>.</li>
+<li><b>Prüfen, was der Server erlaubt.</b> Mehrere Integrationsfunktionen sind standardmäßig deaktiviert und erfordern einen Systemadministrator: persönliche Zugriffstokens, Bot-Konten, Überschreiben von Benutzernamen und Icons sowie das Hochladen von Apps. Auf jeder Seite ist angegeben, welche Einstellung erforderlich ist.</li>
+<li><b>Die eigene Site-URL kennen.</b> In den Beispielen wird <code>https://chat.example.com</code> verwendet. Ersetzen Sie dies durch die Adresse Ihres Servers.</li>
+</ul>
+
+<h2 id="in-this-guide">In diesem Leitfaden</h2>
+<ul>
+<li><a href="{{root}}docs/developers/api.html">Die REST-API</a>: Authentifizierung, Hauptressourcen, Paginierung, Fehler, Ratenlimits, WebSocket, Client-Bibliotheken und die Erweiterungen von Antimatter.</li>
+<li><a href="{{root}}docs/developers/webhooks.html">Webhooks</a>: eingehende und ausgehende Webhooks, Payloads, Anhänge und Karten.</li>
+<li><a href="{{root}}docs/developers/commands.html">Slash-Befehle</a>: benutzerdefinierte Befehle, deren Anfrage und Antwort, Autovervollständigung.</li>
+<li><a href="{{root}}docs/developers/bots.html">Bots und interaktive Nachrichten</a>: Bot-Konten, Schaltflächen, Menüs und Dialoge.</li>
+<li><a href="{{root}}docs/developers/apps.html">Apps schreiben</a>: das Plugin-Layout, Server-Hooks, das Web-App-Register, Fusion, Einstellungen, Speicher, Übersetzungen und Packaging.</li>
+<li><a href="{{root}}docs/developers/building.html">Aus dem Quellcode bauen</a>: der Server, die Web-Oberflächen, das Docker-Image und die Apps.</li>
+<li><a href="{{root}}docs/developers/contributing.html">Beitragen</a>: Issues, Pull Requests, Stil, Übersetzungen, Sicherheit und Lizenzen.</li>
+</ul>
+<div class="callout">Fragen sind in den <a href="https://github.com/AntimatterChat/community/discussions">Community-Diskussionen</a> willkommen. Melden Sie Fehler in den <a href="https://github.com/AntimatterChat/community/issues">Community-Issues</a>.</div>

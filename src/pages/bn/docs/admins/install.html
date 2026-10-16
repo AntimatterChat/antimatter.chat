@@ -1,0 +1,168 @@
+title: Antimatter ইনস্টল করা
+description: Docker Compose বা রিলিজ আর্কাইভ থেকে Antimatter ইনস্টল করুন, একটি ইমেজ বেছে নিন, প্রথমবার চালু করুন এবং প্রথম সিস্টেম অ্যাডমিনিস্ট্রেটর তৈরি করুন।
+guide: admins
+order: 2
+nav: ইনস্টল করা
+lead: প্রস্তুত compose ফাইল ব্যবহার করে Antimatter ইনস্টল করুন, সঠিক ইমেজ বেছে নিন, অথবা রিলিজ আর্কাইভ থেকে সার্ভার চালান। এরপর প্রথম অ্যাডমিনিস্ট্রেটর অ্যাকাউন্ট তৈরি করুন।
+source: 64cd522c4946
+---
+<h2 id="compose">Docker Compose দিয়ে ইনস্টল করা</h2>
+<p>এটিই সুপারিশকৃত পদ্ধতি। একটি compose ফাইল Antimatter, PostgreSQL, ফাইল স্টোরেজ এবং GIF সার্ভিস চালায়। আপনার একটি Linux সার্ভার, Docker Engine এবং এর Compose প্লাগইন (<code>docker compose</code>), ২টি CPU কোর এবং ৪ GB মেমরি বা তার বেশি প্রয়োজন।</p>
+
+<h3>১. compose ফাইল ডাউনলোড করুন</h3>
+<pre><code>mkdir antimatter &amp;&amp; cd antimatter
+curl -fsSLO https://antimatter.chat/compose.yaml</code></pre>
+
+<h3>২. .env ফাইল তৈরি করুন</h3>
+<p>compose ফাইল একই ডিরেক্টরিতে থাকা <code>.env</code> ফাইল থেকে সেটিংস পড়ে। এটি র‍্যান্ডম সিক্রেটস সহ তৈরি করুন:</p>
+<pre><code>cat &gt; .env &lt;&lt;EOF
+SITE_URL=http://localhost:8065
+POSTGRES_PASSWORD=$(openssl rand -hex 24)
+S3_SECRET_KEY=$(openssl rand -hex 24)
+GIFS_API_KEY=$(openssl rand -hex 24)
+EOF
+chmod 600 .env</code></pre>
+<p><code>SITE_URL</code> সেট করুন সেই ঠিকানায় যেখানে ব্যবহারকারীরা তাদের ব্রাউজারে টাইপ করবেন, যেমন লোকাল নেটওয়ার্কে <code>http://192.168.1.20:8065</code> বা ডোমেইন সহ <code>https://chat.example.com</code>। <code>.env</code> ফাইলটি সংরক্ষণ করুন: ডাটাবেস এবং স্টোরেজ প্রথমবার চালুর সময় এই পাসওয়ার্ডগুলো ব্যবহার করে, এবং ব্যাকআপ রিস্টোর করতেও এই একই ফাইল প্রয়োজন।</p>
+
+<h3>৩. চালু করুন</h3>
+<pre><code>docker compose up -d
+docker compose ps</code></pre>
+<p>প্রথমবার চালু হতে এক বা দুই মিনিট লাগতে পারে: PostgreSQL ডাটাবেস তৈরি করে, একটি one-shot <code>bucket</code> সার্ভিস স্টোরেজ বাক্স তৈরি করে, একটি one-shot <code>gifs-stickers</code> সার্ভিস স্টার্টার স্টিকার প্যাক ইমপোর্ট করে, এবং Antimatter তার টেবিলগুলো তৈরি করে। এটি ট্র্যাক করতে <code>docker compose logs -f antimatter</code> ব্যবহার করুন।</p>
+<p>শুরু থেকেই ডোমেইন নাম এবং HTTPS ব্যবহার করতে, দেখুন <a href="{{root}}docs/admins/https.html">ডোমেইন এবং HTTPS</a>: compose ফাইলের ক্ষেত্রে এটি <code>.env</code>-এ আরও দুই লাইন এবং <code>https</code> প্রোফাইল।</p>
+
+<h3>.env ভেরিয়েবলসমূহ</h3>
+<table>
+<thead><tr><th>ভেরিয়েবল</th><th>ডিফল্ট</th><th>এটি কী করে</th></tr></thead>
+<tbody>
+<tr><td><code>SITE_URL</code></td><td>প্রয়োজনীয়</td><td>Antimatter-এর পাবলিক ঠিকানা (<code>ServiceSettings.SiteURL</code>)।</td></tr>
+<tr><td><code>POSTGRES_PASSWORD</code></td><td>প্রয়োজনীয়</td><td><code>antimatter</code> ডাটাবেস ইউজারের পাসওয়ার্ড।</td></tr>
+<tr><td><code>S3_SECRET_KEY</code></td><td>প্রয়োজনীয়</td><td>ফাইল স্টোরেজের সিক্রেট কী।</td></tr>
+<tr><td><code>GIFS_API_KEY</code></td><td>প্রয়োজনীয়</td><td>Antimatter-এর GIF সার্ভিস কল করতে ব্যবহৃত কী।</td></tr>
+<tr><td><code>GIFS_UPLOAD_KEY</code></td><td>খালি</td><td>ব্যবহারকারীদের পিকার থেকে তাদের নিজস্ব GIF এবং স্টিকার যোগ করার অনুমতি দেয়। খালি রাখলে আপলোড বন্ধ থাকে।</td></tr>
+<tr><td><code>DOMAIN</code></td><td>খালি</td><td>আপনার ডোমেইন নাম, <code>https</code> প্রোফাইলের জন্য।</td></tr>
+<tr><td><code>HTTP_PORT</code></td><td><code>8065</code></td><td>Antimatter-এর ওয়েব সার্ভারের হোস্ট পোর্ট।</td></tr>
+<tr><td><code>CALLS_PORT</code></td><td><code>8443</code></td><td>কল অডিও এবং ভিডিওর UDP এবং TCP পোর্ট।</td></tr>
+<tr><td><code>EDGE_SUBNET</code></td><td><code>172.29.71.0/28</code></td><td>Caddy এবং Antimatter-এর মধ্যে নেটওয়ার্কের সাবনেট। যদি এটি আপনার অন্য কোনো নেটওয়ার্কের সাথে মিলে যায়, তবে পরিবর্তন করুন।</td></tr>
+<tr><td><code>TZ</code></td><td><code>UTC</code></td><td>কন্টেইনারগুলোর টাইম জোন।</td></tr>
+<tr><td><code>ANTIMATTER_IMAGE</code></td><td><code>ghcr.io/antimatterchat/antimatter-next:latest</code></td><td>চালানোর জন্য Antimatter ইমেজ (নিচে দেখুন)।</td></tr>
+</tbody>
+</table>
+
+<h3>যা চলে</h3>
+<table>
+<thead><tr><th>সার্ভিস</th><th>ইমেজ</th><th>ভূমিকা</th></tr></thead>
+<tbody>
+<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>সার্ভার, ওয়েব অ্যাপ এবং বান্ডল অ্যাপস। <code>HTTP_PORT</code> এবং <code>CALLS_PORT</code> প্রকাশ করে।</td></tr>
+<tr><td><code>postgres</code></td><td><code>postgres:17-alpine</code></td><td>ডাটাবেস, <code>postgres</code> ভলিউমে।</td></tr>
+<tr><td><code>files</code></td><td><code>rustfs/rustfs</code></td><td>আপলোড করা ফাইল এবং ইনস্টল করা অ্যাপসের জন্য S3-সম্মত স্টোরেজ, <code>files</code> ভলিউমে।</td></tr>
+<tr><td><code>bucket</code></td><td><code>amazon/aws-cli</code></td><td><code>antimatter</code> বাক্সটি তৈরি করে, তারপর বেরিয়ে যায়।</td></tr>
+<tr><td><code>gifs</code></td><td><code>ghcr.io/antimatterchat/gifs-server</code></td><td>GIF এবং স্টিকার সার্ভিস, <code>gifs</code> ভলিউমে।</td></tr>
+<tr><td><code>gifs-stickers</code></td><td><code>ghcr.io/antimatterchat/gifs-server</code></td><td>প্রথমবার স্টার্টার স্টিকার প্যাক ইমপোর্ট করে, তারপর বেরিয়ে যায়।</td></tr>
+<tr><td><code>https</code></td><td><code>caddy:2-alpine</code></td><td>শুধুমাত্র <code>https</code> প্রোফাইলের ক্ষেত্রে: পোর্ট 80 এবং 443-এ HTTPS।</td></tr>
+</tbody>
+</table>
+<p>PostgreSQL, স্টোরেজ এবং GIF সার্ভিস একটি অভ্যন্তরীণ নেটওয়ার্ক (<code>private</code>)-এ আছে, যার কোনো ইন্টারনেট অ্যাক্সেস নেই, এবং শুধুমাত্র Antimatter এই নেটওয়ার্কে যোগদান করে। তাদের কেউই কোনো পোর্ট পাবলিশ করে না।</p>
+<p>Antimatter কন্টেইনারটি ডিস্কে কিছুই রাখে না: এর সেটিংস ডাটাবেসে (<code>AM_CONFIG</code> এর দিকে ইঙ্গিত করে) এবং এর ফাইল ও অ্যাপস স্টোরেজ সার্ভিসে। আপনি যেকোনো সময় কন্টেইনারটি মুছে ফেলে আবার তৈরি করতে পারেন। ব্যাকআপ করার সবকিছু <code>postgres</code>, <code>files</code> এবং <code>gifs</code> ভলিউমে, সাথে আপনার <code>.env</code>।</p>
+
+<h2 id="images">একটি ইমেজ নির্বাচন করুন</h2>
+<p>দুটি Antimatter ইমেজ প্রকাশিত হয়েছে, উভয়ই <code>linux/amd64</code> এবং <code>linux/arm64</code>-এর জন্য, এবং উভয়ই প্রতিটি রিপোজিটরির <code>main</code> ব্রাঞ্চ থেকে তৈরি:</p>
+<table>
+<thead><tr><th>ইমেজ</th><th>সংযুক্ত অ্যাপস</th><th>ট্যাগসমূহ</th></tr></thead>
+<tbody>
+<tr><td><code>ghcr.io/antimatterchat/antimatter</code></td><td>এজেন্ট, কল, GitHub, GitLab, Jira, Kanban, Metrics এবং প্লেবুক।</td><td><code>latest</code>, রিলিজের জন্য <code>X.Y.Z</code>, <code>sha-&lt;commit&gt;</code></td></tr>
+<tr><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>উপরের সবকিছুর সাথে ভয়েস চ্যানেল, পোল, মেইল, ক্যালেন্ডার, নোট, হোয়াইটবোর্ড, GIF, করণীয় এবং মেম। প্রতি রাতে পুনরায় তৈরি হয়।</td><td><code>latest</code>, <code>nightly</code>, <code>nightly-&lt;YYYYMMDD&gt;</code>, <code>sha-&lt;commit&gt;</code></td></tr>
+</tbody>
+</table>
+<p>সাইটের compose ফাইল <code>antimatter-next</code> ব্যবহার করে, কারণ GIF সার্ভিস এবং এই সাইটে বর্ণিত বেশিরভাগ অ্যাপ শুধুমাত্র সেই ইমেজে আছে। ইমেজ পরিবর্তন করতে, <code>.env</code>-এ <code>ANTIMATTER_IMAGE</code> সেট করুন এবং <code>docker compose up -d</code> চালান।</p>
+<div class="callout warn"><code>latest</code> আপনার নিচে পরিবর্তিত হয়। প্রোডাকশনে, আপগ্রেডের সময় উদ্দেশ্যমূলকভাবে পরিবর্তন করার জন্য <code>nightly-20261015</code> বা <code>sha-&lt;commit&gt;</code> এর মতো একটি ট্যাগ পিন করুন। সার্ভার শুরু হওয়ার সময় তার ডাটাবেস আপগ্রেড করে, তাই পূর্বে নেওয়া ব্যাকআপ রিস্টোর না করে আপনি পুরনো ইমেজে ফিরে যেতে পারবেন না, বা <code>antimatter-next</code> থেকে <code>antimatter</code>-এ ফিরে যেতে পারবেন না। দেখুন <a href="{{root}}docs/admins/backups-upgrades.html">ব্যাকআপ এবং আপগ্রেড</a>।</div>
+
+<h3>ইমেজের ভিতরে</h3>
+<ul>
+<li>সার্ভারটি <code>/antimatter</code>-এ থাকে, আর <code>antimatter</code> এবং <code>amctl</code> বাইনারিগুলো <code>/antimatter/bin</code>-এ (যা <code>PATH</code>-এ আছে)।</li>
+<li>এটি একটি ন্যূনতম distroless বেসে, কোনো শেল ছাড়াই, অপ্রাইভিলেজড ইউজার <code>antimatter</code> (uid 2000) হিসেবে চলে।</li>
+<li>পোর্ট: 8065 (ওয়েব এবং API), 8067 (মেট্রিক্স), 8074 (ক্লাস্টার), 8443 UDP এবং TCP (কল)।</li>
+<li>লোকাল মোড (<code>ServiceSettings.EnableLocalMode</code>) চালু আছে, তাই কন্টেইনারের ভেতরে <code>amctl --local</code> কাজ করে। হেলথ চেক চালায় <code>amctl system status --local</code>।</li>
+<li>বান্ডল করা অ্যাপগুলো <code>/antimatter/prepackaged_plugins</code>-এ আছে, যা Antimatter অ্যাপ সাইনিং কী দিয়ে সাইন করা।</li>
+<li>টেক্সট এক্সট্রাকশন টুল (<code>pdftotext</code>, <code>wvText</code>, <code>unrtf</code>, <code>tidy</code>) অন্তর্ভুক্ত আছে, তাই আপলোড করা ডকুমেন্টের কনটেন্ট সার্চ করা যায়।</li>
+</ul>
+
+<h3>অন্যান্য কম্পোজ ফাইল</h3>
+<p><a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> রিপোজিটরিতে <code>deploy/compose/</code>-এ একটি প্রোডাকশন সেটআপ আছে: আপনার নিজের সার্টিফিকেট বা Let's Encrypt (certbot) সহ nginx, PostgreSQL, অপশনাল GIF সার্ভিস (প্রোফাইল <code>gifs</code>) এবং সার্ভারের কনফিগারেশন, ডেটা ও লগের জন্য নামকৃত ভলিউম, যা তার README-তে ডকুমেন্ট করা আছে। এটি ডিফল্টভাবে স্টেবল ইমেজ ব্যবহার করে এবং S3 স্টোরেজের বদলে লোকাল ভলিউমে ফাইল সংরক্ষণ করে। আপনি যদি Caddy-র চেয়ে nginx পছন্দ করেন, অথবা আগে থেকেই সার্টিফিকেট থাকে, তবে এটি ব্যবহার করুন।</p>
+
+<h2 id="first-admin">প্রথম অ্যাডমিন তৈরি করুন</h2>
+<p>ব্রাউজারে <code>SITE_URL</code> খুলে একটি অ্যাকাউন্ট তৈরি করুন। <b>একটি নতুন সার্ভারে তৈরি করা প্রথম অ্যাকাউন্টটি সিস্টেম অ্যাডমিন হয়ে যায়</b>, এবং সেটআপটি আপনাকে আপনার প্রথম কমিউনিটি (Antimatter-এর টিম বা ওয়ার্কস্পেসের নাম) তৈরির வழি দেখায়।</p>
+<p>প্রথমবার স্টার্ট করার পরেই এটি করুন: এর আগে যে কেউ সার্ভারে আগে পৌঁছালে সে তার অ্যাডমিন হয়ে যাবে। সার্ভারটি বাইরে থেকে অ্যাক্সেসযোগ্য না হওয়া পর্যন্ত কমান্ড লাইন থেকে অ্যাকাউন্ট তৈরি করতে:</p>
+<pre><code>docker compose exec antimatter amctl --local user create --system-admin --email-verified \
+    --email admin@example.com --username admin --password 'a-long-password'
+docker compose exec antimatter amctl --local team create --name main --display-name "Main"
+docker compose exec antimatter amctl --local team users add main admin</code></pre>
+<p>তারপর <code>SITE_URL</code>-এ সাইন ইন করুন। পাসওয়ার্ডটি আপনার শেল হিস্ট্রি থেকে বাদ রাখতে কমান্ডের শুরুতে একটি স্পেস দিন (<code>HISTCONTROL=ignorespace</code> সহ), অথবা সাইন ইন করার পরে পাসওয়ার্ডটি পরিবর্তন করুন।</p>
+<p>আপনি ভিতরে ঢোকার পরের পরবর্তী ধাপসমূহ:</p>
+<ol>
+<li>নির্ধারণ করুন কে কে অ্যাকাউন্ট তৈরি করতে পারবে: <a href="{{root}}docs/admins/authentication.html">সাইন-ইন এবং অ্যাকাউন্ট</a>।</li>
+<li>ইমেইল কনফিগার করুন, যাতে আমন্ত্রণ এবং পাসওয়ার্ড রিসেট কাজ করে: <a href="{{root}}docs/admins/email-push.html">ইমেইল এবং পুশ নোটিফিকেশন</a>।</li>
+<li>আপনার ফায়ারওয়ালে কলের পোর্ট খুলুন: <a href="{{root}}docs/admins/calls.html">কল এবং ভয়েস</a>।</li>
+<li>যে অ্যাপগুলো চালু আছে তা দেখুন: <a href="{{root}}docs/admins/apps.html">বান্ডল করা অ্যাপ</a>।</li>
+</ol>
+
+<h2 id="archive">রিলিজ আর্কাইভ থেকে ইনস্টল করুন</h2>
+<p>Docker ছাড়া সার্ভারটি <code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code> নামের একটি আর্কাইভ থেকে চলে (যেমন <code>antimatter-linux-amd64.tar.gz</code>)। এতে একটি <code>antimatter/</code> ডিরেক্টরি থাকে, যার মধ্যে রয়েছে <code>bin/antimatter</code>, <code>bin/amctl</code>, <code>config/config.json</code>, ওয়েব অ্যাপস (<code>client/</code> এবং <code>client-fusion/</code>), ইমেইল টেমপ্লেট এবং ট্রান্সলেসন।</p>
+
+<h3>1. PostgreSQL প্রস্তুত করুন</h3>
+<p>Antimatter শুধুমাত্র PostgreSQL সাপোর্ট করে, ভার্সন 15 বা তার পরের (পুরনো ভার্সনগুলো স্টার্ট হয়, তবে লগে এরর দেখা যায়)। একটি ইউজার এবং ডাটাবেস তৈরি করুন:</p>
+<pre><code>sudo -u postgres psql &lt;&lt;'EOF'
+CREATE USER antimatter WITH PASSWORD 'a-long-password';
+CREATE DATABASE antimatter OWNER antimatter;
+EOF</code></pre>
+
+<h3>2. আনপ্যাক এবং কনফিগার করুন</h3>
+<pre><code>sudo tar -xzf antimatter-linux-amd64.tar.gz -C /opt
+sudo useradd --system --user-group antimatter
+sudo mkdir -p /opt/antimatter/data
+sudo chown -R antimatter:antimatter /opt/antimatter</code></pre>
+<p>সার্ভারকে ডাটাবেসের সাথে সংযুক্ত করুন, <code>/opt/antimatter/config/config.json</code> (<code>SqlSettings.DataSource</code>)-এ অথবা এনভায়রনমেন্ট ভেরিয়েবল ব্যবহার করে, এবং সাইটের URL সেট করুন:</p>
+<pre><code>AM_SQLSETTINGS_DRIVERNAME=postgres
+AM_SQLSETTINGS_DATASOURCE=postgres://antimatter:a-long-password@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10
+AM_SERVICESETTINGS_SITEURL=https://chat.example.com</code></pre>
+<p>আর্কাইভের <code>config.json</code> একটি সম্পূর্ণ ডিফল্ট কনফিগারেশন: System Console-এ আপনি যে সেটিংস পরিবর্তন করেন, সেগুলো সেখানেই সেভ হয়। যদি আপনি কনফিগারেশনটি ডাটাবেসে রাখতে চান, তবে <a href="{{root}}docs/admins/configuration.html">Configuration</a> দেখুন।</p>
+
+<h3>3. এটি একটি সার্ভিস হিসেবে চালান</h3>
+<p>একটি systemd ইউনিট, <code>/etc/systemd/system/antimatter.service</code>-এ:</p>
+<pre><code>[Unit]
+Description=Antimatter
+After=network.target postgresql.service
+
+[Service]
+Type=notify
+User=antimatter
+Group=antimatter
+WorkingDirectory=/opt/antimatter
+ExecStart=/opt/antimatter/bin/antimatter
+EnvironmentFile=-/etc/antimatter.env
+TimeoutStartSec=3600
+Restart=always
+RestartSec=10
+LimitNOFILE=49152
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+<p>আপনার <code>AM_</code> ভেরিয়েবলগুলো <code>/etc/antimatter.env</code>-এ রাখুন (শুধুমাত্র root-এর দ্বারা পঠনযোগ্য), তারপর:</p>
+<pre><code>sudo systemctl daemon-reload
+sudo systemctl enable --now antimatter
+journalctl -u antimatter -f</code></pre>
+<p>সার্ভারটি পোর্ট 8065-এ লিসেন করে। <code>http://&lt;server&gt;:8065</code> খুলুন, অথবা রিভার্স প্রক্সি সেটআপ করার পর আপনার ডোমেইন (দেখুন <a href="{{root}}docs/admins/https.html">Domain and HTTPS</a>), এবং প্রথম অ্যাকাউন্ট তৈরি করুন: এটি সিস্টেম অ্যাডমিনিস্ট্রেটর হয়ে যাবে।</p>
+<p><code>bin/amctl</code> কমান্ড লাইন থেকে চলমান সার্ভারটি ম্যানেজ করে। সার্ভারের নিজের ওপর, এটি লোকাল মোডের মাধ্যমে সাইন ইন ছাড়াই কাজ করে: <code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code> সেট করুন, তারপর <code>sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code> চালান।</p>
+
+<h2 id="other-commands">অন্যান্য সার্ভার কমান্ড</h2>
+<p>সার্ভার চালানোর (<code>antimatter</code>, অথবা <code>antimatter server</code>) পাশাপাশি, বাইনারিটিতে কিছু রক্ষণাবেক্ষণ কমান্ড রয়েছে। এগুলো সার্ভারের মতোই একই কনফিগারেশন পড়ে।</p>
+<table>
+<thead><tr><th>কমান্ড</th><th>এটি কী করে</th></tr></thead>
+<tbody>
+<tr><td><code>antimatter version</code></td><td>ভার্সন, বিল্ড নম্বর, বিল্ড তারিখ এবং বিল্ড হ্যাশ প্রিন্ট করে।</td></tr>
+<tr><td><code>antimatter db ping</code></td><td>যাচাই করে যে ডাটাবেসে পৌঁছানো সম্ভব।</td></tr>
+<tr><td><code>antimatter db init</code></td><td>ডাটাবেসে কনফিগারেশন তৈরি করে (<code>AM_CONFIG</code> একটি <code>postgres://</code> URL-এ সেট করে)।</td></tr>
+<tr><td><code>antimatter db migrate</code></td><td>সার্ভার স্টার্ট না করে ডাটাবেস মাইগ্রেশন প্রয়োগ করে।</td></tr>
+<tr><td><code>antimatter db version</code></td><td>ডাটাবেসে প্রয়োগ করা শেষ মাইগ্রেশনটি প্রিন্ট করে।</td></tr>
+<tr><td><code>antimatter import bulk</code>, <code>antimatter export bulk</code></td><td>বাল্ক ফরম্যাটে ডেটা ইমপোর্ট বা এক্সপোর্ট করে (দেখুন <a href="{{root}}docs/admins/backups-upgrades.html">Backups and upgrades</a>)।</td></tr>
+</tbody>
+</table>

@@ -1,0 +1,120 @@
+title: Konfigurasi
+description: Bagaimana konfigurasi Antimatter berfungsi: tetapan dalam pangkalan data atau dalam config.json, pemboleh ubah persekitaran AM_, Konsol Sistem, alat baris arahan amctl, dan di mana untuk mencari log.
+guide: admins
+order: 3
+nav: Konfigurasi
+lead: Di mana Antimatter menyimpan tetapan, tiga cara untuk mengubahnya (Konsol Sistem, pemboleh ubah persekitaran, amctl), dan di mana log disimpan.
+source: e2d6546121d3
+---
+<h2 id="where">Di mana tetapan disimpan</h2>
+<p>Setiap tetapan server mempunyai nama yang terdiri daripada bahagian dan kunci, seperti <code>ServiceSettings.SiteURL</code> atau <code>EmailSettings.SMTPServer</code>. Bersama-sama, ia membentuk satu konfigurasi yang disimpan dalam salah satu daripada dua tempat:</p>
+<ul>
+<li><b>Dalam pangkalan data.</b> Fail komposisi laman web menetapkan <code>AM_CONFIG</code> kepada URL sambungan PostgreSQL, jadi konfigurasi adalah satu baris dalam pangkalan data dan kontena tidak menyimpan apa-apa pada cakera. Beberapa server yang berkongsi satu pangkalan data juga berkongsi konfigurasi mereka.</li>
+<li><b>Dalam fail.</b> Tanpa <code>AM_CONFIG</code>, server membaca <code>config/config.json</code> di sebelah direktori <code>bin/</code> (<code>/antimatter/config/config.json</code> dalam imej Docker). Arkib pelepasan dan fail komposisi pengeluaran antimatter-docker berfungsi dengan cara ini. Simpan fail ini boleh dibaca oleh pengguna server sahaja: ia menyimpan kata laluan dan kunci.</li>
+</ul>
+<p><code>AM_CONFIG</code> (atau bendera <code>--config</code> bagi arahan <code>antimatter</code>) menerima sama ada laluan fail atau URL <code>postgres://</code>. Tetapan yang anda tinggalkan akan mengambil nilai lalai.</p>
+<p>Untuk memindahkan konfigurasi sedia ada daripada fail ke pangkalan data, jalankan ini pada server, kemudian mula server dengan <code>AM_CONFIG</code> ditetapkan kepada URL yang sama:</p>
+<pre><code>amctl --local config migrate /opt/antimatter/config/config.json \
+    "postgres://antimatter:PASSWORD@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10"</code></pre>
+
+<h2 id="environment">Pemboleh ubah persekitaran</h2>
+<p>Mana-mana tetapan juga boleh diberikan sebagai pemboleh ubah persekitaran. Pemboleh ubah menang ke atas konfigurasi yang disimpan, yang menjadikannya sesuai untuk apa yang berkaitan dengan pelayan: pangkalan data, URL laman web, storan fail, port.</p>
+<h3>Aturan penamaan</h3>
+<p>Tulis <code>AM_</code>, kemudian bahagian, kemudian kunci, dalam huruf besar dan dipisahkan oleh garisan bawah. Perkataan dalam nama bahagian atau kunci tidak dipisahkan:</p>
+<table>
+<thead><tr><th>Tetapan</th><th>Pemboleh ubah</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.SiteURL</code></td><td><code>AM_SERVICESETTINGS_SITEURL</code></td></tr>
+<tr><td><code>SqlSettings.DataSource</code></td><td><code>AM_SQLSETTINGS_DATASOURCE</code></td></tr>
+<tr><td><code>EmailSettings.SMTPServer</code></td><td><code>AM_EMAILSETTINGS_SMTPSERVER</code></td></tr>
+<tr><td><code>PrivacySettings.EnableUserBlocking</code></td><td><code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li>Tetapan benar dan palsu mengambil <code>true</code> atau <code>false</code>; nombor adalah nombor biasa.</li>
+<li>Tetapan senarai mengambil nilai-nilai yang dipisahkan oleh ruang, sebagai contoh <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>.</li>
+<li>Tetapan yang adalah objek mengambil JSON. Satu-satunya pemboleh ubah sedemikian untuk aplikasi ialah <code>AM_PLUGINSETTINGS_PLUGINS</code>, dan ia menggantikan tetapan <em>setiap</em> aplikasi sekaligus: tetapkan tetapan aplikasi dalam Konsol Sistem atau dengan <code>amctl</code> sebaliknya (lihat di bawah).</li>
+<li>Setelan Mattermost yang lebih lama menggunakan awalan <code>MM_</code>, contohnya <code>MM_SQLSETTINGS_DATASOURCE</code>. Ia masih berfungsi sebagai nama ganti warisan. Apabila kedua-duanya ditetapkan, pemboleh ubah <code>AM_</code> akan menang.</li>
+</ul>
+<p>Setelan yang diberikan melalui pemboleh ubah dikunci dalam Konsol Sistem, dengan nota "Setelan ini telah ditetapkan melalui pemboleh ubah persekitaran. Ia tidak boleh diubah melalui Konsol Sistem." Ia tidak ditulis ke dalam konfigurasi tersimpan: buang pemboleh ubah dan nilai tersimpan akan terpakai semula.</p>
+<h3>Dengan Docker Compose</h3>
+<p>Tambah pemboleh ubah di bawah <code>environment:</code> bagi perkhidmatan <code>antimatter</code>, atau dalam <code>compose.override.yaml</code> di sebelah <code>compose.yaml</code> (Compose membacanya secara automatik, dan ia kekal selepas kemas kini fail yang dimuat turun):</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_LOGSETTINGS_CONSOLELEVEL: INFO</code></pre>
+<p>Guna perubahan dengan <code>docker compose up -d</code>, yang akan mencipta semula kontena.</p>
+<h3>Pemboleh ubah yang dibaca oleh aplikasi</h3>
+<p>Beberapa aplikasi membaca pemboleh ubah mereka sendiri, ditetapkan pada perkhidmatan <code>antimatter</code>: aplikasi Panggilan membaca <code>AM_CALLS_*</code> (lihat <a href="{{root}}docs/admins/calls.html">Panggilan dan suara</a>), dan aplikasi GIF membaca <code>AM_GIFS_SERVICE_URL</code>, <code>AM_GIFS_API_KEY</code> dan <code>AM_GIFS_UPLOAD_KEY</code> (lihat <a href="{{root}}docs/admins/apps.html">Aplikasi terbina dalam</a>).</p>
+
+<h2 id="console">Konsol Sistem</h2>
+<p>Konsol Sistem ialah kawasan pentadbiran aplikasi web, untuk pentadbir sistem. Untuk membukanya, klik gambar profil anda dan pilih <b>Konsol Sistem</b>, atau pergi ke <code>https://chat.example.com/admin_console</code>. Bar sisinya mempunyai kotak <b>Cari tetapan</b> yang mencari setiap halaman.</p>
+<figure><img src="{{root}}assets/img/shots/admin.webp" alt="The System Console, with its sidebar of sections on the left and the SAML 2.0 settings page on the right."><figcaption>Konsol Sistem. Bar sisi mengumpul halaman ke dalam bahagian seperti Pelaporan, Pengurusan Pengguna dan Persekitaran.</figcaption></figure>
+<p>Bahagiannya ialah:</p>
+<ul>
+<li><b>Pelaporan</b>: statistik dan log pelayan.</li>
+<li><b>Pengurusan Pengguna</b>: pengguna, kumpulan, komuniti (disenaraikan sebagai Pasukan), saluran, kebenaran dan pentadbiran terwakil.</li>
+<li><b>Atribut Sistem</b>: atribut profil khusus dan akses berasaskan atribut.</li>
+<li><b>Persekitaran</b>: pelayan web, pangkalan data, stor fail, proksi imej, SMTP, pemberitahuan tolak, had kadar, log, panjang sesi, pemantauan prestasi.</li>
+<li><b>Konfigurasi Laman</b>: jenama, pengguna dan pasukan, pemberitahuan, hantaran, perkongsian fail dan tingkah laku seluruh pelayan yang lain.</li>
+<li><b>Pengesahan</b>: daftar, log masuk e-mel dan kata laluan, MFA, AD/LDAP, SAML 2.0, OAuth 2.0, OpenID Connect dan akses tetamu.</li>
+<li><b>Plugin</b>: pengurusan aplikasi dan tetapan setiap aplikasi yang dipasang.</li>
+<li><b>Integrasi</b>: webhook, arahan garis miring, akaun bot, GIF, teks ke suara, CORS.</li>
+<li><b>Pematuhan</b>: pemeliharaan data, eksport pematuhan dan pemantauan, log audit, terma perkhidmatan tersuai.</li>
+<li><b>Eksperimental</b>: ciri-ciri yang mungkin berubah.</li>
+</ul>
+<p>Dalam panduan ini, tetapan ditulis sebagai lalunya dalam Konsol Sistem, kemudian labelnya, kemudian kunci konfigurasinya, sebagai contoh <b>Konsol Sistem › Konfigurasi Laman › Pengguna dan Pasukan › Aktifkan pengabaian, penyekatan dan permintaan mesej</b> (<code>PrivacySettings.EnableUserBlocking</code>).</p>
+<p>Kebanyakan perubahan berkuat kuasa sebaik sahaja anda klik <b>Simpan</b>. Beberapa (alamat dengar, beberapa tetapan pangkalan data dan cache) memerlukan mulakan semula, dan halaman tersebut akan memaklumkan.</p>
+
+<h2 id="amctl">Alat baris arahan amctl</h2>
+<p><code>amctl</code> mengurus pelayan dari baris arahan: pengguna, komuniti, saluran, aplikasi, konfigurasi, kerja dan banyak lagi. Ia berinteraksi dengan pelayan melalui salah satu daripada dua cara.</p>
+<h3>Mod lokal, pada pelayan</h3>
+<p>Mod lokal membolehkan <code>amctl</code> berinteraksi dengan pelayan melalui soket Unix, tanpa perlu log masuk. Ia diaktifkan dalam imej Docker. Pada pelayan yang dipasang dari arkib, aktifkannya dengan <b>ServiceSettings.EnableLocalMode</b> (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>). Soket secara lalai ialah <code>/var/tmp/antimatter_local.socket</code> (<code>ServiceSettings.LocalModeSocketLocation</code>).</p>
+<pre><code># with Docker Compose
+docker compose exec antimatter amctl --local system status
+# with a release archive
+sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code></pre>
+<div class="callout warn">Sesiapa yang boleh menggunakan soket, atau menjalankan <code>docker compose exec</code> pada hos, mempunyai hak pentadbir sistem penuh.</div>
+<h3>Jauh, dengan akaun</h3>
+<p>Dari mana-mana mesin, log masuk dengan akaun pentadbir sistem (atau token akses peribadi), kemudian jalankan arahan terhadap pelayan tersebut:</p>
+<pre><code>amctl auth login https://chat.example.com --name prod --username admin
+amctl system status</code></pre>
+<h3>Arahan konfigurasi</h3>
+<table>
+<thead><tr><th>Arahan</th><th>Fungsinya</th></tr></thead>
+<tbody>
+<tr><td><code>amctl config get ServiceSettings.SiteURL</code></td><td>Mencetak satu tetapan.</td></tr>
+<tr><td><code>amctl config set TeamSettings.EnableOpenServer false</code></td><td>Menukar satu tetapan. Senarai tetapan mengambil beberapa nilai.</td></tr>
+<tr><td><code>amctl config patch settings.json</code></td><td>Menggabungkan fail JSON tetapan ke dalam konfigurasi.</td></tr>
+<tr><td><code>amctl config show</code></td><td>Mencetak keseluruhan konfigurasi sebagai JSON.</td></tr>
+<tr><td><code>amctl config edit</code></td><td>Membuka konfigurasi dalam penyunting anda (<code>$EDITOR</code>).</td></tr>
+<tr><td><code>amctl config reset</code></td><td>Menetapkan semula tetapan ke lalai.</td></tr>
+<tr><td><code>amctl config reload</code></td><td>Memuat semula konfigurasi dari tempat ia disimpan, selepas perubahan yang dibuat di luar pelayan.</td></tr>
+</tbody>
+</table>
+<p>Tetapan aplikasi berada di bawah <code>PluginSettings.Plugins.&lt;app id&gt;</code>, dengan kunci dalam huruf kecil. Sebagai contoh, untuk menetapkan URL perkhidmatan dan kunci aplikasi GIF dari hos Docker:</p>
+<pre><code>docker compose exec -T antimatter amctl --local config patch /dev/stdin &lt;&lt;'EOF'
+{"PluginSettings": {"Plugins": {"com.antimatterchat.gifs": {
+  "serviceurl": "http://gifs:8080/v2",
+  "apikey": "the GIFS_API_KEY of your .env"
+}}}}
+EOF</code></pre>
+<p>Arahan berguna lain: <code>amctl user create</code>, <code>amctl user deactivate</code>, <code>amctl team create</code>, <code>amctl plugin list</code>, <code>amctl plugin enable</code>, <code>amctl system supportpacket</code> dan <code>amctl logs</code>. Jalankan <code>amctl help &lt;command&gt;</code> untuk pilihan setiap satu.</p>
+
+<h2 id="logs">Log</h2>
+<p>Pelayan menulis lognya ke dua tempat, masing-masing dengan tahapnya sendiri (<code>DEBUG</code>, <code>INFO</code>, <code>WARN</code> atau <code>ERROR</code>), ditetapkan dalam <b>Konsol Sistem › Persekitaran › Pencatatan</b>:</p>
+<table>
+<thead><tr><th>Destinasi</th><th>Tetapan</th><th>Lalai</th></tr></thead>
+<tbody>
+<tr><td>Konsol (output piawai)</td><td><b>Keluar log ke konsol</b> (<code>LogSettings.EnableConsole</code>), <b>Tahap Log Konsol</b> (<code>LogSettings.ConsoleLevel</code>), <b>Keluar log konsol sebagai JSON</b> (<code>LogSettings.ConsoleJson</code>)</td><td>hidup, <code>DEBUG</code>, JSON</td></tr>
+<tr><td>Fail, <code>antimatter.log</code></td><td><b>Keluarkan log ke fail</b> (<code>LogSettings.EnableFile</code>), <b>Tahap Log Fail</b> (<code>LogSettings.FileLevel</code>), <b>Direktori Log Fail</b> (<code>LogSettings.FileLocation</code>)</td><td>hidup, <code>INFO</code>, direktori <code>logs/</code> di sebelah <code>bin/</code></td></tr>
+</tbody>
+</table>
+<p>Fail log dipusing pada 100 MB dan yang lama dimampatkan.</p>
+<p>Fail compose tapak ini mematikan pengeklog fail (<code>AM_LOGSETTINGS_ENABLEFILE=false</code>), jadi log hanya dalam output kontena:</p>
+<pre><code>docker compose logs -f antimatter
+docker compose logs --since 1h antimatter | grep -i error</code></pre>
+<p>Tahap konsol lalai ialah <code>DEBUG</code>, yang terperinci. Pada pelayan yang sibuk, tetapkan <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code>. Dengan arkib pelepasan di bawah systemd, output konsol pergi ke jurnal (<code>journalctl -u antimatter</code>) dan fail ke <code>/opt/antimatter/logs/antimatter.log</code>.</p>
+<p>Apabila pengeklog fail hidup, pentadbir sistem juga boleh membaca baris log terkini dalam <b>Konsol Sistem › Pelaporan › Log Pelayan</b>, atau dengan <code>amctl logs</code>.</p>

@@ -1,0 +1,172 @@
+title: Botok és interaktív üzenetek
+description: Botfiókok az Antimatterben: létrehozásuk, tokenjeik és jogosultságaik, bejegyzés botként, közvetlen üzenetek, interaktív gombok és menük, valamint párbeszédablakok.
+guide: developers
+order: 5
+nav: Botok
+lead: A bot-fiók egy program számára létrehozott felhasználó. Saját neve, képe és tokenjei vannak, a neve mellett pedig BOT címkét jelenít meg. Ez az oldal a bejegyzések interaktív elemeit is leírja: gombok, menük és párbeszédablakok, amelyeket bármilyen integráció használhat.
+source: 45503666f647
+---
+<h2 id="why">Miért érdemes botfiókot használni</h2>
+<ul>
+<li>Az üzenetei egyértelmű identitástól származnak, <b>BOT</b> jelzéssel, nem pedig egy kolléga fiókja által.</li>
+<li>A tokenjei akkor is működnek, ha a beállító személy szerepköre megváltozik, vagy kilép (kivéve, ha a szerver letiltja a deaktivált tulajdonosok botjait, lásd alább).</li>
+<li>A botok nem jelentkezhetnek be jelszóval, és soha nem látják a webböngészős alkalmazást.</li>
+</ul>
+<p>Az alkalmazások saját botokat hoznak létre, például a Teendők vagy a Playbook botokat, a bővítmény-API (<code>EnsureBotUser</code>) segítségével.</p>
+
+<h2 id="enable">Botfiókok engedélyezése</h2>
+<p>A rendszeradmin a <b>Rendszerkonzol › Integrációk › Botfiókok</b> menüben engedélyezi a <b>Bot fiók létrehozás engedélyezése</b> beállítást (<code>ServiceSettings.EnableBotAccountCreation</code>, <code>AM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION</code>). Alapértelmezetten letiltva van. Csak a rendszeradminok hozhatnak létre botokat, hacsak nem adják meg ezt a jogosultságot más szerepköröknek a jogosultsági beállításokban.</p>
+<p>Ugyanezen az oldalon a <b>Bot fiókok letiltása a tulajdonos letiltásakor</b> beállítás (<code>ServiceSettings.DisableBotsWhenOwnerIsDeactivated</code>, alapértelmezetten engedélyezve) letiltja a botot, ha a tulajdonos fiókja deaktiválva lett.</p>
+
+<h2 id="create">Bot létrehozása</h2>
+<ol>
+<li>Nyissa meg az avatárját a jobb felső sarokban, majd válassza a <b>Integrációk › Botfiókok</b>, és utána az <b>Bot fiók hozzáadása</b> lehetőséget.</li>
+<li>Adja meg a <b>Felhasználónevet</b> (kisbetűk, számok, pontok, kötőjelek és alulvonások), valamint opcionálisan a <b>Bot ikont</b>, a <b>Megjelenítési nevet</b> és a <b>Leírást</b>.</li>
+<li>Válassza ki a <b>Szerepkört</b>: <b>Tag</b>, vagy <b>Rendszeradmin</b> egy olyan bot számára, amely kezeli a szervert. Adjon a botnak csak annyi jogosultságot, amennyire szüksége van.</li>
+<li>Jelölje be a <b>bejegyzés:csatornák</b> lehetőséget, hogy minden nyílt csatornában posztálhasson, vagy a <b>bejegyzés:mind</b> lehetőséget, hogy minden csatornában, privát csatornákban és közvetlen üzenetekben is posztálhasson, tagként nem.</li>
+<li>Állítsa be, hogy a alapértelmezett token mikor jár le, majd válassza a <b>Bot fiók létrehozása</b> lehetőséget.</li>
+<li>Másolja ki a megjelenített hozzáférési tokent. Ez nem jelenik meg újra.</li>
+</ol>
+<p>Később a bot sorában az <b>Új token létrehozása</b> gombbal adhat hozzá tokent, és minden tokent letilthat vagy törölhet. A bot tokenek akkor is működnek, ha a személyes hozzáférési tokenek letiltva vannak a felhasználók számára.</p>
+<p>Az API-val:</p>
+<pre><code># create the bot (you become its owner)
+curl -X POST https://chat.example.com/api/v4/bots \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username": "deploy-bot", "display_name": "Deploy", "description": "Posts deployments"}'
+
+# give it a token
+curl -X POST https://chat.example.com/api/v4/users/$BOT_USER_ID/tokens \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"description": "deploy pipeline"}'</code></pre>
+<p>A parancssorból, adminisztrátorként bejelentkezve (nem helyi módban): <code>amctl bot create deploy-bot --display-name Deploy --with-token --expires-in 90d</code>. Egyéb végpontok: <code>GET /api/v4/bots</code>, <code>PUT /api/v4/bots/{bot_user_id}</code>, <code>POST /api/v4/bots/{bot_user_id}/disable</code> és <code>/enable</code>, valamint <code>POST /api/v4/bots/{bot_user_id}/assign/{user_id}</code> a tulajdonosának megváltoztatásához.</p>
+
+<h2 id="membership">A bot hozzáadása közösségekhez és csatornákhoz</h2>
+<p>Egy új bot eleinte egyetlen közösséghez sem tartozik. Hozzáadható olyan módon, mint egy ember: a közösség tagkezelésén keresztül, vagy az API-val:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/teams/$TEAM_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"team_id": "'$TEAM_ID'", "user_id": "'$BOT_USER_ID'"}'
+
+curl -X POST https://chat.example.com/api/v4/channels/$CHANNEL_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"user_id": "'$BOT_USER_ID'"}'</code></pre>
+<p>Egy <b>bejegyzés:csatornák</b> vagy <b>bejegyzés:mind</b> jogosultsággal rendelkező bot tagként nem is kell, hogy csatlakozzon a csatornákhoz, hogy bejegyezzen, de csak azokon a csatornákon kap WebSocket-eseményeket, ahol tag.</p>
+
+<h2 id="post">Bejegyzés a bot nevében</h2>
+<p>A bot tokenjét bármilyen API-híváshoz használhatod; a leggyakoribb a <code>POST /api/v4/posts</code> (lásd: <a href="{{root}}docs/developers/api.html#resources">Fő erőforrások</a>). Ha közvetlenül valakinek szeretnél írni, először nyisd meg a közvetlen üzenet csatornáját:</p>
+<pre><code># returns the channel; use its "id" as channel_id
+curl -X POST https://chat.example.com/api/v4/channels/direct \
+  -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' \
+  -d '["'$BOT_USER_ID'", "'$USER_ID'"]'</code></pre>
+<p>Ha reagálni szeretnél az emberek által mondottakra, kövesd a <a href="{{root}}docs/developers/api.html#websocket">WebSocket</a> csatornát a bot tokenjével, és válaszolj a <code>posted</code> eseményekre, amelyek érdekelnek. A bot saját üzeneteit hagyd ki, hogy elkerüld a végtelen ciklusokat.</p>
+<p>Egy olyan üzenet, amelyet csak egy személy láthat (ideiglenes üzenet), a <code>POST /api/v4/posts/ephemeral</code> végponttal és a <code>{"user_id", "post": {"channel_id", "message"}}</code> testtel küldhető. Ehhez a <code>create_post_ephemeral</code> jogosultság szükséges, amelyre alapértelmezés szerint csak a rendszeradminisztrátorok jogosultak. Az integrációk általában ideiglenes üzeneteket küldenek válaszként perjeles parancsokra és gombokra.</p>
+
+<h2 id="interactive">Interaktív üzenetek: gombok és menük</h2>
+<p>Bármely csatolmánnyal rendelkező üzenet viselhet műveleteket: gombokat és menüket. Ezek működnek az API-val, webhookokkal és perjeles parancsokkal küldött üzenetekben is. Amikor valaki használja az egyiket, az Antimatter meghívja az integráció URL-jét.</p>
+<pre><code>{
+  "channel_id": "…",
+  "message": "Deploy **api 2.4.0** to production?",
+  "props": {
+    "attachments": [{
+      "actions": [
+        {
+          "id": "approve",
+          "type": "button",
+          "name": "Approve",
+          "style": "primary",
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "approve"}}
+        },
+        {
+          "id": "env",
+          "type": "select",
+          "name": "Pick an environment",
+          "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}],
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "env"}}
+        }
+      ]
+    }]
+  }
+}</code></pre>
+<ul>
+<li><code>type</code>: <code>button</code> vagy <code>select</code>.</li>
+<li><code>id</code>: betűk, számok, kötőjelek és alvonalak; minden üzeneti műveletnek egyedi azonosítója. Ha ki hagyod, a rendszer generál egyet.</li>
+<li><code>style</code> (gombok): <code>default</code>, <code>primary</code>, <code>success</code>, <code>good</code>, <code>warning</code>, <code>danger</code>, vagy egy hex színkód.</li>
+<li><code>options</code> (menük), vagy <code>data_source</code>: <code>users</code> vagy <code>channels</code> egy személy vagy csatorna kiválasztásához. A <code>default_option</code> előre kiválaszt egy értéket.</li>
+<li><code>integration.url</code>: ide küldi a kattintást. Egy alkalmazás (bővítmény) használhatja a saját útvonalát, például <code>/plugins/com.example.deploy/actions</code>. A <code>integration.context</code> a sajátod: a kattintással együtt visszaküldi, és a kliensek soha nem látják.</li>
+</ul>
+<h3>A kérés, amelyet az integrációd kap</h3>
+<pre><code>{
+  "user_id": "…",
+  "user_name": "priya",
+  "channel_id": "…",
+  "channel_name": "releases",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "post_id": "…",
+  "trigger_id": "…",
+  "type": "button",
+  "context": {"release": "2.4.0", "action": "approve"}
+}</code></pre>
+<p>Menü esetén a <code>type</code> értéke <code>select</code>, és a <code>context.selected_option</code> tartalmazza a kiválasztott értéket.</p>
+<h3>A válaszod</h3>
+<pre><code>{
+  "update": {"message": "Deploy of **api 2.4.0** approved by @priya", "props": {}},
+  "ephemeral_text": "Done. The deploy starts in a minute."
+}</code></pre>
+<ul>
+<li><code>update</code>: lecseréli az üzenet szövegét és tulajdonságait, például a gombok eltávolításához használat után (üres <code>props</code>).</li>
+<li><code>ephemeral_text</code>: olyan üzenet, amelyet csak a kattintó személy lát.</li>
+<li><code>goto_location</code>: egy megnyitandó URL.</li>
+<li>Egy üres test nem változtat semmit.</li>
+</ul>
+<p>A szerver addig vár, amíg az <b>Integrációs kérés időtúllépési határa</b> engedi (alapértelmezés szerint 30 másodperc). A privát hálózati címeken lévő integrációs URL-eket a rendszeradminisztrátornak engedélyeznie kell, ahogy a webhookoknál is.</p>
+
+<h2 id="dialogs">Párbeszédablakok</h2>
+<p>A párbeszédablak egy űrlap, amely a csevegés felett nyílik meg. Csak akkor nyitható meg, ha valaki éppen most végzett valamit, például perjeles parancsot vagy gombot használt, mert ehhez a kérés <code>trigger_id</code>-je szükséges. A <code>trigger_id</code> addig érvényes, amíg az integrációs kérés időtúllépési határa meg nem telik.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/actions/dialogs/open \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "trigger_id": "'$TRIGGER_ID'",
+    "url": "https://deploy.example.com/dialog",
+    "dialog": {
+      "callback_id": "new-release",
+      "title": "New release",
+      "introduction_text": "Fill in the release details.",
+      "submit_label": "Create",
+      "notify_on_cancel": false,
+      "state": "anything you want back",
+      "elements": [
+        {"display_name": "Version", "name": "version", "type": "text", "placeholder": "2.4.0"},
+        {"display_name": "Notes", "name": "notes", "type": "textarea", "optional": true},
+        {"display_name": "Environment", "name": "env", "type": "select",
+         "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}]},
+        {"display_name": "Owner", "name": "owner", "type": "select", "data_source": "users"},
+        {"display_name": "Notify the channel", "name": "notify", "type": "bool", "default": "true"}
+      ]
+    }
+  }'</code></pre>
+<table>
+<thead><tr><th>Elem típusa</th><th>Mit jelenít meg</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>Egy soros mező. <code>subtype</code>: <code>text</code>, <code>email</code>, <code>number</code>, <code>password</code>, <code>tel</code> vagy <code>url</code>. A <code>min_length</code> és <code>max_length</code> korlátozza.</td></tr>
+<tr><td><code>textarea</code></td><td>Több soros mező.</td></tr>
+<tr><td><code>select</code></td><td>Lista: <code>options</code>, vagy <code>data_source</code> <code>users</code>, <code>channels</code>, vagy <code>dynamic</code> <code>data_source_url</code>-lel. A <code>multiselect</code> több érték kiválasztását teszi lehetővé.</td></tr>
+<tr><td><code>bool</code></td><td>Jelölőmező.</td></tr>
+<tr><td><code>radio</code></td><td>Egyetlen választás a <code>options</code> közül.</td></tr>
+<tr><td><code>date</code>, <code>datetime</code></td><td>Dátum, vagy dátum és idő.</td></tr>
+</tbody>
+</table>
+<p>Minden elem elfogadja a <code>display_name</code>, <code>name</code>, <code>help_text</code>, <code>placeholder</code>, <code>default</code> és <code>optional</code> mezőket.</p>
+<p>Amikor a felhasználó beküldi, az Antimatter POST-kéri a párbeszédablak <code>url</code>-jét:</p>
+<pre><code>{
+  "type": "dialog_submission",
+  "callback_id": "new-release",
+  "state": "anything you want back",
+  "user_id": "…",
+  "channel_id": "…",
+  "team_id": "…",
+  "submission": {"version": "2.4.0", "notes": "", "env": "staging", "owner": "…", "notify": true},
+  "cancelled": false
+}</code></pre>
+<p>Válassz üres testtel, hogy bezárd a párbeszédablakot, vagy tartsd nyitva, és jelezd, mi a hiba:</p>
+<pre><code>{"errors": {"version": "This version already exists."}}</code></pre>
+<p><code>{"error": "…"}</code> az egész űrlapra vonatkozó üzenetet jelenít meg. A <code>notify_on_cancel</code> beállításával a párbeszédablak bezárása <code>"cancelled": true</code> értékű kérést küld. Az alkalmazásokban a párbeszédablakok ugyanígy működnek: a bővítmény-API <code>OpenInteractiveDialog</code> függvénye ugyanazt a kérést fogadja.</p>

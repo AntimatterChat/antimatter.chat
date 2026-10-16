@@ -1,0 +1,107 @@
+title: Sikkerhed
+description: Hærd en Antimatter-server: hvilke porte der skal eksponeres, hemmelige nøgler, rate limiting, IP-filtrering, uploadgrænser, privatlivsindstillinger og blokering af brugere, sessioner, de forbindelser serveren opretter til eksterne tjenester, og hvordan man rapporterer en sårbarhed.
+guide: admins
+order: 12
+nav: Sikkerhed
+lead: En tjekliste til at hærde en Antimatter-server: hvad der skal eksponeres, de grænser og privatlivsindstillinger, der skal gennemgås, de eksterne tjenester, serveren kontakter, og hvordan man rapporterer et sikkerhedsproblem.
+source: dbe2371ecf30
+---
+<h2 id="exposure">Hvad der skal eksponeres</h2>
+<table>
+<thead><tr><th>Port</th><th>Tjeneste</th><th>Eksponering</th></tr></thead>
+<tbody>
+<tr><td>443/tcp, 443/udp, 80/tcp</td><td>Din HTTPS-proxy (Caddy eller nginx)</td><td>Offentlig: Dette er, hvordan folk når frem til Antimatter.</td></tr>
+<tr><td>8443/udp og 8443/tcp</td><td>Medie til opkald</td><td>Offentlig, hvis folk bruger opkald fra uden for dit netværk.</td></tr>
+<tr><td>8065/tcp</td><td>Antimatters webserver</td><td>Kun til proxyen: Udgiv den på <code>127.0.0.1</code> (<code>HTTP_PORT=127.0.0.1:8065</code>).</td></tr>
+<tr><td>8067/tcp</td><td>Målinger</td><td>Kun privat netværk, når det er aktiveret. Ingen login.</td></tr>
+<tr><td>8074/tcp og udp</td><td>Cluster-gossip</td><td>Kun mellem cluster-noder.</td></tr>
+<tr><td>5432, 9000, 8080, 8066</td><td>PostgreSQL, filopbevaring, GIF-tjeneste, push-proxy</td><td>Aldrig. Compose-filerne holder dem på interne netværk uden udgivet port.</td></tr>
+</tbody>
+</table>
+<p>Webstedets compose-fil kører også alle containere med <code>no-new-privileges</code>, kører Antimatter som en uprivilegieret bruger på et distroless-billede, og kører GIF-tjenesten med et filsystem i read-only-tilstand. Databasen, opbevaringen og GIF-tjenesten ligger på et netværk uden internetadgang.</p>
+
+<h2 id="checklist">Tjekliste efter installation</h2>
+<ol>
+<li>Opret den første administratorkonto, før andre kan nå serveren (<a href="{{root}}docs/admins/install.html#first-admin">Installation</a>).</li>
+<li>Server Antimatter udelukkende over HTTPS, og sæt webstedets URL til <code>https://</code>-adressen (<a href="{{root}}docs/admins/https.html">Domæne og HTTPS</a>).</li>
+<li>Hold <code>.env</code>, <code>config.json</code> og TLS-nøgler læsbar kun for root (eller serverens bruger): <code>chmod 600 .env</code>.</li>
+<li>Afgør, hvem der kan oprette konti, hold <b>Aktivér åben server</b> slukket, medmindre fællesskabet er offentligt, og slå <b>Krav om e-mailverifikation</b> til, når e-mail fungerer (<a href="{{root}}docs/admins/authentication.html">Login og konti</a>).</li>
+<li>Slå multifaktorautentificering til, og gennemtving den mindst for administratorers konti, eller brug din identitetsleverandørs.</li>
+<li>Gennemgå de eksterne forbindelser nedenfor, især STUN-serveren, som Opkald bruger som standard.</li>
+<li>Lav sikkerhedskopier, og test en gendannelse (<a href="{{root}}docs/admins/backups-upgrades.html">Sikkerhedskopier og opgraderinger</a>).</li>
+<li>Hold billederne opdateret: Sikkerhedsrettelser leveres med nye billeder.</li>
+</ol>
+
+<h2 id="rate-limiting">Rate limiting</h2>
+<p>Serveren kan begrænse, hvor mange API-anmodninger hver klient udfører. Det er slukket som standard. I <b>Systemkonsol › Miljø › Begrænsning af haster</b>:</p>
+<table>
+<thead><tr><th>Indstilling</th><th>Nøgle</th><th>Standard</th></tr></thead>
+<tbody>
+<tr><td><b>Aktivér Rate Limiting</b></td><td><code>RateLimitSettings.Enable</code></td><td>Fra</td></tr>
+<tr><td><b>Maksimalt antal forespørgsler pr. sekund</b></td><td><code>RateLimitSettings.PerSec</code></td><td>10</td></tr>
+<tr><td><b>Maksimal burst-størrelse</b></td><td><code>RateLimitSettings.MaxBurst</code></td><td>100</td></tr>
+<tr><td><b>Størrelse på hukommelseslager</b></td><td><code>RateLimitSettings.MemoryStoreSize</code></td><td>10000 klienter spores</td></tr>
+<tr><td><b>Varier ratelimiting efter fjernadresse</b></td><td><code>RateLimitSettings.VaryByRemoteAddr</code></td><td>til</td></tr>
+<tr><td><b>Varier ratelimiting efter bruger</b></td><td><code>RateLimitSettings.VaryByUser</code></td><td>Fra</td></tr>
+<tr><td><b>Varier ratelimiting efter HTTP-header</b></td><td><code>RateLimitSettings.VaryByHeader</code></td><td>tom</td></tr>
+</tbody>
+</table>
+<p>Bag en proxy virker begrænsninger baseret på adresse kun, hvis serveren kender hver klients adresse (<code>ServiceSettings.TrustedProxyIPHeader</code> og <code>ServiceSettings.TrustedProxyIPs</code>, se <a href="{{root}}docs/admins/https.html#client-address">Klientadresser bag en proxy</a>). Ellers ser det ud, som om alle anmodninger kommer fra proxyen, og alle deler én begrænsning. Det samme gælder for IP-filtrering og for adresserne i revisionsloggen.</p>
+<p>Loginforsøg begrænses separat: <b>Maks. antal loginforsøg</b> (10) låser en konto efter det angivne antal forkerte adgangskoder.</p>
+
+<h2 id="ip-filtering">IP-filtrering</h2>
+<p><b>Systemkonsol › Sitekonfiguration › IP-filtrering</b> begrænser adgang til serveren efter IP-adresse med tilladelses- og blokeregler (hver adresse eller CIDR-interval). Med <b>Aktiver IP-filtering</b> slået til, kan personer, hvis adresse matcher en blokeregel, eller ingen tilladelsesregel, når der findes tilladelsesregler, ikke nå serveren. Siden afviser regler, der ville blokere din egen adresse. Bag en proxy skal du først indstille klientadresser (<a href="{{root}}docs/admins/https.html#client-address">Klientadresser bag en proxy</a>): ellers ser det ud, som om alle anmodninger kommer fra proxyen.</p>
+
+<h2 id="uploads">Uploads og fildeling</h2>
+<table>
+<thead><tr><th>Indstilling</th><th>Hvor</th><th>Standard</th></tr></thead>
+<tbody>
+<tr><td><b>Maksimal filstørrelse</b> (<code>FileSettings.MaxFileSize</code>)</td><td>Miljø › Filopbevaring</td><td>100 MB. Hold proxyens anmodningsstørrelsesbegrænsning på mindst dette.</td></tr>
+<tr><td><b>Maksimal payloadstørrelse (bytes)</b> (<code>ServiceSettings.MaximumPayloadSizeBytes</code>)</td><td>Miljø › Webserver</td><td>300000: den største API-anmodning ud over filuploads</td></tr>
+<tr><td><b>Tillad fildeling</b> (<code>FileSettings.EnableFileAttachments</code>)</td><td>Site Configuration › Fildeling og downloads</td><td>til</td></tr>
+<tr><td><b>Tillad filupload på mobil</b>, <b>Tillad fildownloads på mobil</b></td><td>Site Configuration › Fildeling og downloads</td><td>til</td></tr>
+<tr><td><b>Aktivér offentlige filerlinks</b> (<code>FileSettings.EnablePublicLink</code>)</td><td>Site Configuration › Offentlige links</td><td>fra: når slået til, kan personer dele en fil med et link, der virker uden login</td></tr>
+<tr><td><b>Aktivér SVG'er</b> (<code>ServiceSettings.EnableSVGs</code>)</td><td>Site Configuration › Indlæg</td><td>fra på en ny server: når slået til, vises SVG-billeder inline</td></tr>
+</tbody>
+</table>
+<p>Antimatter scanner ikke uploads for malware.</p>
+
+<h2 id="privacy">Privatlivsindstillinger</h2>
+<p>I <b>Systemkonsol › Sitekonfiguration › Brugere og teams</b>:</p>
+<table>
+<thead><tr><th>Indstilling</th><th>Nøgle</th><th>Standard</th><th>Hvad den gør</th></tr></thead>
+<tbody>
+<tr><td><b>Vis e-mailadresse</b></td><td><code>PrivacySettings.ShowEmailAddress</code></td><td>til</td><td>Slået fra, medlemsers e-mailadresser er skjult for alle undtagen administratorer. Slå det fra på offentlige servere.</td></tr>
+<tr><td><b>Vis fulde navn</b></td><td><code>PrivacySettings.ShowFullName</code></td><td>til</td><td>Slået fra, fulde navne er skjult, og brugernavne vises i stedet.</td></tr>
+<tr><td><b>Aktivér ignorering, blokering og beskedanmodninger</b></td><td><code>PrivacySettings.EnableUserBlocking</code></td><td>til</td><td>Se nedenfor.</td></tr>
+<tr><td><b>Gør det muligt for brugere at åbne kanaler for direkte beskeder med</b></td><td><code>TeamSettings.RestrictDirectMessage</code></td><td>Any user on the Antimatter server</td><td>Eller <b>Alle medlemmer af teamet</b>: kun personer, der deler et fællesskab.</td></tr>
+</tbody>
+</table>
+<h3>Ignoring, blocking and message requests</h3>
+<p>Med <b>Aktivér ignorering, blokering og beskedanmodninger</b> slået til (standard), kan personer ignorere og blokere hinanden, og kan vælge at modtage direkte beskeder fra personer, de ikke kender, som beskedanmodninger, som ikke giver notifikation, før de accepteres. Dette passer til offentlige fællesskaber. På et arbejdssted, hvor kolleger altid skal kunne nå hinanden, slukkes det (<code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING=false</code>): intet af det håndhæves længere, men listerne og valgene, som personer har truffet, bevares, og gælder igen, hvis du slår det til igen.</p>
+
+<h2 id="sessions">Sessions and tokens</h2>
+<ul>
+<li>Session lengths and idle timeout: see <a href="{{root}}docs/admins/authentication.html#sessions">Sign-in and accounts</a>. Shorter sessions mean a lost laptop or phone stays signed in for less time.</li>
+<li><b>Aktivér personlige adgangstokens</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, slukket) giver personer mulighed for at oprette API-tokens; <b>Maksimal levetid for personlige adgangstokens (dage)</b> begrænser dem. Begge findes i <b>Systemkonsol › Integrationer › Integrationshåndtering</b>.</li>
+<li>For at logge alle ud på én gang, f.eks. efter en mistænkt sikkerhedsbrud: <b>Ophæv alle sessioner</b> i <b>Systemkonsol › Brugerstyring › Brugere</b>.</li>
+</ul>
+
+<h2 id="outbound">Connections to outside services</h2>
+<p>Antimatter contacts no service run by Mattermost, Inc. It sends no telemetry, crash reports or security update checks, and fetches no product notices. A configuration brought over from Mattermost that still names one of Mattermost's services (its push services, its app marketplace, its notices or its STUN server for calls) doesn't make the server contact them: those addresses are ignored.</p>
+<p>The server and the apps connect to other outside services only for the features that need them, and to the services you configure:</p>
+<table>
+<thead><tr><th>Feature</th><th>Contacts</th><th>By default</th></tr></thead>
+<tbody>
+<tr><td>Calls: finding public addresses with STUN. The server and each person joining a call send a request, which shows the STUN server their IP address and port.</td><td>Cloudflare's public STUN server, <code>stun.cloudflare.com</code></td><td>til, mens appen Opkald er aktiveret. For at ændre det, se <a href="{{root}}docs/admins/calls.html#network">Opkald</a>.</td></tr>
+<tr><td>Forudvisning af links: Serveren henter de sider, der er linket i beskeder (<b>Aktivér forudvisning af links til websteder</b>, <code>ServiceSettings.EnableLinkPreviews</code>)</td><td>de websteder, folk linker til</td><td>til. Slå fra med <code>AM_SERVICESETTINGS_ENABLELINKPREVIEWS=false</code>.</td></tr>
+<tr><td>Push-notifikationer til mobilappen</td><td>din egen push-proxy (<a href="{{root}}docs/admins/email-push.html#push">Push-notifikationer</a>)</td><td>fra, indtil du angiver dens adresse</td></tr>
+<tr><td>Den ekstern appmarkedsplass (<code>PluginSettings.EnableRemoteMarketplace</code>)</td><td>den <b>Marketplace-URL</b>, du har angivet</td><td>fra, og ingen adresse</td></tr>
+<tr><td>E-mail</td><td>din SMTP-server</td><td>standardserveren er <code>localhost</code></td></tr>
+<tr><td>Enkeltlogon, AI-modeller, tale til tekst og oversættelse, udgående webhooks og apps som Mail, Kalender, GitHub, GitLab eller Jira</td><td>de tjenester, du konfigurerer</td><td>fra, indtil du konfigurerer dem</td></tr>
+</tbody>
+</table>
+<p>Som standard nægter serveren at forbinde til private og loopback-adresser for disse (linkprevier, webhooks, apps), så en besked eller en integration ikke kan bruges til at nå dit interne netværk. Angiv de interne værter, den må nå, i <b>Tillad upålidelige interne forbindelser til</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>, i <b>Systemkonsol › Miljø › Udvikler</b>); webstedets compose-fil angiver <code>gifs</code> der.</p>
+
+<h2 id="report">Rapportering af en sårbarhed</h2>
+<p>Rapportér sikkerhedsproblemer privat, som beskrevet i <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">Antimatters sikkerhedspolitik</a>, ikke i offentlige issues.</p>

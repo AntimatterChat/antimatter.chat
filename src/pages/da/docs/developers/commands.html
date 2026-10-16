@@ -1,0 +1,122 @@
+title: Skråstregskommandoer
+description: Brugerdefinerede skråstregskommandoer i Antimatter: oprettelse, den anmodning, din service modtager, svarformatet, ephemeral- og kanal-svar, forsinkede svar og autofuldførelse.
+guide: developers
+order: 4
+nav: Skråstregskommandoer
+lead: En brugerdefineret skråstregskommando giver folk mulighed for at skrive /noget i beskedfeltet for at kalde din service. Antimatter sender kommandoen til din URL og viser dit svar, enten kun til den pågældende person eller til hele kanalen.
+source: 24dbc9730e62
+---
+<h2 id="how">Sådan fungerer en skråstregskommando</h2>
+<ol>
+<li>En person skriver <code>/weather Paris</code> og sender den. Teksten bliver ikke publiceret.</li>
+<li>Antimatter sender en HTTP-anmodning til kommandoen URL, med hvem der skrev den, hvor, og teksten efter triggeren.</li>
+<li>Din service svarer inden for anmodningens timeout (30 sekunder som standard) med en besked.</li>
+<li>Antimatter viser svaret: kun til den pågældende person (ephemeral) eller i kanalen for alle.</li>
+</ol>
+<p>Kommandoer tilhører et community, og et triggerord er unikt inden for det. Indbyggede kommandoer som <code>/join</code>, <code>/msg</code> eller <code>/away</code> kan ikke erstattes. Apps (plugins) kan også registrere kommandoer; se <a href="{{root}}docs/developers/apps.html#server">Serverdelen</a>.</p>
+
+<h2 id="create">Opret en kommando</h2>
+<p>Brugerdefinerede skråstregskommandoer er aktiveret som standard (<b>Aktivér brugerdefinerede skråstregskommandoer</b> i <b>Systemkonsol › Integrationer › Integrationshåndtering</b>, <code>ServiceSettings.EnableCommands</code>). Community-administratorer og systemadministratorer kan som standard oprette dem.</p>
+<ol>
+<li>Åbn din avatar øverst til højre, derefter <b>Integrationer › Skråstregskommandoer</b>, og derefter <b>Tilføj skråstregskommando</b>.</li>
+<li>Udfyld <b>Titel</b> og <b>Beskrivelse</b> (vises på integrations-siderne).</li>
+<li>Indtast <b>Kommandos udløsende ord</b> uden skråstreg og uden mellemrum, for eksempel <code>weather</code>.</li>
+<li>Indtast <b>Anmodnings-URL</b> og vælg <b>Anmodningsmetode</b>: <b>POST</b> (standard) eller <b>GET</b>.</li>
+<li>Vælg eventuelt et <b>Brugernavn for svar</b> og et <b>Ikon for svar</b>. De bruges kun, når serveren tillader, at integrationer overskriver navne og ikoner (se <a href="{{root}}docs/developers/webhooks.html#identity">Navn og ikon</a>).</li>
+<li>Marker <b>Autofuldførelse</b> for at vise kommandoen, når folk skriver <code>/</code>, med et <b>Autofuldførelse-hint</b> (dens argumenter, såsom <code>[city]</code>) og en <b>Autofuldførelsesbeskrivelse</b>.</li>
+<li>Vælg <b>Gem</b>, og kopier den viste token. Din service bruger den til at kontrollere, at anmodninger kommer fra din server.</li>
+</ol>
+<p>Med API:et: <code>POST /api/v4/commands</code> med <code>{"team_id", "trigger", "url", "method": "P", "display_name", "description", "auto_complete": true, "auto_complete_hint", "auto_complete_desc", "username", "icon_url"}</code>. Metoden er <code>P</code> for POST eller <code>G</code> for GET. <code>PUT /api/v4/commands/{command_id}/regen_token</code> udsteder et nyt token.</p>
+
+<h2 id="request">Anmodningen, som din service modtager</h2>
+<p>En POST-kommando sender en form-encoderet body (<code>application/x-www-form-urlencoded</code>); en GET-kommando sender de samme felter i query-strengen. Tokenet findes også i <code>Authorization: Token &lt;token&gt;</code>-headeren.</p>
+<table>
+<thead><tr><th>Felt</th><th>Værdi</th></tr></thead>
+<tbody>
+<tr><td><code>token</code></td><td>Kommandons token. Tjek det ved hver anmodning.</td></tr>
+<tr><td><code>command</code></td><td>Triggeren med skråstreget, for eksempel <code>/weather</code>.</td></tr>
+<tr><td><code>text</code></td><td>Alt efter triggeren, for eksempel <code>Paris</code>.</td></tr>
+<tr><td><code>user_id</code>, <code>user_name</code></td><td>Hvem, der kørte den.</td></tr>
+<tr><td><code>channel_id</code>, <code>channel_name</code></td><td>Hvor, den blev kørt.</td></tr>
+<tr><td><code>team_id</code>, <code>team_domain</code></td><td>Fællesskabets ID og URL-navn.</td></tr>
+<tr><td><code>root_id</code></td><td>Tråden, hvis den blev kørt i en tråds svarboks.</td></tr>
+<tr><td><code>trigger_id</code></td><td>Gør det muligt for dit svar at åbne en dialog (se <a href="{{root}}docs/developers/bots.html#dialogs">Dialoger</a>). Det er kun gyldigt i en kort periode.</td></tr>
+<tr><td><code>response_url</code></td><td>En URL til at sende flere svar senere (se <a href="#delayed">Forzinkede svar</a>).</td></tr>
+<tr><td><code>user_mentions</code>, <code>user_mentions_ids</code>, <code>channel_mentions</code>, <code>channel_mentions_ids</code></td><td>De personer og offentlige kanaler, der er omtalt i teksten, hvis der er nogen.</td></tr>
+</tbody>
+</table>
+<div class="callout">Serverens <b>Site-URL</b> skal være indstillet, før brugerdefinerede kommandoer kan køres: Antimatter bygger <code>response_url</code> ud fra den.</div>
+
+<h2 id="response">Svaret</h2>
+<p>Svar med <code>200</code> og JSON (<code>Content-Type: application/json</code>):</p>
+<pre><code>{
+  "response_type": "in_channel",
+  "text": "Paris: 18 °C, light rain",
+  "attachments": []
+}</code></pre>
+<table>
+<thead><tr><th>Felt</th><th>Betydning</th></tr></thead>
+<tbody>
+<tr><td><code>response_type</code></td><td><code>ephemeral</code> (standard): kun den person, der kørte kommandoen, ser svaret, og det gemmes ikke efter en genindlæsning. <code>in_channel</code>: svaret sendes i kanalen.</td></tr>
+<tr><td><code>text</code>, <code>attachments</code></td><td>Beskeden, som for webhooks: Markdown-tekst og <a href="{{root}}docs/developers/webhooks.html#attachments">vedhæftninger</a>, herunder knapper og menuer.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code></td><td>Navnet og billedet, der skal vises, hvis overrides er tilladt. Kommandons egne indstillinger har forrang for disse.</td></tr>
+<tr><td><code>channel_id</code></td><td>Send svaret i en anden kanal, som personen skal være medlem af.</td></tr>
+<tr><td><code>goto_location</code></td><td>En URL, der åbnes, når kommandoen er kørt.</td></tr>
+<tr><td><code>props</code>, <code>type</code></td><td>Ekstra egenskaber og en tilpasset post-type, som for webhooks.</td></tr>
+<tr><td><code>extra_responses</code></td><td>Flere svar, hver med de samme felter, sendes efter det første.</td></tr>
+<tr><td><code>skip_slack_parsing</code></td><td><code>true</code> bevarer teksten, som den er, uden at konvertere Slack-stil links og omtaler.</td></tr>
+</tbody>
+</table>
+<p>Et svar, der ikke er JSON, vises som en ephemeral-besked med bodyen som tekst. <code>204 No Content</code> viser intet. Enhver status uden for 200–299 viser personen en fejl.</p>
+
+<h2 id="example">Eksempel-service</h2>
+<p>En minimal kommando-service i Python, kun med standardbiblioteket:</p>
+<pre><code>import hmac
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
+
+TOKEN = "the token shown when you saved the command"
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        form = {key: values[0] for key, values in parse_qs(body).items()}
+        if not hmac.compare_digest(form.get("token", ""), TOKEN):
+            self.send_response(401)
+            self.end_headers()
+            return
+        answer = {
+            "response_type": "ephemeral",
+            "text": f"Hello @{form['user_name']}, you asked for: {form.get('text', '')}",
+        }
+        data = json.dumps(answer).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(data)
+
+HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()</code></pre>
+<p>Hvis tjenesten kører på en privat netværksadresse, skal en systemadministrator tillade den i <b>Tillad upålidelige interne forbindelser til</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>).</p>
+
+<h2 id="delayed">Forzinkede svar</h2>
+<p>For arbejde, der tager længere tid end timeouten, svar straks (for eksempel med en ephemeral "Arbejder på det…"), og POST derefter det reelle svar til <code>response_url</code>. Det tager den samme JSON som svaret, og virker op til 5 gange inden for 30 minutter efter kommandoen.</p>
+<pre><code>curl -X POST "$RESPONSE_URL" -H 'Content-Type: application/json' \
+  -d '{"response_type": "in_channel", "text": "Report ready: https://reports.example.com/42"}'</code></pre>
+
+<h2 id="run">Kør en kommando med API'et</h2>
+<p>Skripter og bots kan køre enhver kommando, indbygget eller tilpasset, som om de havde tastet den:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/commands/execute \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "command": "/weather Paris"}'</code></pre>
+<p><code>GET /api/v4/teams/{team_id}/commands/autocomplete</code> viser en liste over de kommandoer, folk kan autoudfylde i en fællesskab.</p>
+
+<h2 id="autocomplete">Autoudfyldning</h2>
+<p>Kommandoer oprettet på integrationssiderne udfyldes automatisk med deres trigger, hint og beskrivelse. Kommandoer registreret af apps kan beskrive deres underkommandoer og argumenter i detaljer med <code>AutocompleteData</code>, fra <code>model.NewAutocompleteData(trigger, hint, helpText)</code>:</p>
+<ul>
+<li><code>AddCommand(sub)</code> tilføjer en underkommando, som selv er en <code>AutocompleteData</code>.</li>
+<li><code>AddTextArgument(helpText, hint, pattern)</code> tilføjer frit tekst.</li>
+<li><code>AddStaticListArgument(helpText, required, items)</code> tilbyder en fast liste af <code>AutocompleteListItem{Item, Hint, HelpText}</code>.</li>
+<li><code>AddDynamicListArgument(helpText, url, required)</code> beder din app om forslag, mens folk skriver. URL'en er en rute i din app, f.eks. <code>/plugins/com.example.weather/cities</code>. Den modtager brugeren, kanalen og fællesskabet, og returnerer en JSON-liste af <code>{"Item", "Hint", "HelpText"}</code>.</li>
+</ul>
+<p>De <code>Named…</code>-varianter (<code>AddNamedTextArgument</code> og andre) tilføjer <code>--name value</code>-flag. Begge webgrænseflader viser disse forslag.</p>

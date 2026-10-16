@@ -1,0 +1,77 @@
+title: Desenvolupament sobre Antimatter
+description: Una guia per a desenvolupadors que integren amb Antimatter o l'expandeixen: l'API REST, els webhooks, les comandes amb barra, els bots, les aplicacions (plugins), la compilació des del codi font i la contribució.
+guide: developers
+order: 1
+nav: Visió general
+lead: Aquesta guia és per a desenvolupadors. Aborda els scripts i els bots que utilitzen l'API, les integracions basades en webhooks i comandes amb barra, les aplicacions (plugins) que afegeixen funcions al servidor i a l'aplicació web, i la compilació d'Antimatter des del codi font per contribuir-hi.
+source: b60d529f2c61
+---
+<h2 id="ways">Formes d'expandir Antimatter</h2>
+<p>Trieu l'eina més lleugera que faci la feina. Les quatre primeres no requereixen accés al propi servidor; les aplicacions s'executen dins d'aquest.</p>
+<table>
+<thead><tr><th>Eina</th><th>Què fa</th><th>Bona per a</th></tr></thead>
+<tbody>
+<tr><td><a href="{{root}}docs/developers/api.html">API REST</a></td><td>Tot el que fan les aplicacions: missatges, canals, persones, fitxers, configuració. Un WebSocket envia esdeveniments a mesura que es produeixen.</td><td>Scripts, sincronització amb altres sistemes, clients personalitzats.</td></tr>
+<tr><td><a href="{{root}}docs/developers/webhooks.html">Webhooks entrants</a></td><td>Una URL secreta que publica un missatge en un canal quan alguna cosa li envia JSON.</td><td>Alertes, resultats de CI, supervisió, notificacions d'altres eines.</td></tr>
+<tr><td><a href="{{root}}docs/developers/webhooks.html#outgoing">Webhooks sortints</a></td><td>Antimatter crida la vostra URL quan un missatge en un canal públic comença amb una paraula de desencadenament, i publica la vostra resposta.</td><td>Automatitzacions senzilles basades en el xat.</td></tr>
+<tr><td><a href="{{root}}docs/developers/commands.html">Comandes amb barra</a></td><td>Les persones escriuen <code>/something</code>; Antimatter crida la vostra URL i mostra la vostra resposta a elles o al canal.</td><td>Consultes, accions iniciades des del xat.</td></tr>
+<tr><td><a href="{{root}}docs/developers/bots.html">Bots</a></td><td>Comptes creats per a programes, amb els seus propis tokens, una etiqueta <b>BOT</b>, i missatges i diàlegs interactius.</td><td>Assistents, notificadors, qualsevol cosa que parli amb les persones.</td></tr>
+<tr><td><a href="{{root}}docs/developers/apps.html">Aplicacions (plugins)</a></td><td>Codi que s'executa dins del servidor (Go) i a l'aplicació web (React): ganxos en cada missatge, nous menús, panells, tipus de missatge, pàgines.</td><td>Funcions: enquestes, notes, calendaris, integracions que necessiten la interfície d'usuari.</td></tr>
+</tbody>
+</table>
+<p>A la interfície, les persones anomenen els plugins «aplicacions». Aquesta guia diu «aplicacions (plugins)» quan ambdues paraules ajuden, perquè el codi, l'API i la configuració encara diuen «plugin».</p>
+
+<h2 id="compatibility">Compatibilitat amb Mattermost</h2>
+<p>Antimatter és un bifurcament de Mattermost. La majoria del que funciona amb un servidor de Mattermost funciona amb Antimatter.</p>
+<h3>Què és igual</h3>
+<ul>
+<li><b>L'API REST</b> sota <code>/api/v4</code>, la seva autenticació, el seu WebSocket i el seu format d'error. El servidor informa la versió <code>12.0.0</code>, de manera que els clients i les aplicacions que verifiquen la versió del servidor veuen un Mattermost recent.</li>
+<li><b>Webhooks i comandes amb barra</b>, inclosos els seus càrregues compatibles amb Slack.</li>
+<li><b>L'API i els hooks del servidor</b>: Antimatter no els ha canviat. El codi del servidor es compila contra el mateix mòdul Go, <code>github.com/mattermost/mattermost/server/public</code>.</li>
+<li><b>El registre de plugins de l'aplicació web</b>: tots els mètodes <code>register…</code> del registre de Mattermost existeixen en les dues interfícies web d'Antimatter.</li>
+<li><b>Biblioteques de client</b>: el client Go <code>model.Client4</code> i el client TypeScript <code>@mattermost/client</code> (vegeu <a href="{{root}}docs/developers/api.html#clients">Biblioteques de client</a>).</li>
+<li><b>Paquets de plugins</b>: un <code>.tar.gz</code> amb un manifest <code>plugin.json</code>. S'instal·len els plugins signats amb la clau de Mattermost, així com els signats amb la clau d'Antimatter.</li>
+</ul>
+<h3>Què és diferent</h3>
+<ul>
+<li><b>Dues interfícies web.</b> La nova interfície, Fusion, és la predeterminada; la interfície clàssica de Mattermost continua estant disponible. Fusion renderitza la majoria dels components dels plugins, però n'ubica alguns de manera diferent i n'omete uns quants. Una aplicació pot saber quina interfície s'està executant. Vegeu <a href="{{root}}docs/developers/apps.html#fusion">Compatibilitat amb la interfície Fusion</a>.</li>
+<li><b>API addicional.</b> Antimatter afegeix punts d'extrem per a les seves pròpies funcions: atributs de la comunitat, temporitzacions, missatges a la part superior, sol·licituds de missatges, substitucions de canals i categories, exportació de canals i nous camps a les comunitats. Vegeu <a href="{{root}}docs/developers/api.html#antimatter">Què afegeix Antimatter a l'API</a>.</li>
+<li><b>Funcions addicionals de missatges.</b> Els adjunts dels missatges poden mostrar etapes del flux de treball i un petit gràfic; les publicacions poden ser respostes en línia o spoilers.</li>
+<li><b>Hooks addicionals de l'aplicació web</b> per a les aplicacions: un element del menú «+» del compositor, pestanyes del selector d'emoji, un panell a la vista del canal, un peu sota els canals de la barra lateral i una entrada a les pàgines d'integracions. Vegeu <a href="{{root}}docs/developers/apps.html#antimatter-hooks">Hooks que només té Antimatter</a>.</li>
+<li><b>Sense llicències.</b> Totes les funcions estan disponibles sense clau de llicència. Els punts d'extrem de llicència, prova i actualització empresarial han desaparegut; <code>GET /api/v4/license/client</code> continua existint per als clients que ho sol·liciten. Algunes aplicacions creades per a les edicions de pagament de Mattermost verifiquen la llicència elles mateixes i es neguen a executar-se.</li>
+<li><b>Noms.</b> Els equips s'anomenen comunitats a la interfície, però l'API i el codi encara diuen <code>team</code>. Les variables d'entorn utilitzen el prefix <code>AM_</code>, l'eina de línia d'ordres és <code>amctl</code> i el binari del servidor és <code>antimatter</code>.</li>
+</ul>
+
+<h2 id="code">On es troba el codi</h2>
+<p>Tot és de codi obert, a l'organització <a href="https://github.com/AntimatterChat">AntimatterChat</a> de GitHub. Cada repositori funciona a la seva branca <code>main</code>.</p>
+<table>
+<thead><tr><th>Repositori</th><th>Contingut</th></tr></thead>
+<tbody>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter">antimatter</a></td><td>El servidor (en Go, a <code>server/</code>), les dues interfícies web (<code>webapp/fusion</code> i <code>webapp/channels</code>), el client en TypeScript i <code>amctl</code>.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a></td><td>Les imatges de Docker, amb les aplicacions integrades, i els fitxers compose.</td></tr>
+<tr><td><code>antimatter-plugin-*</code></td><td>Un repositori per a cada aplicació integrada: <a href="https://github.com/AntimatterChat/antimatter-plugin-polls">polls</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-todo">todo</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-notes">notes</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-whiteboard">whiteboard</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-calendar">calendar</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-mail">mail</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-gifs">gifs</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-memes">memes</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-voice-channels">voice-channels</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-calls">calls</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-boards">boards</a> (Kanban), <a href="https://github.com/AntimatterChat/antimatter-plugin-playbooks">playbooks</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-agents">agents</a> i <a href="https://github.com/AntimatterChat/antimatter-plugin-metrics">metrics</a>.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/gifs-server">gifs-server</a></td><td>El servei de GIF i adhesius autoallotjat que utilitza l'aplicació GIFs.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/desktop-app">desktop-app</a>, <a href="https://github.com/AntimatterChat/mobile-app">mobile-app</a>, <a href="https://github.com/AntimatterChat/push-proxy">push-proxy</a></td><td>Les aplicacions per a ordinador i mòbil, i el servei que reenvia les notificacions push als telèfons.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter.chat">antimatter.chat</a></td><td>Aquest lloc web i la seva documentació.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/community">community</a></td><td>Problemes i debats per a cada part d'Antimatter.</td></tr>
+</tbody>
+</table>
+
+<h2 id="first-steps">Abans de començar</h2>
+<ul>
+<li><b>Obtén un servidor de proves.</b> La manera més ràpida és utilitzar la imatge de Docker: consulta <a href="{{root}}docs/admins/install.html">Com instal·lar Antimatter</a>. Per treballar sobre el propi Antimatter, consulta <a href="{{root}}docs/developers/building.html">Com compilar-lo des del codi font</a>.</li>
+<li><b>Comprova què permet el servidor.</b> Diverses funcions d'integració estan desactivades per defecte i requereixen un administrador del sistema: tokens d'accés personals, comptes de bot, substitucions de nom d'usuari i icona, i la pujada d'aplicacions. Cada pàgina indica quina configuració necessita.</li>
+<li><b>Conèix l'URL del teu lloc web.</b> Els exemples utilitzen <code>https://chat.example.com</code>. Substitueix-la per l'adreça del teu servidor.</li>
+</ul>
+
+<h2 id="in-this-guide">En aquesta guia</h2>
+<ul>
+<li><a href="{{root}}docs/developers/api.html">L'API REST</a>: autenticació, recursos principals, paginació, errors, límits de taxa, el WebSocket, les biblioteques de client i les afegides d'Antimatter.</li>
+<li><a href="{{root}}docs/developers/webhooks.html">Webhooks</a>: webhooks entrants i sortints, càrregues, adjunts i targetes.</li>
+<li><a href="{{root}}docs/developers/commands.html">Comandes amb barra</a>: comandes personalitzades, la seva sol·licitud i resposta, i l'autocompleció.</li>
+<li><a href="{{root}}docs/developers/bots.html">Bots i missatges interactius</a>: comptes de bot, botons, menús i diàlegs.</li>
+<li><a href="{{root}}docs/developers/apps.html">Escriure aplicacions</a>: l'estructura del connector, els ganchos del servidor, el registre de l'aplicació web, Fusion, la configuració, l'emmagatzematge, les traduccions i l'empaquetat.</li>
+<li><a href="{{root}}docs/developers/building.html">Compilació des del codi font</a>: el servidor, les interfícies web, la imatge de Docker i les aplicacions.</li>
+<li><a href="{{root}}docs/developers/contributing.html">Contribucions</a>: problemes, sol·licituds de canvi, estil, traduccions, seguretat i llicències.</li>
+</ul>
+<div class="callout">Les preguntes són benvingudes a les <a href="https://github.com/AntimatterChat/community/discussions">discussions de la comunitat</a>. Informa dels errors a les <a href="https://github.com/AntimatterChat/community/issues">incidències de la comunitat</a>.</div>

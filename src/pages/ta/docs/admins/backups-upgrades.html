@@ -1,0 +1,105 @@
+title: பகிர்ப்புகளும் மேம்பாடுகளும்
+description: Antimatter சர்வரின் (தரவுத்தளம், கோப்பு சேமிப்பு, அமைப்புகள்) பகிர்ப்பை எடுக்கவும், மீட்டெடுக்கவும், பாதுகாப்பாக மேம்படுத்தவும், Mattermost சர்வரை Antimatter-க்கு நகர்த்தவும், தரவை ஏற்றுமதி அல்லது இறக்குமதி செய்யவும்.
+guide: admins
+order: 10
+nav: பகிர்ப்புகளும் மேம்பாடுகளும்
+lead: எதை பகிர்ப்பாக எடுக்க வேண்டும், புதிய ஹோஸ்ட்டில் அதை எப்படி மீட்டெடுக்க வேண்டும், எப்படி மேம்படுத்த வேண்டும், மற்றும் Mattermost சர்வரை அல்லது ஒரு தனி சமூகத்தை Antimatter-க்கு எப்படி நகர்த்த வேண்டும்.
+source: b0797af8b6e7
+---
+<h2 id="what">எதை பகிர்ப்பாக எடுக்க வேண்டும்</h2>
+<table>
+<thead><tr><th>எது</th><th>இதழின் compose கோப்புடன்</th><th>ஒரு வெளியீட்டு ஆர்கைவ் (release archive) உடன்</th></tr></thead>
+<tbody>
+<tr><td>தரவுத்தளம்: செய்திகள், பயனர்கள், சமூகங்கள், சேனல்கள் மற்றும் இதழின் compose கோப்புடன் அமைப்புகள்</td><td><code>antimatter_postgres</code> வாலியூம், <code>pg_dump</code> மூலம்</td><td>உங்கள் PostgreSQL தரவுத்தளம்</td></tr>
+<tr><td>பதிவேற்றப்பட்ட கோப்புகள், படங்கள், மற்றும் நிறுவப்பட்ட செயலிகள்</td><td><code>antimatter_files</code> வாலியூம் (S3 சேமிப்பு)</td><td><code>FileSettings.Directory</code>, இயல்பாக <code>./data/</code></td></tr>
+<tr><td>அமைப்பு கோப்பு</td><td>(தரவுத்தளத்தில்)</td><td><code>config/config.json</code></td></tr>
+<tr><td>GIF-கள் மற்றும் ஸ்டிக்கர்கள்</td><td><code>antimatter_gifs</code> வாலியூம்</td><td>GIF சேவையின் தரவு அடைவு</td></tr>
+<tr><td>ரகசியங்கள்</td><td><code>.env</code> (மற்றும் <code>compose.override.yaml</code>)</td><td>உங்கள் சூழல் கோப்பு (environment file)</td></tr>
+</tbody>
+</table>
+<p>தரவுத்தளமும் கோப்புகளும் ஒன்றாக இருக்க வேண்டும்: அவற்றை ஒரே நேரத்தில் பகிர்ப்பாக எடுக்கவும், மற்றும் நகல்களை சர்வரில் இருந்து தனித்து வைக்கவும். வாலியூம் பெயர்கள் compose திட்டத்தின் பெயரில் தொடங்குகின்றன, <code>antimatter</code> (<code>docker volume ls</code> அவற்றை பட்டியலிடுகிறது).</p>
+
+<h2 id="backup">பகிர்ப்பு</h2>
+<p><code>compose.yaml</code> அடைவிலிருந்து. முதலில் Antimatter-ஐ நிறுத்துவது முழுமையான ஒழுங்குபட்ட நகலை வழங்குகிறது; இயங்கும்போது எடுக்கப்பட்ட பகிர்ப்பு பொதுவாக நல்லது, ஆனால் பகிர்ப்பு எடுக்கும் போது பதிவேற்றப்பட்ட கோப்புகள் அதில் இல்லாமல் போகலாம்.</p>
+<pre><code>stamp=$(date +%Y%m%d-%H%M%S)
+mkdir -p backups
+docker compose stop antimatter
+# Database
+docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
+    &gt; "backups/antimatter-db-$stamp.dump"
+# File storage and GIF service
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
+        alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
+done
+docker compose start antimatter
+# Secrets
+cp .env "backups/env-$stamp"</code></pre>
+<p>தினசரி பகிர்ப்புகளுக்கு cron மூலம் இயக்கவும், மற்றும் <code>backups/</code> அடைவை மற்றொரு இயந்திரத்திற்கு நகலெடுக்கவும். <code>.env</code> நகல்களை சர்வரின் பாதுகாப்புக்கு சமமாக பாதுகாக்கவும்: அவற்றில் அதன் கடவுச்சொற்கள் உள்ளன.</p>
+<p>பதிவேற்றப்பட்ட கோப்புகளை பொருள்-அடிப்படையில் நகலெடுக்க (எடுத்துக்காட்டாக, மற்றொரு S3 சேமிப்புக்கு), <code>bucket</code> சேவையின் AWS கட்டளை-வரி கருவியை (command-line tool) பயன்படுத்தவும்:</p>
+<pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
+    "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
+<p>ஒரு வெளியீட்டு ஆர்கைவ் (release archive) உடன், தரவுத்தளத்தை <code>pg_dump -Fc</code> மூலம், மற்றும் <code>data/</code> மற்றும் <code>config/</code> அடைவுகளை உங்கள் வழக்கமான கருவிகள் மூலம் பகிர்ப்பாக எடுக்கவும்.</p>
+
+<h2 id="restore">புதிய ஹோஸ்ட்டில் மீட்டெடுக்க</h2>
+<p><code>compose.yaml</code>, சேமிக்கப்பட்ட <code>.env</code> மற்றும் பகிர்ப்புகளை ஒரு புதிய அடைவில் வைக்கவும், பின்னர்:</p>
+<pre><code>stamp=20261016-030000          # the backup to restore
+docker compose create           # creates the volumes, starts nothing
+docker compose up -d postgres
+docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
+    &lt; "backups/antimatter-db-$stamp.dump"
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
+        alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
+done
+docker compose up -d</code></pre>
+<p>அதே <code>.env</code>-ஐ பயன்படுத்தவும்: சேமிப்பும் தரவுத்தளமும் அவற்றின் கடவுச்சொற்களை வைத்திருக்க வேண்டும். புதிய ஹோஸ்ட்டில் வேறு முகவரி இருந்தால், <code>SITE_URL</code>-ஐ (மற்றும் <code>DOMAIN</code>-ஐ) புதுப்பிக்கவும்.</p>
+<p>காலம் காலமாக மற்றொரு இயந்திரத்தில் மீட்டெடுத்து உங்கள் பகிர்ப்புகளை சோதிக்கவும்.</p>
+
+<h2 id="upgrade">மேம்படுத்து</h2>
+<ol>
+<li>ஒரு பகிர்ப்பை எடுக்கவும்.</li>
+<li>பரிந்துரைப்படி, நீங்கள் ஒரு குறிப்பிட்ட பதிப்பை (pin) பயன்படுத்தினால், <code>.env</code>-ல் (அதாவது <code>ANTIMATTER_IMAGE</code>) இமேஜ் டேக்-ஐ (image tag) மாற்றவும்.</li>
+<li>இழுத்து மீண்டும் இயக்கவும் (pull and restart):
+<pre><code>docker compose pull
+docker compose up -d
+docker compose logs -f antimatter</code></pre></li>
+</ol>
+<p>தொடங்கும்போது, சர்வர் தரவுத்தளத்தின் ஸ்கீமாவை மேம்படுத்துகிறது (இதைப் பதிவுப் பதிவில் கவனிக்கவும்; பெரிய சர்வரில் இது சில நிமிடங்கள் எடுக்கலாம்) மற்றும் இமேஜில் உள்ள பட்டியில் சேர்க்கப்பட்ட செயல்களின் புதிய பதிப்புகளை நிறுவுகிறது. ரிலீஸ் ஆர்கைவ் மூலம்: சர்வரை நிறுத்துங்கள், <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> மற்றும் <code>client/plugins/</code> தவிர மற்ற அனைத்தையும் புதிய ஆர்கைவின் உள்ளடக்கத்தால் மாற்றியமைத்து, மீண்டும் இயக்கவும்.</p>
+<div class="callout warn">மேம்படுத்தல்கள் முன்னோக்கி மட்டுமே நடைபெறுகின்றன. புதிய சர்வர் தரவுத்தளத்தை மேம்படுத்திய பிறகு, பழைய பதிப்பு அதைப் பயன்படுத்த முடியாது: பின்செல்ல, மேம்படுத்தல் முன் எடுக்கப்பட்ட காப்பிதை மீட்டெடுக்கவும். <code>antimatter-next</code> இலிருந்து <code>antimatter</code> இல் பின்செல்லும்போதும் இதே விதி பொருந்தும்.</div>
+<h3>பதிப்புகள்</h3>
+<p>Antimatter சர்வர், அது அடிப்படையாகக் கொண்ட Mattermost வரிசையின் பதிப்பை (தற்போது 12.0.0) அறிவிக்கிறது. இமேஜ்கள் <code>main</code> கிளைகளிலிருந்து மீண்டும் உருவாக்கப்படுகின்றன: <code>antimatter-next</code> ஒவ்வொரு இரவும் (குறிகள் <code>nightly-&lt;YYYYMMDD&gt;</code>), மற்றும் இரு இமேஜ்களும் ஒவ்வொரு மாற்றத்திலும் (குறிகள் <code>sha-&lt;commit&gt;</code>). இந்த குறிகளில் ஒன்றை நிலைப்படுத்தவும், உள்நோக்கமாக மேம்படுத்தவும், எந்த காப்பி எந்த பதிப்புடன் தொடர்புடையது என்பதை அறிய முன் குறியை குறிப்பிடுங்கள்.</p>
+<h3>PostgreSQL முக்கிய பதிப்புகள்</h3>
+<p>கம்போஸ் கோப்பு <code>postgres:17-alpine</code> ஐப் பயன்படுத்துகிறது. Antimatter-க்கு PostgreSQL 15 அல்லது அதற்குப் புதியது தேவை. PostgreSQL-இன் புதிய முக்கிய பதிப்பு முந்தைய பதிப்பின் தரவு அடைவுகளைப் படிக்க முடியாது: புதிய பதிப்பிற்கு மாற, தரவுத்தளத்தை டம்ப் செய்யவும், புதிய வால்யூமில் புதிய பதிப்பை இயக்கவும், டம்ப்பை அதில் மீட்டெடுக்கவும்.</p>
+
+<h2 id="mattermost">Mattermost இலிருந்து மாற்றம்</h2>
+<p>Antimatter, Mattermost-இன் தரவுத்தள ஸ்கீமாவைப் பயன்படுத்தி தனது சொந்த அட்டவணைகளைச் சேர்க்கிறது, எனவே Mattermost சர்வரின் PostgreSQL தரவுத்தளத்தையும் கோப்புகளையும் எடுத்துக்கொள்ள முடியும். முதலில் ஒரு நகலில் முயற்சிக்கவும்:</p>
+<ol>
+<li>Mattermost தரவுத்தளத்தை, அதன் கோப்பு சேமிப்பை (<code>data/</code> அல்லது S3 பக்கெட்) மற்றும் <code>config.json</code> ஐ காப்பி எடுத்து, Mattermost-ஐ நிறுத்துங்கள்.</li>
+<li>தரவுத்தளத்தை Antimatter-இன் PostgreSQL-இல் மீட்டெடுக்கவும், அல்லது Antimatter-ஐ அதன் நகலுக்கு இணைக்கவும் (<code>AM_SQLSETTINGS_DATASOURCE</code>).</li>
+<li>கோப்புகளை Antimatter-இன் சேமிப்பில் நகலெடுக்கவும், அவற்றின் பாதைகளைப் பாதுகாத்து: S3 கருவியால் <code>antimatter</code> பக்கெட்டில், அல்லது ரிலீஸ் ஆர்கைவ் மூலம் <code>data/</code> இல்.</li>
+<li>உங்கள் அமைப்புகளை மீண்டும் பயன்படுத்தவும்: <code>config.json</code> ஐ நகலெடுக்கவும், அல்லது <code>amctl --local config migrate</code> மூலம் அதை தரவுத்தளத்திற்கு நகர்த்தவும் (<a href="{{root}}docs/admins/configuration.html">அமைப்புகள்</a> ஐப் பார்க்கவும்). உங்கள் <code>MM_</code> சூழல் மாறிகள் தொடர்ந்து வேலை செய்யும்; வசதியாக இருந்தால் அவற்றை <code>AM_</code> என மறுபெயரிடவும்.</li>
+<li>Antimatter-ஐ இயக்கி, தரவுத்தளம் மேம்படுத்தப்படும்போது பதிவுப் பதிவுகளை (logs) கவனிக்கவும். பின்னர் <b>அமைப்பு கன்சோல் › பிளகின்கள் › பிளகின் மேலாண்மை</b> பகுதியைச் சரிபார்க்கவும். Antimatter, நிறுவப்பட்ட பதிப்பை விட புதியதாக இருந்தால், Calls, Playbooks, Kanban (Boards), Agents மற்றும் ஒருங்கிணைப்புகளின் தனிப்பயன் பதிப்புகளை நிறுவும். Mattermost-இல் அவற்றில் ஒன்றின் புதிய பதிப்பு இருந்தால், அந்த செயலியை அகற்றி Antimatter-ஐ மீண்டும் இயக்கவும், இதனால் Antimatter-இன் தனிப்பயன் பதிப்பு நிறுவப்படும்.</li>
+<li>உங்கள் சொந்த push proxy-யைப் பயன்படுத்தி push notifications-ஐ மீண்டும் அமைக்கவும். Antimatter, Mattermost-இன் push சேவைகளுக்கு (test அல்லது hosted) எந்த அறிவிப்புகளையும் அனுப்பாது; அவை Mattermost-இன் சொந்த செயலிகளுக்கு மட்டுமே அறிவிப்புகளை வழங்கும். <b>Push Notification Server</b> அமைப்பை மாற்றும் வரை, சேவையகம் push notifications-ஐ அனுப்பாது (மேலும் <a href="{{root}}docs/admins/email-push.html#push">Push notifications</a> பகுதியைப் பார்க்கவும்).</li>
+</ol>
+<p>Mattermost, Inc. இயக்கும் எந்த சேவையுடனும் Antimatter தொடர்பு கொள்ளாது (மேலும் பார்க்க <a href="{{root}}docs/admins/security.html#outbound">Connections to outside services</a>), உங்கள் அமைப்பில் அவற்றின் பெயர் இருந்தாலும் கூட:</p>
+<ul>
+<li>Mattermost-இல் உள்ள push notification server அமைப்புகளில் வைக்கப்பட்டுள்ளது, ஆனால் பயன்படுத்தப்படுவதில்லை;</li>
+<li>Mattermost-இன் செயலி மார்கெட்‌பிளேஸுக்கான (<b>Marketplace URL</b>) மற்றும் விளைவு அறிவிப்புகளுக்கான முகவரிகள் காலியாக்கப்படும்;</li>
+<li>Calls செயலி, Mattermost-இன் STUN சேவையின் பதிலாக Cloudflare-இன் பொது STUN சேவையைப் பயன்படுத்துகிறது, சேமிக்கப்பட்ட அமைப்பை மாற்றாமல் (மேலும் பார்க்க <a href="{{root}}docs/admins/calls.html#network">Calls</a>);</li>
+<li>பாதுகாப்பு புதுப்பிப்பு சோதனை மற்றும் கிராஷ் அறிக்கைகள் நீக்கப்படும்; அவற்றின் <b>Enable Security Alerts</b>, <b>Enable Diagnostics and Error Reporting</b> அமைப்புகள் மற்றும் <b>Notices</b> பக்கம் அமைப்பு கன்சோலில் இருந்து அகற்றப்படும்.</li>
+</ul>
+<p>உள்ளூர் முறை (local mode) socket இப்போது <code>/var/tmp/antimatter_local.socket</code> ஆகும்; <code>amctl</code> பழைய <code>/var/tmp/mattermost_local.socket</code>-ஐயும் முயற்சிக்கிறது. Mattermost தனது சமீபத்திய பதிப்புகளில் PostgreSQL-ஐ மட்டுமே ஆதரிக்கிறது, Antimatter-யும் அதேபோல்: MySQL தரவுத்தளத்தை முதலில் PostgreSQL-க்கு மாற்றவும். Antimatter தரவுத்தளத்தை மேம்படுத்திய பிறகு Mattermost-க்கு திரும்புவது என்பது உங்கள் Mattermost காப்பி (backup)-யை மீட்டெடுப்பதாகும்.</p>
+
+<h2 id="export-import">தரவை ஏற்றுமதி மற்றும் இறக்குமதி செய்தல்</h2>
+<p>பெருந்தரவு ஏற்றுமதி வடிவம் (bulk export format) சர்வர்களுக்கு இடையே தரவை நகர்த்துகிறது: முழு சர்வரும், சில சமூகங்களும், சில சேனல்களும், நீங்கள் விரும்பினால் இணைப்புகள் (attachments), சுயவிவரப் படங்கள் (profile pictures) மற்றும் தனிப்பயன் எமோஜி (custom emoji) உடன்.</p>
+<pre><code># on the source server
+amctl export create --team-name design --include-profile-pictures
+amctl export list
+amctl export download &lt;export file&gt; design.zip
+# on the destination server
+amctl import upload design.zip
+amctl import list available
+amctl import process &lt;uploaded file&gt; --imported-users active</code></pre>
+<p><code>amctl export job list</code> மற்றும் <code>amctl import job list</code> ஆகியவற்றைப் பயன்படுத்தி வேலைகளைக் கண்காணிக்கவும். சமூகம் அல்லது சேனல்களின் ஏற்றுமதிக்கு <code>--imported-users</code> அவசியம்: மக்கள் இந்த சர்வருக்கு மாறுகிறபோது <code>active</code>, ஏற்கனவே கணக்குகள் உள்ள சர்வருக்கு இறக்குமதி செய்யும்போது <code>inactive</code>. இது நிச்சயமற்ற பொருத்தங்களிலிருந்து உருவாக்கப்பட்ட கணக்குகள் நிர்வாகி சரிபார்க்கும் வரை செயலிழக்க வைக்கப்படும். <code>--destination-team-name</code> மூலம் ஏற்கனவே உள்ள சமூகத்திற்கு இறக்குமதி செய்யலாம். ஏற்றுமதி மற்றும் இறக்குமதி கோப்புகள் சர்வரின் சேமிப்பில் (<code>ExportSettings.Directory</code>, <code>ImportSettings.Directory</code>) இயல்பாக 30 நாட்கள் வைக்கப்படுகின்றன.</p>
+<p>சர்வரில் நேரடியாக, <code>antimatter export bulk</code> மற்றும் <code>antimatter import bulk --apply</code> ஆகியவை API இல்லாமல் கோப்புகளிலிருந்து அதே செயலைச் செய்கின்றன.</p>

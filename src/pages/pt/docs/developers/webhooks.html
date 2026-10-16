@@ -1,0 +1,170 @@
+title: Webhooks
+description: Webhooks de entrada e de saída do Antimatter: como os criar, os respetivos payloads e respostas, anexos de mensagens e cartões, substituição do nome e do ícone, com exemplos.
+guide: developers
+order: 3
+nav: Webhooks
+lead: Um webhook de entrada permite que outro sistema publique num canal, enviando JSON para uma URL secreta. Um webhook de saída faz o oposto: envia as mensagens que começam com uma palavra de gatilho para a sua URL e publica aquilo que responder.
+source: ecd698619944
+---
+<h2 id="where">Onde gerir webhooks</h2>
+<p>Abra o seu avatar no canto superior direito e, em seguida, <b>Integrações</b>. As páginas de integrações da comunidade atual listam <b>Webhooks de entrada</b> e <b>Webhooks de saída</b>. Cada webhook pertence a uma única comunidade.</p>
+<p>Por omissão, os administradores da comunidade e os administradores do sistema podem criar webhooks. Um administrador do sistema pode conceder esse direito a outros papéis nas definições de permissões do Consola do sistema. Um administrador do sistema também pode desativar cada tipo em <b>Consola do sistema › Integrações › Gestão de integrações</b>: <b>Ativar webhooks de entrada</b> e <b>Ativar webhooks de saída</b> estão ambos ativados por omissão.</p>
+<figure><img src="{{root}}assets/img/shots/integrations.webp" alt="A channel with messages from a CI bot and from GitHub, shown as cards with fields, pipeline stages and a button"><figcaption>Mensagens de integração desenhadas como cartões: campos, etapas do pipeline e um botão de ação.</figcaption></figure>
+
+<h2 id="incoming">Criar um webhook de entrada</h2>
+<ol>
+<li>Em <b>Integrações</b>, escolha <b>Webhooks de entrada</b> e, em seguida, <b>Adicionar webhook de entrada</b>.</li>
+<li>Preencha um <b>Título</b> e uma <b>Descrição</b>: estes apenas aparecem nas páginas de integrações.</li>
+<li>Escolha o <b>Canal</b> para onde as mensagens são enviadas por omissão. Para um canal privado, tem de ser membro dele.</li>
+<li>Ative <b>Fixar a este canal</b> se os remetentes não puderem publicar noutros canais.</li>
+<li>Defina, opcionalmente, um <b>Nome de utilizador</b> e uma URL de <b>Imagem do perfil</b> para as suas mensagens (ver <a href="#identity">Nome e ícone</a>).</li>
+<li>Escolha <b>Guardar</b>. Copie a URL apresentada: <code>https://chat.example.com/hooks/&lt;key&gt;</code>.</li>
+</ol>
+<div class="callout warn">A URL é o único segredo: qualquer pessoa que a tenha pode publicar no canal. Mantenha-a fora de repositórios públicos e elimine o webhook se for exposta.</div>
+<p>Com a API: <code>POST /api/v4/hooks/incoming</code> com <code>{"channel_id", "display_name", "description", "username", "icon_url", "channel_locked"}</code>; o <code>id</code> da resposta é a chave. A partir da linha de comandos: <code>amctl webhook create-incoming --channel &lt;channel id&gt; --user &lt;user&gt; --display-name "CI"</code>.</p>
+
+<h2 id="incoming-send">Enviar uma mensagem para um webhook de entrada</h2>
+<pre><code>curl -X POST https://chat.example.com/hooks/xgh5ycrx1jf7mbs9w8z4c8e7ho \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Deploy of **api 2.4.0** finished :white_check_mark:"}'</code></pre>
+<p>O servidor responde com <code>200</code> e o corpo <code>ok</code>. Também aceita <code>application/x-www-form-urlencoded</code> com o JSON num campo <code>payload</code>, tal como os webhooks do Slack, pelo que as ferramentas feitas para o Slack geralmente funcionam sem alterações.</p>
+<table>
+<thead><tr><th>Campo</th><th>Significado</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>A mensagem, em Markdown. Obrigatório, a menos que existam <code>attachments</code>. Um texto mais longo que o limite de mensagem do servidor é dividido em várias mensagens.</td></tr>
+<tr><td><code>channel</code></td><td>Outro canal da comunidade do webhook, pelo nome (<code>ops-alerts</code> ou <code>#ops-alerts</code>), ou <code>@username</code> para uma mensagem direta do proprietário do webhook. Recusado quando o webhook está bloqueado no seu canal.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code>, <code>icon_emoji</code></td><td>O nome e a imagem a mostrar, quando o servidor permite substituições.</td></tr>
+<tr><td><code>attachments</code></td><td>Anexos da mensagem, apresentados como cartões (abaixo).</td></tr>
+<tr><td><code>props</code></td><td>Propriedades adicionais guardadas na mensagem, para aplicações que as leem.</td></tr>
+<tr><td><code>type</code></td><td>Um tipo de mensagem personalizado, como <code>custom_poll</code>, para uma aplicação que o apresenta. Os tipos que começam com <code>system_</code> são recusados.</td></tr>
+<tr><td><code>root_id</code></td><td>O ID da primeira mensagem de um tópico, para responder nesse tópico.</td></tr>
+<tr><td><code>priority</code></td><td>Prioridade da mensagem, por exemplo <code>{"priority": "urgent"}</code>.</td></tr>
+<tr><td><code>silent</code></td><td><code>true</code> envia a mensagem sem notificações push.</td></tr>
+</tbody>
+</table>
+<p>As mensagens apresentadas com um nome substituído têm uma etiqueta <b>BOT</b> ao lado, para que as pessoas as possam distinguir de contas reais. As mensagens de webhook nunca ativam webhooks de saída.</p>
+
+<h2 id="identity">Nome e ícone</h2>
+<p>Um webhook publica como a pessoa que o criou, a menos que o servidor permita substituições. Duas definições em <b>Consola do sistema › Integrações › Gestão de integrações</b>, ambas desativadas por predefinição, alteram isso:</p>
+<ul>
+<li><b>Ativar integrações para substituir nomes de utilizador</b> (<code>ServiceSettings.EnablePostUsernameOverride</code>): o <b>Nome de utilizador</b> do webhook ou o <code>username</code> da solicitação são apresentados; na ausência de ambos, o nome é <code>webhook</code>.</li>
+<li><b>Permitir que as integrações substituam os ícones das fotos de perfil</b> (<code>ServiceSettings.EnablePostIconOverride</code>): a <b>Imagem do perfil</b> do webhook, ou o <code>icon_url</code> ou <code>icon_emoji</code> da solicitação, são apresentados.</li>
+</ul>
+<p>Um valor na solicitação tem prioridade sobre o guardado no webhook.</p>
+
+<h2 id="attachments">Anexos</h2>
+<p>Os anexos adicionam conteúdo estruturado abaixo do texto. Seguem o formato de anexos de mensagem do Slack:</p>
+<pre><code>{
+  "text": "Build failed on `main`",
+  "attachments": [{
+    "fallback": "main #1902 failed",
+    "color": "#d24b4e",
+    "author_name": "GitHub Actions",
+    "author_icon": "https://chat.example.com/static/ci.png",
+    "title": "main #1902 failed",
+    "title_link": "https://ci.example.com/runs/1902",
+    "text": "Commit `0f4d8e2` by Jonas Weber",
+    "fields": [
+      {"title": "Branch", "value": "zephyr-3.7", "short": true},
+      {"title": "Duration", "value": "3m 40s", "short": true}
+    ],
+    "footer": "Lumen CI",
+    "ts": 1760000000
+  }]
+}</code></pre>
+<table>
+<thead><tr><th>Campo</th><th>Significado</th></tr></thead>
+<tbody>
+<tr><td><code>fallback</code></td><td>Texto simples para locais que não podem mostrar o cartão, como notificações.</td></tr>
+<tr><td><code>color</code></td><td>A barra de cor: uma cor em hexadecimal, ou <code>good</code>, <code>warning</code>, <code>danger</code>.</td></tr>
+<tr><td><code>pretext</code></td><td>Texto acima do cartão.</td></tr>
+<tr><td><code>author_name</code>, <code>author_link</code>, <code>author_icon</code></td><td>Uma linha de cabeçalho pequena.</td></tr>
+<tr><td><code>title</code>, <code>title_link</code></td><td>O título do cartão, opcionalmente um link.</td></tr>
+<tr><td><code>text</code></td><td>O corpo do cartão, em Markdown.</td></tr>
+<tr><td><code>fields</code></td><td>Uma lista de <code>{"title", "value", "short"}</code>; os campos <code>short</code> ficam lado a lado.</td></tr>
+<tr><td><code>image_url</code>, <code>thumb_url</code></td><td>Uma imagem grande abaixo, ou uma pequena ao lado.</td></tr>
+<tr><td><code>footer</code>, <code>footer_icon</code>, <code>ts</code></td><td>Uma linha de rodapé e um tempo (segundos Unix).</td></tr>
+<tr><td><code>actions</code></td><td>Botões e menus: ver <a href="{{root}}docs/developers/bots.html#interactive">Mensagens interativas</a>.</td></tr>
+</tbody>
+</table>
+
+<h2 id="cards">Cartões: etapas e gráficos</h2>
+<p>O Antimatter adiciona dois campos aos anexos, desenhados pela interface predefinida:</p>
+<ul>
+<li><code>stages</code>: as etapas de um pipeline, apresentadas como pílulas, até 20. Cada uma é <code>{"name", "status"}</code>, com um estado de <code>passed</code>, <code>failed</code>, <code>running</code>, <code>pending</code>, <code>skipped</code> ou <code>canceled</code>.</li>
+<li><code>chart</code>: um pequeno gráfico de linha com os valores mais recentes, <code>{"values": [2 to 200 numbers], "threshold": number, "label": "…"}</code>. O limite é representado por uma linha tracejada, que corresponde ao limite de alerta.</li>
+</ul>
+<pre><code>{
+  "attachments": [{
+    "color": "danger",
+    "title": "main #1902 failed",
+    "stages": [
+      {"name": "build", "status": "failed"},
+      {"name": "unit", "status": "skipped"},
+      {"name": "publish", "status": "skipped"}
+    ]
+  }, {
+    "color": "warning",
+    "title": "API latency above 400 ms",
+    "chart": {"values": [210, 230, 260, 390, 450, 470], "threshold": 400, "label": "p95 latency, ms"}
+  }]
+}</code></pre>
+<p>A interface clássica e outros clientes ignoram estes dois campos, por isso coloque também o essencial em <code>text</code> ou <code>fields</code>.</p>
+
+<h2 id="outgoing">Criar um webhook de saída</h2>
+<p>Um webhook de saída vigia os canais <b>públicos</b> de uma comunidade. Quando a primeira palavra de uma mensagem corresponde a uma das suas palavras de gatilho, o Antimatter envia a mensagem para o seu URL.</p>
+<ol>
+<li>Em <b>Integrações</b>, escolha <b>Webhooks de saída</b> e, em seguida, <b>Adicionar webhook de saída</b>.</li>
+<li>Preencha o <b>Título</b> e a <b>Descrição</b>.</li>
+<li>Escolha o <b>Tipo de conteúdo</b> da solicitação: <code>application/x-www-form-urlencoded</code> ou <code>application/json</code>.</li>
+<li>Escolha um <b>Canal</b>, insira <b>Palavras de gatilho (uma por linha)</b> ou ambos. Com um canal e sem palavras de gatilho, todas as mensagens desse canal são enviadas. Com ambos, a mensagem tem de corresponder a ambos.</li>
+<li>Em <b>Gatilhar quando</b>, escolha <b>A primeira palavra corresponde exatamente a uma palavra de ativação</b> ou <b>A primeira palavra começa com uma palavra de ativação</b>.</li>
+<li>Insira as <b>URLs de callback (uma por linha)</b>. Cada URL recebe todas as mensagens correspondentes.</li>
+<li>Defina, opcionalmente, o <b>Nome de utilizador</b> e a <b>Imagem do perfil</b> usados para as respostas.</li>
+<li>Escolha <b>Guardar</b> e copie o token apresentado. O seu serviço usa-o para verificar que as solicitações provêm do seu servidor.</li>
+</ol>
+<p>Com a API: <code>POST /api/v4/hooks/outgoing</code> com <code>{"team_id", "channel_id", "trigger_words", "trigger_when", "callback_urls", "content_type", "display_name"}</code> (<code>trigger_when</code>: 0 para uma correspondência exata, 1 para "starts with").</p>
+<div class="callout">Se o seu serviço estiver numa rede privada, um administrador do sistema tem de permitir o seu endereço em <b>Permitir ligações internas não fiáveis a</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>). O servidor não chama endereços privados caso contrário.</div>
+
+<h2 id="outgoing-request">O pedido de saída</h2>
+<p>O Antimatter envia um POST com estes campos, como JSON ou codificado em formulário, consoante o tipo de conteúdo:</p>
+<pre><code>{
+  "token": "6kd1ofo5ojr5zgu5ipfipybgnc",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "channel_id": "…",
+  "channel_name": "ops-alerts",
+  "timestamp": 1760010000000,
+  "user_id": "…",
+  "user_name": "priya",
+  "post_id": "…",
+  "text": "deploy api 2.4.0",
+  "trigger_word": "deploy",
+  "file_ids": ""
+}</code></pre>
+<p>Compare <code>token</code> com o token do webhook antes de fazer qualquer coisa. Na versão codificada em formulário, <code>timestamp</code> está em segundos, não em milissegundos. O servidor aguarda a sua resposta pelo tempo que <b>Tempo limite de pedido de integração</b> permitir (30 segundos por omissão, <code>ServiceSettings.OutgoingIntegrationRequestsTimeout</code>).</p>
+
+<h2 id="outgoing-response">Responder a um webhook de saída</h2>
+<p>Para publicar uma resposta, responda com JSON. Para não publicar nada, responda com um corpo vazio.</p>
+<pre><code>{
+  "text": "Deploying **api 2.4.0** to staging…",
+  "response_type": "comment",
+  "username": "deploy-bot",
+  "icon_url": "https://chat.example.com/static/deploy.png"
+}</code></pre>
+<ul>
+<li><code>text</code> e <code>attachments</code>: a resposta. Sem nenhum dos dois, nada é publicado.</li>
+<li><code>response_type</code>: <code>comment</code> publica a resposta no tópico da mensagem que a desencadeou; caso contrário, vai para o canal.</li>
+<li><code>username</code>, <code>icon_url</code>: mostrados quando o servidor permite substituições; caso contrário, são usados os próprios valores do webhook.</li>
+<li><code>props</code>, <code>type</code>, <code>priority</code>: como nos webhooks de entrada.</li>
+</ul>
+<p>A resposta é publicada como o criador do webhook, com o nome substituído, quando houver. Para qualquer coisa mais longa do que uma resposta rápida, responda de imediato e publique mais tarde com um webhook de entrada ou com a API.</p>
+
+<h2 id="troubleshooting">Quando um webhook não funciona</h2>
+<ul>
+<li><b>501 do URL do hook</b>: os webhooks de entrada estão desativados no servidor.</li>
+<li><b>400 "Failed to decode the payload…"</b>: o JSON é inválido, ou o campo do formulário não se chama <code>payload</code>. <b>"No text specified."</b> significa que o pedido não tem nem <code>text</code> nem <code>attachments</code>.</li>
+<li><b>403</b>: o webhook está bloqueado para outro canal, ou o seu proprietário já não pode ler o canal.</li>
+<li><b>Um webhook de saída nunca é disparado</b>: o canal é privado, o gatilho não é a primeira palavra, ou a mensagem veio de um webhook.</li>
+<li><b>Registos</b>: com <b>Ativar depuração de webhooks</b> ligado (<code>LogSettings.EnableWebhookDebugging</code>) e o nível de registo em <code>DEBUG</code>, o servidor regista os payloads dos pedidos de entrada com falha. As chamadas de saída com falha são registadas como <code>Outgoing Webhook POST failed</code>.</li>
+</ul>

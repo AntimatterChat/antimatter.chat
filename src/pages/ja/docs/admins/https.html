@@ -1,0 +1,161 @@
+title: ドメイン、HTTPS、リバースプロキシ
+description: Antimatterを独自のドメインでHTTPS経由で提供します。バンドルされたCaddyプロファイルまたは独自のnginxリバースプロキシを使用し、サイトURLとクライアントアドレスを正しく設定します。
+guide: admins
+order: 4
+nav: ドメインとHTTPS
+lead: AntimatterをHTTPS対応のドメイン名に配置します。composeファイルのCaddyプロファイルまたは独自のリバースプロキシを使用し、サイトURLとクライアントアドレスを正しく設定します。
+source: 69e8779d356e
+---
+<h2 id="site-url">サイトURL</h2>
+<p>サイトURL（<code>ServiceSettings.SiteURL</code>）は、Antimatterにアクセスするために使用するアドレスです（例: <code>https://chat.example.com</code>）。サーバーは、メールや通知内のリンク、サインインのリダイレクト（OAuth、OpenID Connect、SAML）、モバイルおよびデスクトップアプリ、リクエストの送信元チェックにこれを使用します。ブラウザのアドレスバーに表示されるアドレス（スキーム、ドメイン、デフォルト以外のポート）と完全に一致するように設定し、末尾にスラッシュを付けないでください。</p>
+<ul>
+<li>サイトのcomposeファイルを使用する場合: <code>.env</code>内の<code>SITE_URL</code>。</li>
+<li>その他の場所: <code>AM_SERVICESETTINGS_SITEURL</code> または <b>システムコンソール › 環境 › ウェブサーバー › サイトURL</b>。</li>
+</ul>
+<p>サイトURLが誤っている場合、アイデンティティプロバイダーによるサインインに失敗し、メール内のリンクが誤った場所を指し、アプリが接続できなくなる可能性があります。ドメインを変更した後、こことすべてのアイデンティティプロバイダーのリダイレクトURLを更新してください。</p>
+
+<h2 id="caddy">バンドルされたCaddyプロファイルによるHTTPS</h2>
+<p>サイトの<code>compose.yaml</code>には、<code>https</code>プロファイルに<a href="https://caddyserver.com">Caddy</a>サービスが含まれています。Let's Encryptから証明書を取得し、自動で更新し、HTTPからHTTPSへリダイレクトし、WebSocketを含むすべてのトラフィックをAntimatterへ転送します。</p>
+<ol>
+<li>ドメインのDNSレコード（A、IPv6の場合はAAAA）をサーバーに向けます。</li>
+<li>ファイアウォールでポート80/tcp、443/tcp、443/udp（HTTP/3）を開きます。Let's Encryptがインターネットからポート80または443に到達できる必要があります。</li>
+<li>ドメインを<code>.env</code>に追加し、サイトURLを設定します:
+<pre><code>echo "DOMAIN=chat.example.com" &gt;&gt; .env
+sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env</code></pre></li>
+<li>プロファイル付きで開始します:
+<pre><code>docker compose --profile https up -d</code></pre></li>
+</ol>
+<p>以降の<code>docker compose up</code>には常に<code>--profile https</code>を追加するか、<code>.env</code>に<code>COMPOSE_PROFILES=https</code>を設定して、通常の<code>docker compose up -d</code>でもこれを含むようにします。Caddyは<code>https</code>ボリュームに証明書を保持します。</p>
+<p>Antimatter自身のポートはホスト上で公開されたままです（<code>HTTP_PORT</code>、デフォルトは8065）。Caddyを前面に配置する場合、サーバー自身専用として保持します:</p>
+<pre><code>echo "HTTP_PORT=127.0.0.1:8065" &gt;&gt; .env
+docker compose --profile https up -d</code></pre>
+<p>Caddyは内部の<code>edge</code>ネットワーク経由でAntimatterに到達するため、この変更はユーザーに影響しません。</p>
+
+<h2 id="nginx">独自のリバースプロキシ（nginx）を使用する場合</h2>
+<p>サーバーがすでに nginx または他のプロキシを稼働している場合は、<code>https</code> プロファイルを無効にし、プロキシを Antimatter のポート 8065 に指向してください。プロキシは以下を満たす必要があります。</p>
+<ul>
+<li>WebSocket アップグレードをパスすること（Web アプリおよびモバイルアプリは <code>/api/v4/websocket</code> で WebSocket を常時開いており、一部のアプリは独自の接続を開きます）。</li>
+<li>最大アップロードサイズ（<b>最大ファイルサイズ</b>、デフォルトは 100 MB）以上のリクエストボディを受け入れること。</li>
+<li>長時間接続を維持すること（WebSocket、大規模なアップロードおよびダウンロード）。</li>
+<li><code>Host</code> ヘッダーとクライアントのアドレスをパスすること。</li>
+</ul>
+<p>antimatter-docker の本番テンプレートから適応した完全なサーバーブロックです。ドメイン名と証明書パスを置き換えてください。</p>
+<pre><code>upstream antimatter {
+    server 127.0.0.1:8065;
+    keepalive 64;
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+proxy_cache_path /var/cache/nginx/antimatter levels=1:2 keys_zone=antimatter_cache:10m
+                 max_size=3g inactive=120m use_temp_path=off;
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name chat.example.com;
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name chat.example.com;
+
+    ssl_certificate     /etc/ssl/chat.example.com/fullchain.pem;
+    ssl_certificate_key /etc/ssl/chat.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:AntimatterSSL:10m;
+    ssl_session_tickets off;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # At least FileSettings.MaxFileSize (100 MB by default).
+    client_max_body_size 100M;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade           $http_upgrade;
+    proxy_set_header Connection        $connection_upgrade;
+    proxy_buffers 256 16k;
+    proxy_buffer_size 16k;
+
+    location ~ ^/api/v[0-9]+/(users/)?websocket$ {
+        client_body_timeout 60s;
+        send_timeout 300s;
+        lingering_timeout 5s;
+        proxy_connect_timeout 90s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 90s;
+        proxy_pass http://antimatter;
+    }
+
+    location / {
+        proxy_read_timeout 600s;
+        proxy_cache antimatter_cache;
+        proxy_cache_revalidate on;
+        proxy_cache_min_uses 2;
+        proxy_cache_use_stale timeout;
+        proxy_cache_lock on;
+        proxy_pass http://antimatter;
+    }
+}</code></pre>
+<p><code>nginx -t</code> でファイルを確認し、<code>systemctl reload nginx</code> で適用してください。サーバーは <code>X-Content-Type-Options</code>、<code>Referrer-Policy</code>、<code>Permissions-Policy</code>、<code>X-Frame-Options</code> を自身で送信します。HSTS についてはプロキシ側で設定します。HTTPS が正常に動作するようになったら <code>max-age</code> を引き上げ、すべてのサブドメインが HTTPS を使用している場合のみ <code>includeSubDomains</code> を追加してください。</p>
+<p>Docker Compose とホスト上の nginx を使用する場合、上記の <code>upstream</code> は公開ポート 8065 を指向します。<code>127.0.0.1</code> のみで公開してください（<code>HTTP_PORT=127.0.0.1:8065</code>）。これにより、プロキシをバイパスするのを防ぐことができます。</p>
+<p>antimatter-docker リポジトリには、コンテナ内の nginx と certbot による Let's Encrypt を使用した完全なセットアップが <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">deploy/compose</a> にあります。</p>
+
+<h3>その他のプロキシ</h3>
+<p>上記の4つの条件を満たすプロキシであれば、何でも使用できます。通話の音声と動画はプロキシを通過しません。独自のポートを使用します。<a href="{{root}}docs/admins/calls.html">通話と音声</a>を参照してください。</p>
+
+<h2 id="client-address">プロキシ背後のクライアントアドレス</h2>
+<p>プロキシの背後では、すべてのリクエストがプロキシから来たように見えます。実際のクライアントアドレスをログに記録し、クライアントごとのレート制限や IP フィルタリングを使用するには、サーバーにどのヘッダーがアドレスを保持しているか、そしてどのプロキシを信頼できるかを伝える必要があります。これらの設定にはシステムコンソールのフィールドはありません。<code>config.json</code> または環境変数で設定してください。</p>
+<table>
+<thead><tr><th>キーと変数</th><th>デフォルト値</th><th>機能</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.TrustedProxyIPHeader</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER</code></td><td>空の場合：サーバーは接続のアドレスを使用します</td><td>クライアントのアドレスを保持するヘッダーです。例：<code>X-Forwarded-For</code>。リクエストに存在する最初のものが使用されます。</td></tr>
+<tr><td><code>ServiceSettings.TrustedProxyIPs</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code></td><td>空</td><td>プロキシのアドレスまたは CIDR 範囲です。例：<code>172.29.71.0/28</code>。ヘッダーは、これらのいずれかから来たリクエストに対してのみ有効です。</td></tr>
+</tbody>
+</table>
+<p>変数内で複数の値をスペースで区切ります: <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>。サーバーは、<code>TrustedProxyIPs</code> に IP アドレスでも CIDR 範囲でもないエントリがある設定を拒否します。</p>
+<h3>サーバーがクライアントのアドレスを特定する方法</h3>
+<p>各プロキシは、リクエストを受信したアドレスを <code>X-Forwarded-For</code> の右側に追加します。クライアントがヘッダー自体に送信した内容は左側に残ります。そのため、サーバーはヘッダーを右から読み取り、信頼できるプロキシのアドレスをスキップし、最初の他のアドレスをクライアントのアドレスとして採用します。クライアントは独自のヘッダーを送信してアドレスを指定することはできません。</p>
+<ul>
+<li>プロキシが1つの場合、<code>TrustedProxyIPHeader</code> だけで正しいアドレスを取得できます。サーバーはヘッダーの右端のアドレスを採用します。<code>TrustedProxyIPs</code> も設定するまで、起動時に警告がログに記録されます。設定しないと、ポート 8065 に直接アクセスできる誰でもヘッダーを設定できてしまうため、そのポートは <code>127.0.0.1</code> またはプライベートネットワークでのみ公開してください。</li>
+<li>プロキシが複数ある場合（例: 自社プロキシの前に CDN やロードバランサーがある場合）、<code>TrustedProxyIPs</code> にすべてをリストアップしてください。そうしないと、サーバーは外側のプロキシのアドレスをクライアントのアドレスとして採用してしまいます。</li>
+<li>プロキシは、上記の nginx の例のように (<code>X-Forwarded-For $remote_addr</code>) 確認したアドレスでヘッダーを置き換えるか、追加 (<code>$proxy_add_x_forwarded_for</code>) するかのいずれかです。どちらでも動作します。</li>
+</ul>
+<h3>リストアップするアドレス</h3>
+<p>Antimatter が確認する、プロキシからのリクエストが来るアドレスをリストアップします。</p>
+<ul>
+<li>サイトの compose ファイルと Caddy を使用する場合、これらはすでに設定されています: Caddy は <code>edge</code> ネットワーク経由で Antimatter に到達し、compose ファイルは <code>TrustedProxyIPHeader</code> を <code>X-Forwarded-For</code> に、<code>TrustedProxyIPs</code> をそのネットワークの範囲である <code>EDGE_SUBNET</code> (<code>.env</code> で変更しない限り <code>172.29.71.0/28</code>) に設定します。<code>EDGE_SUBNET</code> が既存のネットワークと重複する場合は変更してください。</li>
+<li>antimatter-docker の本番環境セットアップも、nginx コンテナに対して <code>FRONTEND_SUBNET</code> を使用して同様に設定しています。</li>
+<li>ホストに nginx、Docker に Antimatter を配置する場合、リクエストは公開ポート経由で Antimatter に到達します。通常は compose プロジェクトのネットワークのゲートウェイアドレスからです (<code>docker network inspect</code> で確認できます)。<code>compose.override.yaml</code> で <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code> をそのアドレスに設定してください。</li>
+<li>Docker を使用せず、同じホストに nginx を配置している場合は <code>127.0.0.1</code>（nginx が IPv6 経由で接続する場合は <code>::1</code>）です。</li>
+</ul>
+
+<h2 id="builtin-tls">プロキシなしの TLS</h2>
+<p>サーバー自体がHTTPSを提供することもできます。<b>システムコンソール › 環境 › ウェブサーバー</b> で、<b>接続のセキュリティー</b>をTLS(<code>ServiceSettings.ConnectionSecurity</code>)に設定し、<b>TLS証明書ファイル</b>と<b>TLS鍵ファイル</b>(<code>ServiceSettings.TLSCertFile</code>、<code>ServiceSettings.TLSKeyFile</code>)を指定するか、<b>Let's Encryptを使用する</b>(<code>ServiceSettings.UseLetsEncrypt</code>)を有効にします。その場合、サーバーはポート443でリッスンする必要があります(<b>接続待ちアドレス</b>、<code>ServiceSettings.ListenAddress</code>、デフォルトは<code>:8065</code>)。また、<code>ServiceSettings.Forward80To443</code>でポート80からのリクエストをリダイレクトします。リバースプロキシの方が運用と更新が容易であり、本ガイドではリバースプロキシを使用することを前提としています。</p>
+
+<h2 id="timeouts">サーバーのタイムアウトとリクエストサイズ</h2>
+<p>サーバー自身のウェブサーバーの設定は、<b>システムコンソール › 環境 › ウェブサーバー</b>にあります:</p>
+<table>
+<thead><tr><th>設定項目</th><th>キー</th><th>デフォルト値</th></tr></thead>
+<tbody>
+<tr><td><b>接続待ちアドレス</b></td><td><code>ServiceSettings.ListenAddress</code></td><td><code>:8065</code></td></tr>
+<tr><td><b>Readタイムアウト</b></td><td><code>ServiceSettings.ReadTimeout</code></td><td>300 秒</td></tr>
+<tr><td><b>Writeタイムアウト</b></td><td><code>ServiceSettings.WriteTimeout</code></td><td>300 秒</td></tr>
+<tr><td>アイドルタイムアウト（システムコンソールにフィールドなし）</td><td><code>ServiceSettings.IdleTimeout</code></td><td>60 秒</td></tr>
+<tr><td><b>最大ペイロードサイズ (バイト)</b></td><td><code>ServiceSettings.MaximumPayloadSizeBytes</code></td><td><a href="{{root}}docs/admins/security.html">セキュリティ</a>を参照</td></tr>
+</tbody>
+</table>
+<p>通常のリクエストに対しては、プロキシ自身のタイムアウトをこれら以上にし、ボディサイズは<b>最大ファイルサイズ</b>以上に設定してください。</p>

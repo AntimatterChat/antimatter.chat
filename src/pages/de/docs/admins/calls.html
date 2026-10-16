@@ -1,0 +1,126 @@
+title: Anrufe und Sprache
+description: Richten Sie die Anrufe und Sprachkanäle von Antimatter ein: den Medienport, NAT und STUN, TURN, den Testmodus, Video, einen externen rtcd-Server, Transkription und Live-Untertitel mit Ihrem eigenen Speech-to-Text-Modell sowie Aufnahmen.
+guide: admins
+order: 5
+nav: Anrufe und Sprache
+lead: Anrufe und Sprachkanäle senden Audio, Video und Bildschirmfreigabe direkt an den Server über dessen eigenen Port. Diese Seite behandelt die Netzwerkkonfiguration, die Einstellungen, die nach der Installation zu prüfen sind, und die Transkription mit einem Speech-to-Text-Modell, das Sie selbst betreiben.
+source: 16057458346f
+---
+<h2 id="overview">So funktionieren Anrufe</h2>
+<p>Anrufe werden von der App <b>Calls</b> (id <code>com.mattermost.calls</code>) bereitgestellt, die standardmäßig installiert und aktiviert ist. Sprachkanäle (die App <b>Voice Channels</b>, <code>antimatter-next</code>-Image) sind permanente Anrufräume auf Basis von Calls: Sie erfordern, dass Calls aktiviert ist, und verwenden dieselben Einstellungen, Ports und Server.</p>
+<p>Die Calls-App betreibt einen Medienserver innerhalb von Antimatter. Die Web-App, die Desktop-App und die mobilen Apps verbinden sich mit diesem über WebRTC:</p>
+<ul>
+<li>das Signaling läuft über die normale Webverbindung (Ihr HTTPS-Proxy);</li>
+<li>die <b>Medien</b> (Audio, Video, Bildschirmfreigabe) nicht: Sie gehen direkt an den Server über den Anruf-Port, standardmäßig <b>8443 UDP und TCP</b>.</li>
+</ul>
+<p>Die Einstellungen befinden sich unter <b>Systemkonsole › Plugins › Calls</b>. Jede einzelne kann auch über eine <code>AM_CALLS_</code>-Umgebungsvariable im <code>antimatter</code>-Dienst gesetzt werden, die dann Vorrang vor der Systemkonsole hat und die Einstellung dort sperrt. Die veralteten <code>MM_CALLS_</code>-Namen funktionieren ebenfalls.</p>
+
+<h2 id="after-install">Prüfen Sie dies nach der Installation</h2>
+<ol>
+<li><b>Öffnen Sie den Anruf-Port.</b> Erlauben Sie 8443/udp und 8443/tcp in der Firewall des Servers und Ihres Cloud-Anbieters.</li>
+<li><b>Schalten Sie den Testmodus aus.</b> <b>Test mode</b> (<code>DefaultEnabled</code>) ist standardmäßig aktiviert: Nur Systemadministratoren können Anrufe in Kanälen starten, damit Sie überprüfen können, ob Anrufe funktionieren, bevor sie von allen genutzt werden. Setzen Sie dies in <b>Systemkonsole › Plugins › Calls</b> auf <b>Aus</b> oder setzen Sie <code>AM_CALLS_DEFAULT_ENABLED=true</code>.</li>
+<li><b>Entscheiden Sie sich für Video.</b> <b>Enable video calls in DMs (Experimental)</b> (<code>EnableVideo</code>, <code>AM_CALLS_ENABLE_VIDEO</code>) ist standardmäßig deaktiviert. Solange es deaktiviert ist, kann niemand eine Kamera einschalten, auch nicht in Sprachkanälen. Wenn es aktiviert ist, funktionieren Kameras in Anrufen über Direktnachrichten und in Sprachkanälen (außer, wenn <b>Allow video in voice channels</b> der Voice-Channels-App deaktiviert ist).</li>
+<li><b>Hinter NAT die öffentliche Adresse festlegen</b> (nächster Abschnitt).</li>
+</ol>
+
+<h2 id="network">Ports, NAT und STUN</h2>
+<table>
+<thead><tr><th>Einstellung</th><th>Variable</th><th>Standard</th></tr></thead>
+<tbody>
+<tr><td><b>RTC Server Port (UDP)</b></td><td><code>AM_CALLS_UDP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>RTC Server Port (TCP)</b></td><td><code>AM_CALLS_TCP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>RTC Server Address (UDP)</b>, <b>(TCP)</b></td><td><code>AM_CALLS_UDP_SERVER_ADDRESS</code>, <code>AM_CALLS_TCP_SERVER_ADDRESS</code></td><td>leer: alle Adressen</td></tr>
+<tr><td><b>ICE-Host-Override</b></td><td><code>AM_CALLS_ICE_HOST_OVERRIDE</code></td><td>leer: über STUN ermittelt</td></tr>
+<tr><td><b>ICE-Host-Port-Override</b></td><td><code>AM_CALLS_ICE_HOST_PORT_OVERRIDE</code></td><td>leer: der Serverport</td></tr>
+<tr><td><b>Konfiguration der ICE-Server</b></td><td><code>AM_CALLS_ICE_SERVERS_CONFIGS</code></td><td><code>[{"urls":["stun:stun.cloudflare.com:3478"]}]</code></td></tr>
+<tr><td><b>(Experimentell) IPv6-Unterstützung aktivieren</b></td><td>(Systemkonsole)</td><td>aus</td></tr>
+</tbody>
+</table>
+<p>Die Ports müssen zwischen 80 und 49151 liegen. Ändern Sie in der Compose-Datei der Site <code>CALLS_PORT</code> in <code>.env</code>: Damit werden beide Variablen gesetzt und der Port veröffentlicht, und zwar mit derselben Nummer auf dem Host und im Container. Die Clients versuchen zuerst UDP und wechseln bei Bedarf auf TCP auf demselben Port.</p>
+<h3>Die Adresse, an die die Clients die Medien senden</h3>
+<p>Der Server teilt jedem Client die Adresse mit, an die dieser die Medien senden soll (sein „Host-Kandidat“). Standardmäßig ermittelt er seine öffentliche Adresse, indem er einen STUN-Server abfragt, einen öffentlichen Dienst, der die Adresse und den Port zurückgibt, von denen eine Anfrage stammt. Standardmäßig wird der öffentliche STUN-Server von Cloudflare verwendet, <code>stun:stun.cloudflare.com:3478</code>. Der Server ist nicht der Einzige, der ihn nutzt: Jeder Client, der einem Anruf beitritt, fragt ihn ebenfalls nach seiner eigenen öffentlichen Adresse ab. Der STUN-Server sieht nur IP-Adressen und Ports, niemals Audio, Video oder Nachrichten aus Anrufen.</p>
+<p>Ein Server, in dessen <b>Konfiguration der ICE-Server</b> noch der STUN-Server von Mattermost (<code>stun.global.calls.mattermost.com</code>) gespeichert ist, zum Beispiel nach einem Wechsel von Mattermost, verwendet stattdessen den von Cloudflare. Die gespeicherte Einstellung wird nicht geändert.</p>
+<p>Setzen Sie die Adresse manuell, wenn:</p>
+<ul>
+<li>der Server hinter einer NAT liegt oder mehrere öffentliche Adressen hat: Setzen Sie <b>ICE-Host-Override</b> auf die öffentliche IP-Adresse (oder einen Hostnamen, der darauf aufgelöst wird);</li>
+<li>die NAT einen anderen öffentlichen Port auf 8443 abbildet: Setzen Sie auch <b>ICE-Host-Port-Override</b> auf diesen öffentlichen Port;</li>
+<li>der Server keinen Internetzugang hat oder Sie nicht möchten, dass der Server und die Clients einen externen STUN-Server kontaktieren: Setzen Sie <b>ICE-Host-Override</b> und leeren Sie die STUN-Liste mit <code>AM_CALLS_ICE_SERVERS_CONFIGS=[]</code>. Wenn <b>ICE-Host-Override</b> gesetzt ist, fragt der Server keinen STUN-Server mehr nach seiner Adresse ab; die leere Liste verhindert, dass die Clients einen abfragen.</li>
+</ul>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ICE_HOST_OVERRIDE: 203.0.113.10
+      AM_CALLS_ICE_SERVERS_CONFIGS: "[]"</code></pre>
+<p>Um STUN ohne Drittanbieter zu nutzen, betreiben Sie einen eigenen STUN-Server (ein TURN-Server wie coturn beantwortet ebenfalls STUN-Anfragen) und listen Sie ihn in der <b>Konfiguration der ICE-Server</b> auf, wie im TURN-Beispiel unten.</p>
+<p>Verwenden Sie in einem rein lokalen Netzwerk die LAN-Adresse des Servers. Starten Sie den Server neu, nachdem Sie Ports, Adressen oder ICE-Einstellungen geändert haben, oder deaktivieren und aktivieren Sie die Calls-App: Der Medien-Server wird beim Start der App eingerichtet.</p>
+
+<h2 id="turn">TURN für strenge Firewalls</h2>
+<p>Manche Netzwerke blockieren sowohl UDP als auch ausgehende Verbindungen zu ungewöhnlichen TCP-Ports. Nutzer in solchen Netzen benötigen einen TURN-Server, der die Medien über einen erreichbaren Port (oft 443) weiterleitet. Antimatter enthält keinen; betreiben Sie einen TURN-Server wie coturn und fügen Sie ihn zu <b>ICE Servers Configurations</b> hinzu, einer JSON-Liste:</p>
+<pre><code>[
+  {"urls": ["stun:turn.example.com:3478"]},
+  {"urls": ["turn:turn.example.com:3478?transport=udp", "turns:turn.example.com:443?transport=tcp"]}
+]</code></pre>
+<ul>
+<li>Bei Verwendung eines gemeinsamen Geheimnisses (coturns <code>use-auth-secret</code>) geben Sie dasselbe Geheimnis in <b>TURN Static Auth Secret</b> (<code>AM_CALLS_TURN_STATIC_AUTH_SECRET</code>) ein: Der Server stellt jedem Client kurzlebige Zugangsdaten aus, die für die Dauer von <b>TURN Credentials Expiration (minutes)</b> (Standard: 240) gültig sind.</li>
+<li>Bei festen Zugangsdaten fügen Sie stattdessen <code>"username"</code> und <code>"credential"</code> zum TURN-Eintrag hinzu.</li>
+<li><b>Server Side TURN</b> (standardmäßig deaktiviert) verwendet die TURN-Server auch für Verbindungen, die vom Server initiiert werden.</li>
+</ul>
+
+<h2 id="general">Weitere Anruf-Einstellungen</h2>
+<table>
+<thead><tr><th>Einstellung</th><th>Variable</th><th>Standard</th><th>Funktion</th></tr></thead>
+<tbody>
+<tr><td><b>Max call participants</b></td><td><code>AM_CALLS_MAX_CALL_PARTICIPANTS</code></td><td>0 (keine Beschränkung)</td><td>Maximale Anzahl von Personen in einem Anruf.</td></tr>
+<tr><td><b>Allow screen sharing</b></td><td>(Systemkonsole)</td><td>an</td><td>Erlaubt Teilnehmern, ihren Bildschirm zu teilen.</td></tr>
+<tr><td><b>Enable call ringing</b></td><td><code>AM_CALLS_ENABLE_RINGING</code></td><td>an</td><td>Lässt die anderen Personen einer Direktnachricht oder Gruppennachricht klingeln, wenn dort ein Anruf gestartet wird.</td></tr>
+<tr><td><b>Enable simulcast for screen sharing (Experimental)</b></td><td>(Systemkonsole)</td><td>aus</td><td>Sendet Bildschirmfreigaben in mehreren Qualitäten.</td></tr>
+<tr><td><b>Enable AV1 codec for screen sharing (Experimental)</b></td><td>(Systemkonsole)</td><td>aus</td><td>Wird ignoriert, solange Simulcast aktiviert ist.</td></tr>
+</tbody>
+</table>
+<p>Die App Voice Channels verfügt über zwei Einstellungen in <b>Systemkonsole › Plugins › Voice Channels</b>: <b>Join when opening a voice channel</b> (standardmäßig aktiviert) und <b>Allow video in voice channels</b> (standardmäßig aktiviert, siehe aber Video oben). Community-Administratoren wandeln einen Kanal in seinen Einstellungen in einen Sprachkanal um.</p>
+<div class="callout">Um Anrufe vollständig zu deaktivieren, deaktivieren Sie die Calls-App in <b>Systemkonsole › Plugins › Plugin-Verwaltung</b> oder setzen Sie <code>AM_CALLS_DISABLE=true</code>. Sprachkanäle funktionieren dann ebenfalls nicht mehr.</div>
+
+<h2 id="rtcd">Größere Server: ein externes rtcd</h2>
+<p>Standardmäßig verarbeitet ein Antimatter-Server alle Anrufmedien. Bei vielen gleichzeitigen Anrufen oder um die Medien vom Chatserver fernzuhalten, kann die Calls-App die Medien an <b>rtcd</b> weitergeben, einen separaten Medienserver (Mattermosts Open-Source-<code>rtcd</code>, Version 0.17 oder neuer). Setzen Sie <b>RTCD service URL</b> (<code>AM_CALLS_RTCD_SERVICE_URL</code>), zum Beispiel <code>https://rtcd.example.com</code>: Alle Anrufe laufen dann darüber, und Clients senden ihre Medien an den eigenen Port von rtcd statt an den von Antimatter. Zugangsdaten können mit <code>AM_CALLS_RTCD_CLIENT_ID</code> und <code>AM_CALLS_RTCD_AUTH_KEY</code> angegeben werden; ohne diese registriert sich die App selbst bei rtcd. Eine Lizenz ist nicht erforderlich. Die Calls-App zeigt Administratoren eine Warnung an, die rtcd empfiehlt, wenn auf einem Server häufig mehr als 50 Personen gleichzeitig in Anrufen sind.</p>
+
+<h2 id="transcription">Transkription und Live-Untertitel</h2>
+<p>Antimatter kann Anrufe mit einem von Ihnen selbst betriebenen Speech-to-Text-Modell transkribieren und während des Sprechens Live-Untertitel anzeigen. Antimatter verwendet jeden Server, der einen OpenAI-kompatiblen <code>/v1/audio/transcriptions</code>-Endpunkt anbietet, wie zum Beispiel einen Whisper-Server in Ihrem Netzwerk. Ein zusätzlicher Dienst von Antimatter ist nicht erforderlich.</p>
+<h3>So funktioniert es</h3>
+<ul>
+<li>Der Host eines Anrufs startet die Transkription mit <b>Anruf transkribieren</b> in den Anrufsteuerungen. Ein <b>Wird transkribiert</b>-Badge informiert alle Teilnehmer.</li>
+<li>Die App jedes Teilnehmers lauscht auf das eigene Mikrofon, schneidet die Sprache in kurze Abschnitte (maximal 12 Sekunden, nie während der Stummschaltung) und sendet sie an Antimatter, die sie an Ihren Speech-to-Text-Server weiterleitet.</li>
+<li>Wenn Live-Untertitel aktiviert sind, wird der Text jedes Abschnitts den Teilnehmern sofort als Untertitel angezeigt.</li>
+<li>Wenn die Transkription gestoppt oder der Anruf beendet wird, postet der Calls-Bot das Transkript als Textdatei und WebVTT-Untertiteldatei im Thread des Anrufs (in Sprachkanälen im Kanal).</li>
+<li>Wenn <b>Transkriptionen zusammenfassen</b> aktiviert ist, postet der Standard-Agent der Agents-App auch eine Zusammenfassung im Thread (siehe <a href="{{root}}docs/admins/ai.html">KI</a>).</li>
+</ul>
+<figure><img src="{{root}}assets/img/shots/transcript.webp" alt="A call's thread: the Calls bot has posted the transcript as a text file, and an AI agent has posted a summary below it."><figcaption>Nach dem Anruf: Das Transkript und seine Zusammenfassung im Thread des Anrufs.</figcaption></figure>
+<h3>Einrichtung</h3>
+<p>Richten Sie dies auf dem <code>antimatter</code>-Dienst ein:</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ENABLE_TRANSCRIPTIONS: "true"
+      AM_CALLS_TRANSCRIBE_API: openai
+      AM_CALLS_TRANSCRIBE_API_OPEN_AIURL: http://stt.internal:8000/v1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL: whisper-1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY: ""
+      AM_CALLS_ENABLE_LIVE_CAPTIONS: "true"
+      AM_CALLS_LIVE_CAPTIONS_LANGUAGE: en</code></pre>
+<table>
+<thead><tr><th>Einstellung</th><th>Variable</th><th>Was einzugeben ist</th></tr></thead>
+<tbody>
+<tr><td><b>Anruftranskriptionen aktivieren (Beta)</b></td><td><code>AM_CALLS_ENABLE_TRANSCRIPTIONS</code></td><td><code>true</code></td></tr>
+<tr><td><b>API für Anruftranskription</b></td><td><code>AM_CALLS_TRANSCRIBE_API</code></td><td><code>openai</code> (angezeigt als "OpenAI-kompatible API (ohne Job-Dienst)")</td></tr>
+<tr><td><b>URL der Speech-to-Text-API</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AIURL</code></td><td>Die Basis-URL der API, einschließlich <code>/v1</code>.</td></tr>
+<tr><td><b>Speech-to-Text-Modell</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL</code></td><td>Der Modellname, wie ihn die API kennt, zum Beispiel <code>whisper-1</code>. Erforderlich.</td></tr>
+<tr><td><b>API-Schlüssel für Speech-to-Text</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY</code></td><td>Wird als Bearer-Token gesendet. Lassen Sie es leer, wenn die API keinen Schlüssel benötigt.</td></tr>
+<tr><td><b>Live-Untertitel aktivieren (Beta)</b></td><td><code>AM_CALLS_ENABLE_LIVE_CAPTIONS</code></td><td><code>true</code> für Untertitel während des Anrufs.</td></tr>
+<tr><td><b>Sprache der Live-Untertitel</b></td><td><code>AM_CALLS_LIVE_CAPTIONS_LANGUAGE</code></td><td>Die gesprochene Sprache als zweistelliger Code (Standardmäßig <code>en</code>). Sie wird auch für Transkriptionen an die Speech-to-Text-API gesendet, daher sollte sie auch ohne Untertitel festgelegt werden.</td></tr>
+<tr><td><b>Transkriptionen zusammenfassen</b></td><td><code>AM_CALLS_SUMMARIZE_TRANSCRIPTIONS</code></td><td><code>true</code> für eine KI-Zusammenfassung nach dem Anruf.</td></tr>
+</tbody>
+</table>
+<div class="callout">In der Systemkonsole erscheinen die Transkriptionseinstellungen nur, wenn <b>Anrufaufnahmen aktivieren</b> aktiviert ist, obwohl diese Art der Transkription keine Aufnahme erfordert. Die Festlegung über die oben genannten Variablen vermeidet dies. Schalten Sie Aufnahmen nicht zusammen mit dem <code>openai</code>-Transkriber ein: Der Start einer Aufnahme würde dann versuchen, den Job-Service-Transkriber zu starten, was fehlschlagen würde.</div>
+<p>Das Audio aller Personen, die während der aktiven Transkription sprechen, wird an den von Ihnen konfigurierten Speech-to-Text-Server gesendet, und das Transkript wird dort veröffentlicht, wo es alle im Kanal lesen können. Informieren Sie Ihre Benutzer und halten Sie diesen Server in Ihrem eigenen Netzwerk, wenn die Anrufe vertraulich sind.</p>
+
+<h2 id="recordings">Aufnahmen</h2>
+<p>Die Aufnahme von Anrufen (und die Transkription mit den integrierten <code>whisper.cpp</code>- oder Azure-Transkribern) wird in separaten Containern ausgeführt, die von einem Job-Service gestartet werden: Mattermosts Open-Source-Projekt <code>calls-offloader</code>, das Sie selbst neben Antimatter bereitstellen. Die Einstellungen sind <b>Anrufaufnahmen aktivieren</b> (<code>AM_CALLS_ENABLE_RECORDINGS</code>, standardmäßig deaktiviert), <b>Job-Service-URL</b> (<code>AM_CALLS_JOB_SERVICE_URL</code>), <b>Maximale Dauer der Anrufaufnahme</b> (standardmäßig 60 Minuten, zwischen 15 und 180) und <b>Qualität der Anrufaufnahme</b> (niedrig, mittel oder hoch; standardmäßig mittel). Es wird keine Lizenz benötigt. Für nur Transkriptionen und Untertitel ist die oben beschriebene Speech-to-Text-Konfiguration einfacher: Sie benötigt keinen Job-Service.</p>

@@ -1,0 +1,120 @@
+title: Konfigurasyon
+description: Paano gumagana ang konfigurasyon ng Antimatter: mga setting sa database o sa config.json, mga AM_ environment variable, ang System Console, ang amctl command-line tool, at kung saan makikita ang mga log.
+guide: admins
+order: 3
+nav: Konfigurasyon
+lead: Kung saan nag-iimbak ng Antimatter ang mga setting, ang tatlong paraan upang baguhin ang mga ito (System Console, environment variable, amctl), at kung saan pumupunta ang mga log.
+source: e2d6546121d3
+---
+<h2 id="where">Kung saan nasa mga setting</h2>
+<p>Bawat setting ng server ay may pangalan na binubuo ng isang section at isang key, tulad ng <code>ServiceSettings.SiteURL</code> o <code>EmailSettings.SMTPServer</code>. Kasama ang isa't isa, bumubuo sila ng isang konfigurasyon na nakatago sa isa sa dalawang lugar:</p>
+<ul>
+<li><b>Sa database.</b> Ang compose file ng site ay nagse-set ng <code>AM_CONFIG</code> sa connection URL ng PostgreSQL, kaya ang konfigurasyon ay isang row sa database at hindi nag-iimbak ng anumang bagay sa disk ang container. Ang mga server na nagbabahagi ng iisang database ay nagbabahagi rin ng kanilang konfigurasyon.</li>
+<li><b>Sa file.</b> Kung wala ang <code>AM_CONFIG</code>, binabasa ng server ang <code>config/config.json</code> na nasa tabi ng kanyang <code>bin/</code> directory (<code>/antimatter/config/config.json</code> sa Docker image). Ganito ang paraan ng release archive at ng production compose files ng antimatter-docker. Panatilihing mababasa lamang ng user ng server ang file na ito: naglalaman ito ng mga password at key.</li>
+</ul>
+<p>Ang <code>AM_CONFIG</code> (o ang <code>--config</code> flag ng <code>antimatter</code> command) ay tumatanggap ng file path o <code>postgres://</code> URL. Ang mga setting na hindi isasama ay tumatanggap ng kanilang default value.</p>
+<p>Upang ilipat ang umiiral na konfigurasyon mula sa file patungo sa database, patakbuhin ito sa server, tapos patakbuhin ang server na may <code>AM_CONFIG</code> na nakaset sa parehong URL:</p>
+<pre><code>amctl --local config migrate /opt/antimatter/config/config.json \
+    "postgres://antimatter:PASSWORD@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10"</code></pre>
+
+<h2 id="environment">Mga environment variable</h2>
+<p>Ang anumang setting ay maaari ring bigyan bilang environment variable. Ang mga variable ang nananalo sa nakatagong konfigurasyon, kaya angkop sila para sa mga bagay na kailangan ng deployment: ang database, ang site URL, ang file storage, ang mga port.</p>
+<h3>Patakaran sa pagpangalan</h3>
+<p>Isulat ang <code>AM_</code>, tapos ang section, tapos ang key, sa malalaking letra at hiwalay-hiwalay ng underscore. Ang mga salita sa loob ng pangalan ng section o key ay hindi hiwalay-hiwalay:</p>
+<table>
+<thead><tr><th>Setting</th><th>Variable</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.SiteURL</code></td><td><code>AM_SERVICESETTINGS_SITEURL</code></td></tr>
+<tr><td><code>SqlSettings.DataSource</code></td><td><code>AM_SQLSETTINGS_DATASOURCE</code></td></tr>
+<tr><td><code>EmailSettings.SMTPServer</code></td><td><code>AM_EMAILSETTINGS_SMTPSERVER</code></td></tr>
+<tr><td><code>PrivacySettings.EnableUserBlocking</code></td><td><code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li>Ang mga setting na true at false ay tumatanggap ng <code>true</code> o <code>false</code>; ang mga numero ay simpleng numero.</li>
+<li>Ang mga setting na list ay tumatanggap ng mga value na hiwalay-hiwalay ng puwang, halimbawa <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>.</li>
+<li>Ang mga setting na object ay tumatanggap ng JSON. Ang tanging ganitong variable para sa mga app ay <code>AM_PLUGINSETTINGS_PLUGINS</code>, at pinapalit nito ang mga setting ng <em>bawat</em> app nang sabay-sabay: itaguyod ang mga setting ng app sa System Console o gamit ang <code>amctl</code> sa halip (tingnan sa ibaba).</li>
+<li>Ginagamit ng mga lumang setup ng Mattermost ang <code>MM_</code> prefix, halimbawa ang <code>MM_SQLSETTINGS_DATASOURCE</code>. Patuloy itong gumagana bilang legacy alias. Kapare ang dalawa ay naka-set, ang <code>AM_</code> variable ang mananalo.</li>
+</ul>
+<p>Naka-lock sa System Console ang setting na ibinigay ng variable, na may tala na "This setting has been set through an environment variable. It cannot be changed through the System Console." Hindi ito isinusulat sa na-store na configuration: alisin ang variable at muli ang naaapply ang na-store na value.</p>
+<h3>Gamit ang Docker Compose</h3>
+<p>Magdagdag ng mga variable sa ilalim ng <code>environment:</code> ng <code>antimatter</code> service, o sa <code>compose.override.yaml</code> na nasa tabi ng <code>compose.yaml</code> (awtomatikong binabasa ito ng Compose, at natatag sa mga update ng downloaded na file):</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_LOGSETTINGS_CONSOLELEVEL: INFO</code></pre>
+<p>I-apply ang mga pagbabago gamit ang <code>docker compose up -d</code>, na nagre-recreate ng container.</p>
+<h3>Mga variable na binabasa ng mga app</h3>
+<p>May ilang app na binabasa ang sarili nilang variable, na naka-set sa <code>antimatter</code> service: binabasa ng Calls app ang <code>AM_CALLS_*</code> (tingnan ang <a href="{{root}}docs/admins/calls.html">Calls and voice</a>), at binabasa ng GIFs app ang <code>AM_GIFS_SERVICE_URL</code>, <code>AM_GIFS_API_KEY</code> at <code>AM_GIFS_UPLOAD_KEY</code> (tingnan ang <a href="{{root}}docs/admins/apps.html">Bundled apps</a>).</p>
+
+<h2 id="console">Ang System Console</h2>
+<p>Ang System Console ang lugar ng pamamahala ng web app, para sa mga system administrator. Para buksan ito, i-click ang iyong larawan ng profile at piliin ang <b>System Console</b>, o pumunta sa <code>https://chat.example.com/admin_console</code>. May <b>Hanapin ang mga setting</b> na kahon sa kanyang sidebar na nagha-hanap sa bawat pahina.</p>
+<figure><img src="{{root}}assets/img/shots/admin.webp" alt="The System Console, with its sidebar of sections on the left and the SAML 2.0 settings page on the right."><figcaption>Ang System Console. Ang sidebar ay nag-uugnay ng mga pahina sa mga seksyon tulad ng Reporting, User Management at Environment.</figcaption></figure>
+<p>Ang mga seksyon nito ay:</p>
+<ul>
+<li><b>Reporting</b>: estadistika at mga log ng server.</li>
+<li><b>Pamamahala ng Mga User</b>: mga user, grupo, komunidad (tinatawag na Teams), mga channel, mga pahintulot, at delegated administration.</li>
+<li><b>Mga Attributo ng Sistema</b>: mga custom na profile attribute at access batay sa attribute.</li>
+<li><b>Environment</b>: web server, database, file storage, image proxy, SMTP, push notifications, rate limiting, logging, haba ng session, at performance monitoring.</li>
+<li><b>Konfigurasyon ng Site</b>: branding, mga user at team, mga notisikasyon, mga post, pagbabahagi ng file, at iba pang server-wide na pag-uugali.</li>
+<li><b>Pagpapatunay</b>: sign-up, sign-in gamit ang email at password, MFA, AD/LDAP, SAML 2.0, OAuth 2.0, OpenID Connect, at access ng bisita.</li>
+<li><b>Mga Plugin</b>: pamamahala ng app at mga setting ng bawat naka-install na app.</li>
+<li><b>Mga Integration</b>: mga webhook, slash command, mga bot account, GIF, text to speech, at CORS.</li>
+<li><b>Pagkakaunawa</b>: retention ng data, compliance export at monitoring, audit logging, at custom na terms of service.</li>
+<li><b>Pang-eksperimento</b>: mga feature na maaaring magbago.</li>
+</ul>
+<p>Sa gabay na ito, isinusulat ang bawat setting bilang ang kanyang path sa System Console, pagkatapos ang kanyang label, at pagkatapos ang kanyang configuration key, halimbawa <b>System Console › Konfigurasyon ng Site › Mga User at Team › Paganahin ang pag-i-ignore, pag-block, at mga message request</b> (<code>PrivacySettings.EnableUserBlocking</code>).</p>
+<p>Karamihan sa mga pagbabago ay agad na epektibo kapag in-click ang <b>I-save</b>. Ilang bagay (tulad ng listen address, ilang database at cache settings) ay nangangailangan ng restart, at sinasabi nito ang pahina.</p>
+
+<h2 id="amctl">Ang command-line tool na amctl</h2>
+<p>Pinangangasiwaan ng <code>amctl</code> ang server mula sa command line: mga user, community, channel, app, configuration, job, at iba pa. Nagkukonekta ito sa server sa isa sa dalawang paraan.</p>
+<h3>Local mode, sa server</h3>
+<p>Pinapayagan ng Local mode ang <code>amctl</code> na makipag-usap sa server gamit ang Unix socket, nang walang sign-in. Naka-on ito sa Docker image. Kung naka-install ang server mula sa archive, i-on ito gamit ang <b>ServiceSettings.EnableLocalMode</b> (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>). Ang socket ay <code>/var/tmp/antimatter_local.socket</code> ang default (<code>ServiceSettings.LocalModeSocketLocation</code>).</p>
+<pre><code># with Docker Compose
+docker compose exec antimatter amctl --local system status
+# with a release archive
+sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code></pre>
+<div class="callout warn">Ang sinumang makagamit ng socket, o makapag-run ng <code>docker compose exec</code> sa host, ay may buong karapatan ng system administrator.</div>
+<h3>Remote, gamit ang account</h3>
+<p>Mula sa anumang makina, mag-sign in gamit ang system administrator account (o personal access token), tapos mag-run ng mga command para sa server na iyon:</p>
+<pre><code>amctl auth login https://chat.example.com --name prod --username admin
+amctl system status</code></pre>
+<h3>Mga command para sa configuration</h3>
+<table>
+<thead><tr><th>Command</th><th>Ginagawa nito</th></tr></thead>
+<tbody>
+<tr><td><code>amctl config get ServiceSettings.SiteURL</code></td><td>Ipinapakita ang isang setting.</td></tr>
+<tr><td><code>amctl config set TeamSettings.EnableOpenServer false</code></td><td>Binabago ang isang setting. Ang mga list settings ay tumatanggap ng maraming halaga.</td></tr>
+<tr><td><code>amctl config patch settings.json</code></td><td>Pinagsasama ang isang JSON file ng mga setting sa configuration.</td></tr>
+<tr><td><code>amctl config show</code></td><td>Ipinapakita ang buong configuration bilang JSON.</td></tr>
+<tr><td><code>amctl config edit</code></td><td>Binubuksan ang configuration sa iyong editor (<code>$EDITOR</code>).</td></tr>
+<tr><td><code>amctl config reset</code></td><td>Ibinabalik ang mga setting sa kanilang default.</td></tr>
+<tr><td><code>amctl config reload</code></td><td>Ipinapabasa muli ang configuration mula sa kung saan ito nakatago, pagkatapos ng pagbabago na ginawa sa labas ng server.</td></tr>
+</tbody>
+</table>
+<p>Nakapaloob ang mga app settings sa ilalim ng <code>PluginSettings.Plugins.&lt;app id&gt;</code>, na may mga key na nasa lower case. Halimbawa, upang i-set ang service URL at key ng GIFs app mula sa Docker host:</p>
+<pre><code>docker compose exec -T antimatter amctl --local config patch /dev/stdin &lt;&lt;'EOF'
+{"PluginSettings": {"Plugins": {"com.antimatterchat.gifs": {
+  "serviceurl": "http://gifs:8080/v2",
+  "apikey": "the GIFS_API_KEY of your .env"
+}}}}
+EOF</code></pre>
+<p>Iba pang makapangyarihang command: <code>amctl user create</code>, <code>amctl user deactivate</code>, <code>amctl team create</code>, <code>amctl plugin list</code>, <code>amctl plugin enable</code>, <code>amctl system supportpacket</code> at <code>amctl logs</code>. I-run ang <code>amctl help &lt;command&gt;</code> para sa mga opsyon ng bawat isa.</p>
+
+<h2 id="logs">Mga Log</h2>
+<p>Isinusulat ng server ang log nito sa dalawang lugar, bawat isa ay may sariling antas (<code>DEBUG</code>, <code>INFO</code>, <code>WARN</code> o <code>ERROR</code>), na nakatakda sa <b>System Console › Environment › Logging</b>:</p>
+<table>
+<thead><tr><th>Lugar</th><th>Mga Setting</th><th>Default</th></tr></thead>
+<tbody>
+<tr><td>Ang console (standard output)</td><td><b>I-output ang logs sa console</b> (<code>LogSettings.EnableConsole</code>), <b>Console Log Level</b> (<code>LogSettings.ConsoleLevel</code>), <b>I-output ang console logs bilang JSON</b> (<code>LogSettings.ConsoleJson</code>)</td><td>on, <code>DEBUG</code>, JSON</td></tr>
+<tr><td>Isang file, <code>antimatter.log</code></td><td><b>I-Output ang logs sa file</b> (<code>LogSettings.EnableFile</code>), <b>File Log Level</b> (<code>LogSettings.FileLevel</code>), <b>File Log Directory</b> (<code>LogSettings.FileLocation</code>)</td><td>on, <code>INFO</code>, ang <code>logs/</code> directory sa tabi ng <code>bin/</code></td></tr>
+</tbody>
+</table>
+<p>Ang mga log file ay pinapa-rotate sa 100 MB at pinipig-compress ang lumang mga ito.</p>
+<p>Ang compose file ng site ay pumipig-off ng file logging (<code>AM_LOGSETTINGS_ENABLEFILE=false</code>), kaya ang mga log ay nasa output ng container lamang:</p>
+<pre><code>docker compose logs -f antimatter
+docker compose logs --since 1h antimatter | grep -i error</code></pre>
+<p>Ang console level ay naka-default sa <code>DEBUG</code>, na masyadong detalyado. Sa isang mabibilog na server, itakda ang <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code>. Sa isang release archive sa ilalim ng systemd, ang console output ay pumapasok sa journal (<code>journalctl -u antimatter</code>) at ang file ay sa <code>/opt/antimatter/logs/antimatter.log</code>.</p>
+<p>Kapag naka-on ang file logging, maaari ring basahin ng mga system administrator ang pinakabagong mga linya ng log sa <b>System Console › Reporting › Mga Server Log</b>, o gamit ang <code>amctl logs</code>.</p>

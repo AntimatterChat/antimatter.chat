@@ -1,0 +1,120 @@
+title: Konfiguracja
+description: Jak działa konfiguracja Antimatter: ustawienia w bazie danych lub w pliku config.json, zmienne środowiskowe AM_, Konsola systemu, narzędzie wiersza poleceń amctl oraz lokalizacja dzienników.
+guide: admins
+order: 3
+nav: Konfiguracja
+lead: Gdzie Antimatter przechowuje ustawienia, trzy sposoby ich zmiany (Konsola systemu, zmienne środowiskowe, amctl) oraz lokalizacja dzienników.
+source: e2d6546121d3
+---
+<h2 id="where">Lokalizacja ustawień</h2>
+<p>Każde ustawienie serwera ma nazwę składającą się z sekcji i klucza, np. <code>ServiceSettings.SiteURL</code> lub <code>EmailSettings.SMTPServer</code>. Razem tworzą one konfigurację, przechowywaną w jednym z dwóch miejsc:</p>
+<ul>
+<li><b>W bazie danych.</b> Plik compose witryny ustawia <code>AM_CONFIG</code> na adres URL połączenia z PostgreSQL, dzięki czemu konfiguracja jest wierszem w bazie danych, a kontener nie przechowuje niczego na dysku. Kilka serwerów współdzielących jedną bazę danych współdzieli również swoją konfigurację.</li>
+<li><b>W pliku.</b> Bez <code>AM_CONFIG</code> serwer odczytuje <code>config/config.json</code> znajdujący się obok katalogu <code>bin/</code> (<code>/antimatter/config/config.json</code> w obrazie Docker). W taki sposób działają archiwum wydania oraz produkcyjne pliki compose pakietu antimatter-docker. Upewnij się, że ten plik jest czytelny wyłącznie dla użytkownika serwera: zawiera hasła i klucze.</li>
+</ul>
+<p><code>AM_CONFIG</code> (lub flaga <code>--config</code> polecenia <code>antimatter</code>) akceptuje ścieżkę do pliku lub adres URL <code>postgres://</code>. Ustawienia, których nie podasz, przyjmą wartość domyślną.</p>
+<p>Aby przenieść istniejącą konfigurację z pliku do bazy danych, uruchom na serwerze poniższe polecenie, a następnie uruchom serwer z ustawioną zmienną <code>AM_CONFIG</code> na ten sam adres URL:</p>
+<pre><code>amctl --local config migrate /opt/antimatter/config/config.json \
+    "postgres://antimatter:PASSWORD@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10"</code></pre>
+
+<h2 id="environment">Zmienne środowiskowe</h2>
+<p>Każde ustawienie można również podać jako zmienną środowiskową. Zmienne mają pierwszeństwo przed zapisaną konfiguracją, co czyni je idealnymi do elementów należących do wdrożenia: bazy danych, adresu URL witryny, magazynu plików i portów.</p>
+<h3>Zasady nazewnictwa</h3>
+<p>Napisz <code>AM_</code>, następnie sekcję, a następnie klucz, wielkimi literami, oddzielone podkreśleniami. Słowa wewnątrz nazwy sekcji lub klucza nie są oddzielane:</p>
+<table>
+<thead><tr><th>Ustawienie</th><th>Zmienna</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.SiteURL</code></td><td><code>AM_SERVICESETTINGS_SITEURL</code></td></tr>
+<tr><td><code>SqlSettings.DataSource</code></td><td><code>AM_SQLSETTINGS_DATASOURCE</code></td></tr>
+<tr><td><code>EmailSettings.SMTPServer</code></td><td><code>AM_EMAILSETTINGS_SMTPSERVER</code></td></tr>
+<tr><td><code>PrivacySettings.EnableUserBlocking</code></td><td><code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li>Ustawienia typu prawda/fałsz przyjmują <code>true</code> lub <code>false</code>; liczby to zwykłe liczby.</li>
+<li>Ustawienia listowe przyjmują wartości oddzielone spacjami, np. <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>.</li>
+<li>Ustawienia będące obiektami przyjmują JSON. Jedyną taką zmienną dla aplikacji jest <code>AM_PLUGINSETTINGS_PLUGINS</code>, która zastępuje ustawienia <em>wszystkich</em> aplikacji naraz: ustawiaj konfigurację aplikacji w Konsoli systemu lub za pomocą <code>amctl</code> (patrz niżej).</li>
+<li>Starsze instalacje Mattermosta używają prefiksu <code>MM_</code>, na przykład <code>MM_SQLSETTINGS_DATASOURCE</code>. Nadal działa jako alias legacy. Jeśli ustawione są obie zmienne, ma pierwszeństwo zmienna <code>AM_</code>.</li>
+</ul>
+<p>Ustawienie zdefiniowane przez zmienną jest zablokowane w Konsoli systemu, z adnotacją „To ustawienie zostało skonfigurowane za pomocą zmiennej środowiskowej. Nie można go zmienić w Konsoli systemu.” Nie jest zapisywane w trwałej konfiguracji: po usunięciu zmiennej znów obowiązuje zapisana wartość.</p>
+<h3>Z Docker Compose</h3>
+<p>Dodaj zmienne w sekcji <code>environment:</code> usługi <code>antimatter</code> lub w pliku <code>compose.override.yaml</code> obok <code>compose.yaml</code> (Compose odczytuje go automatycznie, a on przetrwa aktualizacje pobranego pliku):</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_LOGSETTINGS_CONSOLELEVEL: INFO</code></pre>
+<p>Zastosuj zmiany poleceniem <code>docker compose up -d</code>, które tworzy kontener od nowa.</p>
+<h3>Zmienne odczytywane przez aplikacje</h3>
+<p>Niektóre aplikacje odczytują własne zmienne, ustawione w usłudze <code>antimatter</code>: aplikacja Calls odczytuje <code>AM_CALLS_*</code> (patrz <a href="{{root}}docs/admins/calls.html">Rozmowy i głos</a>), a aplikacja GIFs odczytuje <code>AM_GIFS_SERVICE_URL</code>, <code>AM_GIFS_API_KEY</code> i <code>AM_GIFS_UPLOAD_KEY</code> (patrz <a href="{{root}}docs/admins/apps.html">Wbudowane aplikacje</a>).</p>
+
+<h2 id="console">Konsola systemu</h2>
+<p>Konsola systemu to obszar administracyjny aplikacji webowej, przeznaczony dla administratorów systemu. Aby ją otworzyć, kliknij swój avatar i wybierz <b>Konsola systemu</b> lub przejdź do <code>https://chat.example.com/admin_console</code>. Jej pasek boczny zawiera pole <b>Wyszukaj ustawienia</b>, które przeszukuje wszystkie strony.</p>
+<figure><img src="{{root}}assets/img/shots/admin.webp" alt="The System Console, with its sidebar of sections on the left and the SAML 2.0 settings page on the right."><figcaption>Konsola systemu. Pasek boczny grupuje strony w sekcje, takie jak Raportowanie, Zarządzanie użytkownikiem i Środowisko.</figcaption></figure>
+<p>Jej sekcje to:</p>
+<ul>
+<li><b>Raportowanie</b>: statystyki i dzienniki serwera.</li>
+<li><b>Zarządzanie użytkownikiem</b>: użytkownicy, grupy, społeczności (wyświetlane jako zespoły), kanały, uprawnienia i delegowana administracja.</li>
+<li><b>Atrybuty systemu</b>: niestandardowe atrybuty profilu i dostęp oparty na atrybutach.</li>
+<li><b>Środowisko</b>: serwer webowy, baza danych, magazyn plików, proxy obrazów, SMTP, powiadomienia push, limitowanie przepustowości, logowanie, długość sesji, monitorowanie wydajności.</li>
+<li><b>Konfiguracja strony</b>: identyfikacja wizualna, użytkownicy i zespoły, powiadomienia, posty, udostępnianie plików i inne zachowania na poziomie serwera.</li>
+<li><b>Autoryzacja</b>: rejestracja, logowanie e-mailem i hasłem, MFA, AD/LDAP, SAML 2.0, OAuth 2.0, OpenID Connect i dostęp dla gości.</li>
+<li><b>Wtyczki</b>: zarządzanie aplikacjami i ustawienia każdej zainstalowanej aplikacji.</li>
+<li><b>Integracje</b>: webhooki, polecenia z ukośnikiem, konta botów, GIFy, tekst do mowy, CORS.</li>
+<li><b>Zgodność</b>: przechowywanie danych, eksport zgodności i monitorowanie, dzienniki audytu, niestandardowe warunki świadczenia usług.</li>
+<li><b>Eksperymentalne</b>: funkcje, które mogą ulec zmianie.</li>
+</ul>
+<p>W tym przewodniku ustawienie jest zapisane jako jego ścieżka w Konsoli systemu, a następnie jego etykieta, a następnie klucz konfiguracji, na przykład <b>Konsola systemu › Konfiguracja strony › Użytkownicy i zespoły › Włącz ignorowanie, blokowanie i prośby o wiadomość</b> (<code>PrivacySettings.EnableUserBlocking</code>).</p>
+<p>Większość zmian ma zastosowanie od razu po kliknięciu <b>Zapisz</b>. Kilka (adres nasłuchiwania, niektóre ustawienia bazy danych i pamięci podręcznej) wymaga ponownego uruchomienia, a strona o tym informuje.</p>
+
+<h2 id="amctl">Narzędzie wiersza poleceń amctl</h2>
+<p><code>amctl</code> zarządza serwerem z wiersza poleceń: użytkownicy, społeczności, kanały, aplikacje, konfiguracja, zadania i wiele więcej. Komunikuje się z serwerem na jeden z dwóch sposobów.</p>
+<h3>Tryb lokalny, na serwerze</h3>
+<p>Tryb lokalny pozwala <code>amctl</code> komunikować się z serwerem przez gniazdo Unix, bez logowania. Jest włączony w obrazie Docker. Na serwerze zainstalowanym z archiwum, włącz go za pomocą <b>ServiceSettings.EnableLocalMode</b> (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>). Gniazdo domyślnie znajduje się pod <code>/var/tmp/antimatter_local.socket</code> (<code>ServiceSettings.LocalModeSocketLocation</code>).</p>
+<pre><code># with Docker Compose
+docker compose exec antimatter amctl --local system status
+# with a release archive
+sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code></pre>
+<div class="callout warn">Każdy, kto może użyć gniazda lub uruchomić <code>docker compose exec</code> na hoście, ma pełne uprawnienia administratora systemu.</div>
+<h3>Zdalnie, z kontem</h3>
+<p>Z dowolnej maszyny, zaloguj się na konto administratora systemu (lub osobisty token dostępu), a następnie wykonaj polecenia na tym serwerze:</p>
+<pre><code>amctl auth login https://chat.example.com --name prod --username admin
+amctl system status</code></pre>
+<h3>Polecenia konfiguracji</h3>
+<table>
+<thead><tr><th>Polecenie</th><th>Opis</th></tr></thead>
+<tbody>
+<tr><td><code>amctl config get ServiceSettings.SiteURL</code></td><td>Wyświetla jedno ustawienie.</td></tr>
+<tr><td><code>amctl config set TeamSettings.EnableOpenServer false</code></td><td>Zmienia jedno ustawienie. Ustawienia listy przyjmują kilka wartości.</td></tr>
+<tr><td><code>amctl config patch settings.json</code></td><td>Scal plik JSON z ustawieniami z konfiguracją.</td></tr>
+<tr><td><code>amctl config show</code></td><td>Wyświetla całą konfigurację jako JSON.</td></tr>
+<tr><td><code>amctl config edit</code></td><td>Otwiera konfigurację w edytorze (<code>$EDITOR</code>).</td></tr>
+<tr><td><code>amctl config reset</code></td><td>Resetuje ustawienia do wartości domyślnych.</td></tr>
+<tr><td><code>amctl config reload</code></td><td>Przeładowuje konfigurację z miejsca, w którym jest przechowywana, po zmianie wykonanej poza serwerem.</td></tr>
+</tbody>
+</table>
+<p>Ustawienia aplikacji znajdują się pod <code>PluginSettings.Plugins.&lt;app id&gt;</code>, z kluczami w małych literach. Na przykład, aby ustawić adres URL usługi i klucz aplikacji GIFs z hosta Docker:</p>
+<pre><code>docker compose exec -T antimatter amctl --local config patch /dev/stdin &lt;&lt;'EOF'
+{"PluginSettings": {"Plugins": {"com.antimatterchat.gifs": {
+  "serviceurl": "http://gifs:8080/v2",
+  "apikey": "the GIFS_API_KEY of your .env"
+}}}}
+EOF</code></pre>
+<p>Inne przydatne polecenia: <code>amctl user create</code>, <code>amctl user deactivate</code>, <code>amctl team create</code>, <code>amctl plugin list</code>, <code>amctl plugin enable</code>, <code>amctl system supportpacket</code> i <code>amctl logs</code>. Uruchom <code>amctl help &lt;command&gt;</code> dla opcji każdego z nich.</p>
+
+<h2 id="logs">Dzienniki</h2>
+<p>Serwer zapisuje logi w dwóch miejscach, każde z własnym poziomem (<code>DEBUG</code>, <code>INFO</code>, <code>WARN</code> lub <code>ERROR</code>), konfigurowanym w <b>Konsola systemu › Środowisko › Ustawienia logów</b>:</p>
+<table>
+<thead><tr><th>Miejsce zapisu</th><th>Ustawienia</th><th>Domyślne wartości</th></tr></thead>
+<tbody>
+<tr><td>Konsola (standardowe wyjście)</td><td><b>Wysyłaj logi do konsoli</b> (<code>LogSettings.EnableConsole</code>), <b>Poziom logowania konsoli</b> (<code>LogSettings.ConsoleLevel</code>), <b>Wyprowadź logi konsoli jako JSON</b> (<code>LogSettings.ConsoleJson</code>)</td><td>włączone, <code>DEBUG</code>, JSON</td></tr>
+<tr><td>Plik, <code>antimatter.log</code></td><td><b>Wypisuje logi do pliku</b> (<code>LogSettings.EnableFile</code>), <b>Poziom Pliku Logów</b> (<code>LogSettings.FileLevel</code>), <b>Katalog z plikami logów</b> (<code>LogSettings.FileLocation</code>)</td><td>włączone, <code>INFO</code>, katalog <code>logs/</code> obok <code>bin/</code></td></tr>
+</tbody>
+</table>
+<p>Pliki logów są rotowane przy rozmiarze 100 MB, a starsze są kompresowane.</p>
+<p>Plik compose witryny wyłącza logowanie do pliku (<code>AM_LOGSETTINGS_ENABLEFILE=false</code>), więc logi są dostępne wyłącznie w wyjściu kontenera:</p>
+<pre><code>docker compose logs -f antimatter
+docker compose logs --since 1h antimatter | grep -i error</code></pre>
+<p>Domyślny poziom konsoli to <code>DEBUG</code>, co oznacza bardzo szczegółowe logi. Na obciążonym serwerze ustaw <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code>. W przypadku archiwum wydania pod systemd, wyjście konsoli trafia do dziennika (<code>journalctl -u antimatter</code>), a plik logów do <code>/opt/antimatter/logs/antimatter.log</code>.</p>
+<p>Gdy logowanie do pliku jest włączone, administratorzy systemu mogą również odczytać najnowsze linie logów w <b>Konsola systemu › Raportowanie › Logi serwera</b> lub za pomocą polecenia <code>amctl logs</code>.</p>

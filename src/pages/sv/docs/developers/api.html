@@ -1,0 +1,164 @@
+title: REST-API:et
+description: Antimatters REST-API: grund-URL, personliga access-tokens, sessionstokens och OAuth, de viktigaste resurserna, paginering, fel, hastighetsgränser, WebSocket-händelseströmmen och klientbibliotek.
+guide: developers
+order: 2
+nav: REST-API
+lead: Allt som Antimatter-apparna gör går genom samma HTTP-API, så dina skript kan göra detsamma. På den här sidan förklaras hur du autentiserar, vilka resurser du kommer att använda oftast, hur svar och fel ser ut och hur du kan följa händelser i realtid via WebSocket.
+source: f4b8c83efdba
+---
+<h2 id="basics">Grundläggande</h2>
+<ul>
+<li><b>Grund-URL</b>: <code>https://chat.example.com/api/v4</code>. Alla slutpunkter nedan är relativa till den.</li>
+<li><b>Format</b>: JSON in och ut, förutom filuppladdningar (multipart). Skicka <code>Content-Type: application/json</code>.</li>
+<li><b>ID:er</b>: varje objekt har en 26 tecken lång <code>id</code>. Tider anges i millisekunder sedan Unix-epoken (<code>create_at</code>, <code>update_at</code>, <code>delete_at</code>; 0 betyder "inte raderad").</li>
+<li><b>Community är team</b>: API:et kallar dem <code>teams</code>, med ett <code>team_id</code>.</li>
+<li><b>Du själv</b>: där en sökväg tar ett <code>user_id</code> betyder <code>me</code> den inloggade användaren, som i <code>GET /users/me</code>.</li>
+</ul>
+<p>Den fullständiga listan över slutpunkter finns i serverns kod: rutterna är deklarera i <code>server/channels/api4/*.go</code> och typerna i <code>server/public/model</code>. OpenAPI-beskrivningen i repositoryns <code>api/v4/source</code>-mapp täcker slutpunkterna som är ärftade från Mattermost, inte Antimatters tillägg.</p>
+
+<h2 id="auth">Autentisering</h2>
+<p>Varje begäran, förutom inloggning och några publika slutpunkter, kräver en token i <code>Authorization</code>-rubriken:</p>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" https://chat.example.com/api/v4/users/me</code></pre>
+<p>Tre typer av token accepteras där: personliga access-tokens, sessionstokens och OAuth-access-tokens. <code>Authorization: Token …</code> accepteras också. Tokens i frågesträngen (<code>?access_token=</code>) accepteras endast för OAuth-access-tokens.</p>
+
+<h3>Personliga access-tokens (rekommenderas för skript)</h3>
+<p>En personlig access-token agerar som du, går inte ut om du inte ger den en utgångsdatum och kan återskapas när som helst. Personliga access-tokens är avstängda som standard:</p>
+<ol>
+<li>En systemadministratör aktiverar <b>Aktivera Personliga Access-tokens</b> i <b>Systemkonsol › Integrationer › Hantera integrationer</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, <code>AM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS</code>).</li>
+<li>För varje person som kan skapa token öppnar en systemadministratör <b>Systemkonsol › Hantera användare › Användare</b>, väljer <b>Hantera roller</b> i personens meny och markerar <b>Aktivera Personliga Access-tokens</b>. Systemadministratörer kan alltid skapa dem.</li>
+<li>Personen öppnar sin avatar i övre högra hörnet och väljer sedan <b>Profil &amp; inställningar › Säkerhet</b>. Under <b>Aktivera Personliga Access-tokens</b> beskriver de vad token är avsett för och väljer <b>Skapa nytt token</b>. Token visas endast en gång: kopiera den.</li>
+</ol>
+<p>Med API:et: <code>POST /users/{user_id}/tokens</code> med <code>{"description": "backup script", "expires_at": 0}</code> (<code>expires_at</code> i millisekunder; 0 för ingen). Svarets <code>token</code>-fält är hemligheten; dess <code>id</code> är det du använder för att ångra det (<code>POST /users/tokens/revoke</code> med <code>{"token_id": "…"}</code>). Från kommandoraden: <code>amctl token generate &lt;user&gt; &lt;description&gt;</code>.</p>
+<p>En systemadministratör kan begränsa token giltighetstider med <b>Maximal giltighetstid för personliga åtkomsttoken (dagar)</b> på samma Systemkonsol-sida.</p>
+
+<h3>Sessionstoken</h3>
+<p>Inloggning med lösenord returnerar en sessionstoken i <code>Token</code>-responsrätt, samma typ av session som apparna använder:</p>
+<pre><code>curl -i -X POST https://chat.example.com/api/v4/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login_id": "maya", "password": "…"}'</code></pre>
+<p>Lägg till <code>"token": "123456"</code> för ett konto med multifaktorautentisering. Sessioner upphör enligt serverns sessionsinställningar, och inloggningsändpunkten är hastighetsbegränsad (5 begäranden per sekund). <code>POST /users/logout</code> avslutar sessionen.</p>
+<div class="callout">Webbläsare autentiserar med en cookie istället. En begäran autentiserad med cookie måste också skicka <code>X-CSRF-Token</code>-rätt för allt utom GET; en token i <code>Authorization</code>-rätt behöver ingen CSRF-rätt.</div>
+
+<h3>OAuth 2.0-appar</h3>
+<p>För att låta personer logga in i din applikation med deras Antimatter-konto, registrera en OAuth 2.0-app. Antimatter är då OAuth-leverantören:</p>
+<ol>
+<li><b>Aktiverar OAuth 2.0 Service Provider</b> måste vara på (<b>Systemkonsol › Integrationer › Hantera integrationer</b>, <code>ServiceSettings.EnableOAuthServiceProvider</code>, på som standard).</li>
+<li>Någon med rätt att hantera OAuth-appar (systemadministratörer som standard) öppnar sin avatar, väljer <b>Integrationer › OAuth 2.0-appar</b> och lägger till appen med dess callback-URL:er. De får ett klient-ID och ett klienthemligt.</li>
+<li>Din applikation skickar användare till <code>https://chat.example.com/oauth/authorize</code> med <code>response_type=code</code>, <code>client_id</code>, <code>redirect_uri</code> och <code>state</code>. PKCE med <code>code_challenge_method=S256</code> stöds.</li>
+<li>Den byter koden mot <code>POST https://chat.example.com/oauth/access_token</code> (<code>grant_type=authorization_code</code>, sedan <code>refresh_token</code> för att förnya) och anropar API:et med <code>Authorization: Bearer &lt;access token&gt;</code>.</li>
+</ol>
+<p>Användare ser de appar de har godkänt under <b>Profil &amp; inställningar › Säkerhet › Appar du har godkänt</b>.</p>
+
+<h2 id="resources">Huvudresurser</h2>
+<table>
+<thead><tr><th>Vad</th><th>Endpoint</th></tr></thead>
+<tbody>
+<tr><td>Du och andra användare</td><td><code>GET /users/me</code>, <code>GET /users/{user_id}</code>, <code>GET /users/username/{username}</code>, <code>POST /users/ids</code> (en lista med ID:n), <code>POST /users/search</code>, <code>GET /users?in_team=…&amp;in_channel=…</code></td></tr>
+<tr><td>Community</td><td><code>GET /users/me/teams</code>, <code>GET /teams/{team_id}</code>, <code>GET /teams/name/{name}</code>, <code>PUT /teams/{team_id}/patch</code>, <code>GET /teams/{team_id}/members</code>, <code>POST /teams/{team_id}/members</code></td></tr>
+<tr><td>Kanaler</td><td><code>GET /users/me/teams/{team_id}/channels</code>, <code>GET /teams/name/{team}/channels/name/{channel}</code>, <code>POST /channels</code>, <code>POST /channels/direct</code> (två användar-ID:n), <code>POST /channels/group</code>, <code>POST /channels/{channel_id}/members</code></td></tr>
+<tr><td>Meddelanden (inlägg)</td><td><code>POST /posts</code>, <code>GET /posts/{post_id}</code>, <code>PUT /posts/{post_id}/patch</code>, <code>DELETE /posts/{post_id}</code>, <code>GET /channels/{channel_id}/posts</code>, <code>GET /posts/{post_id}/thread</code>, <code>POST /teams/{team_id}/posts/search</code></td></tr>
+<tr><td>Reaktioner</td><td><code>POST /reactions</code> med <code>{"user_id", "post_id", "emoji_name"}</code>, <code>DELETE /users/{user_id}/posts/{post_id}/reactions/{emoji_name}</code></td></tr>
+<tr><td>Filer</td><td><code>POST /files</code> (multipart: <code>channel_id</code> och <code>files</code>), lägg sedan de returnerade ID:na i inläggets <code>file_ids</code>; <code>GET /files/{file_id}</code></td></tr>
+<tr><td>Inställningar</td><td><code>GET /users/me/preferences</code>, <code>PUT /users/me/preferences</code></td></tr>
+<tr><td>Integrationer</td><td><code>/hooks/incoming</code>, <code>/hooks/outgoing</code>, <code>/commands</code>, <code>/bots</code>, <code>/oauth/apps</code> (se följande sidor)</td></tr>
+<tr><td>Server</td><td><code>GET /system/ping</code> (hälsokontroll, inget token krävs), <code>GET /config/client?format=old</code> (inställningarna som klienterna ser)</td></tr>
+</tbody>
+</table>
+
+<h3>Skicka ett meddelande</h3>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "message": "Backup finished: **42 GB** in 3 min"}'</code></pre>
+<p>Meddelanden är Markdown. Lägg till <code>"root_id"</code> (det första inlägget i en tråd) för att svara i en tråd, <code>"file_ids"</code> för filer och <code>"props"</code> för bilagor och andra tillägg (se <a href="{{root}}docs/developers/webhooks.html#attachments">Bilagor</a>).</p>
+
+<h3>Hitta en kanals ID</h3>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" \
+  https://chat.example.com/api/v4/teams/name/lumen-labs/channels/name/ops-alerts</code></pre>
+<p>Namnen är de som finns i kanalens länk: <code>/lumen-labs/channels/ops-alerts</code>.</p>
+
+<h2 id="pagination">Paginering</h2>
+<p>List-endpoints tar <code>page</code> (från 0) och <code>per_page</code> (60 som standard, högst 200). Fortsätt att be om nästa sida tills en sida kommer tillbaka som är kortare än <code>per_page</code>.</p>
+<p>En kanals meddelanden (<code>GET /channels/{channel_id}/posts</code>) tar även <code>since</code> (en tidpunkt: allt som ändrats sedan dess) eller <code>before</code> och <code>after</code> (ett inläggs-ID). De returneras som en lista med inlägg: <code>{"order": [IDs, newest first], "posts": {ID: post}, "next_post_id", "prev_post_id"}</code>.</p>
+
+<h2 id="errors">Fel</h2>
+<p>Fel använder vanliga HTTP-statuskoder (400 felaktig indata, 401 inte inloggad, 403 inte tillåtet, 404 inte hittad, 501 funktion avstängd) och en JSON-kropp:</p>
+<pre><code>{
+  "id": "api.context.permissions.app_error",
+  "message": "You do not have the appropriate permissions.",
+  "detailed_error": "",
+  "request_id": "jz8zm5nunpbt8f3gpqsz5dq6so",
+  "status_code": 403
+}</code></pre>
+<p>Använd <code>id</code> i din kod: <code>message</code> översätts till användarens språk. <code>detailed_error</code> är tomt om inte servern körs i utvecklarläge (<code>ServiceSettings.EnableDeveloper</code>). Citera <code>request_id</code> till serverns administratör: den finns i loggarna.</p>
+
+<h2 id="rate-limits">Begränsa</h2>
+<p>Begränsning är avstängd som standard. När en systemadministratör aktiverar den (<b>Systemkonsol › Miljö › Begränsa</b>) får varje klient 10 begäranden per sekund med burstar på 100 som standard, räknat per IP-adress eller per användare. Svar bär <code>X-RateLimit-Limit</code>, <code>X-RateLimit-Remaining</code> och <code>X-RateLimit-Reset</code>; över gränsen svarar servern med <code>429</code> med en <code>Retry-After</code>-rubrik i sekunder. Vissa ändpunkter, som inloggning, har sin egen gräns oavsett inställning.</p>
+<p>Skriv skript som väntar och försöker igen vid 429, och undvik polling: följ WebSocket i stället.</p>
+
+<h2 id="websocket">WebSocket-händelseströmmen</h2>
+<p>Anslut till <code>wss://chat.example.com/api/v4/websocket</code>. Autentisera antingen med <code>Authorization: Bearer</code>-rubriken i anslutningsbegärandet, eller genom att skicka detta som det första meddelandet:</p>
+<pre><code>{"seq": 1, "action": "authentication_challenge", "data": {"token": "…"}}</code></pre>
+<p>Servern skickar en <code>hello</code>-händelse, sedan en händelse för allt du har tillgång till:</p>
+<pre><code>{
+  "event": "posted",
+  "data": {"channel_id": "…", "channel_type": "O", "post": "{\"id\":\"…\",\"message\":\"Hello\",…}"},
+  "broadcast": {"channel_id": "…", "team_id": "", "user_id": "", "omit_users": null},
+  "seq": 4
+}</code></pre>
+<p>Observera att <code>data.post</code> är meddelandet som en JSON-sträng. Vanliga händelser: <code>posted</code>, <code>post_edited</code>, <code>post_deleted</code>, <code>reaction_added</code>, <code>reaction_removed</code>, <code>typing</code>, <code>status_change</code>, <code>user_added</code>, <code>direct_added</code>. Appar skickar egna händelser, namngivna <code>custom_&lt;app id&gt;_&lt;event&gt;</code>.</p>
+<p>Du kan också skicka åtgärder, var och en med ett ökande <code>seq</code>: <code>user_typing</code> med <code>{"channel_id", "parent_id"}</code>, eller <code>get_statuses</code>. Återanslut när anslutningen går ner, och hämta det du missade med <code>since</code> (se <a href="#pagination">Paginering</a>).</p>
+<p>Antimatter lägger till dessa händelser: <code>community_attributes_updated</code>, <code>member_timeouts_updated</code>, <code>post_put_on_top</code>, <code>post_removed_from_top</code>, <code>server_categories_updated</code>, <code>channel_overrides_updated</code> och <code>category_overrides_updated</code>.</p>
+
+<h2 id="clients">Klientbibliotek</h2>
+<ul>
+<li><b>Go</b>: <code>model.Client4</code> i <code>server/public/model</code> (importera <code>github.com/mattermost/mattermost/server/public/model</code>). Använd <code>model.NewAPIv4Client(url)</code> och sedan <code>client.SetToken(token)</code>; <code>model.NewWebSocketClient4(wsURL, token)</code> följer händelser. Antimatters kopia lägger till metoder för egna slutpunkter, såsom <code>UpdateMessageRequest</code>, <code>PutPostOnTop</code> och <code>ExportChannel</code>.</li>
+<li><b>TypeScript</b>: klassen <code>Client4</code> i <code>@mattermost/client</code>, i <code>webapp/platform/client</code>, med dess typer i <code>webapp/platform/types</code>. Kopian i Antimatters repository innehåller Antimatters slutpunkter; paketet som publicerats på npm av Mattermost gör det inte.</li>
+</ul>
+<pre><code>package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/mattermost/mattermost/server/public/model"
+)
+
+func main() {
+	client := model.NewAPIv4Client("https://chat.example.com")
+	client.SetToken("…")
+	post, _, err := client.CreatePost(context.Background(), &amp;model.Post{
+		ChannelId: "…",
+		Message:   "Hello from Go",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("posted", post.Id)
+}</code></pre>
+
+<h2 id="antimatter">Vad Antimatter lägger till i API:et</h2>
+<p>Dessa slutpunkter och fält finns inte på en Mattermost-server. Alla kräver en session.</p>
+<table>
+<thead><tr><th>Slutpunkt</th><th>Vad den gör</th></tr></thead>
+<tbody>
+<tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> samma sökväg<br><code>PATCH</code>, <code>DELETE …/fields/{field_id}</code></td><td>Gemenskapsattribut: profilfälten som en gemenskaps administratörer definierar för dess medlemmar (upp till 20). Medlemmar kan läsa dem; gemenskapsadministratörer skapar och ändrar dem.</td></tr>
+<tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> samma sökväg<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>En medlems attributvärden, som <code>{field_id: value}</code>. Medlemmar anger sina egna (undantaget administratörsstyrda); administratörer anger vilka som helst. Söket tar <code>{"user_ids": [...]}</code> (upp till 200).</td></tr>
+<tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>Tidsgränser: <code>{"until": time, "reason": "…"}</code> hindrar någon från att skriva, reagera och ladda upp i gemenskapen fram till dess (högst 28 dagar); <code>"until": 0</code> lyfter den. Översiktsvyn för moderation visar när de gick med och hur mycket de har skrivit nyligen.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Meddelanden som hålls uppe i en kanal (upp till 10). <code>{"duration": ms}</code>, högst 30 dagar; 0 behåller det tills det tas bort. Kräver rätt att skriva i kanalen.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>Verkar på din egen meddelandeförfrågan: <code>{"action": "accept"}</code>, <code>"dismiss"</code> eller <code>"request"</code> för att lägga tillbaka en konversation bland förfrågningarna. Returnerar din kanalmedlem.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>Vad en roll eller en person får göra i en kanal, och vilka roller som ser en kanal med rollbegränsning.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>Gemenskapens delade kategorier för kanaler, samt de åsidosättningar som gäller för alla kanaler i en kategori.</td></tr>
+<tr><td><code>GET /groups/{group_id}/team_role</code><br><code>PUT …/team_role/permissions</code></td><td>De behörigheter som en gemenskapsroll beviljar.</td></tr>
+<tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>Testar gemenskapens automatlänkar på en text.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>Laddar ner en kanals meddelanden som CSV (upp till 50 000), för personer som kan läsa kanalen.</td></tr>
+<tr><td><code>GET /posts/{post_id}/speech</code></td><td>Meddelandet som läses högt som ljud när text-till-tal är konfigurerat.</td></tr>
+</tbody>
+</table>
+<h3>Nya fält</h3>
+<ul>
+<li><b>Gemenskaper</b> (<code>Team</code>, och <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (alla är med i varje kanal de kan se, som i Discord), <code>default_channel_id</code> (där nya användare hamnar; tomt betyder Town Square), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> och <code>autolinks</code> (båda JSON-strängar).</li>
+<li><b>Inline-svar</b>: ett inlägg med <code>"props": {"reply_to": "&lt;post id&gt;"}</code> citerar det meddelandet från samma kanal. Lägg till <code>"reply_to_mention": false</code> för att inte avisera meddelandets författare. Servern fyller i <code>metadata.reply_to</code> med en kort beskrivning av det citerade meddelandet.</li>
+<li><b>Spoilers</b>: <code>"props": {"spoiler": true}</code> döljer ett inläggs text och filer tills läsaren väljer att se dem.</li>
+<li><b>Ignorera och blockera</b> är inställningar: kategori <code>user_block</code>, namngiven efter den andres ID, med värdet <code>ignore</code> eller <code>block</code>. Om ett direktmeddelande väntar som en begäran anges i din kanalmedlems <code>notify_props.dm_request</code> (<code>pending</code>, <code>accepted</code> eller <code>dismissed</code>).</li>
+<li><b>Meddelandebilagor</b> kan bära <code>stages</code> och ett <code>chart</code>: se <a href="{{root}}docs/developers/webhooks.html#cards">Kort</a>.</li>
+</ul>

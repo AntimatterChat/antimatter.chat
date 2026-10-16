@@ -1,0 +1,126 @@
+title: Cuộc gọi và thoại
+description: Cấu hình cuộc gọi và kênh thoại của Antimatter: cổng media, NAT và STUN, TURN, chế độ kiểm tra, video, máy chủ rtcd bên ngoài, bản chép lời và phụ đề trực tiếp bằng mô hình chuyển giọng nói thành văn bản của riêng bạn, cùng các bản ghi.
+guide: admins
+order: 5
+nav: Cuộc gọi và thoại
+lead: Cuộc gọi và kênh thoại gửi âm thanh, video và chia sẻ màn hình trực tiếp đến máy chủ trên cổng riêng của chúng. Trang này bao gồm phần mạng, các cài đặt cần kiểm tra sau khi cài đặt, và bản chép lời bằng mô hình chuyển giọng nói thành văn bản do bạn tự chạy.
+source: 16057458346f
+---
+<h2 id="overview">Cách hoạt động của cuộc gọi</h2>
+<p>Cuộc gọi được cung cấp bởi ứng dụng <b>Calls</b> (id <code>com.mattermost.calls</code>), được cài đặt và bật theo mặc định. Kênh thoại (ứng dụng <b>Voice Channels</b>, ảnh <code>antimatter-next</code>) là các phòng gọi vĩnh viễn được xây dựng trên nền Calls: chúng cần Calls được bật và sử dụng cùng các cài đặt, cổng và máy chủ.</p>
+<p>Ứng dụng Calls chạy một máy chủ media bên trong Antimatter. Ứng dụng web, ứng dụng máy tính để bàn và ứng dụng di động kết nối với nó bằng WebRTC:</p>
+<ul>
+<li>tín hiệu (signalling) đi qua kết nối web thông thường (proxy HTTPS của bạn);</li>
+<li><b>media</b> (âm thanh, video, chia sẻ màn hình) thì không: nó đi trực tiếp đến máy chủ trên cổng cuộc gọi, mặc định là <b>8443 UDP và TCP</b>.</li>
+</ul>
+<p>Các cài đặt nằm trong <b>System Console › Plugins › Calls</b>. Mỗi cài đặt cũng có thể được thiết lập bằng một biến môi trường <code>AM_CALLS_</code> trên dịch vụ <code>antimatter</code>, khi đó nó sẽ ưu tiên hơn System Console và khóa cài đặt đó tại đó. Các tên cũ <code>MM_CALLS_</code> cũng hoạt động.</p>
+
+<h2 id="after-install">Kiểm tra những điều này sau khi cài đặt</h2>
+<ol>
+<li><b>Mở cổng cuộc gọi.</b> Cho phép 8443/udp và 8443/tcp trong tường lửa của máy chủ và nhà cung cấp dịch vụ đám mây của bạn.</li>
+<li><b>Tắt chế độ kiểm tra.</b> <b>Test mode</b> (<code>DefaultEnabled</code>) được bật theo mặc định: chỉ quản trị viên hệ thống mới có thể bắt đầu cuộc gọi trong các kênh, để bạn có thể kiểm tra xem cuộc gọi có hoạt động không trước khi mọi người sử dụng. Đặt nó thành <b>Off</b> trong <b>System Console › Plugins › Calls</b>, hoặc đặt <code>AM_CALLS_DEFAULT_ENABLED=true</code>.</li>
+<li><b>Quyết định về video.</b> <b>Enable video calls in DMs (Experimental)</b> (<code>EnableVideo</code>, <code>AM_CALLS_ENABLE_VIDEO</code>) được tắt theo mặc định. Khi nó tắt, không ai có thể bật camera, ngay cả trong kênh thoại. Khi nó bật, camera hoạt động trong cuộc gọi tin nhắn trực tiếp và trong kênh thoại (trừ khi <b>Allow video in voice channels</b> của ứng dụng Voice Channels bị tắt).</li>
+<li><b>Đằng sau NAT, đặt địa chỉ công khai</b> (mục tiếp theo).</li>
+</ol>
+
+<h2 id="network">Cổng, NAT và STUN</h2>
+<table>
+<thead><tr><th>Cài đặt</th><th>Biến</th><th>Mặc định</th></tr></thead>
+<tbody>
+<tr><td><b>RTC Server Port (UDP)</b></td><td><code>AM_CALLS_UDP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>RTC Server Port (TCP)</b></td><td><code>AM_CALLS_TCP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>RTC Server Address (UDP)</b>, <b>(TCP)</b></td><td><code>AM_CALLS_UDP_SERVER_ADDRESS</code>, <code>AM_CALLS_TCP_SERVER_ADDRESS</code></td><td>trống: tất cả các địa chỉ</td></tr>
+<tr><td><b>ICE Host Override</b></td><td><code>AM_CALLS_ICE_HOST_OVERRIDE</code></td><td>trống: tìm thấy thông qua STUN</td></tr>
+<tr><td><b>Định danh lại cổng ICE Host</b></td><td><code>AM_CALLS_ICE_HOST_PORT_OVERRIDE</code></td><td>trống: cổng của máy chủ</td></tr>
+<tr><td><b>Cấu hình máy chủ ICE</b></td><td><code>AM_CALLS_ICE_SERVERS_CONFIGS</code></td><td><code>[{"urls":["stun:stun.cloudflare.com:3478"]}]</code></td></tr>
+<tr><td><b>(Thử nghiệm) Bật hỗ trợ IPv6</b></td><td>(Bảng điều khiển Hệ thống)</td><td>Tắt</td></tr>
+</tbody>
+</table>
+<p>Cổng phải nằm trong khoảng từ 80 đến 49151. Với tệp compose của trang web, hãy thay đổi <code>CALLS_PORT</code> trong <code>.env</code>: nó thiết lập cả hai biến và công bố cổng, cùng một số trên máy chủ và trong container. Máy khách trước tiên thử UDP và chuyển sang TCP trên cùng một cổng.</p>
+<h3>Địa chỉ mà máy khách gửi phương tiện đến</h3>
+<p>Máy chủ thông báo cho mỗi máy khách địa chỉ để gửi phương tiện ("ứng viên host" của nó). Mặc định, nó tìm địa chỉ công khai của mình bằng cách hỏi một máy chủ STUN, một dịch vụ công khai trả lời với địa chỉ và cổng mà yêu cầu đến từ. Mặc định là máy chủ STUN công khai của Cloudflare, <code>stun:stun.cloudflare.com:3478</code>. Máy chủ không phải là người duy nhất sử dụng nó: mỗi máy khách tham gia cuộc gọi cũng hỏi nó để biết địa chỉ công khai của chính mình. Máy chủ STUN chỉ nhìn thấy địa chỉ IP và cổng, không bao giờ nhìn thấy âm thanh, video hoặc tin nhắn của cuộc gọi.</p>
+<p>Một máy chủ vẫn còn lưu máy chủ STUN của Mattermost (<code>stun.global.calls.mattermost.com</code>) trong <b>Cấu hình máy chủ ICE</b>, ví dụ sau khi chuyển từ Mattermost, sẽ sử dụng của Cloudflare thay thế. Cài đặt đã lưu không bị thay đổi.</p>
+<p>Tự đặt địa chỉ khi:</p>
+<ul>
+<li>máy chủ nằm sau NAT, hoặc có nhiều địa chỉ công khai: đặt <b>Định danh lại ICE Host</b> thành địa chỉ IP công khai (hoặc tên máy chủ phân giải đến đó);</li>
+<li>NAT ánh xạ một cổng công khai khác đến 8443: cũng đặt <b>Định danh lại cổng ICE Host</b> thành cổng công khai đó;</li>
+<li>máy chủ không có quyền truy cập Internet, hoặc bạn không muốn máy chủ và máy khách liên hệ với máy chủ STUN bên ngoài: đặt <b>Định danh lại ICE Host</b>, và làm trống danh sách STUN bằng <code>AM_CALLS_ICE_SERVERS_CONFIGS=[]</code>. Khi <b>Định danh lại ICE Host</b> được đặt, máy chủ không còn hỏi máy chủ STUN về địa chỉ của nó nữa; danh sách trống ngăn máy khách hỏi một máy chủ.</li>
+</ul>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ICE_HOST_OVERRIDE: 203.0.113.10
+      AM_CALLS_ICE_SERVERS_CONFIGS: "[]"</code></pre>
+<p>Để giữ STUN mà không có bên thứ ba, hãy chạy máy chủ STUN của riêng bạn (máy chủ TURN như coturn cũng trả lời các yêu cầu STUN) và liệt kê nó trong <b>Cấu hình máy chủ ICE</b> thay thế, như trong ví dụ TURN bên dưới.</p>
+<p>Trên mạng cục bộ, chỉ sử dụng địa chỉ LAN của máy chủ. Khởi động lại máy chủ sau khi thay đổi cổng, địa chỉ hoặc cài đặt ICE, hoặc tắt và bật ứng dụng Calls: máy chủ phương tiện được thiết lập khi ứng dụng khởi động.</p>
+
+<h2 id="turn">TURN, cho tường lửa nghiêm ngặt</h2>
+<p>Một số mạng chặn cả UDP và các kết nối đi ra tới các cổng TCP không phổ biến. Người dùng trên những mạng này cần một máy chủ TURN, có chức năng chuyển tiếp phương tiện (media) qua một cổng mà họ có thể truy cập (thường là 443). Antimatter không đi kèm máy chủ TURN; hãy chạy một máy chủ TURN như coturn và thêm nó vào <b>Cấu hình máy chủ ICE</b>, một danh sách JSON:</p>
+<pre><code>[
+  {"urls": ["stun:turn.example.com:3478"]},
+  {"urls": ["turn:turn.example.com:3478?transport=udp", "turns:turn.example.com:443?transport=tcp"]}
+]</code></pre>
+<ul>
+<li>Khi sử dụng bí mật chung (thông qua <code>use-auth-secret</code> của coturn), hãy đặt cùng một bí mật đó vào <b>Bí mật xác thực tĩnh TURN</b> (<code>AM_CALLS_TURN_STATIC_AUTH_SECRET</code>): máy chủ sẽ cấp cho mỗi client các thông tin xác thực có thời hạn ngắn, có hiệu lực trong <b>Thời hạn thông tin xác thực TURN (phút)</b> (mặc định là 240).</li>
+<li>Khi sử dụng thông tin xác thực cố định, hãy thêm <code>"username"</code> và <code>"credential"</code> vào mục TURN thay thế.</li>
+<li><b>TURN phía máy chủ</b> (mặc định là tắt) cũng sử dụng các máy chủ TURN cho những kết nối do máy chủ khởi tạo.</li>
+</ul>
+
+<h2 id="general">Các cài đặt cuộc gọi khác</h2>
+<table>
+<thead><tr><th>Cài đặt</th><th>Biến</th><th>Mặc định</th><th>Chức năng</th></tr></thead>
+<tbody>
+<tr><td><b>Số lượng người tham gia cuộc gọi tối đa</b></td><td><code>AM_CALLS_MAX_CALL_PARTICIPANTS</code></td><td>0 (không giới hạn)</td><td>Số lượng người tối đa trong một cuộc gọi.</td></tr>
+<tr><td><b>Cho phép chia sẻ màn hình</b></td><td>(Bảng điều khiển Hệ thống)</td><td>on</td><td>Cho phép người tham gia chia sẻ màn hình của họ.</td></tr>
+<tr><td><b>Bật chuông cuộc gọi</b></td><td><code>AM_CALLS_ENABLE_RINGING</code></td><td>on</td><td>Đánh chuông cho những người khác trong tin nhắn trực tiếp hoặc tin nhắn nhóm khi một cuộc gọi bắt đầu ở đó.</td></tr>
+<tr><td><b>Bật simulcast cho chia sẻ màn hình (Thử nghiệm)</b></td><td>(Bảng điều khiển Hệ thống)</td><td>Tắt</td><td>Gửi các bản chia sẻ màn hình ở nhiều mức chất lượng khác nhau.</td></tr>
+<tr><td><b>Bật codec AV1 cho chia sẻ màn hình (Thử nghiệm)</b></td><td>(Bảng điều khiển Hệ thống)</td><td>Tắt</td><td>Bị bỏ qua khi simulcast đang bật.</td></tr>
+</tbody>
+</table>
+<p>Ứng dụng Kênh thoại có hai cài đặt, nằm trong <b>Bảng điều khiển Hệ thống › Các plugin › Kênh thoại</b>: <b>Tham gia khi mở một kênh thoại</b> (mặc định là bật) và <b>Cho phép video trong kênh thoại</b> (mặc định là bật, nhưng hãy xem phần video ở trên). Quản trị viên cộng đồng có thể chuyển một kênh thành kênh thoại trong cài đặt của kênh đó.</p>
+<div class="callout">Để tắt hoàn toàn tính năng cuộc gọi, hãy tắt ứng dụng Calls trong <b>Bảng điều khiển Hệ thống › Các plugin › Quản lý Plugin</b>, hoặc đặt <code>AM_CALLS_DISABLE=true</code>. Khi đó, kênh thoại cũng sẽ ngừng hoạt động.</div>
+
+<h2 id="rtcd">Máy chủ lớn hơn: rtcd bên ngoài</h2>
+<p>Mặc định, một máy chủ Antimatter xử lý toàn bộ phương tiện của cuộc gọi. Với nhiều cuộc gọi đồng thời, hoặc để tách phương tiện khỏi máy chủ trò chuyện, ứng dụng Calls có thể chuyển phương tiện cho <b>rtcd</b>, một máy chủ phương tiện riêng (mã nguồn mở của Mattermost <code>rtcd</code>, phiên bản 0.17 trở lên). Đặt <b>RTCD service URL</b> (<code>AM_CALLS_RTCD_SERVICE_URL</code>), ví dụ <code>https://rtcd.example.com</code>: khi đó tất cả cuộc gọi đều đi qua nó, và máy khách gửi phương tiện của mình đến cổng riêng của rtcd thay vì cổng của Antimatter. Có thể cung cấp thông tin xác thực bằng <code>AM_CALLS_RTCD_CLIENT_ID</code> và <code>AM_CALLS_RTCD_AUTH_KEY</code>; nếu không, ứng dụng sẽ tự đăng ký với rtcd. Không cần giấy phép. Ứng dụng Calls hiển thị cảnh báo cho quản trị viên, khuyến nghị sử dụng rtcd khi máy chủ thường xuyên có hơn 50 người tham gia cuộc gọi cùng lúc.</p>
+
+<h2 id="transcription">Bản chép lời và phụ đề trực tiếp</h2>
+<p>Antimatter có thể chép lời cuộc gọi bằng mô hình chuyển giọng nói thành văn bản do bạn tự chạy, và hiển thị phụ đề trực tiếp trong khi mọi người đang nói. Antimatter sử dụng bất kỳ máy chủ nào cung cấp điểm cuối <code>/v1/audio/transcriptions</code> tương thích với OpenAI, chẳng hạn như một máy chủ Whisper trên mạng của bạn. Không cần dịch vụ bổ sung từ Antimatter.</p>
+<h3>Cách hoạt động</h3>
+<ul>
+<li>Người chủ trì cuộc gọi bắt đầu chép lời bằng cách chọn <b>Chép lời cuộc gọi</b> trong các điều khiển cuộc gọi. Huy hiệu <b>Đang chép lời</b> sẽ thông báo cho tất cả mọi người.</li>
+<li>Ứng dụng của mỗi người tham gia sẽ lắng nghe micro của chính họ, cắt giọng nói thành các đoạn ngắn (tối đa 12 giây, không bao giờ khi đang tắt tiếng) và gửi chúng đến Antimatter, nơi sẽ chuyển tiếp chúng đến máy chủ chuyển giọng nói thành văn bản của bạn.</li>
+<li>Khi bật phụ đề trực tiếp, văn bản của mỗi đoạn sẽ ngay lập tức được hiển thị cho người tham gia dưới dạng phụ đề.</li>
+<li>Khi việc chép lời kết thúc hoặc cuộc gọi kết thúc, bot Calls sẽ đăng bản chép lời dưới dạng tệp văn bản và tệp phụ đề WebVTT vào chủ đề của cuộc gọi (trong kênh thoại, vào kênh).</li>
+<li>Khi bật <b>Tóm tắt bản chép lời</b>, trợ lý mặc định của ứng dụng Agents cũng sẽ đăng một bản tóm tắt vào chủ đề (xem <a href="{{root}}docs/admins/ai.html">AI</a>).</li>
+</ul>
+<figure><img src="{{root}}assets/img/shots/transcript.webp" alt="A call's thread: the Calls bot has posted the transcript as a text file, and an AI agent has posted a summary below it."><figcaption>Sau cuộc gọi, bản chép lời và bản tóm tắt của nó trong chủ đề của cuộc gọi.</figcaption></figure>
+<h3>Cách thiết lập</h3>
+<p>Đặt các tùy chọn sau trên dịch vụ <code>antimatter</code>:</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ENABLE_TRANSCRIPTIONS: "true"
+      AM_CALLS_TRANSCRIBE_API: openai
+      AM_CALLS_TRANSCRIBE_API_OPEN_AIURL: http://stt.internal:8000/v1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL: whisper-1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY: ""
+      AM_CALLS_ENABLE_LIVE_CAPTIONS: "true"
+      AM_CALLS_LIVE_CAPTIONS_LANGUAGE: en</code></pre>
+<table>
+<thead><tr><th>Cài đặt</th><th>Biến</th><th>Nội dung cần nhập</th></tr></thead>
+<tbody>
+<tr><td><b>Bật chép lời cuộc gọi (Beta)</b></td><td><code>AM_CALLS_ENABLE_TRANSCRIPTIONS</code></td><td><code>true</code></td></tr>
+<tr><td><b>API chép lời cuộc gọi</b></td><td><code>AM_CALLS_TRANSCRIBE_API</code></td><td><code>openai</code> (hiển thị là "OpenAI-compatible API (no job service)")</td></tr>
+<tr><td><b>URL API chuyển giọng nói thành văn bản</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AIURL</code></td><td>URL gốc của API, bao gồm cả <code>/v1</code>.</td></tr>
+<tr><td><b>Mô hình chuyển giọng nói thành văn bản</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL</code></td><td>Tên mô hình theo cách API biết, ví dụ <code>whisper-1</code>. Bắt buộc.</td></tr>
+<tr><td><b>Khóa API chuyển giọng nói thành văn bản</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY</code></td><td>Được gửi dưới dạng token bearer. Để trống nếu API không yêu cầu.</td></tr>
+<tr><td><b>Bật phụ đề trực tiếp (Beta)</b></td><td><code>AM_CALLS_ENABLE_LIVE_CAPTIONS</code></td><td><code>true</code> để bật phụ đề trực tiếp trong cuộc gọi.</td></tr>
+<tr><td><b>Ngôn ngữ phụ đề trực tiếp</b></td><td><code>AM_CALLS_LIVE_CAPTIONS_LANGUAGE</code></td><td>Ngôn ngữ được nói, dưới dạng mã hai chữ cái (mặc định là <code>en</code>). Mã này cũng được gửi đến API chuyển giọng nói thành văn bản cho bản chép lời, vì vậy hãy đặt nó ngay cả khi không bật phụ đề.</td></tr>
+<tr><td><b>Tóm tắt bản chép lời</b></td><td><code>AM_CALLS_SUMMARIZE_TRANSCRIPTIONS</code></td><td><code>true</code> để tạo bản tóm tắt bằng AI sau cuộc gọi.</td></tr>
+</tbody>
+</table>
+<div class="callout">Trong Bảng điều khiển Hệ thống, các cài đặt bản chép lời chỉ hiển thị khi <b>Bật bản ghi cuộc gọi</b> được bật, mặc dù loại bản chép lời này không cần bản ghi. Việc đặt các cài đặt bằng các biến ở trên giúp tránh điều này. Không bật bản ghi cùng với trình chuyển giọng nói thành văn bản <code>openai</code>: khi đó, việc bắt đầu bản ghi sẽ cố gắng khởi động trình chuyển giọng nói thành văn bản của dịch vụ tác vụ và thất bại.</div>
+<p>Âm thanh của tất cả những người nói khi bản chép lời đang bật sẽ được gửi đến máy chủ chuyển giọng nói thành văn bản mà bạn đã cấu hình, và bản chép lời sẽ được đăng ở nơi mọi người trong kênh có thể đọc. Hãy thông báo cho người dùng của bạn và giữ máy chủ đó trong mạng nội bộ của bạn nếu các cuộc gọi là bí mật.</p>
+
+<h2 id="recordings">Bản ghi</h2>
+<p>Ghi âm các cuộc gọi (và chuyển văn bản bằng trình chuyển văn bản tích hợp <code>whisper.cpp</code> hoặc Azure) được thực hiện trong các container riêng biệt do dịch vụ tác vụ khởi động, cụ thể là <code>calls-offloader</code> mã nguồn mở của Mattermost, mà bạn tự triển khai bên cạnh Antimatter. Các cài đặt bao gồm <b>Bật ghi âm cuộc gọi</b> (<code>AM_CALLS_ENABLE_RECORDINGS</code>, tắt mặc định), <b>URL dịch vụ tác vụ</b> (<code>AM_CALLS_JOB_SERVICE_URL</code>), <b>Thời lượng ghi âm cuộc gọi tối đa</b> (mặc định 60 phút, từ 15 đến 180) và <b>Chất lượng ghi âm cuộc gọi</b> (thấp, trung bình hoặc cao; mặc định là trung bình). Không cần giấy phép. Nếu chỉ cần bản chép lời và phụ đề, cấu hình chuyển giọng nói thành văn bản ở trên sẽ đơn giản hơn: nó không yêu cầu dịch vụ tác vụ.</p>

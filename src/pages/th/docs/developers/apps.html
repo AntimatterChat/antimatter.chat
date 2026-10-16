@@ -1,0 +1,313 @@
+title: การเขียนแอป (ปลั๊กอิน)
+description: วิธีเขียนแอป (ปลั๊กอิน) สำหรับ Antimatter: โครงสร้างของ bundle และ plugin.json, server hooks และ API, registry ของ web app, การรองรับอินเทอร์เฟซ Fusion, การตั้งค่า, key-value store, การแปลภาษา, การแพ็กเกจและการติดตั้ง
+guide: developers
+order: 6
+nav: การเขียนแอป
+lead: แอปเพิ่มฟีเจอร์ให้กับ Antimatter จากภายใน: ส่วนเซิร์ฟเวอร์ใน Go ที่เชื่อมต่อเข้ากับเซิร์ฟเวอร์ และส่วน web app ใน React ที่เพิ่มเมนู, แผง, ประเภทข้อความ และหน้าต่างๆ หน้านี้แสดงว่าแอปมีโครงสร้างอย่างไร โดยใช้แอป Polls ที่มากับระบบเป็นตัวอย่าง และสิ่งที่จะเปลี่ยนแปลงในอินเทอร์เฟซ Fusion ของ Antimatter
+source: d9c132cac759
+---
+<h2 id="overview">การทำงานของแอป</h2>
+<ul>
+<li><b>ส่วนเซิร์ฟเวอร์</b> เป็นโปรแกรม Go เซิร์ฟเวอร์จะรันมันเป็นกระบวนการแยกต่างหากและสื่อสารกันผ่าน RPC: เซิร์ฟเวอร์เรียก <b>hooks</b> ของแอป (เช่น กำลังจะโพสต์ข้อความ, รันคำสั่งแล้ว…), และแอปเรียก <b>plugin API</b> ของเซิร์ฟเวอร์ (สร้างโพสต์, อ่านผู้ใช้, บันทึกละดับข้อมูล…) นอกจากนี้ยังสามารถให้บริการ HTTP routes ภายใต้ <code>/plugins/&lt;app id&gt;/</code> ได้ด้วย</li>
+<li><b>ส่วน web app</b> เป็น JavaScript bundle ที่โหลดเข้าเบราว์เซอร์พร้อมกับ web app มันจะลงทะเบียน React components และ callbacks กับ <b>registry</b>: ปุ่มในเมนู, แผง, หรือวิธีวาดประเภทข้อความ</li>
+<li>แต่ละส่วนเป็นตัวเลือก (optional) แอปจะถูกติดตั้งเป็น bundle รูปแบบ <code>.tar.gz</code> และผู้ดูแลระบบจะเป็นผู้เปิดใช้งาน, ปิดใช้งาน และตั้งค่า</li>
+</ul>
+<div class="callout warn">ส่วนเซิร์ฟเวอร์ทำงานด้วยการเข้าถึงข้อมูลของเซิร์ฟเวอร์อย่างเต็มที่ ควรจัดการกับแอปเสมือนเป็นโค้ดที่คุณ deploy ไปยังเซิร์ฟเวอร์</div>
+<p>Antimatter รันแอปที่เขียนสำหรับ Mattermost และในทางกลับกันได้ ตราบใดที่แอปใช้เฉพาะ hooks ที่ทั้งสองระบบมี ดู <a href="#antimatter-hooks">Hooks ที่มีเฉพาะใน Antimatter</a></p>
+
+<h2 id="layout">โครงสร้างของ bundle</h2>
+<p>ไม่มี starter template แยกต่างหาก: เริ่มต้นจากแอปขนาดเล็กที่มากับระบบ เช่น <a href="https://github.com/AntimatterChat/antimatter-plugin-polls">antimatter-plugin-polls</a> หรือ <a href="https://github.com/AntimatterChat/antimatter-plugin-todo">antimatter-plugin-todo</a> จากนั้นเปลี่ยน ID และโค้ดของมัน Polls มีโครงสร้างดังนี้:</p>
+<pre><code>antimatter-plugin-polls/
+├── plugin.json            the manifest
+├── Makefile               build, test, bundle, deploy
+├── build/                 the manifest and pluginctl helper tools (Go), setup.mk
+├── assets/icon.svg        files shipped with the bundle
+├── go.mod
+├── server/
+│   ├── main.go            plugin.ClientMain(&amp;Plugin{})
+│   ├── plugin.go          the Plugin type, OnActivate, ServeHTTP
+│   ├── manifest.go        generated from plugin.json
+│   ├── api.go, command.go, hooks.go, store.go …
+│   └── dist/              compiled binaries, one per platform
+└── webapp/
+    ├── package.json, webpack.config.js, tsconfig.json
+    ├── i18n/              en.json and one file per language
+    ├── src/index.tsx      registers the app with the web app
+    ├── src/manifest.ts    generated from plugin.json
+    ├── src/translations.ts
+    └── dist/main.js       the bundle</code></pre>
+<p>ตัวเลือก (Optional): โฟลเดอร์ <code>public/</code> ซึ่งจะถูกให้บริการตามนั้นที่ <code>/plugins/&lt;app id&gt;/public/</code></p>
+
+<h2 id="manifest">plugin.json</h2>
+<pre><code>{
+  "id": "com.example.weather",
+  "name": "Weather",
+  "description": "Forecasts in the chat.",
+  "homepage_url": "https://github.com/example/weather",
+  "support_url": "https://github.com/example/weather/issues",
+  "icon_path": "assets/icon.svg",
+  "version": "1.0.0",
+  "min_server_version": "12.0.0",
+  "server": {
+    "executables": {
+      "linux-amd64": "server/dist/plugin-linux-amd64",
+      "linux-arm64": "server/dist/plugin-linux-arm64",
+      "darwin-amd64": "server/dist/plugin-darwin-amd64",
+      "darwin-arm64": "server/dist/plugin-darwin-arm64",
+      "windows-amd64": "server/dist/plugin-windows-amd64.exe"
+    }
+  },
+  "webapp": {"bundle_path": "webapp/dist/main.js"},
+  "settings_schema": {"settings": []}
+}</code></pre>
+<ul>
+<li><code>id</code>: ต้องไม่ซ้ำกันและคงที่; โดยทั่วไปจะใช้ชื่อโดเมนแบบกลับ (reverse domain name) มันจะเป็นชื่อของ routes, การตั้งค่าที่บันทึกไว้ และ WebSocket events</li>
+<li><code>version</code>: semantic version แอปที่มากับระบบจะไม่ระบุใน <code>plugin.json</code>; เครื่องมือ build ของพวกมันจะดึงค่าจาก git tag <code>v*</code> ล่าสุด</li>
+<li><code>min_server_version</code>: Antimatter รายงานค่าเป็น <code>12.0.0</code></li>
+<li><code>settings_schema</code>: หน้่าการตั้่งค่าของแอปในคอนโซลระบบ (ดู <a href="#settings">การตั้่งค่า</a>).</li>
+</ul>
+<p><code>make apply</code> จะคัดลอก manifest ไปยัง <code>server/manifest.go</code> และ <code>webapp/src/manifest.ts</code>; <code>make manifest-check</code> ใช้เพื่อยืนยันความถูกต้องของ manifest</p>
+
+<h2 id="server">ส่วนเซิร์ฟเวอร์</h2>
+<p>ส่วนเซิร์ฟเวอร์จะนำโมดูล Go เดียวกันกับแอป Mattermost คือ <code>github.com/mattermost/mattermost/server/public</code> มาจาก Go module proxy โดย <code>main</code> ของมันจะทำหน้าที่เริ่มแอปเท่านั้น:</p>
+<pre><code>package main
+
+import "github.com/mattermost/mattermost/server/public/plugin"
+
+func main() {
+	plugin.ClientMain(&amp;Plugin{})
+}</code></pre>
+<p>ประเภท <code>Plugin</code> ฝัง <code>plugin.MattermostPlugin</code> ไว้ ซึ่งทำให้มี <code>p.API</code> พร้อมใช้งาน และอิมพลีเมนต์ฮุคท่ีตองการ:</p>
+<pre><code>type Plugin struct {
+	plugin.MattermostPlugin
+	router *mux.Router
+}
+
+func (p *Plugin) OnActivate() error {
+	p.router = p.newRouter()
+	return p.API.RegisterCommand(&amp;model.Command{
+		Trigger:          "weather",
+		AutoComplete:     true,
+		AutoCompleteDesc: "Show the forecast",
+		AutoCompleteHint: "[city]",
+	})
+}
+
+func (p *Plugin) ExecuteCommand(c *plugin.Context, args *model.CommandArgs) (*model.CommandResponse, *model.AppError) {
+	city := strings.TrimSpace(strings.TrimPrefix(args.Command, "/weather"))
+	return &amp;model.CommandResponse{
+		ResponseType: model.CommandResponseTypeEphemeral,
+		Text:         "Forecast for " + city + ": sunny",
+	}, nil
+}
+
+func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Request) {
+	p.router.ServeHTTP(w, r)
+}</code></pre>
+<h3>ฮุคท่ีใช้บ่่อย</h3>
+<table>
+<thead><tr><th>ฮุค</th><th>เมื่อกำลังรัน</th></tr></thead>
+<tbody>
+<tr><td><code>OnActivate</code>, <code>OnDeactivate</code></td><td>เมื่อบริการแอปถูกเปิดหรือปิด และเมื่อเซิร์ฟเวอร์เริ่มและหยุดทำงาน จดทะเบียนคำสั่งและบอทใน <code>OnActivate</code></td></tr>
+<tr><td><code>OnConfigurationChange</code></td><td>เมื่อการตั้งค่ามีการเปลี่ยนแปลง ให้โหลดค่าเหล่านั้นด้วย <code>p.API.LoadPluginConfiguration(&amp;cfg)</code></td></tr>
+<tr><td><code>ServeHTTP</code></td><td>คำขอไปยัง <code>/plugins/&lt;app id&gt;/…</code> เซิร์ฟเวอร์จะตั้งค่าหัว <code>Mattermost-User-Id</code> เมื่อคำขอมาจากผู้ใช้ที่เข้าสู่ระบบแล้ว; ปฏิเสธคำขอที่ไม่มีค่าหัวนี้ เว้นแต่คำขอนั้นจะตั้งใจให้เป็นสาธารณะ</td></tr>
+<tr><td><code>ExecuteCommand</code></td><td>คำสั่งท่ีแอปได้นิยามไว้ถูกรันแล้ว</td></tr>
+<tr><td><code>MessageWillBePosted</code>, <code>MessageWillBeUpdated</code></td><td>ก่อนท่ีข้อความจะถกเก็บ: กลับข้อความท่ีเปล่ียนแล้ว หรือกลับเหตผลท่ีจะปัดถอย</td></tr>
+<tr><td><code>MessageHasBeenPosted</code>, <code>MessageHasBeenUpdated</code>, <code>MessageHasBeenDeleted</code></td><td>ภายหลัง เพื่อกำหนดผลข้างเคียง</td></tr>
+<tr><td><code>ReactionHasBeenAdded</code>, <code>ReactionHasBeenRemoved</code></td><td>รีแอคชัน</td></tr>
+<tr><td><code>UserHasJoinedChannel</code>, <code>UserHasLeftChannel</code>, <code>UserHasJoinedTeam</code>, <code>UserHasLeftTeam</code>, <code>ChannelHasBeenCreated</code></td><td>การเปลี่่ยนแปลงสมาชิกและช่อง ทีมคือชุมชน</td></tr>
+<tr><td><code>FileWillBeUploaded</code></td><td>ก่อนท่ีไฟล์จะถูกเก็บ: แก้ไขหรือปัดถอย</td></tr>
+<tr><td><code>OnPluginClusterEvent</code></td><td>ข้อความจากแอปเดีียวกันบนเซิร์ฟเวอร์อื่่นในคลัสเตอร์</td></tr>
+</tbody>
+</table>
+<p>รายชื่อบุคคลิกทั้งหมดพร้อมลายเซ็นที่แน่นอนอยู่ใน <code>server/public/plugin/hooks.go</code> ส่วน API อยู่ใน <code>server/public/plugin/api.go</code> แพ็กเกจ <code>pluginapi</code> (<code>server/public/pluginapi</code>) จะห่อหุ้ม API ไว้ในฟังก์ชันช่วยที่ใช้งานง่ายกว่า</p>
+<h3>คำสั่ง API ท่ีมีประโยชน์</h3>
+<ul>
+<li><code>CreatePost</code>, <code>UpdatePost</code>, <code>SendEphemeralPost</code>: โพสต์ในนามบอทของแอปหรือในนามผู้ใช้งาน</li>
+<li><code>EnsureBotUser(&amp;model.Bot{Username, DisplayName})</code>: สร้างบอทของแอปเพียงครั้งเดียวและรับ ID ของมัน</li>
+<li><code>PublishWebSocketEvent("poll_updated", payload, &amp;model.WebsocketBroadcast{ChannelId: id})</code>: ส่งเหตุการณ์ไปยังแอปบนเว็บ ซึ่งจะได้รับเป็น <code>custom_&lt;app id&gt;_poll_updated</code></li>
+<li><code>OpenInteractiveDialog</code>: เปิด<a href="{{root}}docs/developers/bots.html#dialogs">ไดอะล็อก</a>.</li>
+<li><code>LogInfo</code>, <code>LogError</code> และฟังก์ชันอื่น ๆ: เขียนลงล็อกของเซิร์ฟเวอร์ พร้อมติดแท็กด้วย ID ของแอป</li>
+<li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: ตรวจสอบสิทธิ์ว่าผู้ใช้สามารถทำอะไรได้บ้างก่อนดำเนินการแทนผู้ใช้</li>
+</ul>
+<p>แอปจะทำงานบนเซิร์ฟเวอร์ทุกตัวในคลัสเตอร์ เก็บสถานะไว้ใน key-value store หรือฐานข้อมูลเท่านั้น ไม่ใช่เก็บไว้ในหน่วยความจำอย่างเดียว</p>
+
+<h2 id="kv">การเก็บข้อมูล</h2>
+<p>แต่ละแอปมี key-value store เป็นของตัวเองในฐานข้อมูลของเซิร์ฟเวอร์:</p>
+<ul>
+<li><code>KVSet(key, value)</code>, <code>KVGet(key)</code>, <code>KVDelete(key)</code>: ค่าเป็น bytes โดยปกติจะเป็น JSON คีย์ยาวได้ไม่เกิน 150 ตัวอักษร</li>
+<li><code>KVSetWithExpiry(key, value, seconds)</code>: ค่าจะหายไปหลังจากเวลาผ่านไปเท่านั้น</li>
+<li><code>KVCompareAndSet(key, old, new)</code> และ <code>KVSetWithOptions</code> ที่ใช้ <code>Atomic</code>: การอัปเดตที่ปลอดภัยเมื่อมีคำขอหรือเซิร์ฟเวอร์หลายตัวเขียนคีย์เดียวกัน Polls ใช้วิธีนี้บันทึกคะแนนโหวตทุกครั้ง และลองใหม่เมื่อเกิดการชนกัน</li>
+<li><code>KVList(page, perPage)</code>: คีย์ทีละหน้า</li>
+</ul>
+
+<h2 id="webapp">ส่วนแอปเว็บ</h2>
+<p>bundle จะลงทะเบียนคลาสกับ <code>window.registerPlugin</code> โดย <code>initialize</code> จะได้รับ registry และ Redux store:</p>
+<pre><code>import manifest from './manifest';
+
+class Plugin {
+    initialize(registry, store) {
+        registry.registerTranslations((locale) =&gt; translationsFor(locale));
+        registry.registerPostTypeComponent('custom_poll', PollPost);
+        registry.registerWebSocketEventHandler(`custom_${manifest.id}_poll_updated`, (msg) =&gt; {
+            store.dispatch(pollUpdated(JSON.parse(msg.data.poll)));
+        });
+        registry.registerReconnectHandler(() =&gt; store.dispatch(reloadPolls()));
+    }
+}
+
+window.registerPlugin(manifest.id, new Plugin());</code></pre>
+<ul>
+<li><b>ไลบรารีที่ใช้ร่วมกัน.</b> แอปเว็บจัดเตรียม React, ReactDOM, Redux, React Redux และ React Intl ให้: ระบุรายการเหล่านี้เป็น webpack <code>externals</code> (<code>React</code>, <code>ReactDOM</code>, <code>Redux</code>, <code>ReactRedux</code>, <code>ReactIntl</code>) แทนที่จะรวมสำเนาของตัวเองใน bundle ดู <code>webpack.config.js</code> ของ Polls</li>
+<li><b>การเรียกส่วนเซิร์ฟเวอร์ของคุณ.</b> ใช้ Fetch กับ <code>${window.basename}/plugins/&lt;app id&gt;/…</code> พร้อมตัวเลือกจาก <code>Client4.getOptions()</code> (จาก <code>mattermost-redux/client</code>): ตัวเลือกเหล่านี้จะนำ header ที่เซิร์ฟเวอร์ต้องการเพื่อรับคำขอจากเบราว์เซอร์ไปด้วย</li>
+<li><b>สถานะของคุณเอง.</b> <code>registerReducer</code> เพิ่ม reducer ซึ่งจะถูกเก็บไว้ภายใต้ <code>state['plugins-&lt;app id&gt;']</code></li>
+<li><b>ประเภท.</b> วิธีการของ registry เพิ่มเติมของ Antimatter ไม่มีอยู่ใน types ที่ Mattermost เผยแพร่: Polls ประกาศ registry ที่ใช้ไว้ใน <code>webapp/src/types/host.ts</code></li>
+</ul>
+<p>วิธีการของ registry และพารามิเตอร์ของมันได้รับการบันทึกไว้ในโค้ด ที่ <code>webapp/fusion/src/plugins/registry.ts</code> (Fusion) และ <code>webapp/channels/src/plugins/registry.ts</code> (classic)</p>
+
+<h2 id="fusion">การรองรับอินเทอร์เฟซ Fusion</h2>
+<p>Antimatter มีอินเทอร์เฟซเว็บสองแบบ: Fusion ซึ่งเป็นค่าเริ่มต้น และแบบ classic ทั้งสองแบบโหลด bundle ของแอปเดียวกันและมี registry เดียวกัน แต่ Fusion จะวาดหลายสิ่งด้วยตัวเองและจัดวางคอมโพเนนต์ของปลั๊กอินในแบบของมัน ทดสอบแอปของคุณในทั้งสองอินเทอร์เฟซ</p>
+<h3>การตรวจจับอินเทอร์เฟซ</h3>
+<p>ก่อนที่แอปใดจะโหลด อินเทอร์เฟซทั้งสองจะตั้งค่า <code>window.antimatterWebUI</code> เป็น <code>'fusion'</code> หรือ <code>'classic'</code> และตั้งค่าเดียวกันบนองค์ประกอบรากของหน้าเว็บเป็น <code>data-am-web-ui</code> ใน Mattermost จะไม่มีการตั้งค่าใด ๆ</p>
+<pre><code>export function isFusionUI(): boolean {
+    return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
+}</code></pre>
+<p>แอปที่รวมมาใช้งานสิ่งนี้เพื่อวาดรูปแบบที่แตกต่างกัน โพล์จะวาดการ์ดโพล์และกล่องโต้ตอบสำหรับสร้างโพล์ในสไตล์ของ Fusion และเปิดกล่องโต้ตอบของตัวเองสำหรับ <code>/poll</code> ใน Fusion การโทรและช่องเสียงจะละเว้นแถบด้านข้างและองค์ประกอบ toast ที่ Fusion แทนที่ด้วยอินเทอร์เฟซการโทรของตัวเอง แอปเอเจนต์จะวางการกระทำ AI ของมันในเมนูย่อยของเมนูข้อความแทนที่จะเป็นแถบเครื่องมือเมื่อชี้เมาส์ คลาส CSS ของ Fusion เอง (ที่มีคำนำหน้า <code>am-</code>) และเลเยอร์กล่องโต้ตอบ (องค์ประกอบ <code>am-layer</code>) คือสิ่งที่แอปเหล่านี้ใช้เพื่อจับคู่กับอินเทอร์เฟซ; พวกมันไม่ใช่ API ที่ได้รับการบันทึกและมีความเสถียร</p>
+<h3>ตำแหน่งที่ Fusion แสดงองค์ประกอบของปลั๊กอิน</h3>
+<table>
+<thead><tr><th>วิธีการลงทะเบียน</th><th>ตำแหน่งที่ปรากฏใน Fusion</th></tr></thead>
+<tbody>
+<tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>รางแอป (app rail) คอลัมน์ของไอคอนที่ขอบด้านขวา ระหว่างโปรไฟล์ของคุณกับปุ่ม <b>เกี่ยวกับ Antimatter</b> ปุ่มในหัวช่องก็ไปอยู่ที่นั่นด้วย ไม่ใช่ในหัวช่อง จะถูกซ่อนเมื่อผู้ดูแลระบบเปิดใช้งาน <b>ปิดใช้งานแถบแอป</b> (<code>ExperimentalSettings.DisableAppBar</code>, ปิดไว้โดยค่าเริ่มต้น)</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>แผงด้านขวา ผู้ใช้สามารถปรับขนาดได้โดยลากขอบของมัน หากแอปนั้นยังเป็นผลิตภัณฑ์ แผงนี้จะเสนอ <b>เปิดเป็นหน้าเต็ม</b></td></tr>
+<tr><td><code>registerChannelHeaderIcon</code></td><td>ไอคอนในหัวช่อง หลังปุ่มการโทร; บนโทรศัพท์ อยู่ในเมนู <b>เพิ่มเติม</b> ของหัวช่อง</td></tr>
+<tr><td><code>registerCallButtonAction</code></td><td>ปุ่มการโทรในหัวช่อง; ผู้ให้บริการหลายรายใช้เมนู <b>วิธีโทรอื่น</b> ร่วมกัน</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>เมนู <b>การดำเนินการเพิ่มเติม</b> (⋯) ของข้อความ ในเมนูย่อย <b>การดำเนินการข้อความ</b>; รวมถึงในเมนู <b>การดำเนินการกับเธรด</b> ของแผงเธรด ภายใต้ <b>การดำเนินการเพิ่มเติม</b></td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>เมนูย่อยของตัวเองของเมนูเหล่านี้ พร้อมชื่อและไอคอนของแอป</td></tr>
+<tr><td><code>registerPostActionComponent</code></td><td>แถบเครื่องมือเมื่อชี้เมาส์ที่ข้อความ ก่อนปุ่ม ⋯</td></tr>
+<tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>ตัวข้อความเอง: เนื้อหา ใต้ข้อความ หลังเวลา และแทนที่การพรีวิวลิงก์</td></tr>
+<tr><td><code>registerChannelHeaderMenuAction</code></td><td>เมนู <b>ตัวเลือกช่อง</b> ของช่อง (⋯ บนช่องในแถบด้านข้าง หรือคลิกขวา) เป็นรายการที่มีไอคอนปลั๊ก</td></tr>
+<tr><td><code>registerMainMenuAction</code></td><td>เมนูชุมชน (ชื่อชุมชนที่ด้านบนของรายการช่อง) ภายใต้ <b>การดำเนินการเพิ่มเติม</b> จัดกลุ่มตามแอป</td></tr>
+<tr><td><code>registerSidebarBrowseOrAddChannelMenuAction</code></td><td>เมนูชุมชน หลัง <b>สร้างช่อง</b> และ <b>สร้างหมวดหมู่</b></td></tr>
+<tr><td><code>registerFileUploadMethod</code></td><td>เมนู <b>+</b> ของช่องพิมพ์ (<b>เพิ่มในข้อความ</b>) หลัง <b>อัปโหลดไฟล์</b></td></tr>
+<tr><td><code>registerPostEditorActionComponent</code></td><td>แถบการจัดรูปแบบของช่องพิมพ์ เมื่อมีการแสดงการจัดรูปแบบ</td></tr>
+<tr><td><code>registerAIActionMenuItemComponent</code></td><td>เมนู <b>AI</b> ของช่องพิมพ์</td></tr>
+<tr><td><code>registerFileDropdownMenuAction</code>, <code>registerFilePreviewComponent</code></td><td>เมนูตัวเลือกของไฟล์ และพรีวิวไฟล์</td></tr>
+<tr><td><code>registerUserSettings</code></td><td><b>โปรไฟล์และการตั้งค่า</b> แท็บหนึ่งแท็บต่อแอปภายใต้หัวข้อ <b>ปลั๊กอิน</b></td></tr>
+<tr><td><code>registerChannelSettingsTab</code></td><td>กล่องโต้ตอบการตั้งค่าช่อง ภายใต้หัวข้อ <b>แอป</b></td></tr>
+<tr><td><code>registerPopoverUserAttributesComponent</code>, <code>registerPopoverUserActionsComponent</code></td><td>การ์ดโปรไฟล์ที่แสดงเมื่อคุณคลิกที่ชื่อหรืออวตาร</td></tr>
+<tr><td><code>registerLeftSidebarHeaderComponent</code>, <code>registerSidebarChannelLinkLabelComponent</code>, <code>registerChannelIconOverride</code>, <code>registerBottomTeamSidebarComponent</code></td><td>ส่วนบนของรายการช่องของชุมชน ข้างชื่อช่อง ไอคอนของช่อง และส่วนล่างของแถบด้านซ้ายของชุมชน</td></tr>
+<tr><td><code>registerChannelIntro</code>, <code>registerChannelIntroButtonAction</code>, <code>registerChannelToastComponent</code>, <code>registerNewMessagesSeparatorActionComponent</code>, <code>registerChannelComposerBannerComponent</code>, <code>registerComposerPlaceholder</code></td><td>จุดเริ่มต้นของประวัติช่อง ส่วนบนของรายการข้อความ เส้นข้อมีการแจ้งเตือนว่ายังไม่ได้อ่าน ข้างบนของกล่องพิมพ์ข้อความ และข้อความในกล่องพิมพ์ข้อความ</td></tr>
+<tr><td><code>registerChannelTypeOption</code></td><td>ประเภทของช่องในไดอะล็อก <b>สร้างช่อง</b></td></tr>
+<tr><td><code>registerSearchComponents</code></td><td>กล่องค้นหาในหัวของช่อง: ขอบเขตของแอปจะปรากฏเมื่อบoxยังไม่มีข้อมู</td></tr>
+<tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>เกี่ยวกับ Antimatter</b> (ส่วนล่างของแถบด้านข้างของแอป) ใต้ <b>ความช่่วยเหลื่อ</b></td></tr>
+<tr><td><code>registerProduct</code></td><td>หน้าเต็มท่ี URL ของผลิตภัณฑ์ ท่ีปรากฏในรายการใต้ <b>ผลิตภัณฑ์</b> ใน <b>เกี่ยวกับ Antimatter</b> หน้าของผลิตภัณฑ์จะคงกรอบหน้าแบบคลาสสิกไว้</td></tr>
+<tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, hooks เชน <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>ทำงานเหมือนในอินเทอร์เฟซแบบคลาสสิก</td></tr>
+<tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>คอนโซลระบบ ท่ีเป็นแบบคลาสสิกในอินเทอร์เฟซทั้งสอง</td></tr>
+</tbody>
+</table>
+<h3>สิ่่งท่ี Fusion ไม่แสดงหรือไม่รัน</h3>
+<ul>
+<li><code>registerPostDropdownMenuComponent</code> (คอมโพเนนต์ในเมนูของข้อความ), <code>registerPostCardTypeComponent</code> (การด์ของข้อความในแผงด้านขวา) และ <code>registerProductSwitcherMenuItem</code> ไม่แสดงในมุมมองหลัของ Fusion ใช้ <code>registerPostDropdownMenuAction</code> แทนตัวแรก</li>
+<li><code>registerMessageWillBeUpdatedHook</code> ไม่รันเมื่อข้อความถูกแก้ไขใน Fusion ตรวจสอบการแก้ไขบนเซิร์ฟเวอร์ด้วย hook <code>MessageWillBeUpdated</code> แทน</li>
+<li><code>registerActionAfterChannelCreation</code> รันเฉพาะจากไดอะล็อกสร้างช่องแบบคลาสสิก ท่ี Fusion เปิดจาก <b>ตัวเลือกเพิ่มเติม…</b> ในไดอะล็อก <b>สร้างช่อง</b> ของมัน</li>
+<li>คอมโพเนนต์ของแถบแอปจะแสดงไม่ว่า <code>supportedProductIds</code> จะเป็นอะไร</li>
+<li>เส้นทางจาก <code>registerNeedsTeamRoute</code> และ <code>registerCustomRoute</code> คงกรอบหน้าแบบคลาสสิกไว้ เชนผลิตภัณฑ์</li>
+</ul>
+
+<h2 id="antimatter-hooks">Hooks ท่ี Antimatter มีเพีง</h2>
+<p>เมธอดใน registry เหล่านีไ่ม่มีใน Mattermost ตรวจสอบว่าเมธอดมีอยู่ก่อนเรียกใช้ เพื่อให้แอปทำงานได้ท่ีนั่นด้วย:</p>
+<pre><code>if (typeof registry.registerComposerMenuItem === 'function') {
+    registry.registerComposerMenuItem({
+        text: 'Create a poll',
+        icon: &lt;i className='icon icon-chart-bar'/&gt;,
+        fusionIcon: 'poll',
+        action: ({channelId, rootId}) =&gt; openPollCreation(channelId, rootId),
+    });
+} else {
+    registry.registerChannelHeaderButtonAction(icon, (channel) =&gt; openPollCreation(channel.id), 'Create a poll', 'Create a poll');
+}</code></pre>
+<table>
+<thead><tr><th>เมธอด</th><th>สิ่่งท่ีเพิ่มเติม</th></tr></thead>
+<tbody>
+<tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>รายการในเมนู <b>+</b> ของกล่องข้อความ ในอินเทอร์เฟซทั้งสอง <code>action</code> จะรับ <code>{channelId, rootId}</code></td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>แท็บของตัวเลือกอิโมจิในกล่องข้อความ เช่น GIF หรือสติกเกอร์ ใน Fusion แท็บที่มีค่า <code>order</code> น้อยกว่า 10 จะแสดงก่อนแท็บ Emoji องค์ประกอบนี้รับ <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> และ <code>isFusion</code></td></tr>
+<tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>แผงที่อยู่ระหว่างส่วนหัวของช่องกับข้อความ สำหรับช่องที่ <code>matcher(state, channel)</code> เลือกไว้ แผงนี้สามารถซ่อนข้อความและช่องพิมพ์ข้อความ (<code>setMessagesVisible</code>) ได้ เช่นเดียวกับที่ช่องเสียงทำ</td></tr>
+<tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>บรรทัดใต้ช่องในแถบด้านข้าง เช่น ผู้คนในสายการโทรของช่องนั้น รับ <code>channel</code></td></tr>
+<tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>เฉพาะ Fusion: รายการในหน้า <b>อินทิเกรชัน</b> อยู่ถัดจากอิโมจิแบบกำหนดเอง แอป GIF จะเพิ่ม GIF และสติกเกอร์แบบกำหนดเองของมันไว้ที่นั่น</td></tr>
+</tbody>
+</table>
+<p><code>fusionIcon</code> ระบุชื่อไอคอนในชุดไอคอนของ Fusion (เช่น <code>poll</code>, <code>sticker</code>, <code>calendar</code> หรือ <code>image</code>; ดู <code>webapp/fusion/src/fusion/components/icon</code>) Fusion จะแสดงไอคอนนี้แทน <code>icon</code> เพื่อให้รายการนี้เข้ากันกับรายการอื่นๆ</p>
+
+<h2 id="settings">การตั้่งค่า</h2>
+<p><code>settings_schema</code> ใน <code>plugin.json</code> อธิบายหน้าของแอปใน <b>คอนโซลระบบ › ปลั๊กอิน</b>:</p>
+<pre><code>"settings_schema": {
+  "header": "Forecasts come from the weather service below.",
+  "settings": [
+    {"key": "ServiceURL", "display_name": "Service URL", "type": "text", "default": "https://api.example.com"},
+    {"key": "Units", "display_name": "Units", "type": "dropdown", "default": "metric",
+     "options": [{"display_name": "Celsius", "value": "metric"}, {"display_name": "Fahrenheit", "value": "imperial"}]},
+    {"key": "EnableAlerts", "display_name": "Severe weather alerts", "type": "bool", "default": false,
+     "help_text": "Post alerts in the channels that follow a city."}
+  ]
+}</code></pre>
+<p>ประเภทของการตั้งค่า: <code>bool</code>, <code>text</code>, <code>longtext</code>, <code>number</code>, <code>dropdown</code>, <code>radio</code>, <code>generated</code> (รหัสผ่านสุ่ม), <code>username</code> และ <code>custom</code> (วาดโดยองค์ประกอบที่ส่วนเว็บแอปลงทะเบียนด้วย <code>registerAdminConsoleCustomSetting</code>) การตั้งค่าสามารถจัดกลุ่มไว้ใน <code>sections</code> ได้</p>
+<p>ส่วนเซิร์ฟเวอร์จะอ่านค่าเหล่านี้เข้าสู่โครงสร้างข้อมูล (struct) ซึ่งฟิลด์จะตรงกับคีย์:</p>
+<pre><code>type configuration struct {
+	ServiceURL   string
+	Units        string
+	EnableAlerts bool
+}
+
+func (p *Plugin) OnConfigurationChange() error {
+	var cfg configuration
+	if err := p.API.LoadPluginConfiguration(&amp;cfg); err != nil {
+		return err
+	}
+	p.setConfiguration(&amp;cfg)
+	return nil
+}</code></pre>
+<p>ผู้ดูแลระบบยังสามารถตั้งค่าเหล่านี้ในไฟล์การตั้งค่า ภายใต้ <code>PluginSettings.Plugins.&lt;app id&gt;</code> โดยใช้คีย์ตัวพิมพ์เล็ก (ดู <a href="{{root}}docs/admins/configuration.html#amctl">คู่มือสำหรับผู้ดูแลระบบ</a>)</p>
+
+<h2 id="translations">การแปลภาษา</h2>
+<p>Antimatter ถูกแปลเป็น 37 ภาษา และแอปที่รวมมาด้วยก็เช่นกัน ส่วนเว็บแอปทำดังนี้:</p>
+<ol>
+<li>เขียนทุกข้อความด้วย React Intl พร้อม ID และข้อความภาษาอังกฤษ: <code>&lt;FormattedMessage id='polls.create' defaultMessage='Create a poll'/&gt;</code> หรือ <code>defineMessages</code> เพิ่มคำนำหน้า ID ด้วยชื่อแอปของคุณ</li>
+<li>ดึงข้อความภาษาอังกฤษออกมาไว้ใน <code>webapp/i18n/en.json</code> (แอปที่รวมมาจะใช้ <code>formatjs extract</code>)</li>
+<li>เพิ่มไฟล์หนึ่งไฟล์ต่อภาษาไว้ข้างเคียง โดยใช้ ID เดียวกัน: <code>fr.json</code>, <code>de.json</code>, <code>pt-BR.json</code>, <code>zh-CN.json</code>…</li>
+<li>ส่งให้เว็บแอป ซึ่งจะถามภาษาของผู้ใช้:
+<pre><code>import fr from '../i18n/fr.json';
+import ptBR from '../i18n/pt-BR.json';
+
+const catalogs = {fr, 'pt-BR': ptBR};
+
+export function translationsFor(locale) {
+    return catalogs[locale] || catalogs[locale.split('-')[0]] || {};
+}
+
+registry.registerTranslations(translationsFor);</code></pre></li>
+</ol>
+<p>หากไม่มีสตริงนั้น ระบบจะถอยกลับไปยัง <code>defaultMessage</code> ภาษาอังกฤษ สำหรับสตริงที่ส่วนเซิร์ฟเวอร์ส่ง (คำตอบของคำสั่ง, ข้อความจากบอท) แพ็กเกจ <code>pluginapi/i18n</code> จะโหลดไฟล์การแปลที่มากับบันเดิล (เช่น <code>assets/i18n</code>) และให้ localizer ในภาษาของผู้ใช้แต่ละคน</p>
+
+<h2 id="build">สร้าง ติดตั้ง และดีบัก</h2>
+<p>คุณต้องมี Go และ Node.js (เวอร์ชันใน <code>.nvmrc</code> ของแอป) ในโฟลเดอร์ของแอป:</p>
+<table>
+<thead><tr><th>คำสั่ง</th><th>สิ่งที่ทำ</th></tr></thead>
+<tbody>
+<tr><td><code>make dist</code></td><td>สร้างส่วนเซิร์ฟเวอร์สำหรับทุกแพลตฟอร์มและส่วนเว็บแอป แล้วเขียนบันเดิลไปยัง <code>dist/&lt;app id&gt;-&lt;version&gt;.tar.gz</code></td></tr>
+<tr><td><code>make test</code></td><td>รันเทสต์ของ Go และ JavaScript</td></tr>
+<tr><td><code>make check-style</code></td><td>ตรวจโค้ด (golangci-lint, ESLint) และตรวจสอบประเภทของ TypeScript</td></tr>
+<tr><td><code>make deploy</code></td><td>สร้าง จากนั้นติดตั้งและเปิดใช้งานบันเดิลบนเซิร์ฟเวอร์</td></tr>
+<tr><td><code>make watch</code>, <code>make deploy-from-watch</code></td><td>คำสั่งแรกสร้างส่วนเว็บแอปใหม่ทุกครั้งที่คุณบันทึก ส่วนคำสั่งที่สองจะรวมสิ่งที่สร้างแล้วและติดตั้งบนเซิร์ฟเวอร์</td></tr>
+<tr><td><code>make enable</code>, <code>make disable</code>, <code>make reset</code></td><td>เปิด ปิด หรือรีสตาร์ทแอปบนเซิร์ฟเวอร์</td></tr>
+<tr><td><code>make logs</code>, <code>make logs-watch</code></td><td>แสดงบรรทัดของแอปในบันทึกของเซิร์ฟเวอร์</td></tr>
+<tr><td><code>make attach</code></td><td>เชื่อมต่อ Delve debugger เข้ากับส่วนเซิร์ฟเวอร์ที่กำลังทำงาน (สร้างด้วย <code>AM_DEBUG=1</code> ก่อน)</td></tr>
+</tbody>
+</table>
+<p><code>make deploy</code> และคำสั่งเซิร์ฟเวอร์อื่น ๆ ใช้ local mode socket เมื่อพบ (<code>/var/tmp/antimatter_local.socket</code> หรือ <code>AM_LOCALSOCKETPATH</code>): รันบนเครื่องของเซิร์ฟเวอร์โดยเปิด local mode ไว้ มิฉะนั้นจะเข้าสู่ระบบไปยังเซิร์ฟเวอร์ที่ระบุโดย <code>MM_SERVICESETTINGS_SITEURL</code> ด้วย <code>AM_ADMIN_TOKEN</code> หรือ <code>AM_ADMIN_USERNAME</code> และ <code>AM_ADMIN_PASSWORD</code> เครื่องมือสร้างยังไม่อ่านชื่อ <code>AM_</code> สำหรับ URL ของไซต์</p>
+<h3>ติดตั้งบันเดิลด้วยตนเอง</h3>
+<ul>
+<li>ผู้ดูแลระบบอนุญาตการอัปโหลดด้วย <code>AM_PLUGINSETTINGS_ENABLEUPLOADS=true</code> (ปิดไว้โดยค่าเริ่มต้น; ไม่มีสวิตช์ในคอนโซลระบบ)</li>
+<li>จากนั้น <b>คอนโซลระบบ › ปลั๊กอิน › การจัดการปลั๊กอิน › อัปโหลดปลั๊กอิน</b> หรือ <code>amctl plugin add weather.tar.gz</code> ตามด้วย <code>amctl plugin enable com.example.weather</code></li>
+<li>หากเซิร์ฟเวอร์เปิด <b>กำหนดให้ปลั๊กอินต้องมีลายเซ็น</b> ไว้ จะยอมรับเฉพาะบันเดิลที่ลงนามด้วยคีย์ที่เชื่อถือเท่านั้น ดู <a href="{{root}}docs/admins/apps.html#other-apps">การติดตั้งแอปอื่น</a></li>
+</ul>
+<div class="callout">สำหรับการวนซ้ำอย่างรวดเร็วบนเซิร์ฟเวอร์สำหรับพัฒนา ตั้ง <code>AM_SERVICESETTINGS_ENABLEDEVELOPER=true</code> บนเซิร์ฟเวอร์: ข้อผิดพลาดจะแสดงรายละเอียดด้วย Makefile ของแอปที่มากับระบบจะสร้างส่วนเซิร์ฟเวอร์สำหรับแพลตฟอร์มของคุณเท่านั้นเมื่อ <code>MM_SERVICESETTINGS_ENABLEDEVELOPER</code> ถูกตั้งใน shell ของคุณ</div>

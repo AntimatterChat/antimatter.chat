@@ -1,0 +1,164 @@
+title: Ang REST API
+description: Ang REST API ng Antimatter: ang base URL, personal access tokens, session tokens at OAuth, ang mga pangunahing resource, pagination, errors, rate limits, ang WebSocket event stream at client libraries.
+guide: developers
+order: 2
+nav: REST API
+lead: Lahat ng ginagawa ng mga Antimatter app ay pumapasa sa iisang HTTP API, kaya maaari ring gawin ng iyong scripts. Inilalarawan ng pahinang ito kung paano mag-authenticate, ang mga resource na madalas mong gagamitin, ang anyo ng mga response at errors, at kung paano sundan ang mga event live sa pamamagitan ng WebSocket.
+source: f4b8c83efdba
+---
+<h2 id="basics">Mga Batayan</h2>
+<ul>
+<li><b>Base URL</b>: <code>https://chat.example.com/api/v4</code>. Ang lahat ng endpoint sa ibaba ay nakabatay dito.</li>
+<li><b>Format</b>: JSON ang pumasok at lumalabas, maliban sa mga file upload (multipart). Ipadala ang <code>Content-Type: application/json</code>.</li>
+<li><b>IDs</b>: bawat object ay may 26-karakter na <code>id</code>. Ang mga oras ay mga millisecond mula sa Unix epoch (<code>create_at</code>, <code>update_at</code>, <code>delete_at</code>; 0 ang ibig sabihin ay "hindi tinanggal").</li>
+<li><b>Ang mga komunidad ay mga team</b>: tinatawag ng API na <code>teams</code>, na may <code>team_id</code>.</li>
+<li><b>Sarili mo</b>: saan man may <code>user_id</code> ang isang path, ang <code>me</code> ay tumutukoy sa user na naka-sign-in, gaya ng <code>GET /users/me</code>.</li>
+</ul>
+<p>Ang buong listahan ng mga endpoint ay nasa code ng server: ang mga route ay nakadagdag sa <code>server/channels/api4/*.go</code> at ang mga type ay nasa <code>server/public/model</code>. Ang OpenAPI description sa <code>api/v4/source</code> folder ng repository ay sumasaklaw sa mga endpoint na pinagmulan mula sa Mattermost, hindi sa mga dagdag ng Antimatter.</p>
+
+<h2 id="auth">Pag-authenticate</h2>
+<p>Kailangan ng bawat request, maliban sa pag-sign in at ilang pampublikong endpoint, ng token sa <code>Authorization</code> header:</p>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" https://chat.example.com/api/v4/users/me</code></pre>
+<p>Tatlong uri ng token ang tinatanggap doon: personal access tokens, session tokens at OAuth access tokens. Tinatanggap din ang <code>Authorization: Token …</code>. Ang mga token sa query string (<code>?access_token=</code>) ay tinatanggap lamang para sa mga OAuth access tokens.</p>
+
+<h3>Personal access tokens (inirerekomenda para sa mga scripts)</h3>
+<p>Ang personal access token ay kumikilos bilang ikaw, hindi nag-e-expire maliban kung bibigyan mo ito ng expiry date, at maaaring i-revoke anumang oras. Ang mga personal access tokens ay naka-off sa default:</p>
+<ol>
+<li>Ipinapalitan ng system admin ang <b>I-enable ang mga Personal Access Tokens</b> sa <b>System Console › Mga Integration › Pamamahala ng Integration</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, <code>AM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS</code>).</li>
+<li>Para sa bawat taong maaaring lumikha ng token, binubuksan ng system admin ang <b>System Console › Pamamahala ng Mga User › Mga User</b>, pumipili ng <b>Pamahalaan ang mga role</b> sa menu ng taong iyon, at tinatagpo ang <b>Payagan ang account na itong lumikha ng mga personal access token</b>. Maaari palaging lumikha ng token ang mga system admin.</li>
+<li>Binubuksan ng taong iyon ang avatar nito sa itaas na kanang sulok, tapos ang <b>Profile &amp; settings › Seguridad</b>. Sa ilalim ng <b>Mga Personal Access Token</b>, inilalawag nito ang layunin ng token at pumipili ng <b>Lumikha ng Token</b>. Ipinapakita lamang isang beses ang token: i-copy ito.</li>
+</ol>
+<p>Gamit ang API: <code>POST /users/{user_id}/tokens</code> na may <code>{"description": "backup script", "expires_at": 0}</code> (ang <code>expires_at</code> ay nasa milliseconds; 0 kung walang expiration). Ang <code>token</code> field ng response ang secret; ang <code>id</code> nito ang gagamitin upang ito ay ma-revoke (<code>POST /users/tokens/revoke</code> na may <code>{"token_id": "…"}</code>). Mula sa command line: <code>amctl token generate &lt;user&gt; &lt;description&gt;</code>.</p>
+<p>Maaaring limitahan ng system admin ang tagal ng validity ng token gamit ang <b>Pinakamataas na Tagal ng Validity ng Personal Access Token (araw)</b> sa parehong pahina ng System Console.</p>
+
+<h3>Mga session token</h3>
+<p>Kapag nag-sign in gamit ang password, may session token na naaalis sa <code>Token</code> response header, ang parehong uri ng session na ginagamit ng mga app:</p>
+<pre><code>curl -i -X POST https://chat.example.com/api/v4/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login_id": "maya", "password": "…"}'</code></pre>
+<p>Magdagdag ng <code>"token": "123456"</code> para sa account na may multi-factor authentication. Ang mga session ay mag-e-expire ayon sa mga setting ng session ng server, at ang login endpoint ay may rate limit (5 requests bawat segundo). Ang <code>POST /users/logout</code> ay nagtatapos ng session.</p>
+<div class="callout">Nag-a-authenticate ang mga browser gamit ang cookie. Ang request na naka-authenticate gamit ang cookie ay dapat magpadala rin ng <code>X-CSRF-Token</code> header para sa anumang bagay maliban sa GET; ang token sa <code>Authorization</code> header ay hindi nangangailangan ng CSRF header.</div>
+
+<h3>Mga OAuth 2.0 app</h3>
+<p>Upang payagan ang mga tao na mag-sign in sa iyong application gamit ang kanilang Antimatter account, i-register ang isang OAuth 2.0 app. Ang Antimatter ang magiging OAuth provider:</p>
+<ol>
+<li>Naka-on ang <b>Paganahin ang OAuth 2.0 Service Provider</b> (<b>System Console › Mga Integration › Pamamahala ng Integration</b>, <code>ServiceSettings.EnableOAuthServiceProvider</code>, naka-on sa default).</li>
+<li>Ang taong may karapatan na pamahalaan ang mga OAuth app (mga system admin sa default) ay binubuksan ang avatar nito, tapos ang <b>Mga Integration › Mga OAuth 2.0 app</b>, at idinadagdag ang app kasama ang mga callback URL nito. Nakakakuha siya ng client ID at client secret.</li>
+<li>Ang iyong application ay nagpapadala ng mga tao sa <code>https://chat.example.com/oauth/authorize</code> gamit ang <code>response_type=code</code>, <code>client_id</code>, <code>redirect_uri</code>, at <code>state</code>. Sinusuportahan ang PKCE gamit ang <code>code_challenge_method=S256</code>.</li>
+<li>Pinagpapalit nito ang code sa <code>POST https://chat.example.com/oauth/access_token</code> (gamit ang <code>grant_type=authorization_code</code>, at pagkatapos ay <code>refresh_token</code> upang ma-renew), at tumatawag sa API gamit ang <code>Authorization: Bearer &lt;access token&gt;</code>.</li>
+</ol>
+<p>Nakikita ng mga tao ang mga app na pinahintulutan nila sa <b>Profile &amp; settings › Seguridad › Mga app na pinahintulutan mo</b>.</p>
+
+<h2 id="resources">Pangunahing mga resource</h2>
+<table>
+<thead><tr><th>Ano</th><th>Mga Endpoint</th></tr></thead>
+<tbody>
+<tr><td>Ikaw at iba pang tao</td><td><code>GET /users/me</code>, <code>GET /users/{user_id}</code>, <code>GET /users/username/{username}</code>, <code>POST /users/ids</code> (isang listahan ng mga ID), <code>POST /users/search</code>, <code>GET /users?in_team=…&amp;in_channel=…</code></td></tr>
+<tr><td>Mga komunidad</td><td><code>GET /users/me/teams</code>, <code>GET /teams/{team_id}</code>, <code>GET /teams/name/{name}</code>, <code>PUT /teams/{team_id}/patch</code>, <code>GET /teams/{team_id}/members</code>, <code>POST /teams/{team_id}/members</code></td></tr>
+<tr><td>Mga Channel</td><td><code>GET /users/me/teams/{team_id}/channels</code>, <code>GET /teams/name/{team}/channels/name/{channel}</code>, <code>POST /channels</code>, <code>POST /channels/direct</code> (dalawang user ID), <code>POST /channels/group</code>, <code>POST /channels/{channel_id}/members</code></td></tr>
+<tr><td>Mga mensahe (posts)</td><td><code>POST /posts</code>, <code>GET /posts/{post_id}</code>, <code>PUT /posts/{post_id}/patch</code>, <code>DELETE /posts/{post_id}</code>, <code>GET /channels/{channel_id}/posts</code>, <code>GET /posts/{post_id}/thread</code>, <code>POST /teams/{team_id}/posts/search</code></td></tr>
+<tr><td>Mga Reaksyon</td><td><code>POST /reactions</code> gamit ang <code>{"user_id", "post_id", "emoji_name"}</code>, <code>DELETE /users/{user_id}/posts/{post_id}/reactions/{emoji_name}</code></td></tr>
+<tr><td>Mga file</td><td><code>POST /files</code> (multipart: <code>channel_id</code> at <code>files</code>), pagkatapos ay ilagay ang mga naibalik na ID sa <code>file_ids</code> ng post; <code>GET /files/{file_id}</code></td></tr>
+<tr><td>Mga Preference</td><td><code>GET /users/me/preferences</code>, <code>PUT /users/me/preferences</code></td></tr>
+<tr><td>Mga Integration</td><td><code>/hooks/incoming</code>, <code>/hooks/outgoing</code>, <code>/commands</code>, <code>/bots</code>, <code>/oauth/apps</code> (tingnan ang mga sumusunod na pahina)</td></tr>
+<tr><td>Server</td><td><code>GET /system/ping</code> (health, hindi kailangan ng token), <code>GET /config/client?format=old</code> (ang mga setting na nakikita ng mga client)</td></tr>
+</tbody>
+</table>
+
+<h3>Mag-post ng mensahe</h3>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "message": "Backup finished: **42 GB** in 3 min"}'</code></pre>
+<p>Ang mga mensahe ay Markdown. Idagdag ang <code>"root_id"</code> (ang unang post ng isang thread) upang sumagot sa loob ng thread, <code>"file_ids"</code> para sa mga file, at <code>"props"</code> para sa mga attachment at iba pang karagdagang impormasyon (tingnan ang <a href="{{root}}docs/developers/webhooks.html#attachments">Attachments</a>).</p>
+
+<h3>Hanapin ang ID ng isang channel</h3>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" \
+  https://chat.example.com/api/v4/teams/name/lumen-labs/channels/name/ops-alerts</code></pre>
+<p>Ang mga pangalan ay ang mga nasa link ng channel: <code>/lumen-labs/channels/ops-alerts</code>.</p>
+
+<h2 id="pagination">Pagination</h2>
+<p>Tumatanggap ang mga list endpoint ng <code>page</code> (mula 0) at <code>per_page</code> (60 ang default, hanggang 200). Ituloy ang paghingi ng susunod na pahina hanggang sa mas maikli ang isang pahina kaysa sa <code>per_page</code>.</p>
+<p>Ang mga mensahe ng isang channel (<code>GET /channels/{channel_id}/posts</code>) ay tumatanggap din ng <code>since</code> (isang oras: lahat ng nagbago mula noon), o ng <code>before</code> at <code>after</code> (isang ID ng post). Ibinabalik ito bilang listahan ng mga post: <code>{"order": [IDs, newest first], "posts": {ID: post}, "next_post_id", "prev_post_id"}</code>.</p>
+
+<h2 id="errors">Mga Error</h2>
+<p>Ginagamit ng mga error ang karaniwang HTTP status codes (400 maling input, 401 hindi naka-sign in, 403 hindi pinapayagan, 404 hindi nakita, 501 patay ang feature) at isang JSON body:</p>
+<pre><code>{
+  "id": "api.context.permissions.app_error",
+  "message": "You do not have the appropriate permissions.",
+  "detailed_error": "",
+  "request_id": "jz8zm5nunpbt8f3gpqsz5dq6so",
+  "status_code": 403
+}</code></pre>
+<p>Gumamit ng <code>id</code> sa iyong code: ang <code>message</code> ay isasalin sa wika ng user. Walang laman ang <code>detailed_error</code> maliban kung naka-developer mode ang server (<code>ServiceSettings.EnableDeveloper</code>). I-quote ang <code>request_id</code> sa admin ng server: nasa logs ito.</p>
+
+<h2 id="rate-limits">Mga Rate Limit</h2>
+<p>Patay ang rate limiting sa default. Kapag pinag-on nito ng system admin (<b>System Console › Environment › Rate Limiting</b>), bawat client ay may 10 requests bawat segundo na may bursts ng 100 sa default, na binibilang ayon sa IP address o user. May kasama sa mga sagot ang <code>X-RateLimit-Limit</code>, <code>X-RateLimit-Remaining</code> at <code>X-RateLimit-Reset</code>; kung sobra sa limit, sasagutin ng server ang <code>429</code> na may <code>Retry-After</code> header sa mga segundo. May sariling limit ang ilang endpoints, tulad ng pag-sign in, anuman ang setting.</p>
+<p>Mag-isulat ng mga script na naghihintay at nagre-retry sa 429, at iwasan ang polling: sundan ang WebSocket sa halip.</p>
+
+<h2 id="websocket">Ang WebSocket event stream</h2>
+<p>Kumonekta sa <code>wss://chat.example.com/api/v4/websocket</code>. I-authenticate gamit ang <code>Authorization: Bearer</code> header sa connection request, o ipadala ito bilang unang mensahe:</p>
+<pre><code>{"seq": 1, "action": "authentication_challenge", "data": {"token": "…"}}</code></pre>
+<p>Ipadala ng server ang <code>hello</code> event, tapos isang event para sa lahat ng makikita mo:</p>
+<pre><code>{
+  "event": "posted",
+  "data": {"channel_id": "…", "channel_type": "O", "post": "{\"id\":\"…\",\"message\":\"Hello\",…}"},
+  "broadcast": {"channel_id": "…", "team_id": "", "user_id": "", "omit_users": null},
+  "seq": 4
+}</code></pre>
+<p>Tandaan na ang <code>data.post</code> ay ang post bilang JSON string. Karaniwang mga event: <code>posted</code>, <code>post_edited</code>, <code>post_deleted</code>, <code>reaction_added</code>, <code>reaction_removed</code>, <code>typing</code>, <code>status_change</code>, <code>user_added</code>, <code>direct_added</code>. Ipadala ng mga Apps ang kanilang sariling mga event, na tinatawag na <code>custom_&lt;app id&gt;_&lt;event&gt;</code>.</p>
+<p>Maaari mo ring magpadala ng mga action, bawat isa na may lumalaking <code>seq</code>: <code>user_typing</code> na may <code>{"channel_id", "parent_id"}</code>, o <code>get_statuses</code>. Umuulit ng koneksyon kapag nawala ito, at kunin ang natapos gamit ang <code>since</code> (tingnan ang <a href="#pagination">Pagination</a>).</p>
+<p>Idinagdag ng Antimatter ang mga sumusunod na kaganapan: <code>community_attributes_updated</code>, <code>member_timeouts_updated</code>, <code>post_put_on_top</code>, <code>post_removed_from_top</code>, <code>server_categories_updated</code>, <code>channel_overrides_updated</code> at <code>category_overrides_updated</code>.</p>
+
+<h2 id="clients">Mga library ng client</h2>
+<ul>
+<li><b>Pumunta</b>: <code>model.Client4</code> sa <code>server/public/model</code> (i-import ang <code>github.com/mattermost/mattermost/server/public/model</code>). <code>model.NewAPIv4Client(url)</code>, tapos <code>client.SetToken(token)</code>; sumusunod ang <code>model.NewWebSocketClient4(wsURL, token)</code> sa mga kaganapan. Ang kopya ng Antimatter ay may mga method para sa sariling endpoints nito, tulad ng <code>UpdateMessageRequest</code>, <code>PutPostOnTop</code> at <code>ExportChannel</code>.</li>
+<li><b>TypeScript</b>: ang klase ng <code>Client4</code> ng <code>@mattermost/client</code>, sa <code>webapp/platform/client</code>, kasama ang mga type nito sa <code>webapp/platform/types</code>. Ang kopya sa repository ng Antimatter ay kasama ang mga endpoint ng Antimatter; ang package na ipinagbili sa npm ng Mattermost ay hindi.</li>
+</ul>
+<pre><code>package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/mattermost/mattermost/server/public/model"
+)
+
+func main() {
+	client := model.NewAPIv4Client("https://chat.example.com")
+	client.SetToken("…")
+	post, _, err := client.CreatePost(context.Background(), &amp;model.Post{
+		ChannelId: "…",
+		Message:   "Hello from Go",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("posted", post.Id)
+}</code></pre>
+
+<h2 id="antimatter">Ang idinagdag ng Antimatter sa API</h2>
+<p>Ang mga endpoint at field na ito ay wala sa isang server ng Mattermost. Lahat ng ito ay nangangailangan ng session.</p>
+<table>
+<thead><tr><th>Endpoint</th><th>Ginagawa nito</th></tr></thead>
+<tbody>
+<tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> sa parehong path<br><code>PATCH</code>, <code>DELETE …/fields/{field_id}</code></td><td>Mga attribute ng komunidad: ang mga profile field na tinatakda ng mga admin ng komunidad para sa mga miyembro nito (hanggang 20). Maaabutan ng mga miyembro ang mga ito; nilikha at binabago ng mga admin ng komunidad.</td></tr>
+<tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> sa parehong path<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>Ang mga halaga ng attribute ng isang miyembro, bilang <code>{field_id: value}</code>. Ipinapalagay ng mga miyembro ang kanilang sarili (maliban sa mga pinangangasiwaan ng admin); ipinapalagay ng mga admin ang sinumang miyembro. Ang search ay tumatanggap ng <code>{"user_ids": [...]}</code> (hanggang 200).</td></tr>
+<tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>Mga timeout: ang <code>{"until": time, "reason": "…"}</code> ay pinalilimitahan ang isang tao mula sa pag-post, pag-reaction, at pag-upload sa komunidad hanggang sa oras na iyon (hanggang 28 araw); ang <code>"until": 0</code> ay nagpapahina nito. Ang view ng moderation ay nagpapakita kailan sila sumali at gaano karami ang post nila kamakailan.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Mga mensahe na panatilihin sa itaas ng isang channel (hanggang 10). Ang <code>{"duration": ms}</code>, hanggang 30 araw; ang 0 ay panatilihin hanggang sa tanggalin. Kailangan ng karapatan na mag-post sa channel.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>Nag-aakto sa iyong sariling request: <code>{"action": "accept"}</code>, <code>"dismiss"</code>, o <code>"request"</code> upang ibalik ang isang usapan sa mga request. Ibinabalik ang iyong miyembro ng channel.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>Ang mga gawain na maaari gawin ng isang role o tao sa isang channel, at ang mga role na makikita ang role-gated channel.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>Ang mga shared na kategorya ng channel ng komunidad, at ang mga override na nakaka-apply sa bawat channel sa loob ng isang kategorya.</td></tr>
+<tr><td><code>GET /groups/{group_id}/team_role</code><br><code>PUT …/team_role/permissions</code></td><td>Ang mga pahintulot na ibinibigay ng isang role ng komunidad.</td></tr>
+<tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>Sinusubukan ang mga autolink rules ng komunidad sa isang text.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>Iin-download ang mga mensahe ng isang channel bilang CSV (hanggang 50,000), para sa mga taong makabasa ng channel.</td></tr>
+<tr><td><code>GET /posts/{post_id}/speech</code></td><td>Ang binasa nang malakas na mensahe, bilang audio, kapag nakaset up ang text-to-speech.</td></tr>
+</tbody>
+</table>
+<h3>Mga bagong field</h3>
+<ul>
+<li><b>Mga Komunidad</b> (<code>Team</code>, at <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (nasa lahat ng channel na makikita nila ang bawat isa, gaya sa Discord), <code>default_channel_id</code> (kung saan lalabas ang mga bagong dumating; kung walang laman, Town Square), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> at <code>autolinks</code> (parehong JSON string).</li>
+<li><b>Inline replies</b>: isang post na may <code>"props": {"reply_to": "&lt;post id&gt;"}</code> ay nagqu-quote ng mensaheng iyon mula sa parehong channel. Magdagdag ng <code>"reply_to_mention": false</code> upang hindi maabot ng notisikasyon ang may-akda nito. Pupunan ng server ang <code>metadata.reply_to</code> ng maikling paglalarawan ng na-quote na mensahe.</li>
+<li><b>Spoilers</b>: ang <code>"props": {"spoiler": true}</code> ay nagtatago ng teksto at mga file ng post hanggang sa piliin ng mambabasa na ipakita.</li>
+<li><b>Ang pag-i-ignore at pag-block</b> ay mga preference: kategorya <code>user_block</code>, pinangalanan ayon sa ID ng ibang tao, na may halaga na <code>ignore</code> o <code>block</code>. Kung ang isang direct message ay naghihintay bilang request, nasa <code>notify_props.dm_request</code> ng iyong channel member (<code>pending</code>, <code>accepted</code> o <code>dismissed</code>).</li>
+<li><b>Ang mga attachment ng mensahe</b> ay maaaring magdala ng <code>stages</code> at <code>chart</code>: tingnan ang <a href="{{root}}docs/developers/webhooks.html#cards">Cards</a>.</li>
+</ul>

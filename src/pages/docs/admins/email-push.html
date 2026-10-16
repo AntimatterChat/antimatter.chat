@@ -1,0 +1,135 @@
+title: Email and push notifications
+description: Configure Antimatter's outgoing email (SMTP) for invitations, password resets and notifications, and push notifications to the mobile app through your own push proxy.
+guide: admins
+order: 6
+nav: Email and push
+lead: Antimatter sends email for invitations, password resets, verification and missed messages, and push notifications to the mobile app through a push proxy. Neither works until you configure it.
+---
+<h2 id="smtp">Outgoing email (SMTP)</h2>
+<p>Antimatter sends email through an SMTP server you provide: your organisation's mail server, or a transactional email service. Without it, people can't reset a forgotten password, email invitations and verification don't arrive, and nobody gets email notifications of missed messages.</p>
+<p>Set it in <b>System Console › Environment › SMTP</b>, or with variables:</p>
+<table>
+<thead><tr><th>Setting</th><th>Key and variable</th><th>Default</th></tr></thead>
+<tbody>
+<tr><td><b>SMTP Server</b></td><td><code>EmailSettings.SMTPServer</code>, <code>AM_EMAILSETTINGS_SMTPSERVER</code></td><td><code>localhost</code></td></tr>
+<tr><td><b>SMTP Server Port</b></td><td><code>EmailSettings.SMTPPort</code>, <code>AM_EMAILSETTINGS_SMTPPORT</code></td><td><code>10025</code></td></tr>
+<tr><td><b>Enable SMTP Authentication</b></td><td><code>EmailSettings.EnableSMTPAuth</code>, <code>AM_EMAILSETTINGS_ENABLESMTPAUTH</code></td><td>off without connection security, on with it</td></tr>
+<tr><td><b>SMTP Server Username</b></td><td><code>EmailSettings.SMTPUsername</code>, <code>AM_EMAILSETTINGS_SMTPUSERNAME</code></td><td>empty</td></tr>
+<tr><td><b>SMTP Server Password</b></td><td><code>EmailSettings.SMTPPassword</code>, <code>AM_EMAILSETTINGS_SMTPPASSWORD</code></td><td>empty</td></tr>
+<tr><td><b>Connection Security</b></td><td><code>EmailSettings.ConnectionSecurity</code>, <code>AM_EMAILSETTINGS_CONNECTIONSECURITY</code></td><td>None (empty); or <code>TLS</code> or <code>STARTTLS</code></td></tr>
+<tr><td><b>Skip Server Certificate Verification</b></td><td><code>EmailSettings.SkipServerCertificateVerification</code></td><td>off. Leave it off in production.</td></tr>
+</tbody>
+</table>
+<p>Use <code>STARTTLS</code> on port 587 or <code>TLS</code> on port 465, as your provider says. Then click <b>Test Connection</b> on the same page: Antimatter sends a test email to your own address.</p>
+<p>A typical setup with Docker Compose, in <code>compose.override.yaml</code> next to <code>compose.yaml</code>:</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_EMAILSETTINGS_CONNECTIONSECURITY: STARTTLS
+      AM_EMAILSETTINGS_ENABLESMTPAUTH: "true"
+      AM_EMAILSETTINGS_SMTPUSERNAME: chat@example.com
+      AM_EMAILSETTINGS_SMTPPASSWORD: ${SMTP_PASSWORD}
+      AM_EMAILSETTINGS_FEEDBACKNAME: Antimatter
+      AM_EMAILSETTINGS_FEEDBACKEMAIL: chat@example.com
+      AM_EMAILSETTINGS_REPLYTOADDRESS: chat@example.com</code></pre>
+<p>Put <code>SMTP_PASSWORD</code> in <code>.env</code>. The site's compose file puts the server on the default network, which has Internet access, so it can reach an outside SMTP server.</p>
+
+<h3>Sender and notification email settings</h3>
+<p>In <b>System Console › Site Configuration › Notifications</b>:</p>
+<table>
+<thead><tr><th>Setting</th><th>Key</th><th>Default</th></tr></thead>
+<tbody>
+<tr><td><b>Enable Email Notifications</b></td><td><code>EmailSettings.SendEmailNotifications</code></td><td>on</td></tr>
+<tr><td><b>Notification Display Name</b></td><td><code>EmailSettings.FeedbackName</code></td><td>empty</td></tr>
+<tr><td><b>Notification From Address</b></td><td><code>EmailSettings.FeedbackEmail</code></td><td><code>test@example.com</code>: change it</td></tr>
+<tr><td><b>Notification Reply-To Address</b></td><td><code>EmailSettings.ReplyToAddress</code></td><td><code>test@example.com</code>: change it</td></tr>
+<tr><td><b>Support Email Address</b></td><td><code>SupportSettings.SupportEmail</code></td><td>empty</td></tr>
+<tr><td><b>Notification Footer Mailing Address</b></td><td><code>EmailSettings.FeedbackOrganization</code></td><td>empty</td></tr>
+<tr><td><b>Email Notification Contents</b></td><td><code>EmailSettings.EmailNotificationContentsType</code></td><td>Send full message contents (<code>full</code>), or a generic description with only the sender's name (<code>generic</code>)</td></tr>
+<tr><td><b>Enable Email Batching</b></td><td><code>EmailSettings.EnableEmailBatching</code></td><td>off. On, people can choose to get missed messages grouped in one email every 15 minutes or every hour, instead of one email each.</td></tr>
+<tr><td><b>Use Channel Name in Email Notifications</b></td><td><code>EmailSettings.UseChannelInEmailNotifications</code></td><td>off</td></tr>
+<tr><td><b>Enable Preview Mode Banner</b></td><td><code>EmailSettings.EnablePreviewModeBanner</code></td><td>on: while email notifications are off, a banner tells administrators that email isn't configured</td></tr>
+</tbody>
+</table>
+<p>The From address must be one your SMTP server is allowed to send as; set up SPF and DKIM for its domain, or the emails may land in spam folders.</p>
+<p>Email-related sign-in settings (whether new accounts must verify their address, whether invitations can be sent by email) are in <a href="{{root}}docs/admins/authentication.html">Sign-in and accounts</a>.</p>
+
+<h2 id="push">Push notifications to the mobile app</h2>
+<h3>How push works</h3>
+<p>Antimatter never talks to Apple or Google itself. For each notification, it calls a <b>push proxy</b>, which holds the mobile app's credentials and forwards the notification to Apple (APNs) for iPhones and to Google (Firebase Cloud Messaging) for Android phones. Apple and Google only deliver a notification when it is sent with the credentials of the app it's for. So a push proxy works with one build of the mobile app: the one whose credentials it holds.</p>
+<ul>
+<li>Antimatter doesn't run a public push proxy. You run the Antimatter push proxy yourself, with the credentials of the mobile app build your users install.</li>
+<li>Antimatter never sends notifications to Mattermost's push services, test or hosted: they only deliver to Mattermost's own mobile apps. If the server is set to one of their addresses (such as <code>https://push-test.mattermost.com</code>, which older Mattermost configurations use), it sends nothing and logs a warning at startup.</li>
+</ul>
+<p>A new server has no push notification server, so it sends no push notifications until you set the address of your push proxy. Until then, the mobile app works but gets no notifications.</p>
+
+<h3>Run the push proxy</h3>
+<p>The push proxy is in the <a href="https://github.com/AntimatterChat/push-proxy">push-proxy</a> repository. Its README explains how to get the two credentials, which come from the accounts that publish your build of the mobile app:</p>
+<ul>
+<li><b>Android</b>: a service account file of the Firebase project your Android build uses.</li>
+<li><b>iOS</b>: an APNs authentication key (<code>AuthKey_&lt;KEY ID&gt;.p8</code>) of the Apple developer account that publishes your iOS build, with its key ID and team ID.</li>
+</ul>
+<p>Put them next to <code>compose.yaml</code>, with the proxy's configuration file:</p>
+<pre><code>push-proxy/
+  config/antimatter-push-proxy.json
+  certs/AuthKey_ABCDE12345.p8
+  certs/firebase-service-account.json</code></pre>
+<p><code>push-proxy/config/antimatter-push-proxy.json</code>, with your bundle identifier, key ID and team ID:</p>
+<pre><code>{
+    "ListenAddress": ":8066",
+    "ThrottlePerSec": 300,
+    "ThrottleMemoryStoreSize": 50000,
+    "ThrottleVaryByHeader": "X-Forwarded-For",
+    "EnableMetrics": false,
+    "SendTimeoutSec": 30,
+    "RetryTimeoutSec": 8,
+    "ApplePushSettings": [
+        {
+            "Type": "apple_rn",
+            "ApplePushUseDevelopment": false,
+            "ApplePushTopic": "chat.antimatter.app",
+            "AppleAuthKeyFile": "./certs/AuthKey_ABCDE12345.p8",
+            "AppleAuthKeyID": "ABCDE12345",
+            "AppleTeamID": "FGHIJ67890"
+        }
+    ],
+    "AndroidPushSettings": [
+        {
+            "Type": "android_rn",
+            "ServiceFileLocation": "./certs/firebase-service-account.json"
+        }
+    ],
+    "EnableConsoleLog": true,
+    "EnableFileLog": false,
+    "LogFormat": "plain",
+    "LogLevel": "info"
+}</code></pre>
+<p><code>ApplePushTopic</code> is the iOS bundle identifier of your build. <code>ApplePushUseDevelopment</code> is <code>true</code> only for builds installed from Xcode. Calls ring on iPhones through VoIP pushes, which use the same key and need nothing more here.</p>
+<p>The site has a ready-made addition to the compose file, <a href="{{root}}compose.push.example.yaml">compose.push.example.yaml</a>. The proxy's image isn't published yet, so it is built from the repository the first time:</p>
+<pre><code>curl -fsSLO https://antimatter.chat/compose.push.example.yaml
+docker compose -f compose.yaml -f compose.push.example.yaml --profile push up -d
+docker compose -f compose.yaml -f compose.push.example.yaml logs push-proxy</code></pre>
+<p>At start, the proxy's log names each push target it set up, and logs an error for any whose credentials it can't load. The proxy publishes no port: only Antimatter reaches it, on the compose network.</p>
+<div class="callout warn">The push proxy doesn't check who calls it. Don't expose it to the Internet. If it runs on another host, put it behind HTTPS and restrict who can reach it: notifications can contain message text.</div>
+
+<h3>Point Antimatter at the proxy</h3>
+<p>In <b>System Console › Environment › Push Notification Server</b>, set <b>Enable Push Notifications</b> to <b>Send push notifications through your own push proxy</b>, and <b>Push Notification Server</b> to <code>http://push-proxy:8066</code> (or the proxy's HTTPS address if it runs elsewhere). The page can't be saved with this option and no address. To stop sending push notifications, choose <b>Do not send push notifications</b>. Or with variables on the <code>antimatter</code> service:</p>
+<pre><code>AM_EMAILSETTINGS_SENDPUSHNOTIFICATIONS: "true"
+AM_EMAILSETTINGS_PUSHNOTIFICATIONSERVER: http://push-proxy:8066</code></pre>
+<p>To check: sign in with the mobile app, put it in the background and have another account mention you. If nothing arrives, look for <code>push</code> in Antimatter's log and in the proxy's log: they say whether the device type is unknown, a key was rejected, or the device belongs to another app build.</p>
+
+<h3>What notifications contain</h3>
+<p><b>System Console › Site Configuration › Notifications › Push Notification Contents</b> (<code>EmailSettings.PushNotificationContents</code>):</p>
+<table>
+<thead><tr><th>Option</th><th>Value</th></tr></thead>
+<tbody>
+<tr><td>Generic description with only sender name</td><td><code>generic_no_channel</code></td></tr>
+<tr><td>Generic description with sender and channel names</td><td><code>generic</code></td></tr>
+<tr><td>Full message content sent in the notification payload (default)</td><td><code>full</code></td></tr>
+<tr><td>Full message content fetched from the server on receipt</td><td><code>id_loaded</code></td></tr>
+</tbody>
+</table>
+<p>With <code>id_loaded</code>, the notification that goes through the proxy, Apple and Google carries only an id, and the app fetches the message from your server: message text never passes through their services. It is the best choice when messages are confidential.</p>
+<p><b>Large Channel Notification Threshold</b>, on the Push Notification Server page, (<code>TeamSettings.MaxNotificationsPerChannel</code>, 1000 by default) is the largest number of members a channel can have for @here, @all and @channel to work. In bigger channels, those mentions and the typing indicators are turned off.</p>

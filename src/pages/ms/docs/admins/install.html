@@ -1,0 +1,168 @@
+title: Memasang Antimatter
+description: Pasang Antimatter dengan Docker Compose atau daripada arkib keluaran, pilih imej, mulakannya buat kali pertama dan cipta pentadbir sistem pertama.
+guide: admins
+order: 2
+nav: Pemasangan
+lead: Pasang Antimatter dengan fail compose yang sedia ada, pilih imej yang betul, atau jalankan pelayan daripada arkib keluaran. Kemudian, cipta akaun pentadbir pertama.
+source: 64cd522c4946
+---
+<h2 id="compose">Pasang dengan Docker Compose</h2>
+<p>Ini adalah cara yang disyorkan. Satu fail compose menjalankan Antimatter, PostgreSQL, storan fail dan perkhidmatan GIF. Anda memerlukan pelayan Linux dengan Docker Engine dan plugin Compose-nya (<code>docker compose</code>), 2 teras CPU dan 4 GB memori atau lebih.</p>
+
+<h3>1. Muat turun fail compose</h3>
+<pre><code>mkdir antimatter &amp;&amp; cd antimatter
+curl -fsSLO https://antimatter.chat/compose.yaml</code></pre>
+
+<h3>2. Cipta fail .env</h3>
+<p>Fail compose membaca tetapan daripada fail <code>.env</code> dalam direktori yang sama. Ciptakannya dengan rahsia rawak:</p>
+<pre><code>cat &gt; .env &lt;&lt;EOF
+SITE_URL=http://localhost:8065
+POSTGRES_PASSWORD=$(openssl rand -hex 24)
+S3_SECRET_KEY=$(openssl rand -hex 24)
+GIFS_API_KEY=$(openssl rand -hex 24)
+EOF
+chmod 600 .env</code></pre>
+<p>Tetapkan <code>SITE_URL</code> kepada alamat yang akan diketik pengguna dalam pelayar mereka, contohnya <code>http://192.168.1.20:8065</code> dalam rangkaian tempatan atau <code>https://chat.example.com</code> dengan nama domain. Simpan fail <code>.env</code>: pangkalan data dan storan menggunakan kata laluan ini daripada permulaan pertama, dan anda memerlukan fail yang sama untuk memulihkan sandaran.</p>
+
+<h3>3. Mulakannya</h3>
+<pre><code>docker compose up -d
+docker compose ps</code></pre>
+<p>Permulaan pertama mengambil masa satu atau dua minit: PostgreSQL mencipta pangkalan data, perkhidmatan <code>bucket</code> sekali sahaja mencipta baldah storan, perkhidmatan <code>gifs-stickers</code> sekali sahaja mengimport pakej stiker permulaan, dan Antimatter mencipta jadualnya. Ikuti dengan <code>docker compose logs -f antimatter</code>.</p>
+<p>Untuk menggunakan nama domain dan HTTPS dari permulaan, lihat <a href="{{root}}docs/admins/https.html">Domain dan HTTPS</a>: dengan fail compose, ia hanya dua baris lagi dalam <code>.env</code> dan profil <code>https</code>.</p>
+
+<h3>Pemboleh ubah .env</h3>
+<table>
+<thead><tr><th>Pemboleh ubah</th><th>Lalai</th><th>Fungsinya</th></tr></thead>
+<tbody>
+<tr><td><code>SITE_URL</code></td><td>diperlukan</td><td>Alamat awam Antimatter (<code>ServiceSettings.SiteURL</code>).</td></tr>
+<tr><td><code>POSTGRES_PASSWORD</code></td><td>diperlukan</td><td>Kata laluan pengguna pangkalan data <code>antimatter</code>.</td></tr>
+<tr><td><code>S3_SECRET_KEY</code></td><td>diperlukan</td><td>Kunci rahsia storan fail.</td></tr>
+<tr><td><code>GIFS_API_KEY</code></td><td>diperlukan</td><td>Kunci yang digunakan oleh Antimatter untuk memanggil perkhidmatan GIF.</td></tr>
+<tr><td><code>GIFS_UPLOAD_KEY</code></td><td>kosong</td><td>Membolehkan pengguna menambah GIF dan stiker mereka sendiri daripada pemilih. Kosong akan mematikan muat naik.</td></tr>
+<tr><td><code>DOMAIN</code></td><td>kosong</td><td>Nama domain anda, untuk profil <code>https</code>.</td></tr>
+<tr><td><code>HTTP_PORT</code></td><td><code>8065</code></td><td>Port hos pelayan web Antimatter.</td></tr>
+<tr><td><code>CALLS_PORT</code></td><td><code>8443</code></td><td>Port UDP dan TCP untuk audio dan video panggilan.</td></tr>
+<tr><td><code>EDGE_SUBNET</code></td><td><code>172.29.71.0/28</code></td><td>Subnet rangkaian antara Caddy dan Antimatter. Ubah jika ia bertindih dengan salah satu rangkaian anda.</td></tr>
+<tr><td><code>TZ</code></td><td><code>UTC</code></td><td>Zon masa kontena.</td></tr>
+<tr><td><code>ANTIMATTER_IMAGE</code></td><td><code>ghcr.io/antimatterchat/antimatter-next:latest</code></td><td>Imej Antimatter untuk dijalankan (lihat di bawah).</td></tr>
+</tbody>
+</table>
+
+<h3>Apa yang dijalankan</h3>
+<table>
+<thead><tr><th>Perkhidmatan</th><th>Imej</th><th>Peranan</th></tr></thead>
+<tbody>
+<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>Pelayan, aplikasi web dan aplikasi terpadu. Menerbitkan <code>HTTP_PORT</code> dan <code>CALLS_PORT</code>.</td></tr>
+<tr><td><code>postgres</code></td><td><code>postgres:17-alpine</code></td><td>Pangkalan data, dalam isipadu <code>postgres</code>.</td></tr>
+<tr><td><code>files</code></td><td><code>rustfs/rustfs</code></td><td>Penyimpanan serasi S3 untuk fail yang dimuat naik dan aplikasi yang dipasang, dalam volume <code>files</code>.</td></tr>
+<tr><td><code>bucket</code></td><td><code>amazon/aws-cli</code></td><td>Membuat baldah <code>antimatter</code>, kemudian keluar.</td></tr>
+<tr><td><code>gifs</code></td><td><code>ghcr.io/antimatterchat/gifs-server</code></td><td>Perkhidmatan GIF dan pelekat, dalam volume <code>gifs</code>.</td></tr>
+<tr><td><code>gifs-stickers</code></td><td><code>ghcr.io/antimatterchat/gifs-server</code></td><td>Mendatangkan pakej pelekat permulaan buat kali pertama, kemudian keluar.</td></tr>
+<tr><td><code>https</code></td><td><code>caddy:2-alpine</code></td><td>Hanya dengan profil <code>https</code>: HTTPS pada port 80 dan 443.</td></tr>
+</tbody>
+</table>
+<p>PostgreSQL, penyimpanan dan perkhidmatan GIF berada pada rangkaian dalaman (<code>private</code>) tanpa akses Internet, yang hanya disertai oleh Antimatter. Tiada satu pun daripada mereka menerbitkan port.</p>
+<p>Kontena Antimatter tidak menyimpan apa-apa pada cakera: tetapanannya berada dalam pangkalan data (<code>AM_CONFIG</code> menunjuk ke sana) dan fail serta aplikasinya berada dalam perkhidmatan penyimpanan. Anda boleh memadam dan mencipta semula kontena pada bila-bila masa. Semua yang perlu disalai berada dalam volume <code>postgres</code>, <code>files</code> dan <code>gifs</code>, serta <code>.env</code> anda.</p>
+
+<h2 id="images">Pilih imej</h2>
+<p>Dua imej Antimatter diterbitkan, kedua-duanya untuk <code>linux/amd64</code> dan <code>linux/arm64</code>, dan kedua-duanya dibina dari cawangan <code>main</code> setiap repositori:</p>
+<table>
+<thead><tr><th>Imej</th><th>Aplikasi terpalit</th><th>Tag</th></tr></thead>
+<tbody>
+<tr><td><code>ghcr.io/antimatterchat/antimatter</code></td><td>Ejen, Panggilan, GitHub, GitLab, Jira, Kanban, Metrik dan Buku Taktik.</td><td><code>latest</code>, <code>X.Y.Z</code> untuk pelepasan, <code>sha-&lt;commit&gt;</code></td></tr>
+<tr><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>Sama seperti di atas, ditambah Saluran Suara, Undian, Mel, Kalendar, Nota, Papan Putih, GIF, Senarai tugasan dan Meme. Dibina semula setiap malam.</td><td><code>latest</code>, <code>nightly</code>, <code>nightly-&lt;YYYYMMDD&gt;</code>, <code>sha-&lt;commit&gt;</code></td></tr>
+</tbody>
+</table>
+<p>Fail compose laman web menggunakan <code>antimatter-next</code>, kerana perkhidmatan GIF dan kebanyakan aplikasi yang diterangkan pada laman web ini hanya terdapat dalam imej tersebut. Untuk mengubah imej, tetapkan <code>ANTIMATTER_IMAGE</code> dalam <code>.env</code> dan jalankan <code>docker compose up -d</code>.</p>
+<div class="callout warn"><code>latest</code> berubah di bawah anda. Dalam pengeluaran, semat tag seperti <code>nightly-20261015</code> atau <code>sha-&lt;commit&gt;</code>, dan ubah dengan sengaja apabila anda menaik taraf. Pelayan menaik taraf pangkalan datanya apabila ia bermula, jadi anda tidak boleh kembali ke imej yang lebih lama, atau dari <code>antimatter-next</code> ke <code>antimatter</code>, tanpa memulihkan salai yang diambil sebelum itu. Lihat <a href="{{root}}docs/admins/backups-upgrades.html">Salai dan peningkatan</a>.</div>
+
+<h3>Di dalam imej</h3>
+<ul>
+<li>Pelayan berada di <code>/antimatter</code>, dengan binari <code>antimatter</code> dan <code>amctl</code> di <code>/antimatter/bin</code> (pada <code>PATH</code>).</li>
+<li>Ia berjalan sebagai pengguna tidak berkeistimewaan <code>antimatter</code> (uid 2000) pada asas distroless minimum, tanpa shell.</li>
+<li>Port: 8065 (web dan API), 8067 (metrik), 8074 (kluster), 8443 UDP dan TCP (panggilan).</li>
+<li>Mod lokal (<code>ServiceSettings.EnableLocalMode</code>) dihidupkan, jadi <code>amctl --local</code> berfungsi di dalam kontena. Semakan kesihatan menjalankan <code>amctl system status --local</code>.</li>
+<li>Aplikasi terpalit berada di <code>/antimatter/prepackaged_plugins</code>, ditandatangani dengan kunci penandatanganan aplikasi Antimatter.</li>
+<li>Alat pengekstrakan teks (<code>pdftotext</code>, <code>wvText</code>, <code>unrtf</code>, <code>tidy</code>) disertakan, jadi kandungan dokumen yang dimuat naik boleh dicari.</li>
+</ul>
+
+<h3>Fail compose lain</h3>
+<p>Repositori <a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> mempunyai persediaan pengeluaran di <code>deploy/compose/</code>: nginx dengan sijil anda sendiri atau Let's Encrypt (certbot), PostgreSQL, perkhidmatan GIF pilihan (profil <code>gifs</code>) dan isipadu bernama untuk konfigurasi, data dan log pelayan, yang didokumentasikan dalam README-nya. Ia menggunakan imej stabil secara lalai dan menyimpan fail pada isipadu tempatan berbanding storan S3. Guna ini jika anda lebih suka nginx berbanding Caddy, atau sudah mempunyai sijil.</p>
+
+<h2 id="first-admin">Cipta pentadbir pertama</h2>
+<p>Buka <code>SITE_URL</code> dalam pelayar anda dan cipta akaun. <b>Akaun pertama yang dicipta pada pelayan baharu menjadi pentadbir sistem</b>, dan persediaan kemudian membimbing anda melalui penciptaan komuniti pertama anda (nama Antimatter untuk pasukan atau ruang kerja).</p>
+<p>Lakukannya segera selepas permulaan pertama: sehingga ketika itu, sesiapa sahaja yang mencapai pelayan terlebih dahulu akan menjadi pentadbirnya. Untuk mencipta akaun dari baris arahan sebaliknya, sebelum pelayan boleh dicapai dari luar:</p>
+<pre><code>docker compose exec antimatter amctl --local user create --system-admin --email-verified \
+    --email admin@example.com --username admin --password 'a-long-password'
+docker compose exec antimatter amctl --local team create --name main --display-name "Main"
+docker compose exec antimatter amctl --local team users add main admin</code></pre>
+<p>Kemudian log masuk di <code>SITE_URL</code>. Mula arahan dengan ruang untuk mengekalkan kata laluan keluar dari sejarah shell anda (dengan <code>HISTCONTROL=ignorespace</code>), atau ubah kata laluan setelah log masuk.</p>
+<p>Langkah seterusnya setelah anda masuk:</p>
+<ol>
+<li>Tentukan siapa yang boleh mencipta akaun: <a href="{{root}}docs/admins/authentication.html">Log masuk dan akaun</a>.</li>
+<li>Konfigurasikan e-mel, supaya jemputan dan tetapan semula kata laluan berfungsi: <a href="{{root}}docs/admins/email-push.html">E-mel dan pemberitahuan push</a>.</li>
+<li>Buka port panggilan dalam tembok api anda: <a href="{{root}}docs/admins/calls.html">Panggilan dan suara</a>.</li>
+<li>Semak aplikasi mana yang dihidupkan: <a href="{{root}}docs/admins/apps.html">Aplikasi terpalit</a>.</li>
+</ol>
+
+<h2 id="archive">Pasang dari arkib keluaran</h2>
+<p>Tanpa Docker, pelayan dijalankan daripada arkib bernama <code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code> (contohnya <code>antimatter-linux-amd64.tar.gz</code>). Ia mengandungi satu direktori <code>antimatter/</code> dengan <code>bin/antimatter</code>, <code>bin/amctl</code>, <code>config/config.json</code>, aplikasi web (<code>client/</code> dan <code>client-fusion/</code>), templat e-mel, dan terjemahan.</p>
+
+<h3>1. Sediakan PostgreSQL</h3>
+<p>Antimatter hanya menyokong PostgreSQL, versi 15 atau lebih baharu (versi yang lebih lama akan bermula, dengan ralat dalam log). Cipta pengguna dan pangkalan data:</p>
+<pre><code>sudo -u postgres psql &lt;&lt;'EOF'
+CREATE USER antimatter WITH PASSWORD 'a-long-password';
+CREATE DATABASE antimatter OWNER antimatter;
+EOF</code></pre>
+
+<h3>2. Buka dan konfigurasi</h3>
+<pre><code>sudo tar -xzf antimatter-linux-amd64.tar.gz -C /opt
+sudo useradd --system --user-group antimatter
+sudo mkdir -p /opt/antimatter/data
+sudo chown -R antimatter:antimatter /opt/antimatter</code></pre>
+<p>Tunjuk pelayan ke pangkalan data, sama ada dalam <code>/opt/antimatter/config/config.json</code> (<code>SqlSettings.DataSource</code>) atau dengan pemboleh ubah persekitaran, dan tetapkan URL laman web:</p>
+<pre><code>AM_SQLSETTINGS_DRIVERNAME=postgres
+AM_SQLSETTINGS_DATASOURCE=postgres://antimatter:a-long-password@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10
+AM_SERVICESETTINGS_SITEURL=https://chat.example.com</code></pre>
+<p><code>config.json</code> arkib ialah konfigurasi lalai yang lengkap: tetapan yang anda ubah dalam Konsol Sistem disimpan semula ke dalamnya. Untuk mengekalkan konfigurasi dalam pangkalan data sebaliknya, lihat <a href="{{root}}docs/admins/configuration.html">Konfigurasi</a>.</p>
+
+<h3>3. Jalankan sebagai perkhidmatan</h3>
+<p>Unit systemd, dalam <code>/etc/systemd/system/antimatter.service</code>:</p>
+<pre><code>[Unit]
+Description=Antimatter
+After=network.target postgresql.service
+
+[Service]
+Type=notify
+User=antimatter
+Group=antimatter
+WorkingDirectory=/opt/antimatter
+ExecStart=/opt/antimatter/bin/antimatter
+EnvironmentFile=-/etc/antimatter.env
+TimeoutStartSec=3600
+Restart=always
+RestartSec=10
+LimitNOFILE=49152
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+<p>Letakkan pemboleh ubah <code>AM_</code> anda dalam <code>/etc/antimatter.env</code> (boleh dibaca oleh root sahaja), kemudian:</p>
+<pre><code>sudo systemctl daemon-reload
+sudo systemctl enable --now antimatter
+journalctl -u antimatter -f</code></pre>
+<p>Pelayan mendengar pada port 8065. Buka <code>http://&lt;server&gt;:8065</code>, atau domain anda setelah proksi songsang dipasang (lihat <a href="{{root}}docs/admins/https.html">Domain dan HTTPS</a>), dan cipta akaun pertama: ia menjadi pentadbir sistem.</p>
+<p><code>bin/amctl</code> mengurus pelayan yang sedang berjalan dari baris arahan. Pada pelayan itu sendiri, ia berfungsi tanpa log masuk melalui mod tempatan: tetapkan <code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>, kemudian jalankan <code>sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code>.</p>
+
+<h2 id="other-commands">Arahan pelayan lain</h2>
+<p>Selain menjalankan pelayan (<code>antimatter</code>, atau <code>antimatter server</code>), binari ini mempunyai beberapa arahan penyelenggaraan. Ia membaca konfigurasi yang sama seperti pelayan.</p>
+<table>
+<thead><tr><th>Arahan</th><th>Fungsinya</th></tr></thead>
+<tbody>
+<tr><td><code>antimatter version</code></td><td>Mencetak versi, nombor binaan, tarikh binaan dan hash binaan.</td></tr>
+<tr><td><code>antimatter db ping</code></td><td>Mengecek bahawa pangkalan data boleh dicapai.</td></tr>
+<tr><td><code>antimatter db init</code></td><td>Mencipta konfigurasi dalam pangkalan data (dengan <code>AM_CONFIG</code> ditetapkan ke URL <code>postgres://</code>).</td></tr>
+<tr><td><code>antimatter db migrate</code></td><td>Menerapkan migrasi pangkalan data tanpa memulakan pelayan.</td></tr>
+<tr><td><code>antimatter db version</code></td><td>Mencetak migrasi terakhir yang diterapkan pada pangkalan data.</td></tr>
+<tr><td><code>antimatter import bulk</code>, <code>antimatter export bulk</code></td><td>Mengimport atau mengekspor data dalam format pukal (lihat <a href="{{root}}docs/admins/backups-upgrades.html">Sandaran dan naik taraf</a>).</td></tr>
+</tbody>
+</table>

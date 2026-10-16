@@ -1,0 +1,107 @@
+title: Seguretat
+description: Enduriment d'un servidor d'Antimatter: quins ports exposar, secrets, limitació de freqüència, filtratge per IP, límits de pujada, configuracions de privadesa i bloqueig d'usuaris, sessions, les connexions que el servidor fa a serveis externs i com informar d'una vulnerabilitat.
+guide: admins
+order: 12
+nav: Seguretat
+lead: Una llista de verificació per endurir un servidor d'Antimatter: què exposar, els límits i les configuracions de privadesa a revisar, els serveis externs amb els quals el servidor es comunica i com informar d'un problema de seguretat.
+source: dbe2371ecf30
+---
+<h2 id="exposure">Què exposar</h2>
+<table>
+<thead><tr><th>Port</th><th>Servei</th><th>Exposició</th></tr></thead>
+<tbody>
+<tr><td>443/tcp, 443/udp, 80/tcp</td><td>El vostre proxy HTTPS (Caddy o nginx)</td><td>Públic: així és com la gent accedeix a Antimatter.</td></tr>
+<tr><td>8443/udp i 8443/tcp</td><td>Mèdia de trucades</td><td>Públic, si la gent utilitza trucades des de fora de la vostra xarxa.</td></tr>
+<tr><td>8065/tcp</td><td>El servidor web d'Antimatter</td><td>Només per al proxy: publiqueu-lo a <code>127.0.0.1</code> (<code>HTTP_PORT=127.0.0.1:8065</code>).</td></tr>
+<tr><td>8067/tcp</td><td>Mètriques</td><td>Només xarxa privada, quan està habilitat. Sense inici de sessió.</td></tr>
+<tr><td>8074/tcp i udp</td><td>Xerrada del clúster</td><td>Només entre els nodes del clúster.</td></tr>
+<tr><td>5432, 9000, 8080, 8066</td><td>PostgreSQL, emmagatzematge de fitxers, servei de GIF, proxy de notificacions push</td><td>Mai. Els fitxers compose els mantenen en xarxes internes sense cap port publicat.</td></tr>
+</tbody>
+</table>
+<p>El fitxer compose del lloc també executa cada contenidor amb <code>no-new-privileges</code>, executa Antimatter com a usuari no privilegiat en una imatge distroless i executa el servei de GIF amb un sistema de fitxers només de lectura. La base de dades, l'emmagatzematge i el servei de GIF es troben en una xarxa sense accés a Internet.</p>
+
+<h2 id="checklist">Llista de verificació després de la instal·lació</h2>
+<ol>
+<li>Creeu el primer compte d'administrador abans que ningú altre pugui accedir al servidor (<a href="{{root}}docs/admins/install.html#first-admin">Instal·lació</a>).</li>
+<li>Serveu Antimatter només per HTTPS i establiu l'URL del lloc a l'adreza <code>https://</code> (<a href="{{root}}docs/admins/https.html">Domini i HTTPS</a>).</li>
+<li>Mantingueu <code>.env</code>, <code>config.json</code> i les claus TLS legibles només per root (o l'usuari del servidor): <code>chmod 600 .env</code>.</li>
+<li>Decideu qui pot crear comptes, mantingueu <b>Activa el servidor obert</b> desactivat a menys que la comunitat sigui pública i activeu <b>Requereix la verificació del correu electrònic</b> un cop el correu funcioni (<a href="{{root}}docs/admins/authentication.html">Inici de sessió i comptes</a>).</li>
+<li>Activeu l'autenticació de factor múltiple i imposeu-la, com a mínim, per als comptes dels administradors, o utilitzeu la del vostre proveïdor d'identitat.</li>
+<li>Revisiu les connexions externes següents, en particular el servidor STUN que les Trucades utilitzen per defecte.</li>
+<li>Feu còpies de seguretat i proveu una restauració (<a href="{{root}}docs/admins/backups-upgrades.html">Còpies de seguretat i actualitzacions</a>).</li>
+<li>Mantingueu les imatges actualitzades: les correccions de seguretat arriben amb les noves imatges.</li>
+</ol>
+
+<h2 id="rate-limiting">Limitació de freqüència</h2>
+<p>El servidor pot limitar el nombre de sol·licituds d'API que fa cada client. Per defecte, està desactivat. A <b>Consola del sistema › Entorn › Limitació de freqüència</b>:</p>
+<table>
+<thead><tr><th>Paràmetre</th><th>Clau</th><th>Valor per defecte</th></tr></thead>
+<tbody>
+<tr><td><b>Activa la limitació de taxes</b></td><td><code>RateLimitSettings.Enable</code></td><td>desactivat</td></tr>
+<tr><td><b>Consultes màximes per segon</b></td><td><code>RateLimitSettings.PerSec</code></td><td>10</td></tr>
+<tr><td><b>Mida màxima de pic</b></td><td><code>RateLimitSettings.MaxBurst</code></td><td>100</td></tr>
+<tr><td><b>Mida de l'emmagatzematge en memòria</b></td><td><code>RateLimitSettings.MemoryStoreSize</code></td><td>10000 clients seguits</td></tr>
+<tr><td><b>Varia el límit de freqüència segons l'adreça remota</b></td><td><code>RateLimitSettings.VaryByRemoteAddr</code></td><td>activat</td></tr>
+<tr><td><b>Varia el límit de freqüència segons l'usuari</b></td><td><code>RateLimitSettings.VaryByUser</code></td><td>desactivat</td></tr>
+<tr><td><b>Varia el límit de freqüència segons la capçalera HTTP</b></td><td><code>RateLimitSettings.VaryByHeader</code></td><td>buit</td></tr>
+</tbody>
+</table>
+<p>Darrere d'un proxy, els límits per adreça només funcionen si el servidor coneix l'adreça de cada client (<code>ServiceSettings.TrustedProxyIPHeader</code> i <code>ServiceSettings.TrustedProxyIPs</code>, vegeu <a href="{{root}}docs/admins/https.html#client-address">Adreces de clients darrere d'un proxy</a>). En cas contrari, totes les sol·licituds semblen provenir del proxy, i tothom comparteix un sol límit. El mateix passa amb el filtratge per IP i amb les adreces als registres d'auditoria.</p>
+<p>Els intents d'inici de sessió es limiten per separat: <b>Intents d’inici de sessió màxims</b> (10) bloqueja un compte després d'aquest nombre de contrasenyes incorrectes.</p>
+
+<h2 id="ip-filtering">Filtratge per IP</h2>
+<p><b>Consola del sistema › Configuració del lloc › Filtratge per IP</b> limita l'accés al servidor per adreça IP, amb regles de permís i de denegació (una adreça o un interval CIDR cadascuna). Amb <b>Activa el filtratge IP</b> activat, les persones la seva adreça coincideix amb una regla de denegació, o no coincideix amb cap regla de permís quan n'hi ha, no poden accedir al servidor. La pàgina rebutja les regles que bloquejarien la pròpia adreça. Darrere d'un proxy, configureu primer les adreces de clients (<a href="{{root}}docs/admins/https.html#client-address">Adreces de clients darrere d'un proxy</a>): en cas contrari, totes les sol·licituds semblen provenir del proxy.</p>
+
+<h2 id="uploads">Pujades i compartiment de fitxers</h2>
+<table>
+<thead><tr><th>Paràmetre</th><th>On</th><th>Valor per defecte</th></tr></thead>
+<tbody>
+<tr><td><b>Mida màxima del fitxer</b> (<code>FileSettings.MaxFileSize</code>)</td><td>Entorn › Emmagatzematge de fitxers</td><td>100 MB. Mantingueu el límit de mida de sol·licituds del proxy com a mínim en aquest valor.</td></tr>
+<tr><td><b>Mida màxima de la càrrega (bytes)</b> (<code>ServiceSettings.MaximumPayloadSizeBytes</code>)</td><td>Entorn › Servidor web</td><td>300000: la sol·licitud d'API més gran, excepte les pujades de fitxers</td></tr>
+<tr><td><b>Permet el compartiment de fitxers</b> (<code>FileSettings.EnableFileAttachments</code>)</td><td>Configuració del lloc › Compartiment i baixada de fitxers</td><td>activat</td></tr>
+<tr><td><b>Permet la pujada de fitxers des del mòbil</b>, <b>Permet la baixada de fitxers al mòbil</b></td><td>Configuració del lloc › Compartiment i baixada de fitxers</td><td>activat</td></tr>
+<tr><td><b>Activa els enllaços públics de fitxers</b> (<code>FileSettings.EnablePublicLink</code>)</td><td>Configuració del lloc › Enllaços públics</td><td>desactivat: quan està activat, les persones poden compartir un fitxer amb un enllaç que funciona sense iniciar sessió</td></tr>
+<tr><td><b>Activa els SVG</b> (<code>ServiceSettings.EnableSVGs</code>)</td><td>Configuració del lloc › Publicacions</td><td>desactivat en un servidor nou: quan està activat, les imatges SVG es mostren en línia</td></tr>
+</tbody>
+</table>
+<p>Antimatter no escaneja les pujades en cerca de programari maliciós.</p>
+
+<h2 id="privacy">Configuracions de privadesa</h2>
+<p>A <b>Consola del sistema › Configuració del lloc › Usuaris i equips</b>:</p>
+<table>
+<thead><tr><th>Paràmetre</th><th>Clau</th><th>Valor per defecte</th><th>Què fa</th></tr></thead>
+<tbody>
+<tr><td><b>Mostra l'adreça de correu electrònic</b></td><td><code>PrivacySettings.ShowEmailAddress</code></td><td>activat</td><td>Desactivat, les adreces de correu electrònic dels membres són ocultes per a tothom, excepte pels administradors. Desactiva-ho en els servidors públics.</td></tr>
+<tr><td><b>Mostra el nom complet</b></td><td><code>PrivacySettings.ShowFullName</code></td><td>activat</td><td>Desactivat, els noms complets són ocults i es mostren els noms d'usuari en el seu lloc.</td></tr>
+<tr><td><b>Activa ignorar, bloquejar i sol·licituds de missatge</b></td><td><code>PrivacySettings.EnableUserBlocking</code></td><td>activat</td><td>Consulta més avall.</td></tr>
+<tr><td><b>Permet als usuaris obrir canals de missatges directes amb</b></td><td><code>TeamSettings.RestrictDirectMessage</code></td><td>Qualsevol usuari del servidor d'Antimatter</td><td>O <b>Qualsevol membre de l’equip</b>: només les persones que comparteixen una comunitat.</td></tr>
+</tbody>
+</table>
+<h3>Ignorar, bloquejar i sol·licituds de missatge</h3>
+<p>Amb <b>Activa ignorar, bloquejar i sol·licituds de missatge</b> activat (l'opció per defecte), les persones poden ignorar-se i bloquejar-se mútuament, i poden triar rebre missatges directes de persones que no coneixen com a sol·licituds de missatge, que no les notifiquen fins que s'accepten. Això és adequat per a comunitats públiques. En un entorn de treball on els col·legues han de poder contactar-se sempre, desactiva-ho (<code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING=false</code>): ja no s'aplica cap d'aquestes restriccions, però es mantenen les llistes i les opcions que les persones van triar, i tornen a aplicar-se si l'actives de nou.</p>
+
+<h2 id="sessions">Sessions i tokens</h2>
+<ul>
+<li>Durada de les sessions i temps d'inactivitat: consulta <a href="{{root}}docs/admins/authentication.html#sessions">Inici de sessió i comptes</a>. Sessions més curtes signifiquen que un portàtil o telèfon perdut romandrà iniciat durant menys temps.</li>
+<li><b>Habilita els tokens d’accés personals</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, desactivat) permet a les persones crear tokens d'API; <b>Durada màxima dels tokens d’accés personals (dies)</b> els limita. Tots dos es troben a <b>Consola del sistema › Integracions › Gestió d'integracions</b>.</li>
+<li>Per tancar la sessió de tothom alhora, per exemple després d'una possible violació de seguretat: <b>Revoca totes les sessions</b> a <b>Consola del sistema › Gestió d'usuaris › Usuaris</b>.</li>
+</ul>
+
+<h2 id="outbound">Connexions amb serveis externs</h2>
+<p>Antimatter no contacta cap servei operat per Mattermost, Inc. No envia telemetria, informes d'errors ni comprovacions d'actualitzacions de seguretat, i no recupera avisos de producte. Una configuració portada des de Mattermost que encara nomena un dels serveis de Mattermost (els seus serveis de notificacions push, el seu mercat d'aplicacions, els seus avisos o el seu servidor STUN per a trucades) no fa que el servidor els contacti: aquestes adreces s'ignoren.</p>
+<p>El servidor i les aplicacions es connecten a altres serveis externs només per a les funcions que els necessiten, i als serveis que configureu:</p>
+<table>
+<thead><tr><th>Funció</th><th>Contactes</th><th>Per defecte</th></tr></thead>
+<tbody>
+<tr><td>Trucades: trobar adreces públiques amb STUN. El servidor i cada persona que s'uneix a una trucada envien una sol·licitud, que mostra al servidor STUN la seva adreça IP i port.</td><td>El servidor STUN públic de Cloudflare, <code>stun.cloudflare.com</code></td><td>activat, mentre l’aplicació de trucades estigui habilitada. Per canviar-ho, consulta <a href="{{root}}docs/admins/calls.html#network">Trucades</a>.</td></tr>
+<tr><td>Vistes prèvies d’enllaços: el servidor obté les pàgines enllaçades als missatges (<b>Activa les vistes prèvies d’enllaços de llocs web</b>, <code>ServiceSettings.EnableLinkPreviews</code>)</td><td>els llocs web a què la gent enllaça</td><td>activat. Desactiva-ho amb <code>AM_SERVICESETTINGS_ENABLELINKPREVIEWS=false</code>.</td></tr>
+<tr><td>Notificacions push a l'aplicació mòbil</td><td>el teu propi proxy de notificacions push (<a href="{{root}}docs/admins/email-push.html#push">Notificacions push</a>)</td><td>desactivat fins que n’configuris l’adreça</td></tr>
+<tr><td>el Marketplace d’aplicacions remotes (<code>PluginSettings.EnableRemoteMarketplace</code>)</td><td>l’<b>URL del Marketplace</b> que has configurat</td><td>desactivat, i sense adreça</td></tr>
+<tr><td>Correu electrònic</td><td>el teu servidor SMTP</td><td>el servidor per defecte és <code>localhost</code></td></tr>
+<tr><td>Inici de sessió únic, models d’IA, transcripció de veu i traducció, webhooks sortints i aplicacions com Correu, Calendari, GitHub, GitLab o Jira</td><td>els serveis que configuris</td><td>desactivats fins que els configuris</td></tr>
+</tbody>
+</table>
+<p>Per defecte, el servidor rebutja les connexions a adreces privades i de bucle per a aquests serveis (vistes prèvies d’enllaços, webhooks, aplicacions), de manera que un missatge o una integració no es pot utilitzar per accedir a la teva xarxa interna. Enumera els amfitrions interns als quals pot connectar-hi a <b>Permet connexions internes no fiables a</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>, a <b>Consola del sistema › Entorn › Desenvolupador</b>); el fitxer compose del lloc n’enumera <code>gifs</code> allà.</p>
+
+<h2 id="report">Informar d’una vulnerabilitat</h2>
+<p>Informa dels problemes de seguretat de manera privada, com s’explica a la <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">política de seguretat d’Antimatter</a>, i no en problemes públics.</p>

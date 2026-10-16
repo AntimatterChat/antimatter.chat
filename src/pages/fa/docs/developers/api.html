@@ -1,0 +1,164 @@
+title: رسانه برنامه‌نویسی REST
+description: رسانه برنامه‌نویسی REST در Antimatter: آدرس پایه، توکن‌های دسترسی شخصی، توکن‌های نشست و OAuth، منابع اصلی، صفحه‌بندی، خطاها، محدودیت‌های نرخ، جریان رویدادهای WebSocket و کتابخانه‌های کلاینت.
+guide: developers
+order: 2
+nav: رسانه برنامه‌نویسی REST
+lead: همه‌ی کارهایی که برنامه‌های Antimatter انجام می‌دهند از طریق همین رسانه برنامه‌نویسی HTTP صورت می‌گیرد، بنابراین اسکریپت‌های شما هم می‌توانند همین کار را انجام دهند. این صفحه روش احراز هویت، منابعی که بیشترین استفاده را دارید، ساختار پاسخ‌ها و خطاها، و همچنین روش دنبال‌کردن رویدادها به‌صورت زنده از طریق WebSocket را توضیح می‌دهد.
+source: f4b8c83efdba
+---
+<h2 id="basics">مبانی</h2>
+<ul>
+<li><b>آدرس پایه</b>: <code>https://chat.example.com/api/v4</code>. همه‌ی نقاط پایانی زیر نسبت به این آدرس هستند.</li>
+<li><b>قالب</b>: ورودی و خروجی به‌صورت JSON است، به‌جز بارگذاری فایل‌ها (multipart). <code>Content-Type: application/json</code> را ارسال کنید.</li>
+<li><b>شناسه‌ها</b>: هر شیء یک <code>id</code> با ۲۶ کاراکتر دارد. زمان‌ها به‌صورت میلی‌ثانیه از مبدأ Unix هستند (<code>create_at</code>، <code>update_at</code>، <code>delete_at</code>؛ مقدار 0 به معنای «حذف‌نشده» است).</li>
+<li><b>جوامع همان تیم‌ها هستند</b>: رسانه برنامه‌نویسی به آن‌ها <code>teams</code> می‌گوید و برای هر کدام یک <code>team_id</code> وجود دارد.</li>
+<li><b>خودتان</b>: هر جا که در مسیر یک <code>user_id</code> لازم باشد، <code>me</code> به کاربر واردشده اشاره دارد، همان‌طور که در <code>GET /users/me</code> می‌بینید.</li>
+</ul>
+<p>فهرست کامل نقاط پایانی در کد سرور موجود است: مسیرها در <code>server/channels/api4/*.go</code> تعریف شده‌اند و انواع داده در <code>server/public/model</code>. توضیحات OpenAPI در پوشه <code>api/v4/source</code> مخزن، نقاط پایانی را پوشش می‌دهد که از Mattermost به ارث برده شده‌اند، نه افزودنی‌های Antimatter.</p>
+
+<h2 id="auth">احراز هویت</h2>
+<p>هر درخواست، به‌جز ورود و چند نقطه پایانی عمومی، به یک توکن در هدر <code>Authorization</code> نیاز دارد:</p>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" https://chat.example.com/api/v4/users/me</code></pre>
+<p>سه نوع توکن در آنجا پذیرفته می‌شود: توکن‌های دسترسی شخصی، توکن‌های نشست و توکن‌های دسترسی OAuth. <code>Authorization: Token …</code> هم پذیرفته می‌شود. توکن‌ها در رشته پرس (query string) (<code>?access_token=</code>) فقط برای توکن‌های دسترسی OAuth پذیرفته می‌شوند.</p>
+
+<h3>توکن‌های دسترسی شخصی (برای اسکریپت‌ها توصیه می‌شود)</h3>
+<p>یک توکن دسترسی شخصی به‌جای شما عمل می‌کند، مگر اینکه تاریخ انقضایی برای آن تعیین کنید، و می‌توان آن را در هر لحظه باطل کرد. توکن‌های دسترسی شخصی به‌طور پیش‌فرض غیرفعال هستند:</p>
+<ol>
+<li>یک مدیر سیستم گزینه <b>فعال کردن رمزهای دسترسی شخصی</b> را در <b>کنسول سیستم › ادغام ها › مدیریت یکپارچه سازی</b> (<code>ServiceSettings.EnableUserAccessTokens</code>، <code>AM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS</code>) فعال می‌کند.</li>
+<li>برای هر فردی که ممکن است توکن‌ها را ایجاد کند، یک مدیر سیستم <b>کنسول سیستم › مدیریت کاربران › کاربران</b> را باز می‌کند، در منوی آن فرد <b>مدیریت نقش‌ها</b> را انتخاب می‌کند و <b>اجازه تولید توکن‌های دسترسی شخصی برای این حساب</b> را فعال می‌کند. مدیران سیستم همیشه می‌توانند این توکن‌ها را ایجاد کنند.</li>
+<li>کاربر روی آواتار خود در گوشه بالا سمت راست کلیک می‌کند و سپس به بخش <b>مشخصات و تنظیمات › امنیت</b> می‌رود. در زیر بخش <b>توکن های دسترسی شخصی</b>، توضیح می‌دهد که این توکن برای چه کاری استفاده می‌شود و گزینه <b>توکن ایجاد کنید</b> را انتخاب می‌کند. توکن فقط یک بار نمایش داده می‌شود: آن را کپی کنید.</li>
+</ol>
+<p>با استفاده از API: <code>POST /users/{user_id}/tokens</code> همراه با <code>{"description": "backup script", "expires_at": 0}</code> (<code>expires_at</code> بر حسب میلی‌ثانیه؛ 0 برای بدون انقضا). فیلد <code>token</code> در پاسخ، راز (secret) است؛ <code>id</code> آن چیزی است که برای لغو توکن استفاده می‌شود (<code>POST /users/tokens/revoke</code> همراه با <code>{"token_id": "…"}</code>). از خط فرمان: <code>amctl token generate &lt;user&gt; &lt;description&gt;</code>.</p>
+<p>یک مدیر سیستم می‌تواند مدت اعتبار توکن‌ها را با <b>حداکثر مدت اعتبار توکن دسترسی شخصی (روز)</b> در همان صفحه کنسول سیستم محدود کند.</p>
+
+<h3>توکن‌های نشست</h3>
+<p>ورود با رمز عبور، یک توکن نشست را در هدر پاسخ <code>Token</code> برمی‌گرداند، همان نوع نشستی که برنامه‌ها از آن استفاده می‌کنند:</p>
+<pre><code>curl -i -X POST https://chat.example.com/api/v4/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login_id": "maya", "password": "…"}'</code></pre>
+<p>برای حسابی که احراز هویت چندعاملی دارد، <code>"token": "123456"</code> را اضافه کنید. نشست‌ها طبق تنظیمات نشست سرور منقضی می‌شوند و نقطه ورود (login endpoint) محدودیت نرخ دارد (۵ درخواست بر ثانیه). <code>POST /users/logout</code> نشست را پایان می‌دهد.</p>
+<div class="callout">مرورگرها به جای توکن، با کوکی احراز هویت می‌کنند. درخواستی که با کوکی احراز هویت شده، برای هر عملی غیر از GET باید هدر <code>X-CSRF-Token</code> را نیز ارسال کند؛ توکن در هدر <code>Authorization</code> به هدر CSRF نیاز ندارد.</div>
+
+<h3>برنامه‌های OAuth 2.0</h3>
+<p>برای اینکه افراد بتوانند با حساب Antimatter خود به برنامه شما وارد شوند، یک برنامه OAuth 2.0 ثبت کنید. در این صورت Antimatter به عنوان ارائه‌دهنده OAuth عمل می‌کند:</p>
+<ol>
+<li>گزینه <b>فعال کردن OAuth 2.0 Service Provider</b> باید فعال باشد (<b>کنسول سیستم › ادغام ها › مدیریت یکپارچه سازی</b>، <code>ServiceSettings.EnableOAuthServiceProvider</code>، به صورت پیش‌فرض فعال است).</li>
+<li>کسی که مجوز مدیریت برنامه‌های OAuth را دارد (به صورت پیش‌فرض مدیران سیستم) روی آواتار خود کلیک می‌کند، سپس به بخش <b>ادغام ها › برنامه‌های OAuth 2.0</b> می‌رود و برنامه را به همراه URLهای بازگشت (callback) اضافه می‌کند. در این مرحله یک client ID و یک client secret دریافت می‌کند.</li>
+<li>برنامه شما کاربران را به <code>https://chat.example.com/oauth/authorize</code> با <code>response_type=code</code>، <code>client_id</code>، <code>redirect_uri</code> و <code>state</code> می‌فرستد. پشتیبانی از PKCE با <code>code_challenge_method=S256</code> وجود دارد.</li>
+<li>کد را در <code>POST https://chat.example.com/oauth/access_token</code> (با <code>grant_type=authorization_code</code> و سپس <code>refresh_token</code> برای تمدید) تبدیل می‌کند و با <code>Authorization: Bearer &lt;access token&gt;</code> به API دسترسی پیدا می‌کند.</li>
+</ol>
+<p>کاربران می‌توانند برنامه‌هایی که به آن‌ها مجوز داده‌اند را در بخش <b>مشخصات و تنظیمات › امنیت › برنامه‌هایی که به آن‌ها مجوز داده‌اید</b> مشاهده کنند.</p>
+
+<h2 id="resources">منابع اصلی</h2>
+<table>
+<thead><tr><th>چه چیزی</th><th>پایانه‌ها</th></tr></thead>
+<tbody>
+<tr><td>شما و سایر کاربران</td><td><code>GET /users/me</code>، <code>GET /users/{user_id}</code>، <code>GET /users/username/{username}</code>، <code>POST /users/ids</code> (یک فهرست از شناسه‌ها)، <code>POST /users/search</code>، <code>GET /users?in_team=…&amp;in_channel=…</code></td></tr>
+<tr><td>جوامع</td><td><code>GET /users/me/teams</code>, <code>GET /teams/{team_id}</code>, <code>GET /teams/name/{name}</code>, <code>PUT /teams/{team_id}/patch</code>, <code>GET /teams/{team_id}/members</code>, <code>POST /teams/{team_id}/members</code></td></tr>
+<tr><td>کانال‌ها</td><td><code>GET /users/me/teams/{team_id}/channels</code>، <code>GET /teams/name/{team}/channels/name/{channel}</code>، <code>POST /channels</code>، <code>POST /channels/direct</code> (دو شناسه کاربر)، <code>POST /channels/group</code>، <code>POST /channels/{channel_id}/members</code></td></tr>
+<tr><td>پیام‌ها</td><td><code>POST /posts</code>, <code>GET /posts/{post_id}</code>, <code>PUT /posts/{post_id}/patch</code>, <code>DELETE /posts/{post_id}</code>, <code>GET /channels/{channel_id}/posts</code>, <code>GET /posts/{post_id}/thread</code>, <code>POST /teams/{team_id}/posts/search</code></td></tr>
+<tr><td>واکنش‌ها</td><td><code>POST /reactions</code> با <code>{"user_id", "post_id", "emoji_name"}</code>، <code>DELETE /users/{user_id}/posts/{post_id}/reactions/{emoji_name}</code></td></tr>
+<tr><td>فایل‌ها</td><td><code>POST /files</code> (چندبخشی: <code>channel_id</code> و <code>files</code>)، سپس شناسه‌های برگشتی را در <code>file_ids</code> پیام قرار دهید؛ <code>GET /files/{file_id}</code></td></tr>
+<tr><td>ترجیحات</td><td><code>GET /users/me/preferences</code>, <code>PUT /users/me/preferences</code></td></tr>
+<tr><td>یکپارچه‌سازی‌ها</td><td><code>/hooks/incoming</code>، <code>/hooks/outgoing</code>، <code>/commands</code>، <code>/bots</code>، <code>/oauth/apps</code> (به صفحات بعدی مراجعه کنید)</td></tr>
+<tr><td>سرور</td><td><code>GET /system/ping</code> (سلامتی، بدون نیاز به توکن)، <code>GET /config/client?format=old</code> (تنظیماتی که کلاینت‌ها می‌بینند)</td></tr>
+</tbody>
+</table>
+
+<h3>ارسال پیام</h3>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "message": "Backup finished: **42 GB** in 3 min"}'</code></pre>
+<p>پیام‌ها به صورت Markdown هستند. برای پاسخ در یک رشته، <code>"root_id"</code> (اولین پیام رشته) را اضافه کنید، برای فایل‌ها <code>"file_ids"</code> و برای پیوست‌ها و سایر موارد اضافی <code>"props"</code> (به <a href="{{root}}docs/developers/webhooks.html#attachments">پیوست‌ها</a> مراجعه کنید).</p>
+
+<h3>یافتن شناسه کانال</h3>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" \
+  https://chat.example.com/api/v4/teams/name/lumen-labs/channels/name/ops-alerts</code></pre>
+<p>نام‌ها همان‌هایی هستند که در لینک کانال آمده است: <code>/lumen-labs/channels/ops-alerts</code>.</p>
+
+<h2 id="pagination">صفحه‌بندی</h2>
+<p>پایانه‌های فهرست‌دهنده <code>page</code> (از 0) و <code>per_page</code> (به‌طور پیش‌فرض 60، حداکثر 200) را می‌پذیرند. برای دریافت صفحه بعدی درخواست بدهید تا زمانی که صفحه‌ای کوتاه‌تر از <code>per_page</code> برگردد.</p>
+<p>پیام‌های یک کانال (<code>GET /channels/{channel_id}/posts</code>) نیز می‌پذیرند <code>since</code> (یک زمان: همه‌چیز که از آن زمان تغییر کرده است)، یا <code>before</code> و <code>after</code> (یک شناسه پیام). پاسخ به‌صورت یک فهرست پیام برمی‌گردد: <code>{"order": [IDs, newest first], "posts": {ID: post}, "next_post_id", "prev_post_id"}</code>.</p>
+
+<h2 id="errors">خطاها</h2>
+<p>خطاها از کدهای وضعیت HTTP معمول استفاده می‌کنند (400 ورودی نامعتبر، 401 عدم ورود، 403 عدم مجوز، 404 یافت نشد، 501 غیرفعال بودن قابلیت) و بدنه JSON:</p>
+<pre><code>{
+  "id": "api.context.permissions.app_error",
+  "message": "You do not have the appropriate permissions.",
+  "detailed_error": "",
+  "request_id": "jz8zm5nunpbt8f3gpqsz5dq6so",
+  "status_code": 403
+}</code></pre>
+<p>در کد خود از <code>id</code> استفاده کنید: <code>message</code> به زبان کاربر ترجمه می‌شود. <code>detailed_error</code> خالی است، مگر اینکه سرور در حالت توسعه‌دهنده اجرا شود (<code>ServiceSettings.EnableDeveloper</code>). <code>request_id</code> را به مدیر سرور ذکر کنید: این شناسه در لاگ‌ها موجود است.</p>
+
+<h2 id="rate-limits">محدودیت نرخ</h2>
+<p>محدود کردن نرخ به صورت پیش‌فرض غیرفعال است. وقتی یک مدیر سیستم آن را فعال می‌کند (<b>کنسول سیستم › محیط › محدود کردن نرخ</b>)، هر کلاینت به صورت پیش‌فرض ۱۰ درخواست در ثانیه با امکان افزایش تا ۱۰۰ درخواست (burst) مجاز است؛ این شمارش بر اساس آدرس IP یا کاربر انجام می‌شود. پاسخ‌ها هدرهای <code>X-RateLimit-Limit</code>، <code>X-RateLimit-Remaining</code> و <code>X-RateLimit-Reset</code> را همراه دارند؛ در صورت عبور از حد مجاز، سرور با کد <code>429</code> و هدر <code>Retry-After</code> (به ثانیه) پاسخ می‌دهد. برخی از نقاط پایانی (endpoints)، مانند ورود به سیستم، صرف‌نظر از تنظیمات، محدودیت اختصاصی خود را دارند.</p>
+<p>اسکریپتی بنویسید که در صورت دریافت 429 صبر کند و دوباره تلاش کند، و از پُلینگ (polling) خودداری کنید: به جای آن از WebSocket استفاده کنید.</p>
+
+<h2 id="websocket">جریان رویدادهای WebSocket</h2>
+<p>به <code>wss://chat.example.com/api/v4/websocket</code> متصل شوید. یا با هدر <code>Authorization: Bearer</code> در درخواست اتصال احراز هویت کنید، یا با ارسال این پیام به عنوان اولین پیام:</p>
+<pre><code>{"seq": 1, "action": "authentication_challenge", "data": {"token": "…"}}</code></pre>
+<p>سرور یک رویداد <code>hello</code> ارسال می‌کند، سپس برای هر چیزی که مجاز به مشاهده آن هستید یک رویداد می‌فرستد:</p>
+<pre><code>{
+  "event": "posted",
+  "data": {"channel_id": "…", "channel_type": "O", "post": "{\"id\":\"…\",\"message\":\"Hello\",…}"},
+  "broadcast": {"channel_id": "…", "team_id": "", "user_id": "", "omit_users": null},
+  "seq": 4
+}</code></pre>
+<p>توجه داشته باشید که <code>data.post</code> همان پیام به صورت رشته JSON است. رویدادهای رایج: <code>posted</code>، <code>post_edited</code>، <code>post_deleted</code>، <code>reaction_added</code>، <code>reaction_removed</code>، <code>typing</code>، <code>status_change</code>، <code>user_added</code>، <code>direct_added</code>. اپلیکیشن‌ها رویدادهای خاص خود را ارسال می‌کنند که با نام <code>custom_&lt;app id&gt;_&lt;event&gt;</code> مشخص می‌شوند.</p>
+<p>شما همچنین می‌توانید عملیات (actions) ارسال کنید، هر کدام با یک <code>seq</code> افزایشی: <code>user_typing</code> با <code>{"channel_id", "parent_id"}</code>، یا <code>get_statuses</code>. هنگام قطع شدن اتصال دوباره متصل شوید و آنچه را از دست داده‌اید با <code>since</code> بازیابی کنید (به <a href="#pagination">صفحه‌بندی</a> مراجعه کنید).</p>
+<p>Antimatter این رویدادها را اضافه می‌کند: <code>community_attributes_updated</code>, <code>member_timeouts_updated</code>, <code>post_put_on_top</code>, <code>post_removed_from_top</code>, <code>server_categories_updated</code>, <code>channel_overrides_updated</code> و <code>category_overrides_updated</code>.</p>
+
+<h2 id="clients">کتابخانه‌های کلاینت</h2>
+<ul>
+<li><b>برو</b>: <code>model.Client4</code> در مسیر <code>server/public/model</code> (با import کردن <code>github.com/mattermost/mattermost/server/public/model</code>). ابتدا <code>model.NewAPIv4Client(url)</code> را صدا بزنید، سپس <code>client.SetToken(token)</code> را؛ <code>model.NewWebSocketClient4(wsURL, token)</code> رویدادها را دنبال می‌کند. نسخه Antimatter روش‌هایی برای نقاط پایانی اختصاصی خود، مانند <code>UpdateMessageRequest</code>، <code>PutPostOnTop</code> و <code>ExportChannel</code> اضافه کرده است.</li>
+<li><b>TypeScript</b>: کلاس <code>Client4</code> از بسته <code>@mattermost/client</code> در مسیر <code>webapp/platform/client</code>، با تایپ‌های آن در <code>webapp/platform/types</code>. نسخه موجود در مخزن Antimatter شامل نقاط پایانی Antimatter است؛ اما بسته‌ای که Mattermost در npm منتشر کرده، این موارد را ندارد.</li>
+</ul>
+<pre><code>package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/mattermost/mattermost/server/public/model"
+)
+
+func main() {
+	client := model.NewAPIv4Client("https://chat.example.com")
+	client.SetToken("…")
+	post, _, err := client.CreatePost(context.Background(), &amp;model.Post{
+		ChannelId: "…",
+		Message:   "Hello from Go",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("posted", post.Id)
+}</code></pre>
+
+<h2 id="antimatter">آنچه Antimatter به API اضافه می‌کند</h2>
+<p>این نقاط پایانی و فیلدها روی سرور Mattermost وجود ندارند. همه آن‌ها به یک نشست (session) نیاز دارند.</p>
+<table>
+<thead><tr><th>نقطه پایانی</th><th>عملکرد</th></tr></thead>
+<tbody>
+<tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> همان مسیر<br><code>PATCH</code>, <code>DELETE …/fields/{field_id}</code></td><td>ویژگی‌های جامعه (Community attributes): فیلدهای پروفایلی که مدیران یک جامعه برای اعضایش تعریف می‌کنند (تا ۲۰ فیلد). اعضا می‌توانند آن‌ها را بخوانند؛ مدیران جامعه آن‌ها را ایجاد و تغییر می‌دهند.</td></tr>
+<tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> همان مسیر<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>مقادیر ویژگی‌های یک عضو، به صورت <code>{field_id: value}</code>. اعضا مقادیر خود را تنظیم می‌کنند (به جز فیلدهای تحت مدیریت مدیران)؛ مدیران می‌توانند مقادیر هر کسی را تنظیم کنند. جستجو با <code>{"user_ids": [...]}</code> انجام می‌شود (تا ۲۰۰ عضو).</td></tr>
+<tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>مهلت‌های زمانی (Timeouts): <code>{"until": time, "reason": "…"}</code> کسی را از ارسال پیام، واکنش نشان دادن و بارگذاری فایل در جامعه تا زمان مشخص شده (حداکثر ۲۸ روز) منع می‌کند؛ مقدار <code>"until": 0</code> این محدودیت را برمی‌دارد. نمای مدیریت (moderation view) زمان پیوستن و میزان ارسال پیام‌های اخیر را نشان می‌دهد.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>پیام‌هایی که در بالای یک کانال نگه داشته می‌شوند (حداکثر ۱۰ پیام). <code>{"duration": ms}</code>، حداکثر ۳۰ روز؛ مقدار ۰ یعنی تا زمانی که حذف شود باقی بماند. برای این کار به حق ارسال پیام در کانال نیاز دارید.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>روی درخواست پیام شما عمل می‌کند: <code>{"action": "accept"}</code>، <code>"dismiss"</code>، یا <code>"request"</code> برای بازگرداندن یک مکالمه به میان درخواست‌ها. عضو کانال شما را برمی‌گرداند.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>آنچه یک نقش یا یک شخص می‌تواند در یک کانال انجام دهد، و اینکه کدام نقش‌ها به کانال‌های محدودشده با نقش دسترسی دارند.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>دسته‌های کانال‌های مشترک جامعه و استثناهایی که به همه کانال‌های یک دسته اعمال می‌شوند.</td></tr>
+<tr><td><code>GET /groups/{group_id}/team_role</code><br><code>PUT …/team_role/permissions</code></td><td>دسترسی‌هایی که یک نقش جامعه اعطا می‌کند.</td></tr>
+<tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>قوانین خودکارلینک جامعه را روی یک متن آزمایش می‌کند.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>پیام‌های یک کانال را به‌صورت CSV (تا ۵۰,۰۰۰ پیام) دانلود می‌کند؛ برای کسانی که می‌توانند کانال را بخوانند.</td></tr>
+<tr><td><code>GET /posts/{post_id}/speech</code></td><td>پیام به‌صورت صوتی که هنگام پیکربندی تبدیل متن به گفتار پخش می‌شود.</td></tr>
+</tbody>
+</table>
+<h3>فیلدهای جدید</h3>
+<ul>
+<li><b>جوامع</b> (<code>Team</code>، و <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (همه افراد عضو تمام کانال‌هایی هستند که می‌توانند آن‌ها را ببینند، مانند Discord)، <code>default_channel_id</code> (جایی که افراد جدید به آن وارد می‌شوند؛ اگر خالی باشد، Town Square در نظر گرفته می‌شود)، <code>hide_role_colors</code>، <code>require_team_badges</code>، <code>onboarding</code> و <code>autolinks</code> (هر دو رشته JSON هستند).</li>
+<li><b>پاسخ‌های درون‌متنی</b>: پستی با <code>"props": {"reply_to": "&lt;post id&gt;"}</code> پیام همان کانال را نقل می‌کند. برای اینکه نویسنده آن پیام اعلان دریافت نکند، <code>"reply_to_mention": false</code> را اضافه کنید. سرور <code>metadata.reply_to</code> را با یک توضیح کوتاه از پیام نقل‌شده پر می‌کند.</li>
+<li><b>اسپویلرها</b>: <code>"props": {"spoiler": true}</code> متن و فایل‌های یک پست را تا زمانی که خواننده بخواهد آن‌ها را ببیند، پنهان می‌کند.</li>
+<li><b>نادیده‌گرفتن و مسدودکردن</b> ترجیحات کاربری هستند: دسته <code>user_block</code>، نام‌گذاری‌شده بر اساس شناسه شخص دیگر، با مقدار <code>ignore</code> یا <code>block</code>. اینکه آیا یک پیام مستقیم به‌صورت درخواست در انتظار می‌ماند یا نه، در <code>notify_props.dm_request</code> عضو کانال شما مشخص است (<code>pending</code>، <code>accepted</code> یا <code>dismissed</code>).</li>
+<li><b>پیوست‌های پیام</b> می‌توانند <code>stages</code> و یک <code>chart</code> داشته باشند: به <a href="{{root}}docs/developers/webhooks.html#cards">کارت‌ها</a> مراجعه کنید.</li>
+</ul>

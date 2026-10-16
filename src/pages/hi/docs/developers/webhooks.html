@@ -1,0 +1,170 @@
+title: वेबहुक
+description: Antimatter के इनकमिंग और आउटगोइंग वेबहुक: उनका निर्माण, उनके payloads और responses, message attachments और cards, नाम और आइकॉन को ओवरराइड करना, उदाहरणों के साथ।
+guide: developers
+order: 3
+nav: वेबहुक
+lead: इनकमिंग वेबहुक किसी अन्य सिस्टम को एक चैनल में JSON भेजकर संदेश पोस्ट करने की अनुमति देता है। आउटगोइंग वेबहुक इसका उल्टा करता है: यह आपके URL पर trigger word से शुरू होने वाले संदेश भेजता है, और आपका उत्तर पोस्ट करता है।
+source: ecd698619944
+---
+<h2 id="where">वेबहुक प्रबंधन कहाँ करें</h2>
+<p>ऊपर दाईं ओर अपने avatar पर क्लिक करें, फिर <b>इंटीग्रेशन</b> चुनें। वर्तमान community की integrations pages पर <b>इनकमिंग वेबहुक</b> और <b>आउटगोइंग वेबहुक</b> सूचीबद्ध हैं। प्रत्येक वेबहुक एक community से जुड़ा होता है।</p>
+<p>डिफ़ॉल्ट रूप से, community admins और system admins वेबहुक बना सकते हैं। एक system admin, System Console की permission settings में अन्य roles को यह अधिकार दे सकता है। एक system admin <b>सिस्टम कंसोल › इंटीग्रेशन › इंटीग्रेशन प्रबंधन</b> में प्रत्येक प्रकार को बंद भी कर सकता है: <b>इनकमिंग वेबहुक सक्षम करें</b> और <b>आउटगोइंग वेबहुक सक्षम करें</b> दोनों डिफ़ॉल्ट रूप से चालू हैं।</p>
+<figure><img src="{{root}}assets/img/shots/integrations.webp" alt="A channel with messages from a CI bot and from GitHub, shown as cards with fields, pipeline stages and a button"><figcaption>कार्ड के रूप में आरेखित integration messages: fields, pipeline stages और एक action button।</figcaption></figure>
+
+<h2 id="incoming">इनकमिंग वेबहुक बनाएं</h2>
+<ol>
+<li><b>इंटीग्रेशन</b> में, <b>इनकमिंग वेबहुक</b> चुनें, फिर <b>इनकमिंग वेबहुक जोड़ें</b>।</li>
+<li>एक <b>शीर्षक</b> और एक <b>विवरण</b> भरें: ये केवल integrations pages पर दिखाई देते हैं।</li>
+<li>वह <b>चैनल</b> चुनें जिसमें संदेश डिफ़ॉल्ट रूप से जाएं। निजी चैनल के लिए, आपको उसका सदस्य होना चाहिए।</li>
+<li>यदि senders को कहीं और पोस्ट करने की अनुमति नहीं होनी चाहिए, तो <b>इस चैनल पर लॉक करें</b> पर टिक लगाएं।</li>
+<li>वैकल्पिक रूप से, उसके संदेशों के लिए <b>यूज़रनेम</b> और <b>प्रोफ़ाइल चित्र</b> URL सेट करें (देखें <a href="#identity">नाम और आइकॉन</a>)।</li>
+<li><b>सहेजें</b> चुनें। दिखाई देने वाला URL कॉपी करें: <code>https://chat.example.com/hooks/&lt;key&gt;</code>।</li>
+</ol>
+<div class="callout warn">URL एकमात्र secret है: जो भी इसे रखता है, वह चैनल में पोस्ट कर सकता है। इसे public repositories से बाहर रखें, और यदि यह लीक हो जाए तो वेबहुक हटा दें।</div>
+<p>API के साथ: <code>POST /api/v4/hooks/incoming</code> के साथ <code>{"channel_id", "display_name", "description", "username", "icon_url", "channel_locked"}</code>; response का <code>id</code> key है। command line से: <code>amctl webhook create-incoming --channel &lt;channel id&gt; --user &lt;user&gt; --display-name "CI"</code>।</p>
+
+<h2 id="incoming-send">इनकमिंग वेबहुक को संदेश भेजें</h2>
+<pre><code>curl -X POST https://chat.example.com/hooks/xgh5ycrx1jf7mbs9w8z4c8e7ho \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Deploy of **api 2.4.0** finished :white_check_mark:"}'</code></pre>
+<p>सर्वर <code>200</code> के साथ body <code>ok</code> का उत्तर देता है। यह <code>application/x-www-form-urlencoded</code> भी स्वीकार करता है, जिसमें JSON एक <code>payload</code> field में होता है, जैसा कि Slack के वेबहुक करते हैं, इसलिए Slack के लिए बनाए गए tools आमतौर पर बिना बदलाव के काम करते हैं।</p>
+<table>
+<thead><tr><th>फील्ड</th><th>अर्थ</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>Markdown में सन्देश। <code>attachments</code> न होने पर अनिवार्य। सर्वर के सन्देश सीमा से लंबा टेक्स्ट कई सन्देशों में विभाजित हो जाता है।</td></tr>
+<tr><td><code>channel</code></td><td>वेबहुक की समुदाय का कोई अन्य चैनल, नाम से (<code>ops-alerts</code> या <code>#ops-alerts</code>), या वेबहुक के मालिक से डायरेक्ट मैसेज के लिए <code>@username</code>। यदि वेबहुक अपने चैनल पर लॉक है, तो यह अस्वीकार कर दिया जाता है।</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code>, <code>icon_emoji</code></td><td>जब सर्वर ओवरराइड की अनुमति देता है, तब दिखाने के लिए नाम और चित्र।</td></tr>
+<tr><td><code>attachments</code></td><td>सन्देश के अटैचमेंट, जो कार्ड के रूप में दिखाए जाते हैं (नीचे)।</td></tr>
+<tr><td><code>props</code></td><td>सन्देश पर संग्रहीत अतिरिक्त गुण, जो ऐप्स पढ़ते हैं।</td></tr>
+<tr><td><code>type</code></td><td>एक कस्टम पोस्ट प्रकार, जैसे <code>custom_poll</code>, जो किसी ऐप द्वारा दिखाया जाता है। <code>system_</code> से शुरू होने वाले प्रकार अस्वीकार किए जाते हैं।</td></tr>
+<tr><td><code>root_id</code></td><td>किसी थ्रेड के पहले सन्देश की ID, ताकि उसी थ्रेड में उत्तर दिया जा सके।</td></tr>
+<tr><td><code>priority</code></td><td>सन्देश प्राथमिकता, उदाहरण के लिए <code>{"priority": "urgent"}</code>।</td></tr>
+<tr><td><code>silent</code></td><td><code>true</code> सन्देश को पुश सूचनाएँ भेजे बिना भेजता है।</td></tr>
+</tbody>
+</table>
+<p>ओवरराइड किए गए नाम के साथ दिखाए गए सन्देशों के पास <b>बॉट</b> टैग होता है, ताकि लोग उन्हें असली खातों से पहचान सकें। वेबहुक सन्देश कभी आउटगोइंग वेबहुक ट्रिगर नहीं करते।</p>
+
+<h2 id="identity">नाम और आइकन</h2>
+<p>वेबहुक उस व्यक्ति के रूप में पोस्ट करता है जिसे उसने बनाया, जब तक कि सर्वर ओवरराइड की अनुमति न दे। <b>सिस्टम कंसोल › इंटीग्रेशन › इंटीग्रेशन प्रबंधन</b> में दो सेटिंग्स, जो डिफ़ॉल्ट रूप से बंद हैं, इसे बदलती हैं:</p>
+<ul>
+<li><b>इंटीग्रेशन को यूज़रनेम ओवरराइड करने की अनुमति दें</b> (<code>ServiceSettings.EnablePostUsernameOverride</code>): वेबहुक का <b>यूज़रनेम</b> या अनुरोध का <code>username</code> दिखाया जाता है; यदि न तो वेबहुक का नाम है और न ही अनुरोध में, तो नाम <code>webhook</code> होता है।</li>
+<li><b>इंटीग्रेशन को प्रोफ़ाइल चित्र आइकन ओवरराइड करने की अनुमति दें</b> (<code>ServiceSettings.EnablePostIconOverride</code>): वेबहुक का <b>प्रोफ़ाइल चित्र</b>, या अनुरोध का <code>icon_url</code> या <code>icon_emoji</code>, दिखाया जाता है।</li>
+</ul>
+<p>अनुरोध में दिया गया मान वेबहुक पर संग्रहीत मान पर हावी होता है।</p>
+
+<h2 id="attachments">अटैचमेंट</h2>
+<p>अटैचमेंट टेक्स्ट के नीचे संरचित सामग्री जोड़ते हैं। वे Slack के सन्देश अटैचमेंट फ़ॉर्मेट का पालन करते हैं:</p>
+<pre><code>{
+  "text": "Build failed on `main`",
+  "attachments": [{
+    "fallback": "main #1902 failed",
+    "color": "#d24b4e",
+    "author_name": "GitHub Actions",
+    "author_icon": "https://chat.example.com/static/ci.png",
+    "title": "main #1902 failed",
+    "title_link": "https://ci.example.com/runs/1902",
+    "text": "Commit `0f4d8e2` by Jonas Weber",
+    "fields": [
+      {"title": "Branch", "value": "zephyr-3.7", "short": true},
+      {"title": "Duration", "value": "3m 40s", "short": true}
+    ],
+    "footer": "Lumen CI",
+    "ts": 1760000000
+  }]
+}</code></pre>
+<table>
+<thead><tr><th>फील्ड</th><th>अर्थ</th></tr></thead>
+<tbody>
+<tr><td><code>fallback</code></td><td>सामान्य टेक्स्ट, उन स्थानों के लिए जहाँ कार्ड नहीं दिखाया जा सकता, जैसे सूचनाएँ।</td></tr>
+<tr><td><code>color</code></td><td>रंगीन पट्टी: एक hex रंग, या <code>good</code>, <code>warning</code>, <code>danger</code>।</td></tr>
+<tr><td><code>pretext</code></td><td>कार्ड के ऊपर टेक्स्ट।</td></tr>
+<tr><td><code>author_name</code>, <code>author_link</code>, <code>author_icon</code></td><td>एक छोटी हेडर पंक्ति।</td></tr>
+<tr><td><code>title</code>, <code>title_link</code></td><td>कार्ड का शीर्षक, यदि आवश्यक हो तो एक लिंक।</td></tr>
+<tr><td><code>text</code></td><td>कार्ड का मुख्य भाग, Markdown में।</td></tr>
+<tr><td><code>fields</code></td><td><code>{"title", "value", "short"}</code> की एक सूची; <code>short</code> फ़ील्ड एक साथ दिखाई जाती हैं।</td></tr>
+<tr><td><code>image_url</code>, <code>thumb_url</code></td><td>नीचे एक बड़ा चित्र, या किनारे पर एक छोटा चित्र।</td></tr>
+<tr><td><code>footer</code>, <code>footer_icon</code>, <code>ts</code></td><td>एक फुटर पंक्ति और समय (Unix सेकंड)।</td></tr>
+<tr><td><code>actions</code></td><td>बटन और मेन्यू: <a href="{{root}}docs/developers/bots.html#interactive">इंटरैक्टिव सन्देश</a> देखें।</td></tr>
+</tbody>
+</table>
+
+<h2 id="cards">कार्ड: चरण और चार्ट</h2>
+<p>Antimatter अटैचमेंट में दो फ़ील्ड जोड़ता है, जो डिफ़ॉल्ट इंटरफ़ेस द्वारा ड्रॉ की जाती हैं:</p>
+<ul>
+<li><code>stages</code>: एक पाइपलाइन के स्टेप्स, पिल्स के रूप में, अधिकतम 20 तक। प्रत्येक <code>{"name", "status"}</code> होता है, जिसमें स्थिति <code>passed</code>, <code>failed</code>, <code>running</code>, <code>pending</code>, <code>skipped</code> या <code>canceled</code> हो सकती है।</li>
+<li><code>chart</code>: हालिया मानों का एक छोटा लाइन चार्ट, <code>{"values": [2 to 200 numbers], "threshold": number, "label": "…"}</code>। थ्रेशोल्ड एक डैश्ड लाइन के रूप में खींचा गया है, जो अलर्ट की सीमा दर्शाता है।</li>
+</ul>
+<pre><code>{
+  "attachments": [{
+    "color": "danger",
+    "title": "main #1902 failed",
+    "stages": [
+      {"name": "build", "status": "failed"},
+      {"name": "unit", "status": "skipped"},
+      {"name": "publish", "status": "skipped"}
+    ]
+  }, {
+    "color": "warning",
+    "title": "API latency above 400 ms",
+    "chart": {"values": [210, 230, 260, 390, 450, 470], "threshold": 400, "label": "p95 latency, ms"}
+  }]
+}</code></pre>
+<p>क्लासिक इंटरफ़ेस और अन्य क्लाइंट्स इन दो फ़ील्ड्स को नज़रअंदाज़ कर देते हैं, इसलिए <code>text</code> या <code>fields</code> में भी आवश्यक जानकारी डालें।</p>
+
+<h2 id="outgoing">आउटगोइंग वेबहुक बनाएं</h2>
+<p>एक आउटगोइंग वेबहुक किसी कम्युनिटी के <b>सार्वजनिक</b> चैनलों की निगरानी करता है। जब किसी संदेश का पहला शब्द इसके ट्रिगर शब्दों में से किसी एक से मेल खाता है, Antimatter उस संदेश को आपके URL पर भेजता है।</p>
+<ol>
+<li><b>इंटीग्रेशन</b> में जाएं, <b>आउटगोइंग वेबहुक</b> चुनें, फिर <b>आउटगोइंग वेबहुक जोड़ें</b> पर क्लिक करें।</li>
+<li><b>शीर्षक</b> और <b>विवरण</b> भरें।</li>
+<li>रिक्वेस्ट का <b>कंटेंट टाइप</b> चुनें: <code>application/x-www-form-urlencoded</code> या <code>application/json</code>।</li>
+<li>एक <b>चैनल</b> चुनें, <b>ट्रिगर शबद (एक प्रति लाइन)</b> दर्ज करें, या दोनों करें। यदि चैनल चुना गया है और कोई ट्रिगर शब्द नहीं है, तो उस चैनल के सभी संदेश भेजे जाएंगे। यदि दोनों हैं, तो संदेश दोनों से मेल खाना चाहिए।</li>
+<li><b>ट्रिगर कब करें</b> के नीचे, <b>पहला शबद ट्रिगर शबद से पूरि तरह मेल खात है</b> या <b>पहल शबद ट्रिगर शबद से शुरू हत ह</b> चुनें।</li>
+<li><b>Callback URLs (एक प्रति लाइन)</b> दर्ज करें। प्रत्येक URL को हर मेल खाता संदेश मिलेगा।</li>
+<li>वैकल्पिक रूप से, उत्तरों के लिए उपयोग किए जाने वाले <b>यूज़रनेम</b> और <b>प्रोफ़ाइल चित्र</b> सेट करें।</li>
+<li><b>सहेजें</b> चुनें और दिखाई देने वाले टोकन की कॉपी करें। आपका सर्विस इसका उपयोग करेगा यह जांचने के लिए कि रिक्वेस्ट आपके सर्वर से आ रही हैं।</li>
+</ol>
+<p>API के साथ: <code>POST /api/v4/hooks/outgoing</code> के साथ <code>{"team_id", "channel_id", "trigger_words", "trigger_when", "callback_urls", "content_type", "display_name"}</code> (<code>trigger_when</code>: पूर्ण मेल के लिए 0, "शुरू हत ह" के लिए 1)।</p>
+<div class="callout">यदि आपका सर्विस एक प्राइवेट नेटवर्क पर है, तो एक सिस्टम एडमिन को <b>अवश्वसनय आंतरक कनेकशन क अनुमत द</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>) में उसका पता अनुमत करना होगा। अन्यथा, सर्वर प्राइवेट पताओं को कॉल नहीं करता।</div>
+
+<h2 id="outgoing-request">आउटगोइंग रिक्वेस्ट</h2>
+<p>Antimatter इन फ़ील्ड्स के साथ एक POST भेजता है, JSON या फ़ॉर्म-एनकोडेड के रूप में, कंटेंट टाइप के अनुसार:</p>
+<pre><code>{
+  "token": "6kd1ofo5ojr5zgu5ipfipybgnc",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "channel_id": "…",
+  "channel_name": "ops-alerts",
+  "timestamp": 1760010000000,
+  "user_id": "…",
+  "user_name": "priya",
+  "post_id": "…",
+  "text": "deploy api 2.4.0",
+  "trigger_word": "deploy",
+  "file_ids": ""
+}</code></pre>
+<p>किसी भी कार्य से पहले <code>token</code> को वेबहुक के टोकन से मिलाएं। फॉर्म-एनकोडेड संस्करण में, <code>timestamp</code> मिलीसेकंड के बजाय सेकंड में होता है। सर्वर <b>इंटीग्रेशन अनुरोध टाइमआउट</b> की अनुमति के अनुसार (डिफ़ॉल्ट रूप से 30 सेकंड, <code>ServiceSettings.OutgoingIntegrationRequestsTimeout</code>) आपके जवाब का इंतज़ार करता है।</p>
+
+<h2 id="outgoing-response">आउटगोइंग वेबहुक का जवाब दें</h2>
+<p>जवाब पोस्ट करने के लिए, JSON के साथ जवाब दें। कुछ भी पोस्ट न करने के लिए, खाली बॉडी के साथ जवाब दें।</p>
+<pre><code>{
+  "text": "Deploying **api 2.4.0** to staging…",
+  "response_type": "comment",
+  "username": "deploy-bot",
+  "icon_url": "https://chat.example.com/static/deploy.png"
+}</code></pre>
+<ul>
+<li><code>text</code> और <code>attachments</code>: जवाब। यदि इनमें से कोई नहीं है, तो कुछ भी पोस्ट नहीं होगा।</li>
+<li><code>response_type</code>: <code>comment</code> ट्रिगरिंग संदेश के थ्रेड में जवाब पोस्ट करता है; अन्यथा यह चैनल में जाता है।</li>
+<li><code>username</code>, <code>icon_url</code>: तब दिखाया जाता है जब सर्वर ओवरराइड की अनुमति देता है; अन्यथा वेबहुक के अपने मान उपयोग किए जाते हैं।</li>
+<li><code>props</code>, <code>type</code>, <code>priority</code>: इनकमिंग वेबहूक्स की तरह।</li>
+</ul>
+<p>जवाब वेबहुक के निर्माता के रूप में पोस्ट किया जाता है, यदि कोई ओवरराइड किया गया नाम है तो उसके तहत। यदि जवाब एक त्वरित उत्तर से लंबा है, तो तुरंत जवाब दें और बाद में इनकमिंग वेबहुक या API के माध्यम से पोस्ट करें।</p>
+
+<h2 id="troubleshooting">जब वेबहुक काम नहीं करता</h2>
+<ul>
+<li><b>हूक URL से 501</b>: सर्वर पर इनकमिंग वेबहूक्स बंद हैं।</li>
+<li><b>400 "Failed to decode the payload…"</b>: JSON अमान्य है, या फॉर्म फ़ील्ड का नाम <code>payload</code> नहीं है। <b>"No text specified."</b> का अर्थ है कि अनुरोध में न <code>text</code> है और न <code>attachments</code>।</li>
+<li><b>403</b>: वेबहुक किसी अन्य चैनल के लिए लॉक है, या इसका मालिक अब चैनल नहीं पढ़ सकता।</li>
+<li><b>आउटगोइंग वेबहुक कभी ट्रिगर नहीं होता</b>: चैनल निज है, ट्रिगर पहला शब्द नहीं है, या संदेश किसी वेबहुक से आया है।</li>
+<li><b>लॉग</b>: <b>Webhook Debugging सक्षम करें</b> चालू (<code>LogSettings.EnableWebhookDebugging</code>) और लॉग लेवल <code>DEBUG</code> पर होने पर, सर्वर असफल इनकमिंग अनुरोधों के पेयलोड्स को लॉग करता है। असफल आउटगोइंग कॉल्स <code>Outgoing Webhook POST failed</code> के रूप में लॉग की जाती हैं।</li>
+</ul>

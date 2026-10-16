@@ -1,0 +1,126 @@
+title: Apeluri și voce
+description: Configurați apelurile și canalele vocale din Antimatter: portul media, NAT și STUN, TURN, modul de testare, video, un server rtcd extern, transcrierea și subtitrările în direct cu un model propriu de speech-to-text, precum și înregistrările.
+guide: admins
+order: 5
+nav: Apeluri și voce
+lead: Apelurile și canalele vocale trimit audio, video și partajarea de ecran direct către server, pe portul acestuia. Această pagină acoperă partea de rețea, setările de verificat după instalare și transcrierea cu un model de speech-to-text pe care îl rulați dumneavoastră.
+source: 16057458346f
+---
+<h2 id="overview">Cum funcționează apelurile</h2>
+<p>Apelurile sunt asigurate de aplicația <b>Apeluri</b> (id <code>com.mattermost.calls</code>), care este instalată și activată implicit. Canalele vocale (aplicația <b>Canale vocale</b>, imaginea <code>antimatter-next</code>) sunt camere de apel permanente construite pe baza aplicației Apeluri: necesită ca Apelurile să fie activate și folosesc aceleași setări, porturi și servere.</p>
+<p>Aplicația Apeluri rulează un server media în interiorul Antimatter. Aplicația web, aplicația de desktop și aplicațiile mobile se conectează la acesta cu WebRTC:</p>
+<ul>
+<li>semnalizarea trece prin conexiunea web normală (proxii HTTPS);</li>
+<li><b>media</b> (audio, video, partajare de ecran) nu: merge direct către server, pe portul apelurilor, <b>8443 UDP și TCP</b> implicit.</li>
+</ul>
+<p>Setările se află în <b>Consola de sistem › Plugin-uri › Apeluri</b>. Fiecare dintre ele poate fi configurată și cu o variabilă de mediu <code>AM_CALLS_</code> pe serviciul <code>antimatter</code>, care apoi are prioritate față de Consola de sistem și blochează setarea acolo. Numele moștenite <code>MM_CALLS_</code> funcționează, de asemenea.</p>
+
+<h2 id="after-install">Verificați aceste elemente după instalare</h2>
+<ol>
+<li><b>Deschideți portul apelurilor.</b> Permiteți 8443/udp și 8443/tcp în firewall-ul serverului și al furnizorului de cloud.</li>
+<li><b>Dezactivați modul de testare.</b> <b>Modul de testare</b> (<code>DefaultEnabled</code>) este activat implicit: doar administratorii de sistem pot iniția apeluri în canale, astfel încât să puteți verifica dacă apelurile funcționează înainte ca toată lumea să le utilizeze. Setați-l la <b>Închis</b> în <b>Consola de sistem › Plugin-uri › Apeluri</b> sau configurați <code>AM_CALLS_DEFAULT_ENABLED=true</code>.</li>
+<li><b>Decideți în privința video.</b> <b>Activează apelurile video în mesajele directe (Experimental)</b> (<code>EnableVideo</code>, <code>AM_CALLS_ENABLE_VIDEO</code>) este dezactivat implicit. Atâta timp cât este dezactivat, nimeni nu poate activa o cameră, nici măcar în canalele vocale. Când este activat, camerele funcționează în apelurile prin mesaj direct și în canalele vocale (cu excepția cazului în care <b>Permite video în canalele vocale</b> din aplicația Canale vocale este dezactivat).</li>
+<li><b>În spatele NAT, configurați adresa publică</b> (secțiunea următoare).</li>
+</ol>
+
+<h2 id="network">Porturi, NAT și STUN</h2>
+<table>
+<thead><tr><th>Setare</th><th>Variabilă</th><th>Implicit</th></tr></thead>
+<tbody>
+<tr><td><b>Port server RTC (UDP)</b></td><td><code>AM_CALLS_UDP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>Port server RTC (TCP)</b></td><td><code>AM_CALLS_TCP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>Adresă server RTC (UDP)</b>, <b>(TCP)</b></td><td><code>AM_CALLS_UDP_SERVER_ADDRESS</code>, <code>AM_CALLS_TCP_SERVER_ADDRESS</code></td><td>gol: toate adresele</td></tr>
+<tr><td><b>Suprascriere adresa gazdă ICE</b></td><td><code>AM_CALLS_ICE_HOST_OVERRIDE</code></td><td>gol: descoperită prin STUN</td></tr>
+<tr><td><b>Suprascriere port gazdă ICE</b></td><td><code>AM_CALLS_ICE_HOST_PORT_OVERRIDE</code></td><td>gol: portul serverului</td></tr>
+<tr><td><b>Configurații servere ICE</b></td><td><code>AM_CALLS_ICE_SERVERS_CONFIGS</code></td><td><code>[{"urls":["stun:stun.cloudflare.com:3478"]}]</code></td></tr>
+<tr><td><b>(Experimental) Activează suportul IPv6</b></td><td>(Consola de sistem)</td><td>dezactivat</td></tr>
+</tbody>
+</table>
+<p>Porturile trebuie să fie între 80 și 49151. În fișierul de compunere al site-ului, modificați <code>CALLS_PORT</code> în <code>.env</code>: acesta setează ambele variabile și publică portul, același număr pe gazdă și în container. Clienții încearcă mai întâi UDP și recurg la TCP pe același port.</p>
+<h3>Adresa către care clienții trimit media</h3>
+<p>Serverul le comunică fiecărui client adresa către care trebuie să trimită media (candidatul „host”). În mod implicit, își descoperă adresa publică întrebând un server STUN, un serviciu public care răspunde cu adresa și portul de la care a venit o cerere. Valoarea implicită este serverul STUN public Cloudflare, <code>stun:stun.cloudflare.com:3478</code>. Serverul nu este singurul care îl folosește: fiecare client care se alătură unui apel îl întreabă și pentru propria sa adresă publică. Serverul STUN vede doar adrese IP și porturi, niciodată audio, video sau mesaje din apel.</p>
+<p>Un server care are încă salvat serverul STUN al Mattermost (<code>stun.global.calls.mattermost.com</code>) în <b>Configurații servere ICE</b>, de exemplu după o migrare de la Mattermost, folosește în schimb pe cel al Cloudflare. Setarea salvată nu este modificată.</p>
+<p>Setați adresa manual în următoarele cazuri:</p>
+<ul>
+<li>serverul este în spatele unui NAT sau are mai multe adrese publice: setați <b>Suprascriere adresa gazdă ICE</b> la adresa IP publică (sau la un nume de gazdă care se rezolvă în ea);</li>
+<li>NAT-ul mapază un port public diferit către 8443: setați și <b>Suprascriere port gazdă ICE</b> la acel port public;</li>
+<li>serverul nu are acces la Internet sau nu doriți ca serverul și clienții să contacteze un server STUN extern: setați <b>Suprascriere adresa gazdă ICE</b> și goliți lista STUN cu <code>AM_CALLS_ICE_SERVERS_CONFIGS=[]</code>. Cu <b>Suprascriere adresa gazdă ICE</b> setată, serverul nu mai întreabă un server STUN pentru adresa sa; lista goală împiedică clienții să facă același lucru.</li>
+</ul>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ICE_HOST_OVERRIDE: 203.0.113.10
+      AM_CALLS_ICE_SERVERS_CONFIGS: "[]"</code></pre>
+<p>Pentru a păstra STUN fără a recurge la un terț, rulați un server STUN propriu (un server TURN, cum ar fi coturn, răspunde și la cereri STUN) și listați-l în <b>Configurații servere ICE</b> în schimb, așa cum se arată în exemplul TURN de mai jos.</p>
+<p>Pe o rețea locală, folosiți adresa LAN a serverului. Reporniți serverul după modificarea porturilor, adreselor sau setărilor ICE, sau dezactivați și activați aplicația Calls: serverul media este configurat la pornirea aplicației.</p>
+
+<h2 id="turn">TURN, pentru firewall-uri stricte</h2>
+<p>Unele rețele blochează atât UDP, cât și conexiunile de ieș către porturi TCP neobișnuite. Utilizatorii de pe aceste rețele au nevoie de un server TURN, care retransmite media printr-un port la care pot ajunge (de obicei 443). Antimatter nu include un astfel de server; rulați un server TURN, cum ar fi coturn, și adăugați-l în <b>ICE Servers Configurations</b>, o listă JSON:</p>
+<pre><code>[
+  {"urls": ["stun:turn.example.com:3478"]},
+  {"urls": ["turn:turn.example.com:3478?transport=udp", "turns:turn.example.com:443?transport=tcp"]}
+]</code></pre>
+<ul>
+<li>În cazul unui secret partajat (<code>use-auth-secret</code> din coturn), introduceți același secret în <b>TURN Static Auth Secret</b> (<code>AM_CALLS_TURN_STATIC_AUTH_SECRET</code>): serverul oferă fiecărui client credențiale cu valabilitate limitată, valide pentru <b>TURN Credentials Expiration (minutes)</b> (240 de minute, implicit).</li>
+<li>În cazul credențialelor fixe, adăugați în schimb <code>"username"</code> și <code>"credential"</code> la intrarea TURN.</li>
+<li><b>Server Side TURN</b> (dezactivat implicit) utilizează, de asemenea, serverele TURN pentru conexiunile inițiate de server.</li>
+</ul>
+
+<h2 id="general">Alte setări pentru apeluri</h2>
+<table>
+<thead><tr><th>Setare</th><th>Variabilă</th><th>Implicit</th><th>Ce face</th></tr></thead>
+<tbody>
+<tr><td><b>Max call participants</b></td><td><code>AM_CALLS_MAX_CALL_PARTICIPANTS</code></td><td>0 (fără limită)</td><td>Numărul maxim de persoane într-un singur apel.</td></tr>
+<tr><td><b>Allow screen sharing</b></td><td>(Consola de sistem)</td><td>activat</td><td>Permite participanților să își partajeze ecranul.</td></tr>
+<tr><td><b>Enable call ringing</b></td><td><code>AM_CALLS_ENABLE_RINGING</code></td><td>activat</td><td>Sună celelalte persoane dintr-un mesaj direct sau de grup când se începe un apel acolo.</td></tr>
+<tr><td><b>Enable simulcast for screen sharing (Experimental)</b></td><td>(Consola de sistem)</td><td>dezactivat</td><td>Trimite partajările de ecran în mai multe calități.</td></tr>
+<tr><td><b>Enable AV1 codec for screen sharing (Experimental)</b></td><td>(Consola de sistem)</td><td>dezactivat</td><td>Ignorat când simulcast este activat.</td></tr>
+</tbody>
+</table>
+<p>Aplicația Canale vocale are două setări, în <b>Consola de sistem › Plugin-uri › Canale vocale</b>: <b>Alăturare la deschiderea unui canal vocal</b> (activată implicit) și <b>Permite video în canalele vocale</b> (activată implicit, dar consultați secțiunea despre video de mai sus). Administratorii comunității transformă un canal într-un canal vocal în setările acestuia.</p>
+<div class="callout">Pentru a dezactiva complet apelurile, dezactivați aplicația Apeluri în <b>Consola de sistem › Plugin-uri › Gestionare</b> sau configurați <code>AM_CALLS_DISABLE=true</code>. Canalele vocale vor înceta, de asemenea, să funcționeze.</div>
+
+<h2 id="rtcd">Servere mai mari: un rtcd extern</h2>
+<p>În mod implicit, un server Antimatter preia tot media apelurilor. Pentru multe apeluri simultane, sau pentru a ține media în afara serverului de chat, aplicația Calls poate preda media către <b>rtcd</b>, un server de media separat (open-source de la Mattermost <code>rtcd</code>, versiunea 0.17 sau mai nouă). Setează <b>RTCD service URL</b> (<code>AM_CALLS_RTCD_SERVICE_URL</code>), de exemplu <code>https://rtcd.example.com</code>: toate apelurile trec atunci prin el, iar clienții trimit media către portul propriu al rtcd, în loc de cel al Antimatter. Credentialele pot fi furnizate cu <code>AM_CALLS_RTCD_CLIENT_ID</code> și <code>AM_CALLS_RTCD_AUTH_KEY</code>; fără ele, aplicația se înregistrează automat cu rtcd. Nu este necesară nicio licență. Aplicația Calls afișează administratorilor un avertisment care recomandă rtcd atunci când pe server se află frecvent mai mult de 50 de persoane în apeluri simultan.</p>
+
+<h2 id="transcription">Transcriere și subtitrări în direct</h2>
+<p>Antimatter poate transcrie apelurile cu un model de conversie vorbire-text pe care îl rulezi tu însuți și poate afișa subtitrări în direct în timp ce oamenii vorbesc. Antimatter utilizează orice server care oferă un endpoint <code>/v1/audio/transcriptions</code> compatibil cu OpenAI, de exemplu un server Whisper din rețeaua ta. Nu este necesar niciun serviciu suplimentar de la Antimatter.</p>
+<h3>Cum funcționează</h3>
+<ul>
+<li>Gazda unui apel inițiază transcrierea cu <b>Transcrie apelul</b> în controalele apelului. Un insignă <b>Se transcrie</b> anunță toți participanții.</li>
+<li>Aplicația fiecărui participant ascultă propriul microfon, taie vorbirea în bucăți scurte (de cel mult 12 secunde, niciodată când este mut) și le trimite către Antimatter, care le forward către serverul tău de conversie vorbire-text.</li>
+<li>Cu subtitrările în direct activate, textul fiecărei bucăți este afișat participanților imediat, ca subtitrare.</li>
+<li>Când transcrierea se oprește sau apelul se încheie, botul Calls postează transcrierea ca fișier de text și fișier de subtitrări WebVTT, în firul de discuție al apelului (în canalele vocale, în canal).</li>
+<li>Cu <b>Summarize transcriptions</b> activat, agentul implicit al aplicației Agents postează și un rezumat în firul de discuție (vezi <a href="{{root}}docs/admins/ai.html">AI</a>).</li>
+</ul>
+<figure><img src="{{root}}assets/img/shots/transcript.webp" alt="A call's thread: the Calls bot has posted the transcript as a text file, and an AI agent has posted a summary below it."><figcaption>După apel, transcrierea și rezumatul acesteia în firul de discuție al apelului.</figcaption></figure>
+<h3>Configurarea</h3>
+<p>Setează următoarele pe serviciul <code>antimatter</code>:</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ENABLE_TRANSCRIPTIONS: "true"
+      AM_CALLS_TRANSCRIBE_API: openai
+      AM_CALLS_TRANSCRIBE_API_OPEN_AIURL: http://stt.internal:8000/v1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL: whisper-1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY: ""
+      AM_CALLS_ENABLE_LIVE_CAPTIONS: "true"
+      AM_CALLS_LIVE_CAPTIONS_LANGUAGE: en</code></pre>
+<table>
+<thead><tr><th>Setare</th><th>Variabilă</th><th>Ce trebuie introdus</th></tr></thead>
+<tbody>
+<tr><td><b>Enable call transcriptions (Beta)</b></td><td><code>AM_CALLS_ENABLE_TRANSCRIPTIONS</code></td><td><code>true</code></td></tr>
+<tr><td><b>Call transcriber API</b></td><td><code>AM_CALLS_TRANSCRIBE_API</code></td><td><code>openai</code> (afisat ca "OpenAI-compatible API (no job service)")</td></tr>
+<tr><td><b>Speech-to-text API URL</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AIURL</code></td><td>URL-ul de bază al API-ului, inclusiv <code>/v1</code>.</td></tr>
+<tr><td><b>Speech-to-text model</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL</code></td><td>Numele modelului așa cum îl cunoaște API-ul, de exemplu <code>whisper-1</code>. Obligatoriu.</td></tr>
+<tr><td><b>Speech-to-text API key</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY</code></td><td>Trimis ca token bearer. Lasă-l gol dacă API-ul nu necesită unul.</td></tr>
+<tr><td><b>Activează subtitrările în direct (Beta)</b></td><td><code>AM_CALLS_ENABLE_LIVE_CAPTIONS</code></td><td><code>true</code> pentru subtitrări în timpul apelului.</td></tr>
+<tr><td><b>Limba subtitrărilor în direct</b></td><td><code>AM_CALLS_LIVE_CAPTIONS_LANGUAGE</code></td><td>Limba vorbită, ca cod de două litere (<code>en</code> implicit). Este trimisă și către API-ul de transcriere pentru transcrieri, deci seteaz-o chiar și fără subtitrări.</td></tr>
+<tr><td><b>Rezumă transcrierile</b></td><td><code>AM_CALLS_SUMMARIZE_TRANSCRIPTIONS</code></td><td><code>true</code> pentru un rezumat generat de AI după apel.</td></tr>
+</tbody>
+</table>
+<div class="callout">În Consola de sistem, setările de transcriere apar doar după ce <b>Activează înregistrările apelurilor</b> este activat, deși acest tip de transcriere nu necesită înregistrare. Setarea lor cu variabilele de mai sus evită această problemă. Nu activa înregistrările împreună cu transcribitorul <code>openai</code>: pornirea unei înregistrări ar încerca apoi să pornească transcribitorul job-service și ar eșua.</div>
+<p>Audio-ul tuturor celor care vorbesc în timp ce transcrierea este activă este trimis către serverul de transcriere pe care l-ai configurat, iar transcrierea este publicată acolo unde toți din canal o pot citi. Informează-ți utilizatorii și păstrează acel server în rețeaua ta proprie dacă apelurile sunt confidențiale.</p>
+
+<h2 id="recordings">Înregistrări</h2>
+<p>Înregistrarea apelurilor (și transcrierea cu transcribitorii încorporați <code>whisper.cpp</code> sau Azure) rulează în containere separate pornite de un serviciu de job, <code>calls-offloader</code> open-source de la Mattermost, pe care îl implementezi tu lângă Antimatter. Setările sunt <b>Activează înregistrările apelurilor</b> (<code>AM_CALLS_ENABLE_RECORDINGS</code>, dezactivat implicit), <b>URL-ul serviciului de job</b> (<code>AM_CALLS_JOB_SERVICE_URL</code>), <b>Durata maximă a înregistrării apelului</b> (60 de minute implicit, între 15 și 180) și <b>Calitatea înregistrării apelului</b> (scăzută, medie sau înaltă; medie implicit). Nu este necesară nicio licență. Pentru doar transcrieri și subtitrări, configurarea de transcriere de mai sus este mai simplă: nu necesită niciun serviciu de job.</p>

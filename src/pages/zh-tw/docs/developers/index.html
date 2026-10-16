@@ -1,0 +1,77 @@
+title: 在 Antimatter 上開發
+description: 此指南適用於整合 Antimatter 或擴展其功能的開發人員：涵蓋 REST API、Webhook、斜線指令、機器人、應用程式（外掛程式）、從原始碼建置以及貢獻專案。
+guide: developers
+order: 1
+nav: 概觀
+lead: 本指南專為開發人員設計。內容涵蓋使用 API 的腳本與機器人、基於 Webhook 和斜線指令建立的整合、為伺服器與網頁應用程式新增功能的應用程式（外掛程式），以及從原始碼建置 Antimatter 以進行貢獻。
+source: b60d529f2c61
+---
+<h2 id="ways">擴展 Antimatter 的方式</h2>
+<p>請選擇能完成任務的最輕量工具。前四種方式不需要直接存取伺服器本身；應用程式則在伺服器內部執行。</p>
+<table>
+<thead><tr><th>工具</th><th>功能說明</th><th>適用情境</th></tr></thead>
+<tbody>
+<tr><td><a href="{{root}}docs/developers/api.html">REST API</a></td><td>應用程式所能執行的一切：訊息、頻道、人員、檔案、設定。WebSocket 會在事件發生時傳送通知。</td><td>腳本、與其他系統同步、自訂用戶端。</td></tr>
+<tr><td><a href="{{root}}docs/developers/webhooks.html">傳入 Webhook</a></td><td>一個保密的 URL，當外部系統傳送 JSON 時，會將訊息發佈到頻道。</td><td>警示、CI 結果、監控、來自其他工具的通知。</td></tr>
+<tr><td><a href="{{root}}docs/developers/webhooks.html#outgoing">傳出 Webhook</a></td><td>當公開頻道中的訊息以特定觸發詞開頭時，Antimatter 會呼叫您的 URL，並發佈您的回覆。</td><td>簡單的聊天驅動自動化。</td></tr>
+<tr><td><a href="{{root}}docs/developers/commands.html">斜線指令</a></td><td>使用者輸入 <code>/something</code>；Antimatter 會呼叫您的 URL，並將您的回應顯示給該使用者或整個頻道。</td><td>查詢、從聊天啟動的操作。</td></tr>
+<tr><td><a href="{{root}}docs/developers/bots.html">機器人</a></td><td>為程式建立的帳號，擁有獨立的令牌、<b>機器人</b>標籤，以及互動式訊息與對話框。</td><td>助理、通知工具，或任何需要與人員互動的功能。</td></tr>
+<tr><td><a href="{{root}}docs/developers/apps.html">應用程式（外掛程式）</a></td><td>在伺服器（Go）和網頁應用程式（React）內執行的程式碼：可掛鉤所有訊息、新增選單、面板、訊息類型和頁面。</td><td>功能：投票、筆記、行事曆、需要使用者介面的整合。</td></tr>
+</tbody>
+</table>
+<p>在介面中，使用者稱外掛程式為「應用程式」。本指南在兩個詞都有幫助時會使用「應用程式（外掛程式）」，因為程式碼、API 和設定中仍然使用「plugin」一詞。</p>
+
+<h2 id="compatibility">與 Mattermost 的相容性</h2>
+<p>Antimatter 是 Mattermost 的分支。大多數在 Mattermost 伺服器上運作的功能，在 Antimatter 上也能運作。</p>
+<h3>相同之處</h3>
+<ul>
+<li><b>REST API</b> 位於 <code>/api/v4</code> 之下，其驗證、WebSocket 和錯誤格式均相同。伺服器報告的版本為 <code>12.0.0</code>，因此檢查伺服器版本的用戶端和應用程式會看到近期的 Mattermost 版本。</li>
+<li><b>Webhook 與斜線指令</b>，包括其相容於 Slack 的負載。</li>
+<li><b>伺服器外掛 API 與掛鉤</b>：Antimatter 未對其進行變更。伺服器程式碼仍針對相同的 Go 模組 <code>github.com/mattermost/mattermost/server/public</code> 進行建置。</li>
+<li><b>Web 應用程式外掛註冊表</b>：Mattermost 註冊表中的所有 <code>register…</code> 方法，均存在於 Antimatter 的兩個 Web 介面中。</li>
+<li><b>客戶端函式庫</b>：Go 客戶端 <code>model.Client4</code> 與 TypeScript 客戶端 <code>@mattermost/client</code>（請參閱 <a href="{{root}}docs/developers/api.html#clients">客戶端函式庫</a>）。</li>
+<li><b>外掛套件</b>：包含 <code>plugin.json</code> 清單檔的 <code>.tar.gz</code> 檔案。使用 Mattermost 金鑰簽章的外掛可正常安裝，使用 Antimatter 金鑰簽章的外掛亦然。</li>
+</ul>
+<h3>有何不同</h3>
+<ul>
+<li><b>兩個 Web 介面。</b>新介面 Fusion 為預設選項；經典的 Mattermost 介面仍可继续使用。Fusion 可呈現大多數外掛元件，但會將部分元件放置在不同位置，並略去少數元件。應用程式可偵測目前執行的介面。請參閱 <a href="{{root}}docs/developers/apps.html#fusion">支援 Fusion 介面</a>。</li>
+<li><b>額外 API。</b>Antimatter 為其自身功能新增了端點：社群屬性、逾時、頂部訊息、訊息請求、頻道與分類覆寫、頻道匯出，以及社群的新欄位。請參閱 <a href="{{root}}docs/developers/api.html#antimatter">Antimatter 對 API 的增補</a>。</li>
+<li><b>額外訊息功能。</b>訊息附件可顯示管線階段與小型圖表；貼文可為行內回覆或雷區（spoiler）。</li>
+<li><b>應用程式的額外 Web 應用程式掛鉤</b>：編輯器「+」選單項目、表情符號選擇器分頁、頻道檢視中的面板、側邊欄頻道下方的頁尾，以及整合頁面上的項目。請參閱 <a href="{{root}}docs/developers/apps.html#antimatter-hooks">Antimatter 獨有的掛鉤</a>。</li>
+<li><b>無授權。</b>所有功能均可在無授權金鑰的情況下使用。授權、試用與企業升級端點已移除；<code>GET /api/v4/license/client</code> 仍保留以供需要的客戶端使用。部分為 Mattermost 付費版本建置的應用程式會自行檢查授權，若無授權則拒絕執行。</li>
+<li><b>命名。</b>介面中將團隊稱為社群，但 API 與程式碼中仍使用 <code>team</code>。環境變數使用 <code>AM_</code> 前綴，命令列工具為 <code>amctl</code>，伺服器二進位檔為 <code>antimatter</code>。</li>
+</ul>
+
+<h2 id="code">程式碼位置</h2>
+<p>所有內容皆為開源，位於 GitHub 上的 <a href="https://github.com/AntimatterChat">AntimatterChat</a> 組織中。每個儲存庫皆以其 <code>main</code> 分支運作。</p>
+<table>
+<thead><tr><th>儲存庫</th><th>內容</th></tr></thead>
+<tbody>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter">antimatter</a></td><td>伺服器（Go，位於 <code>server/</code>）、兩個網頁介面（<code>webapp/fusion</code> 與 <code>webapp/channels</code>）、TypeScript 用戶端以及 <code>amctl</code>。</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a></td><td>Docker 映像檔，包含內建應用程式與 compose 檔案。</td></tr>
+<tr><td><code>antimatter-plugin-*</code></td><td>每個內建應用程式各有一個儲存庫：<a href="https://github.com/AntimatterChat/antimatter-plugin-polls">polls</a>、<a href="https://github.com/AntimatterChat/antimatter-plugin-todo">todo</a>、<a href="https://github.com/AntimatterChat/antimatter-plugin-notes">notes</a>、<a href="https://github.com/AntimatterChat/antimatter-plugin-whiteboard">whiteboard</a>、<a href="https://github.com/AntimatterChat/antimatter-plugin-calendar">calendar</a>、<a href="https://github.com/AntimatterChat/antimatter-plugin-mail">mail</a>、<a href="https://github.com/AntimatterChat/antimatter-plugin-gifs">gifs</a>、<a href="https://github.com/AntimatterChat/antimatter-plugin-memes">memes</a>、<a href="https://github.com/AntimatterChat/antimatter-plugin-voice-channels">voice-channels</a>、<a href="https://github.com/AntimatterChat/antimatter-plugin-calls">calls</a>、<a href="https://github.com/AntimatterChat/antimatter-plugin-boards">boards</a>（Kanban）、<a href="https://github.com/AntimatterChat/antimatter-plugin-playbooks">playbooks</a>、<a href="https://github.com/AntimatterChat/antimatter-plugin-agents">agents</a> 以及 <a href="https://github.com/AntimatterChat/antimatter-plugin-metrics">metrics</a>。</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/gifs-server">gifs-server</a></td><td>GIFs 應用程式所使用的自架 GIF 與貼圖服務。</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/desktop-app">desktop-app</a>、<a href="https://github.com/AntimatterChat/mobile-app">mobile-app</a>、<a href="https://github.com/AntimatterChat/push-proxy">push-proxy</a></td><td>桌面與行動應用程式，以及將推送通知轉送至手機的服務。</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter.chat">antimatter.chat</a></td><td>本網站及其文件。</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/community">community</a></td><td>Antimatter 各部分的問題回報與討論。</td></tr>
+</tbody>
+</table>
+
+<h2 id="first-steps">開始之前</h2>
+<ul>
+<li><b>取得測試伺服器。</b>最快的方式是使用 Docker 映像檔：請參閱<a href="{{root}}docs/admins/install.html">安裝 Antimatter</a>。若要開發 Antimatter 本身，請參閱<a href="{{root}}docs/developers/building.html">從原始碼建置</a>。</li>
+<li><b>確認伺服器允許的功能。</b>部分整合功能預設為停用，且需要系統管理員權限：個人存取令牌、機器人帳號、使用者名稱與圖示覆寫，以及上傳應用程式。每個頁面都會說明所需的設定。</li>
+<li><b>確認您的網站 URL。</b>範例使用 <code>https://chat.example.com</code>。請將其替換為您伺服器的位址。</li>
+</ul>
+
+<h2 id="in-this-guide">本指南內容</h2>
+<ul>
+<li><a href="{{root}}docs/developers/api.html">REST API</a>：驗證、主要資源、分頁、錯誤、速率限制、WebSocket、用戶端函式庫，以及 Antimatter 的擴充功能。</li>
+<li><a href="{{root}}docs/developers/webhooks.html">Webhooks</a>：傳入與傳出 Webhook、負載、附件與卡片。</li>
+<li><a href="{{root}}docs/developers/commands.html">斜線指令</a>：自訂指令、其請求與回應、自動補全。</li>
+<li><a href="{{root}}docs/developers/bots.html">機器人与互動式訊息</a>：機器人帳號、按鈕、選單與對話框。</li>
+<li><a href="{{root}}docs/developers/apps.html">撰寫應用程式</a>：外掛程式結構、伺服器掛鉤、Web 應用程式註冊表、Fusion、設定、儲存、翻譯與打包。</li>
+<li><a href="{{root}}docs/developers/building.html">從原始碼建置</a>：伺服器、Web 介面、Docker 映像檔與應用程式。</li>
+<li><a href="{{root}}docs/developers/contributing.html">貢獻</a>：問題、拉取請求、風格、翻譯、安全性與授權條款。</li>
+</ul>
+<div class="callout">歡迎在<a href="https://github.com/AntimatterChat/community/discussions">社群討論區</a>提出問題。請在<a href="https://github.com/AntimatterChat/community/issues">社群問題追蹤器</a>中回報錯誤。</div>

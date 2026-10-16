@@ -1,0 +1,126 @@
+title: Samtal och röst
+description: Ställ in Antimatters samtal och röstkanaler: mediaporten, NAT och STUN, TURN, testläge, video, en extern rtcd-server, transkription och live-undertexter med ditt eget tal-till-text-modell, samt inspelningar.
+guide: admins
+order: 5
+nav: Samtal och röst
+lead: Samtal och röstkanaler skickar ljud, video och skärmdelning direkt till servern på dess egen port. Denna sida behandlar nätverksaspekten, inställningarna som bör kontrolleras efter installationen, samt transkription med en tal-till-text-modell som du kör själv.
+source: 16057458346f
+---
+<h2 id="overview">Så fungerar samtal</h2>
+<p>Samtal tillhandahålls av appen <b>Samtal</b> (id <code>com.mattermost.calls</code>), som är installerad och aktiverad som standard. Röstkanaler (appen <b>Röstkanaler</b>, <code>antimatter-next</code>-bilden) är permanenta samtalsrum byggda på Samtal: de kräver att Samtal är aktiverat och använder samma inställningar, portar och servrar.</p>
+<p>Appen Samtal kör en mediaserver inuti Antimatter. Webapp, skrivbordsapp och mobilappar ansluter till den med WebRTC:</p>
+<ul>
+<li>signaleringen går genom den vanliga webbanslutningen (din HTTPS-proxy);</li>
+<li><b>mediet</b> (ljud, video, skärmdelning) gör det inte: det går direkt till servern på samtalsporten, <b>8443 UDP och TCP</b> som standard.</li>
+</ul>
+<p>Inställningarna finns i <b>Systemkonsol › Plugin › Samtal</b>. Varje inställning kan också ställas in med en <code>AM_CALLS_</code>-miljövariabel på tjänsten <code>antimatter</code>, vilket då har företräde framför Systemkonsolen och låser inställningen där. De äldre <code>MM_CALLS_</code>-namnen fungerar också.</p>
+
+<h2 id="after-install">Kontrollera detta efter installationen</h2>
+<ol>
+<li><b>Öppna samtalsporten.</b> Tillåt 8443/udp och 8443/tcp i serverns brandvägg och hos din molnleverantör.</li>
+<li><b>Stäng av testläget.</b> <b>Testläge</b> (<code>DefaultEnabled</code>) är på som standard: endast systemadministratörer kan starta samtal i kanaler, så att du kan kontrollera att samtal fungerar innan alla använder dem. Ställ in det till <b>Av</b> i <b>Systemkonsol › Plugin › Samtal</b>, eller ställ in <code>AM_CALLS_DEFAULT_ENABLED=true</code>.</li>
+<li><b>Beslut om video.</b> <b>Aktivera videosamtal i DM (Experimentell)</b> (<code>EnableVideo</code>, <code>AM_CALLS_ENABLE_VIDEO</code>) är av som standard. Medan det är av kan ingen slå på en kamera, inte ens i röstkanaler. När det är på fungerar kameror i direktmeddelandesamtal och i röstkanaler (om inte Röstkanaler-appens <b>Tillåt video i röstkanaler</b> är av).</li>
+<li><b>Bakom NAT, ställ in den publika adressen</b> (nästa avsnitt).</li>
+</ol>
+
+<h2 id="network">Portar, NAT och STUN</h2>
+<table>
+<thead><tr><th>Inställning</th><th>Variabel</th><th>Standard</th></tr></thead>
+<tbody>
+<tr><td><b>RTC-serverport (UDP)</b></td><td><code>AM_CALLS_UDP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>RTC-serverport (TCP)</b></td><td><code>AM_CALLS_TCP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>RTC-serveradress (UDP)</b>, <b>(TCP)</b></td><td><code>AM_CALLS_UDP_SERVER_ADDRESS</code>, <code>AM_CALLS_TCP_SERVER_ADDRESS</code></td><td>tom: alla adresser</td></tr>
+<tr><td><b>ICE Host Override</b></td><td><code>AM_CALLS_ICE_HOST_OVERRIDE</code></td><td>tom: hittad via STUN</td></tr>
+<tr><td><b>Överskrivning av ICE-värdport</b></td><td><code>AM_CALLS_ICE_HOST_PORT_OVERRIDE</code></td><td>tom: serverporten</td></tr>
+<tr><td><b>Konfigurationer för ICE-servrar</b></td><td><code>AM_CALLS_ICE_SERVERS_CONFIGS</code></td><td><code>[{"urls":["stun:stun.cloudflare.com:3478"]}]</code></td></tr>
+<tr><td><b>(Experimentell) Aktivera stöd för IPv6</b></td><td>(Systemkonsol)</td><td>Av</td></tr>
+</tbody>
+</table>
+<p>Portarna måste vara mellan 80 och 49151. I sajtens compose-fil ändrar du <code>CALLS_PORT</code> i <code>.env</code>: det sätter båda variablerna och publicerar porten, samma nummer på värdmaskinen och i containern. Klienterna försöker först med UDP och faller sedan tillbaka på TCP på samma port.</p>
+<h3>Vilken adress klienterna skickar media till</h3>
+<p>Servern meddelar varje klient vilken adress de ska skicka media till (deras "värdkandidat"). Som standard hittar den sin publika adress genom att fråga en STUN-server, en offentlig tjänst som svarar med adressen och porten som en begäran kom ifrån. Standardvärdet är Cloudflares publika STUN-server, <code>stun:stun.cloudflare.com:3478</code>. Det är inte bara servern som använder den: varje klient som går med i ett samtal frågar också den efter sin egen publika adress. STUN-servern ser bara IP-adresser och portar, aldrig ljud, video eller meddelanden från samtalet.</p>
+<p>En server som fortfarande har Mattermosts STUN-server (<code>stun.global.calls.mattermost.com</code>) sparad i <b>Konfigurationer för ICE-servrar</b>, till exempel efter en flytt från Mattermost, använder Cloudflares istället. Den sparade inställningen ändras inte.</p>
+<p>Sätt adressen själv när:</p>
+<ul>
+<li>servern ligger bakom NAT eller har flera publika adresser: sätt <b>Överskrivning av ICE-värd</b> till den publika IP-adressen (eller ett värdnamn som löses upp till den);</li>
+<li>NAT:en mappar en annan publik port till 8443: sätt även <b>Överskrivning av ICE-värdport</b> till den publika porten;</li>
+<li>servern inte har internetåtkomst, eller om du inte vill att servern och klienterna ska kontakta en extern STUN-server: sätt <b>Överskrivning av ICE-värd</b> och töm STUN-listan med <code>AM_CALLS_ICE_SERVERS_CONFIGS=[]</code>. När <b>Överskrivning av ICE-värd</b> är satt frågar inte längre servern en STUN-server efter sin adress; den tomma listan stoppar klienterna från att fråga en.</li>
+</ul>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ICE_HOST_OVERRIDE: 203.0.113.10
+      AM_CALLS_ICE_SERVERS_CONFIGS: "[]"</code></pre>
+<p>För att behålla STUN utan en tredjepart, kör din egen STUN-server (en TURN-server, till exempel coturn, svarar också på STUN-begäranden) och lista den i <b>Konfigurationer för ICE-servrar</b> istället, som i TURN-exemplet nedan.</p>
+<p>På ett lokalt nätverk, använd serverns LAN-adress. Starta om servern efter att ha ändrat portar, adresser eller ICE-inställningar, eller inaktivera och aktivera appen Samtal: mediaservern ställs in när appen startar.</p>
+
+<h2 id="turn">TURN, för strikta brandväggar</h2>
+<p>Vissa nätverk blockerar både UDP och utgående anslutningar till ovanliga TCP-portar. Användare på sådana nätverk behöver en TURN-server, som vidarebefordrar medien via en port de kan nå (oftast 443). Antimatter medföljer ingen TURN-server; kör en TURN-server, till exempel coturn, och lägg till den i <b>ICE Servers Configurations</b>, en JSON-lista:</p>
+<pre><code>[
+  {"urls": ["stun:turn.example.com:3478"]},
+  {"urls": ["turn:turn.example.com:3478?transport=udp", "turns:turn.example.com:443?transport=tcp"]}
+]</code></pre>
+<ul>
+<li>Med ett delat hemligt nyckel (coturns <code>use-auth-secret</code>), ange samma hemliga nyckel i <b>TURN Static Auth Secret</b> (<code>AM_CALLS_TURN_STATIC_AUTH_SECRET</code>): servern ger varje klient kortlivade legitimationsuppgifter, giltiga i <b>TURN Credentials Expiration (minutes)</b> (240 minuter som standard).</li>
+<li>Med fasta legitimationsuppgifter, lägg till <code>"username"</code> och <code>"credential"</code> i TURN-posten i stället.</li>
+<li><b>Server Side TURN</b> (av som standard) använder också TURN-servrarna för anslutningar som servern startar.</li>
+</ul>
+
+<h2 id="general">Övriga inställningar för samtal</h2>
+<table>
+<thead><tr><th>Inställning</th><th>Variabel</th><th>Standard</th><th>Vad den gör</th></tr></thead>
+<tbody>
+<tr><td><b>Max call participants</b></td><td><code>AM_CALLS_MAX_CALL_PARTICIPANTS</code></td><td>0 (ingen gräns)</td><td>Största antal personer i ett samtal.</td></tr>
+<tr><td><b>Allow screen sharing</b></td><td>(Systemkonsol)</td><td>på</td><td>Tillåter deltagare att dela sin skärm.</td></tr>
+<tr><td><b>Enable call ringing</b></td><td><code>AM_CALLS_ENABLE_RINGING</code></td><td>på</td><td>Ringer de andra i ett direkt- eller gruppmeddelande när ett samtal startar där.</td></tr>
+<tr><td><b>Enable simulcast for screen sharing (Experimental)</b></td><td>(Systemkonsol)</td><td>Av</td><td>Skickar skärmdelning i flera kvalitetsnivåer.</td></tr>
+<tr><td><b>Enable AV1 codec for screen sharing (Experimental)</b></td><td>(Systemkonsol)</td><td>Av</td><td>Ignoreras när simulcast är aktiverat.</td></tr>
+</tbody>
+</table>
+<p>Appen Voice Channels har två inställningar, i <b>Systemkonsol › Plugin › Voice Channels</b>: <b>Join when opening a voice channel</b> (på som standard) och <b>Allow video in voice channels</b> (på som standard, men se videon ovan). Community-administratörer gör om en kanal till en röstkanal i kanalens inställningar.</p>
+<div class="callout">För att stänga av samtal helt, inaktivera appen Calls i <b>Systemkonsol › Plugin › Pluginadministration</b>, eller sätt <code>AM_CALLS_DISABLE=true</code>. Röstkanaler slutar då också fungera.</div>
+
+<h2 id="rtcd">Större servrar: en extern rtcd</h2>
+<p>Som standard hanterar en Antimatter-server all mediedata för samtal. För många samtal samtidigt, eller för att hålla mediedata borta från chattservern, kan appen Samtal överlämna mediedata till <b>rtcd</b>, en separat medieserver (Mattermosts öppen källkod <code>rtcd</code>, version 0.17 eller senare). Ange <b>RTCD service URL</b> (<code>AM_CALLS_RTCD_SERVICE_URL</code>), till exempel <code>https://rtcd.example.com</code>: alla samtal går då genom den, och klienterna skickar sin mediedata till rtcd:s egen port istället för Antimatters. Autentiseringsuppgifter kan anges med <code>AM_CALLS_RTCD_CLIENT_ID</code> och <code>AM_CALLS_RTCD_AUTH_KEY</code>; utan dessa registrerar appen sig själv hos rtcd. Ingen licens krävs. Appen Samtal visar administratörer en varning som rekommenderar rtcd när en server ofta har mer än 50 personer i samtal samtidigt.</p>
+
+<h2 id="transcription">Transkription och live-undertexter</h2>
+<p>Antimatter kan transkribera samtal med ett tal-till-text-modell som du kör själv, och visa live-undertexter medan personer pratar. Antimatter använder vilken server som helst som erbjuder en OpenAI-kompatibel <code>/v1/audio/transcriptions</code>-ändpunkt, till exempel en Whisper-server på ditt nätverk. Ingen extra tjänst från Antimatter krävs.</p>
+<h3>Så fungerar det</h3>
+<ul>
+<li>Värd för ett samtal startar transkriptionen med <b>Transkribera samtalet</b> i samtalskontrollerna. En <b>Transkriberar</b>-märkning informerar alla.</li>
+<li>Varje deltagares app lyssnar på sin egen mikrofon, delar upp talet i korta bitar (upp till 12 sekunder, aldrig när ljudet är stängt av) och skickar dem till Antimatter, som vidarebefordrar dem till din tal-till-text-server.</li>
+<li>När live-undertexter är aktiverade visas texten för varje bit som undertext för deltagarna direkt.</li>
+<li>När transkriptionen stannar eller samtalet avslutas, lägger boten för Samtal transkriptet som en textfil och en WebVTT-undertextfil i samtalets tråd (i röstkanaler, i kanalen).</li>
+<li>När <b>Sammanfatta transkriptioner</b> är aktiverat, lägger även den förvalda agenten i appen Agenter en sammanfattning i tråden (se <a href="{{root}}docs/admins/ai.html">AI</a>).</li>
+</ul>
+<figure><img src="{{root}}assets/img/shots/transcript.webp" alt="A call's thread: the Calls bot has posted the transcript as a text file, and an AI agent has posted a summary below it."><figcaption>Efter samtalet, transkriptet och dess sammanfattning i samtalets tråd.</figcaption></figure>
+<h3>Så här ställer du in det</h3>
+<p>Ställ in följande på tjänsten <code>antimatter</code>:</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ENABLE_TRANSCRIPTIONS: "true"
+      AM_CALLS_TRANSCRIBE_API: openai
+      AM_CALLS_TRANSCRIBE_API_OPEN_AIURL: http://stt.internal:8000/v1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL: whisper-1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY: ""
+      AM_CALLS_ENABLE_LIVE_CAPTIONS: "true"
+      AM_CALLS_LIVE_CAPTIONS_LANGUAGE: en</code></pre>
+<table>
+<thead><tr><th>Inställning</th><th>Variabel</th><th>Vad som ska anges</th></tr></thead>
+<tbody>
+<tr><td><b>Aktivera transkriptioner för samtal (Beta)</b></td><td><code>AM_CALLS_ENABLE_TRANSCRIPTIONS</code></td><td><code>true</code></td></tr>
+<tr><td><b>API för samtalstranskriberare</b></td><td><code>AM_CALLS_TRANSCRIBE_API</code></td><td><code>openai</code> (visas som "OpenAI-kompatibel API (ingen jobb-tjänst)")</td></tr>
+<tr><td><b>API-URL för tal-till-text</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AIURL</code></td><td>API:ns bas-URL, upp till och med <code>/v1</code>.</td></tr>
+<tr><td><b>Modell för tal-till-text</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL</code></td><td>Modellnamnet som API:et känner till, till exempel <code>whisper-1</code>. Obligatoriskt.</td></tr>
+<tr><td><b>API-nyckel för tal-till-text</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY</code></td><td>Skickas som en bearer-token. Lämna den tom om API:et inte kräver någon.</td></tr>
+<tr><td><b>Aktivera live-undertexter (Beta)</b></td><td><code>AM_CALLS_ENABLE_LIVE_CAPTIONS</code></td><td><code>true</code> för undertexter under samtalet.</td></tr>
+<tr><td><b>Språk för live-undertexter</b></td><td><code>AM_CALLS_LIVE_CAPTIONS_LANGUAGE</code></td><td>Det talade språket, som en kod med två bokstäver (<code>en</code> som standard). Det skickas till tal-till-text-API:t även för transkriptioner, så ange det även om du inte använder undertexter.</td></tr>
+<tr><td><b>Sammanfatta transkriptioner</b></td><td><code>AM_CALLS_SUMMARIZE_TRANSCRIPTIONS</code></td><td><code>true</code> för en AI-sammanfattning efter samtalet.</td></tr>
+</tbody>
+</table>
+<div class="callout">I Systemkonsolen visas inställningarna för transkriptioner först när <b>Aktivera inspelningar av samtal</b> är på, även om denna typ av transkription inte kräver någon inspelning. Om du anger dem med variablarna ovan undviker du detta. Slå inte på inspelningar tillsammans med transkriberaren <code>openai</code>: att starta en inspelning skulle då försöka starta jobbtjänstens transkriberare och misslyckas.</div>
+<p>Ljudet från alla som talar medan transkriptionen är på skickas till den tal-till-text-server du har konfigurerat, och transkriptionen publiceras där alla i kanalen kan läsa den. Informera dina användare och håll servern på ditt eget nätverk om samtalen är konfidentiella.</p>
+
+<h2 id="recordings">Inspelningar</h2>
+<p>Inspelning av samtal (och transkription med den inbyggda transkriberaren <code>whisper.cpp</code> eller Azure) körs i separata containrar som startas av en jobbtjänst, Mattermosts öppen källkodsprogramvara <code>calls-offloader</code>, som du själv installerar bredvid Antimatter. Inställningarna är <b>Aktivera inspelningar av samtal</b> (<code>AM_CALLS_ENABLE_RECORDINGS</code>, av som standard), <b>Jobbtjänstens URL</b> (<code>AM_CALLS_JOB_SERVICE_URL</code>), <b>Maximal längd för inspelning av samtal</b> (60 minuter som standard, 15 till 180) och <b>Kvalitet för inspelning av samtal</b> (låg, medel eller hög; medel som standard). Ingen licens krävs. För bara transkriptioner och undertexter är konfigurationen för tal-till-text ovan enklare: den kräver ingen jobbtjänst.</p>

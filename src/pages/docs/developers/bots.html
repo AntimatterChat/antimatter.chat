@@ -1,0 +1,171 @@
+title: Bots and interactive messages
+description: Bot accounts in Antimatter: creating them, their tokens and permissions, posting as a bot, direct messages, interactive buttons and menus, and dialogs.
+guide: developers
+order: 5
+nav: Bots
+lead: A bot account is a user made for a program. It has its own name, picture and tokens, and shows a BOT tag next to its name. This page also covers the interactive parts of messages: buttons, menus and dialogs, which any integration can use.
+---
+<h2 id="why">Why a bot account</h2>
+<ul>
+<li>Its messages come from a clear identity, with a <b>BOT</b> tag, instead of from a colleague's account.</li>
+<li>Its tokens keep working when the person who set it up changes role or leaves (unless the server disables the bots of deactivated owners, see below).</li>
+<li>Bots can't sign in with a password, and they never see the web app.</li>
+</ul>
+<p>Apps create their own bots, such as the Todo or Playbooks bots, through the plugin API (<code>EnsureBotUser</code>).</p>
+
+<h2 id="enable">Turn bot accounts on</h2>
+<p>A system admin turns on <b>Enable Bot Account Creation</b> in <b>System Console › Integrations › Bot Accounts</b> (<code>ServiceSettings.EnableBotAccountCreation</code>, <code>AM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION</code>). It is off by default. Only system admins can create bots, unless they give the right to other roles in the permission settings.</p>
+<p>On the same page, <b>Disable bot accounts when owner is deactivated</b> (<code>ServiceSettings.DisableBotsWhenOwnerIsDeactivated</code>, on by default) turns a bot off when its owner's account is deactivated.</p>
+
+<h2 id="create">Create a bot</h2>
+<ol>
+<li>Open your avatar at the top right, then <b>Integrations › Bot accounts</b>, then <b>Add Bot Account</b>.</li>
+<li>Enter a <b>Username</b> (lowercase letters, numbers, periods, dashes and underscores), and optionally a <b>Bot Icon</b>, a <b>Display Name</b> and a <b>Description</b>.</li>
+<li>Choose the <b>Role</b>: <b>Member</b>, or <b>System Admin</b> for a bot that manages the server. Give a bot the least it needs.</li>
+<li>Tick <b>post:channels</b> to let it post in every public channel, or <b>post:all</b> for every channel, private ones and direct messages included, without being a member.</li>
+<li>Set when its default token expires, then choose <b>Create Bot Account</b>.</li>
+<li>Copy the access token shown. It is not shown again.</li>
+</ol>
+<p>Later, <b>Create New Token</b> on the bot's row adds a token, and each token can be disabled or deleted. Bot tokens work even when personal access tokens are turned off for people.</p>
+<p>With the API:</p>
+<pre><code># create the bot (you become its owner)
+curl -X POST https://chat.example.com/api/v4/bots \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username": "deploy-bot", "display_name": "Deploy", "description": "Posts deployments"}'
+
+# give it a token
+curl -X POST https://chat.example.com/api/v4/users/$BOT_USER_ID/tokens \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"description": "deploy pipeline"}'</code></pre>
+<p>From the command line, signed in as an admin (not in local mode): <code>amctl bot create deploy-bot --display-name Deploy --with-token --expires-in 90d</code>. Other endpoints: <code>GET /api/v4/bots</code>, <code>PUT /api/v4/bots/{bot_user_id}</code>, <code>POST /api/v4/bots/{bot_user_id}/disable</code> and <code>/enable</code>, <code>POST /api/v4/bots/{bot_user_id}/assign/{user_id}</code> to change its owner.</p>
+
+<h2 id="membership">Add the bot to communities and channels</h2>
+<p>A new bot is in no community. Add it like a person, from the community's member management or with the API:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/teams/$TEAM_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"team_id": "'$TEAM_ID'", "user_id": "'$BOT_USER_ID'"}'
+
+curl -X POST https://chat.example.com/api/v4/channels/$CHANNEL_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"user_id": "'$BOT_USER_ID'"}'</code></pre>
+<p>A bot with <b>post:channels</b> or <b>post:all</b> can post without being a member, but it only receives WebSocket events for the channels it is in.</p>
+
+<h2 id="post">Post as the bot</h2>
+<p>Use the bot's token with any API call; <code>POST /api/v4/posts</code> is the most common (see <a href="{{root}}docs/developers/api.html#resources">Main resources</a>). To write to someone directly, open the direct message channel first:</p>
+<pre><code># returns the channel; use its "id" as channel_id
+curl -X POST https://chat.example.com/api/v4/channels/direct \
+  -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' \
+  -d '["'$BOT_USER_ID'", "'$USER_ID'"]'</code></pre>
+<p>To react to what people say, follow the <a href="{{root}}docs/developers/api.html#websocket">WebSocket</a> with the bot's token and answer the <code>posted</code> events you care about. Ignore the bot's own messages to avoid loops.</p>
+<p>A message only one person can see (an ephemeral message) is sent with <code>POST /api/v4/posts/ephemeral</code> and <code>{"user_id", "post": {"channel_id", "message"}}</code>. It needs the <code>create_post_ephemeral</code> permission, which only system admins have by default. Integrations usually send ephemeral messages as answers to slash commands and buttons instead.</p>
+
+<h2 id="interactive">Interactive messages: buttons and menus</h2>
+<p>Any message with attachments can carry actions: buttons, and menus to pick from. They work in messages posted with the API, webhooks and slash command answers. When someone uses one, Antimatter calls your integration's URL.</p>
+<pre><code>{
+  "channel_id": "…",
+  "message": "Deploy **api 2.4.0** to production?",
+  "props": {
+    "attachments": [{
+      "actions": [
+        {
+          "id": "approve",
+          "type": "button",
+          "name": "Approve",
+          "style": "primary",
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "approve"}}
+        },
+        {
+          "id": "env",
+          "type": "select",
+          "name": "Pick an environment",
+          "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}],
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "env"}}
+        }
+      ]
+    }]
+  }
+}</code></pre>
+<ul>
+<li><code>type</code>: <code>button</code> or <code>select</code>.</li>
+<li><code>id</code>: letters, numbers, dashes and underscores, different for each action of the message. It is generated when you leave it out.</li>
+<li><code>style</code> (buttons): <code>default</code>, <code>primary</code>, <code>success</code>, <code>good</code>, <code>warning</code>, <code>danger</code>, or a hex colour.</li>
+<li><code>options</code> (menus), or <code>data_source</code>: <code>users</code> or <code>channels</code> to pick a person or a channel. <code>default_option</code> preselects a value.</li>
+<li><code>integration.url</code>: where the click is sent. An app (plugin) can use its own route, such as <code>/plugins/com.example.deploy/actions</code>. <code>integration.context</code> is yours: it comes back with the click, and clients never see it.</li>
+</ul>
+<h3>The request your integration receives</h3>
+<pre><code>{
+  "user_id": "…",
+  "user_name": "priya",
+  "channel_id": "…",
+  "channel_name": "releases",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "post_id": "…",
+  "trigger_id": "…",
+  "type": "button",
+  "context": {"release": "2.4.0", "action": "approve"}
+}</code></pre>
+<p>For a menu, <code>type</code> is <code>select</code> and <code>context.selected_option</code> holds the chosen value.</p>
+<h3>Your answer</h3>
+<pre><code>{
+  "update": {"message": "Deploy of **api 2.4.0** approved by @priya", "props": {}},
+  "ephemeral_text": "Done. The deploy starts in a minute."
+}</code></pre>
+<ul>
+<li><code>update</code>: replaces the message's text and properties, for example to remove the buttons once used (an empty <code>props</code>).</li>
+<li><code>ephemeral_text</code>: a message only the person who clicked sees.</li>
+<li><code>goto_location</code>: a URL to open.</li>
+<li>An empty body changes nothing.</li>
+</ul>
+<p>The server waits as long as the <b>Integration request timeout</b> allows (30 seconds by default). Integration URLs on private network addresses must be allowed by a system admin, as for webhooks.</p>
+
+<h2 id="dialogs">Dialogs</h2>
+<p>A dialog is a form that opens over the chat. You can open one only in answer to something the person just did, a slash command or a button, because it needs that request's <code>trigger_id</code>. The <code>trigger_id</code> is valid for as long as the integration request timeout.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/actions/dialogs/open \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "trigger_id": "'$TRIGGER_ID'",
+    "url": "https://deploy.example.com/dialog",
+    "dialog": {
+      "callback_id": "new-release",
+      "title": "New release",
+      "introduction_text": "Fill in the release details.",
+      "submit_label": "Create",
+      "notify_on_cancel": false,
+      "state": "anything you want back",
+      "elements": [
+        {"display_name": "Version", "name": "version", "type": "text", "placeholder": "2.4.0"},
+        {"display_name": "Notes", "name": "notes", "type": "textarea", "optional": true},
+        {"display_name": "Environment", "name": "env", "type": "select",
+         "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}]},
+        {"display_name": "Owner", "name": "owner", "type": "select", "data_source": "users"},
+        {"display_name": "Notify the channel", "name": "notify", "type": "bool", "default": "true"}
+      ]
+    }
+  }'</code></pre>
+<table>
+<thead><tr><th>Element type</th><th>What it shows</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>A one-line field. <code>subtype</code>: <code>text</code>, <code>email</code>, <code>number</code>, <code>password</code>, <code>tel</code> or <code>url</code>. <code>min_length</code> and <code>max_length</code> limit it.</td></tr>
+<tr><td><code>textarea</code></td><td>A multi-line field.</td></tr>
+<tr><td><code>select</code></td><td>A list: <code>options</code>, or <code>data_source</code> <code>users</code>, <code>channels</code>, or <code>dynamic</code> with a <code>data_source_url</code>. <code>multiselect</code> allows several values.</td></tr>
+<tr><td><code>bool</code></td><td>A checkbox.</td></tr>
+<tr><td><code>radio</code></td><td>One choice among <code>options</code>.</td></tr>
+<tr><td><code>date</code>, <code>datetime</code></td><td>A date, or a date and time.</td></tr>
+</tbody>
+</table>
+<p>Every element takes <code>display_name</code>, <code>name</code>, <code>help_text</code>, <code>placeholder</code>, <code>default</code> and <code>optional</code>.</p>
+<p>When the person submits, Antimatter POSTs to the dialog's <code>url</code>:</p>
+<pre><code>{
+  "type": "dialog_submission",
+  "callback_id": "new-release",
+  "state": "anything you want back",
+  "user_id": "…",
+  "channel_id": "…",
+  "team_id": "…",
+  "submission": {"version": "2.4.0", "notes": "", "env": "staging", "owner": "…", "notify": true},
+  "cancelled": false
+}</code></pre>
+<p>Answer with an empty body to close the dialog, or keep it open and show what's wrong:</p>
+<pre><code>{"errors": {"version": "This version already exists."}}</code></pre>
+<p><code>{"error": "…"}</code> shows a message for the whole form. With <code>notify_on_cancel</code>, closing the dialog sends <code>"cancelled": true</code>. Dialogs work the same way in apps: the plugin API's <code>OpenInteractiveDialog</code> takes the same request.</p>

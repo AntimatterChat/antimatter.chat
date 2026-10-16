@@ -1,0 +1,172 @@
+title: Bots og interaktive beskeder
+description: Bot-konti i Antimatter: oprettelse, tokens og rettigheder, posting som bot, direkte beskeder, interaktive knapper og menuer samt dialoger.
+guide: developers
+order: 5
+nav: Bots
+lead: En bot-konto er en bruger oprettet til et program. Den har sit eget navn, billede og tokens, og der vises en BOT-merke ved navnet. Denne side dækker også de interaktive dele af beskeder: knapper, menuer og dialoger, som enhver integration kan bruge.
+source: 45503666f647
+---
+<h2 id="why">Hvorfor en bot-konto</h2>
+<ul>
+<li>Dens beskeder kommer fra en tydelig identitet med et <b>BOT</b>-merke i stedet for fra en kollegas konto.</li>
+<li>Dens tokens fortsætter med at fungere, når den person, der oprettede den, skifter rolle eller forlader organisationen (medmindre serveren deaktiverer bots med deaktiverede ejere, se nedenfor).</li>
+<li>Bots kan ikke logge ind med adgangskode, og de ser aldrig web-appen.</li>
+</ul>
+<p>Apps opretter deres egne bots, såsom Todo- eller Playbooks-bots, via plugin-API'en (<code>EnsureBotUser</code>).</p>
+
+<h2 id="enable">Slå bot-konti til</h2>
+<p>En systemadministrator aktiverer <b>Aktivér oprettelse af bot-konti</b> i <b>Systemkonsol › Integrationer › Bot-konti</b> (<code>ServiceSettings.EnableBotAccountCreation</code>, <code>AM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION</code>). Indstillingen er deaktiveret som standard. Kun systemadministratorer kan oprette bots, medmindre de giver rettigheden til andre roller i rettighedsindstillingerne.</p>
+<p>På samme side deaktiveres en bot, når dens ejers konto deaktiveres, hvis <b>Deaktivér bot-konti, når ejeren deaktiveres</b> (<code>ServiceSettings.DisableBotsWhenOwnerIsDeactivated</code>, aktiveret som standard) er slået til.</p>
+
+<h2 id="create">Opret en bot</h2>
+<ol>
+<li>Åbn din avatar i øverste højre hjørne, derefter <b>Integrationer › Bot-konti</b>, og derefter <b>Tilføj botkonto</b>.</li>
+<li>Indtast et <b>Brugernavn</b> (små bogstaver, tal, prikker, bindestreger og understreger) og eventuelt et <b>Botikon</b>, et <b>Visningsnavn</b> og en <b>Beskrivelse</b>.</li>
+<li>Vælg <b>Rolle</b>: <b>Medlem</b> eller <b>Systemadministrator</b> for en bot, der administrerer serveren. Giv en bot kun de rettigheder, den har behov for.</li>
+<li>Marker <b>post:channels</b> for at lade den poste i alle offentlige kanaler, eller <b>post:all</b> for alle kanaler, herunder private kanaler og direkte beskeder, uden at være medlem.</li>
+<li>Indstil, hvornår dens standardtoken udløber, og vælg derefter <b>Opret botkonto</b>.</li>
+<li>Kopiér det viste adgangstoken. Det vises ikke igen.</li>
+</ol>
+<p>Senere kan du tilføje en token ved at vælge <b>Opret ny token</b> på botens række. Hver token kan deaktiveres eller slettes. Bot-tokens virker, selvom personlige adgangstokens er deaktiveret for brugere.</p>
+<p>Med API'en:</p>
+<pre><code># create the bot (you become its owner)
+curl -X POST https://chat.example.com/api/v4/bots \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username": "deploy-bot", "display_name": "Deploy", "description": "Posts deployments"}'
+
+# give it a token
+curl -X POST https://chat.example.com/api/v4/users/$BOT_USER_ID/tokens \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"description": "deploy pipeline"}'</code></pre>
+<p>Fra kommandolinjen, logget ind som administrator (ikke i lokal tilstand): <code>amctl bot create deploy-bot --display-name Deploy --with-token --expires-in 90d</code>. Andre endpoints: <code>GET /api/v4/bots</code>, <code>PUT /api/v4/bots/{bot_user_id}</code>, <code>POST /api/v4/bots/{bot_user_id}/disable</code> og <code>/enable</code>, <code>POST /api/v4/bots/{bot_user_id}/assign/{user_id}</code> for at ændre ejeren.</p>
+
+<h2 id="membership">Tilføj boten til fællesskaber og kanaler</h2>
+<p>En ny bot er ikke i noget fællesskab. Tilføj den som en person, fra fællesskabets medlemsstyring eller via API'et:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/teams/$TEAM_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"team_id": "'$TEAM_ID'", "user_id": "'$BOT_USER_ID'"}'
+
+curl -X POST https://chat.example.com/api/v4/channels/$CHANNEL_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"user_id": "'$BOT_USER_ID'"}'</code></pre>
+<p>En bot med <b>post:channels</b> eller <b>post:all</b> kan poste uden at være medlem, men den modtager kun WebSocket-hændelser for de kanaler, den er i.</p>
+
+<h2 id="post">Post som boten</h2>
+<p>Brug botens token med enhver API-opkald; <code>POST /api/v4/posts</code> er det mest almindelige (se <a href="{{root}}docs/developers/api.html#resources">Hovedressourcer</a>). For at skrive direkte til nogen, åbn først direkte besked-kanalen:</p>
+<pre><code># returns the channel; use its "id" as channel_id
+curl -X POST https://chat.example.com/api/v4/channels/direct \
+  -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' \
+  -d '["'$BOT_USER_ID'", "'$USER_ID'"]'</code></pre>
+<p>For at reagere på det, folk siger, følg <a href="{{root}}docs/developers/api.html#websocket">WebSocket</a> med botens token og svar på de <code>posted</code>-hændelser, du er interesseret i. Ignorer botens egne beskeder for at undgå løkker.</p>
+<p>En besked, som kun én person kan se (en ephemeral besked), sendes med <code>POST /api/v4/posts/ephemeral</code> og <code>{"user_id", "post": {"channel_id", "message"}}</code>. Det kræver <code>create_post_ephemeral</code>-tilladelsen, som kun systemadministratorer har som standard. Integrationer sender typisk ephemeral beskeder som svar på skråstregskommandoer og knapper.</p>
+
+<h2 id="interactive">Interaktive beskeder: knapper og menuer</h2>
+<p>Enhver besked med vedhæftninger kan bære handlinger: knapper og menuer at vælge fra. De fungerer i beskeder postet via API'et, webhooks og svar på skråstregskommandoer. Når nogen bruger en, kalder Antimatter din integrationens URL.</p>
+<pre><code>{
+  "channel_id": "…",
+  "message": "Deploy **api 2.4.0** to production?",
+  "props": {
+    "attachments": [{
+      "actions": [
+        {
+          "id": "approve",
+          "type": "button",
+          "name": "Approve",
+          "style": "primary",
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "approve"}}
+        },
+        {
+          "id": "env",
+          "type": "select",
+          "name": "Pick an environment",
+          "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}],
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "env"}}
+        }
+      ]
+    }]
+  }
+}</code></pre>
+<ul>
+<li><code>type</code>: <code>button</code> eller <code>select</code>.</li>
+<li><code>id</code>: bogstaver, tal, bindestreger og understreger, forskellige for hver handling i beskeden. Den genereres, hvis du udelader den.</li>
+<li><code>style</code> (knapper): <code>default</code>, <code>primary</code>, <code>success</code>, <code>good</code>, <code>warning</code>, <code>danger</code> eller en hex-farve.</li>
+<li><code>options</code> (menuer) eller <code>data_source</code>: <code>users</code> eller <code>channels</code> for at vælge en person eller en kanal. <code>default_option</code> forudvælger en værdi.</li>
+<li><code>integration.url</code>: hvor klikket sendes. En app (plugin) kan bruge sin egen rute, f.eks. <code>/plugins/com.example.deploy/actions</code>. <code>integration.context</code> er din: den kommer med tilbage ved klikket, og klienter ser den aldrig.</li>
+</ul>
+<h3>Anmodningen, din integration modtager</h3>
+<pre><code>{
+  "user_id": "…",
+  "user_name": "priya",
+  "channel_id": "…",
+  "channel_name": "releases",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "post_id": "…",
+  "trigger_id": "…",
+  "type": "button",
+  "context": {"release": "2.4.0", "action": "approve"}
+}</code></pre>
+<p>For en menu er <code>type</code> <code>select</code>, og <code>context.selected_option</code> indeholder den valgte værdi.</p>
+<h3>Dit svar</h3>
+<pre><code>{
+  "update": {"message": "Deploy of **api 2.4.0** approved by @priya", "props": {}},
+  "ephemeral_text": "Done. The deploy starts in a minute."
+}</code></pre>
+<ul>
+<li><code>update</code>: erstatter beskedens tekst og egenskaber, f.eks. for at fjerne knapperne, når de er brugt (en tom <code>props</code>).</li>
+<li><code>ephemeral_text</code>: en besked, som kun den person, der klikkede, kan se.</li>
+<li><code>goto_location</code>: en URL, der skal åbnes.</li>
+<li>En tom body ændrer intet.</li>
+</ul>
+<p>Serveren venter, så længe <b>Integration anmodning timeout</b> tillader (30 sekunder som standard). Integrations-URL'er på private netværksadresser skal godkendes af en systemadministrator, ligesom det gælder for webhooks.</p>
+
+<h2 id="dialogs">Dialoger</h2>
+<p>En dialog er et formular, der åbnes over chatten. Du kan kun åbne en som svar på noget, personen netop har gjort, f.eks. en skråstregskommando eller en knap, da det kræver anmodningens <code>trigger_id</code>. <code>trigger_id</code> er gyldig i hele integration request timeout.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/actions/dialogs/open \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "trigger_id": "'$TRIGGER_ID'",
+    "url": "https://deploy.example.com/dialog",
+    "dialog": {
+      "callback_id": "new-release",
+      "title": "New release",
+      "introduction_text": "Fill in the release details.",
+      "submit_label": "Create",
+      "notify_on_cancel": false,
+      "state": "anything you want back",
+      "elements": [
+        {"display_name": "Version", "name": "version", "type": "text", "placeholder": "2.4.0"},
+        {"display_name": "Notes", "name": "notes", "type": "textarea", "optional": true},
+        {"display_name": "Environment", "name": "env", "type": "select",
+         "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}]},
+        {"display_name": "Owner", "name": "owner", "type": "select", "data_source": "users"},
+        {"display_name": "Notify the channel", "name": "notify", "type": "bool", "default": "true"}
+      ]
+    }
+  }'</code></pre>
+<table>
+<thead><tr><th>Elementtype</th><th>Hvad det viser</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>Et felt på én linje. <code>subtype</code>: <code>text</code>, <code>email</code>, <code>number</code>, <code>password</code>, <code>tel</code> eller <code>url</code>. <code>min_length</code> og <code>max_length</code> begrænser det.</td></tr>
+<tr><td><code>textarea</code></td><td>Et felt på flere linjer.</td></tr>
+<tr><td><code>select</code></td><td>En liste: <code>options</code>, eller <code>data_source</code> <code>users</code>, <code>channels</code> eller <code>dynamic</code> med en <code>data_source_url</code>. <code>multiselect</code> tillader flere værdier.</td></tr>
+<tr><td><code>bool</code></td><td>Et afkrydsningsfelt.</td></tr>
+<tr><td><code>radio</code></td><td>Ét valg blandt <code>options</code>.</td></tr>
+<tr><td><code>date</code>, <code>datetime</code></td><td>En dato, eller en dato og tid.</td></tr>
+</tbody>
+</table>
+<p>Hvert element tager <code>display_name</code>, <code>name</code>, <code>help_text</code>, <code>placeholder</code>, <code>default</code> og <code>optional</code>.</p>
+<p>Når personen sender, POST'er Antimatter til dialogens <code>url</code>:</p>
+<pre><code>{
+  "type": "dialog_submission",
+  "callback_id": "new-release",
+  "state": "anything you want back",
+  "user_id": "…",
+  "channel_id": "…",
+  "team_id": "…",
+  "submission": {"version": "2.4.0", "notes": "", "env": "staging", "owner": "…", "notify": true},
+  "cancelled": false
+}</code></pre>
+<p>Svar med en tom body for at lukke dialogen, eller hold den åben og vis, hvad der er galt:</p>
+<pre><code>{"errors": {"version": "This version already exists."}}</code></pre>
+<p><code>{"error": "…"}</code> viser en besked for hele formularen. Med <code>notify_on_cancel</code> sender lukningen af dialogen <code>"cancelled": true</code>. Dialoger fungerer på samme måde i apps: plugin-API'ets <code>OpenInteractiveDialog</code> tager den samme anmodning.</p>

@@ -1,0 +1,122 @@
+title: Comenzi cu slash
+description: Comenzi cu slash personalizate în Antimatter: crearea lor, cererea primită de serviciul dumneavoastră, formatul răspunsului, răspunsurile efemere și cele în canal, răspunsurile întârziate și completarea automată.
+guide: developers
+order: 4
+nav: Comenzi cu slash
+lead: O comandă cu slash personalizată permite utilizatorilor să tasteze /ceva în caseta de mesaje pentru a chema serviciul dumneavoastră. Antimatter trimite comanda către URL-ul dumneavoastră și afișează răspunsul, fie doar pentru persoana respectivă, fie pentru întregul canal.
+source: 24dbc9730e62
+---
+<h2 id="how">Cum funcționează o comandă cu slash</h2>
+<ol>
+<li>Cineva tastează <code>/weather Paris</code> și o trimite. Textul nu este publicat.</li>
+<li>Antimatter trimite o cerere HTTP către URL-ul comenzii, cu informații despre cine a tastat-o, unde și textul de după declanșator.</li>
+<li>Serviciul dumneavoastră răspunde în cadrul timpului de așteptare al cererii (30 de secunde implicit) cu un mesaj.</li>
+<li>Antimatter afișează răspunsul: doar pentru acea persoană (efemer) sau în canal pentru toată lumea.</li>
+</ol>
+<p>Comenzile aparțin unei comunități, iar un cuvânt declanșator este unic în cadrul acesteia. Comenzile integrate, cum ar fi <code>/join</code>, <code>/msg</code> sau <code>/away</code>, nu pot fi înlocuite. Aplicațiile (pluginurile) pot, de asemenea, înregistra comenzi; consultați <a href="{{root}}docs/developers/apps.html#server">Partea de server</a>.</p>
+
+<h2 id="create">Crearea unei comenzi</h2>
+<p>Comenzile cu slash personalizate sunt activate implicit (<b>Activați comenzile personalizate Slash</b> în <b>Consola de sistem › Integrări › Managementul integrării</b>, <code>ServiceSettings.EnableCommands</code>). Administratorii comunității și administratorii de sistem le pot crea implicit.</p>
+<ol>
+<li>Deschideți avatarul din colțul din dreapta sus, apoi <b>Integrări › Comenzi cu slash</b>, apoi <b>Adăugați comanda Slash</b>.</li>
+<li>Completați <b>Titlu</b> și <b>Descriere</b> (afisate pe paginile de integrări).</li>
+<li>Introduceți <b>Comandă De Declanșare Cuvânt</b>, fără slash și fără spații, de exemplu <code>weather</code>.</li>
+<li>Introduceți <b>Cerere URL</b> și alegeți <b>Metoda Cereri</b>: <b>POST</b> (implicit) sau <b>GET</b>.</li>
+<li>Opțional, setați un <b>Răspuns utilizator</b> și o <b>Adresa icoanei</b>. Acestea sunt utilizate doar dacă serverul permite integrărilor să suprascrie numele și icoanele (a se vedea <a href="{{root}}docs/developers/webhooks.html#identity">Nume și iconiță</a>).</li>
+<li>Bifați <b>Completare automată</b> pentru a lista comanda când utilizatorii tastează <code>/</code>, cu un <b>Completare automată Indiciu</b> (argumentele sale, de exemplu <code>[city]</code>) și o <b>Completarea Automată a Descrieri</b>.</li>
+<li>Alegeți <b>Salvează</b> și copiați tokenul afișat. Serviciul dumneavoastră îl folosește pentru a verifica dacă cererile provin de la serverul dumneavoastră.</li>
+</ol>
+<p>Prin API: <code>POST /api/v4/commands</code> cu <code>{"team_id", "trigger", "url", "method": "P", "display_name", "description", "auto_complete": true, "auto_complete_hint", "auto_complete_desc", "username", "icon_url"}</code>. Metoda este <code>P</code> pentru POST sau <code>G</code> pentru GET. <code>PUT /api/v4/commands/{command_id}/regen_token</code> emite un token nou.</p>
+
+<h2 id="request">Cererea pe care o primește serviciul</h2>
+<p>O comandă POST trimite un corp codificat ca formular (<code>application/x-www-form-urlencoded</code>); o comandă GET trimite aceleași câmpuri în șirul de interogare. Tokenul se află și în antetul <code>Authorization: Token &lt;token&gt;</code>.</p>
+<table>
+<thead><tr><th>Câmp</th><th>Valoare</th></tr></thead>
+<tbody>
+<tr><td><code>token</code></td><td>Tokenul comenzii. Verificați-l la fiecare cerere.</td></tr>
+<tr><td><code>command</code></td><td>Declanșatorul, cu slash-ul, de exemplu <code>/weather</code>.</td></tr>
+<tr><td><code>text</code></td><td>Tot ce urmează după declanșator, de exemplu <code>Paris</code>.</td></tr>
+<tr><td><code>user_id</code>, <code>user_name</code></td><td>Cine a rulat comanda.</td></tr>
+<tr><td><code>channel_id</code>, <code>channel_name</code></td><td>Unde a fost rulată.</td></tr>
+<tr><td><code>team_id</code>, <code>team_domain</code></td><td>ID-ul și numele de URL al comunității.</td></tr>
+<tr><td><code>root_id</code></td><td>Firul de discuție, dacă comanda a fost rulată în caseta de răspuns a unui fir.</td></tr>
+<tr><td><code>trigger_id</code></td><td>Permite răspunsului să deschidă un dialog (a se vedea <a href="{{root}}docs/developers/bots.html#dialogs">Dialoguri</a>). Este valid doar pentru o perioadă scurtă.</td></tr>
+<tr><td><code>response_url</code></td><td>Un URL pentru a publica mai târziu alte răspunsuri (a se vedea <a href="#delayed">Răspunsuri întârziate</a>).</td></tr>
+<tr><td><code>user_mentions</code>, <code>user_mentions_ids</code>, <code>channel_mentions</code>, <code>channel_mentions_ids</code></td><td>Persoanele și canalele publice menționate în text, dacă există.</td></tr>
+</tbody>
+</table>
+<div class="callout"><b>URL site</b> al serverului trebuie să fie setat pentru ca comenzile personalizate să ruleze: Antimatter construiește <code>response_url</code> din acesta.</div>
+
+<h2 id="response">Răspunsul</h2>
+<p>Răspundeți cu <code>200</code> și JSON (<code>Content-Type: application/json</code>):</p>
+<pre><code>{
+  "response_type": "in_channel",
+  "text": "Paris: 18 °C, light rain",
+  "attachments": []
+}</code></pre>
+<table>
+<thead><tr><th>Câmp</th><th>Semnificație</th></tr></thead>
+<tbody>
+<tr><td><code>response_type</code></td><td><code>ephemeral</code> (implicit): doar persoana care a rulat comanda vede răspunsul, iar acesta nu este păstrat după o reîncărcare. <code>in_channel</code>: răspunsul este publicat în canal.</td></tr>
+<tr><td><code>text</code>, <code>attachments</code></td><td>Mesajul, la fel ca pentru webhooks: text Markdown și <a href="{{root}}docs/developers/webhooks.html#attachments">atașamente</a>, inclusiv butoane și meniuri.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code></td><td>Numele și imaginea de afișat, dacă sunt permise suprascrieri. Setările proprii ale comenzii au prioritate față de acestea.</td></tr>
+<tr><td><code>channel_id</code></td><td>Publică răspunsul în alt canal, de care persoana trebuie să fie membru.</td></tr>
+<tr><td><code>goto_location</code></td><td>Un URL de deschis odată ce comanda a fost rulată.</td></tr>
+<tr><td><code>props</code>, <code>type</code></td><td>Proprietăți suplimentare și un tip de postare personalizat, la fel ca pentru webhooks.</td></tr>
+<tr><td><code>extra_responses</code></td><td>Alte răspunsuri, fiecare cu aceleași câmpuri, publicate după primul.</td></tr>
+<tr><td><code>skip_slack_parsing</code></td><td><code>true</code> păstrează textul așa cum este, fără a converti legăturile și mențiunile în stil Slack.</td></tr>
+</tbody>
+</table>
+<p>O răspuns care nu este în format JSON este afișat ca mesaj efemer, cu textul corpului mesajului. <code>204 No Content</code> nu afișează nimic. Orice cod de stare în afara intervalului 200–299 afișează utilizatorului o eroare.</p>
+
+<h2 id="example">Serviciu de exemplu</h2>
+<p>Un serviciu de comandă minimal în Python, cu doar biblioteca standard:</p>
+<pre><code>import hmac
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
+
+TOKEN = "the token shown when you saved the command"
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        form = {key: values[0] for key, values in parse_qs(body).items()}
+        if not hmac.compare_digest(form.get("token", ""), TOKEN):
+            self.send_response(401)
+            self.end_headers()
+            return
+        answer = {
+            "response_type": "ephemeral",
+            "text": f"Hello @{form['user_name']}, you asked for: {form.get('text', '')}",
+        }
+        data = json.dumps(answer).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(data)
+
+HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()</code></pre>
+<p>Dacă serviciul rulează pe o adresă de rețea privată, un administrator de sistem trebuie să îl permită în <b>Permiteți conexiunile interne de neîncrederi la</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>).</p>
+
+<h2 id="delayed">Răspunsuri întârziate</h2>
+<p>Pentru lucruri care durează mai mult decât timpul de așteptare, răspundeți imediat (de exemplu, cu un mesaj efemer „Lucrez la el…”), apoi trimiteți răspunsul real la <code>response_url</code>. Acesta acceptă același JSON ca răspunsul și funcționează de până la 5 ori în 30 de minute de la comandă.</p>
+<pre><code>curl -X POST "$RESPONSE_URL" -H 'Content-Type: application/json' \
+  -d '{"response_type": "in_channel", "text": "Report ready: https://reports.example.com/42"}'</code></pre>
+
+<h2 id="run">Executați o comandă prin API</h2>
+<p>Scripturile și boturile pot executa orice comandă, integrată sau personalizată, ca și cum ar fi tastat-o:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/commands/execute \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "command": "/weather Paris"}'</code></pre>
+<p><code>GET /api/v4/teams/{team_id}/commands/autocomplete</code> listează comenzile pe care utilizatorii le pot completa automat într-o comunitate.</p>
+
+<h2 id="autocomplete">Completare automată</h2>
+<p>Comenzile create în paginile de integrare se completează automat cu declanșatorul, indiciul și descrierea. Comenzile înregistrate de aplicații pot descrie în detaliu subcomenzile și argumentele cu <code>AutocompleteData</code>, din <code>model.NewAutocompleteData(trigger, hint, helpText)</code>:</p>
+<ul>
+<li><code>AddCommand(sub)</code> adaugă o subcomandă, care este la rândul ei un <code>AutocompleteData</code>.</li>
+<li><code>AddTextArgument(helpText, hint, pattern)</code> adaugă text liber.</li>
+<li><code>AddStaticListArgument(helpText, required, items)</code> oferă o listă fixă de <code>AutocompleteListItem{Item, Hint, HelpText}</code>.</li>
+<li><code>AddDynamicListArgument(helpText, url, required)</code> solicită aplicației dvs. sugestii pe măsură ce utilizatorii tastează. URL-ul este o rută a aplicației, de exemplu <code>/plugins/com.example.weather/cities</code>. Primește utilizatorul, canalul și comunitatea și returnează o listă JSON de <code>{"Item", "Hint", "HelpText"}</code>.</li>
+</ul>
+<p>Variantele <code>Named…</code> (<code>AddNamedTextArgument</code> și altele) adaugă opțiuni de tip <code>--name value</code>. Ambele interfețe web afișează aceste sugestii.</p>

@@ -1,0 +1,102 @@
+title: ساخت از سورس
+description: نحوه ساخت Antimatter از سورس: سرور Go، رابط‌های وب Fusion و کلاسیک، سرور توسعه، تست‌ها، آرشیوهای انتشار، تصویر Docker و اپلیکیشن‌های دسکتاپ و موبایل.
+guide: developers
+order: 7
+nav: ساخت از سورس
+lead: این صفحه توضیح می‌دهد که چگونه Antimatter را از کد منبع آن بسازید و اجرا کنید، چه برای کار روی آن و چه برای ساخت بیلدهای اختصاصی. این صفحه سرور و رابط‌های وب را پوشش می‌دهد که در یک مخزن قرار دارند، و سپس تصویر Docker و اپلیکیشن‌ها را.
+source: dfdf67f34f6e
+---
+<h2 id="requirements">چه چیزهایی نیاز دارید</h2>
+<ul>
+<li><b>برو</b>، در نسخه‌ای که در <code>server/go.mod</code> آمده (۱.۲۶.۷ در زمان نگارش).</li>
+<li><b>Node.js و npm</b>، در نسخه‌هایی که در <code>.nvmrc</code> و <code>webapp/package.json</code> آمده (Node 24.11.1 با npm 11.6.2). با <a href="https://mise.jdx.dev">mise</a>، فایل <code>mise.toml</code> مخزن Node مناسب را نصب می‌کند.</li>
+<li><b>Docker</b> با Compose: تنظیمات توسعه PostgreSQL و چند سرویس دیگر را در کانتینرها اجرا می‌کند.</li>
+<li><b>make</b>، <b>git</b> و یک ماشین با سیستم‌عامل Linux یا macOS.</li>
+<li><b>حافظه</b>: ساخت رابط‌های وب بخش سنگین کار است. برای 16 گیگابایت RAM برنامه‌ریزی کنید؛ به <a href="#memory">بیلدها و حافظه</a> مراجعه کنید.</li>
+</ul>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter.git
+cd antimatter</code></pre>
+<p>مخزن سرور را در <code>server/</code>، رابط‌های وب را در <code>webapp/</code> (Fusion در <code>webapp/fusion</code>، کلاسیک در <code>webapp/channels</code>، و بسته‌های مشترک در <code>webapp/platform</code>) و تست‌های end-to-end را در <code>e2e-tests/</code> نگه می‌دارد.</p>
+
+<h2 id="dev-server">اجرای سرور توسعه</h2>
+<pre><code>cd server
+make run</code></pre>
+<p><code>make run</code> کانتینرهای توسعه (PostgreSQL، Redis، یک گیرنده ایمیل و ابزارهای پایش) را راه‌اندازی می‌کند، بیلدهای اپلیکیشن وب را در جای خود قرار می‌دهد، سرور را در پس‌زمینه با <code>go run</code> شروع می‌کند و watcher اپلیکیشن وب را راه‌اندازی می‌کند که رابط کلاسیک را هنگام ویرایش مجدد می‌سازد. <code>http://localhost:8065</code> را باز کنید و یک حساب کاربری بسازید: اولین حساب کاربری مدیر سیستم می‌شود.</p>
+<table>
+<thead><tr><th>دستور (در <code>server/</code>)</th><th>عملکرد</th></tr></thead>
+<tbody>
+<tr><td><code>make run-server</code>, <code>make run-client</code></td><td>فقط سرور را شروع کنید، یا فقط watcher اپلیکیشن وب را.</td></tr>
+<tr><td><code>make restart-server</code></td><td>سرور را پس از تغییر کد Go مجدداً راه‌اندازی کنید.</td></tr>
+<tr><td><code>make stop</code></td><td>سرور، watcher و کانتینرها را متوقف کنید.</td></tr>
+<tr><td><code>make debug-server</code></td><td>سرور را زیر دیباگر Delve اجرا کنید.</td></tr>
+<tr><td><code>make run-cli ARGS="-version"</code></td><td>یک دستور سرور را اجرا کنید.</td></tr>
+<tr><td><code>make config-reset</code></td><td><code>config/config.json</code> را به مقادیر پیش‌فرض بازنشانی کنید.</td></tr>
+<tr><td><code>make clean</code>, <code>make nuke</code></td><td>فایل‌های بیلد را حذف کنید؛ <code>nuke</code> داده‌های توسعه را نیز حذف می‌کند.</td></tr>
+</tbody>
+</table>
+<p>پایگاه داده توسعه <code>postgres://mmuser:mostest_password@localhost/mattermost_test</code> است، منبع داده پیش‌فرض سرور. با <code>ENABLED_DOCKER_SERVICES</code> انتخاب کنید کدام کانتینرها شروع شوند، در یک فایل <code>server/config.override.mk</code> یا در محیط شما (به <code>server/config.mk</code> مراجعه کنید).</p>
+
+<h2 id="webapp">رابط‌های وب</h2>
+<p>در <code>webapp/</code>:</p>
+<pre><code>npm install      # also builds the shared packages
+npm run build    # the classic interface, then Fusion</code></pre>
+<p>خروجی‌های ساخته‌شده در <code>webapp/channels/dist</code> (کلاسیک) و <code>webapp/fusion/dist</code> (Fusion) قرار می‌گیرند. اجرای <code>make client</code> در <code>server/</code> آن‌ها را به‌ترتیب به‌عنوان <code>server/client</code> و <code>server/client-fusion</code> پیوند می‌دهد تا سرور بتواند آن‌ها را ارائه دهد: نسخه کلاسیک زیر مسیر <code>/static/</code> و Fusion زیر مسیر <code>/static/fusion/</code>.</p>
+<ul>
+<li>دستور <code>npm run run</code> (یا <code>make run</code> در <code>webapp/</code>) رابط کاربری کلاسیک را زیر نظر می‌گیرد و پس از هر تغییر، دوباره آن را می‌سازد. برای اینکه Fusion هم به‌طور خودکار بازسازی شود، متغیر <code>WATCH_FUSION=true</code> را اضافه کنید.</li>
+<li>دستور <code>npm run dev-server</code> (یا <code>make dev</code>) سرور توسعه webpack را به‌جای روش قبلی اجرا می‌کند: رابط کلاسیک روی پورت 9005 و Fusion روی پورت 9006.</li>
+<li>برای مشاهده یکی از این دو رابط کاربری در مرورگر، <code>?webui=fusion</code> یا <code>?webui=classic</code> را به آدرس هر صفحه‌ای اضافه کنید.</li>
+</ul>
+
+<h2 id="tests">تست‌ها و بررسی‌ها</h2>
+<table>
+<thead><tr><th>دستور</th><th>محل اجرا</th><th>عملکرد</th></tr></thead>
+<tbody>
+<tr><td><code>make test-server</code></td><td><code>server/</code></td><td>مجموعه تست‌های سرور، در برابر کانتینرهای توسعه. این فرآیند زمان‌بر است.</td></tr>
+<tr><td><code>make test-server-quick</code></td><td><code>server/</code></td><td>فقط تست‌های کوتاه.</td></tr>
+<tr><td><code>go test ./channels/app/... -run TestName</code></td><td><code>server/</code></td><td>یک بسته یا یک تست خاص، با فرض اجرای کانتینرها (<code>make start-docker</code>).</td></tr>
+<tr><td><code>make check-style</code></td><td><code>server/</code></td><td>بررسی‌های Go شامل go vet، golangci-lint و موارد دیگر.</td></tr>
+<tr><td><code>make test</code></td><td><code>webapp/</code></td><td>تست‌های واحد اپلیکیشن وب (Jest) در تمام بسته‌ها.</td></tr>
+<tr><td><code>npm run test -- &lt;pattern&gt;</code></td><td><code>webapp/fusion</code></td><td>برخی از تست‌های Fusion.</td></tr>
+<tr><td><code>make check-style</code>, <code>make check-types</code></td><td><code>webapp/</code></td><td>بررسی‌های ESLint و TypeScript.</td></tr>
+<tr><td><code>make i18n-extract</code></td><td><code>server/</code> و <code>webapp/</code></td><td>به‌روزرسانی فایل‌های رشته‌های انگلیسی پس از افزودن یا تغییر متن‌ها (به بخش <a href="{{root}}docs/developers/contributing.html#translations">ترجمه‌ها</a> مراجعه کنید).</td></tr>
+</tbody>
+</table>
+<p>به‌جای اجرای <code>go mod tidy</code> در <code>server/</code>، از دستور <code>make modules-tidy</code> استفاده کنید.</p>
+
+<h2 id="release">بایگانی‌های انتشار</h2>
+<pre><code>cd webapp &amp;&amp; npm run build &amp;&amp; cd ..
+cd server
+make build-linux       # the antimatter and amctl binaries
+make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
+<p>دستور <code>make build</code> رابط‌های کاربری وب و باینری‌های لینوکس را یکجا می‌سازد. این بایگانی شامل <code>bin/antimatter</code>، <code>bin/amctl</code>، یک فایل <code>config/config.json</code> پیش‌فرض، هر دو رابط کاربری وب، قالب‌ها، فونت‌ها و ترجمه‌ها است. برای سایر پلتفرم‌ها از دستورات <code>make package-osx</code>، <code>make package-windows</code> و <code>make package-freebsd</code> استفاده کنید. بایگانی‌ها اپلیکیشن‌های همراه را شامل نمی‌شوند، اما تصویر Docker آن‌ها را دارد.</p>
+
+<h2 id="docker">تصویر Docker</h2>
+<p>مخزن <a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> تصاویر منتشرشده را می‌سازد؛ سرور همراه با اپلیکیشن‌های آن، که به‌طور کامل داخل Docker ساخته می‌شوند:</p>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter-docker.git
+cd antimatter-docker
+scripts/build-all.sh                     # from the main branches on GitHub
+SOURCES=local scripts/build-all.sh       # from your checkouts next to this folder
+VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatter app</code></pre>
+<p>برای این کار به Docker با buildx، Python 3، git و gpg، حدود ۱۶ گیگابایت RAM و ۳۰ گیگابایت فضای دیسک نیاز دارید. نتیجه به صورت <code>ghcr.io/antimatterchat/antimatter:dev</code> بارگذاری می‌شود؛ می‌توانید آن را با <code>ANTIMATTER_IMAGE=ghcr.io/antimatterchat/antimatter:dev docker compose -f compose.local.yml up -d</code> امتحان کنید. فایل <code>plugins.json</code> برنامه‌ها و نسخه‌های ساخته‌شده را فهرست می‌کند و README مخزن، نسخه‌های مختلف را توضیح می‌دهد.</p>
+<div class="callout warn"><code>build-all.sh</code> برنامه‌های همراه را با کلید امضای Antimatter امضا می‌کند و ساخت تصویر از برنامه‌های بدون امضا خودداری می‌کند. بدون این کلید خصوصی که فقط نگهدارندگان آن را دارند، مراحل اول را به تنهایی اجرا کنید: <code>scripts/fetch-sources.sh</code>، <code>scripts/build-plugins.sh</code> (باندل‌های برنامه در <code>out/plugins/</code>) و <code>scripts/build-server.sh</code> (آرشیوهای سرور در <code>out/server/</code>).</div>
+
+<h2 id="memory">ساخت و حافظه</h2>
+<p>رابط‌های وب، ساخت‌های webpack بزرگ هستند و تمام شدن حافظه، رایج‌ترین خطای ساخت است.</p>
+<ul>
+<li><code>npm run build</code> رابط کلاسیک و Fusion را یکی پس از دیگری، نه همزمان، می‌سازد تا اوج مصرف حافظه پایین‌تر بماند. خودتان آن‌ها را موازی اجرا نکنید.</li>
+<li>مینی‌فایر برای هر پردازنده یک worker شروع می‌کند. روی دستگاهی با هسته‌های زیاد و حافظه کم، پردازنده‌هایی که ساخت می‌بیند را محدود کنید: <code>taskset -c 0-5 npm run build</code>.</li>
+<li>اگر Node از نظر heap به پایان برسد، حد آن را افزایش دهید: <code>NODE_OPTIONS=--max-old-space-size=6144</code>. ساخت Docker از این مقدار استفاده می‌کند (<code>BUILD_NODE_OPTIONS</code> در <code>build.env</code>).</li>
+<li>اجرای همزمان مجموعه کامل تست‌های سرور، یک ساخت وب و یک ساخت Docker را روی دستگاه کوچک اجتناب کنید.</li>
+</ul>
+
+<h2 id="apps">برنامه‌ها</h2>
+<p>هر برنامه (plugin) مخزن و Makefile خودش را دارد؛ <code>make dist</code> باندل آن را می‌سازد. به <a href="{{root}}docs/developers/apps.html#build">ساخت، نصب و دیباگ</a> مراجعه کنید.</p>
+<h3>برنامه دسکتاپ</h3>
+<p><a href="https://github.com/AntimatterChat/desktop-app">برنامه دسکتاپ</a> یک برنامه Electron است. با Node.js 24 یا بالاتر:</p>
+<pre><code>npm install --allow-git=all
+npm run build          # development build, into dist/
+npm start              # run it
+npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
+<p>تنظیمات زمان ساخت، مانند سرورهای پیش‌پیکربندی‌شده، در <code>src/common/config/buildConfig.ts</code> قرار دارند.</p>
+<h3>برنامه موبایل</h3>
+<p><a href="https://github.com/AntimatterChat/mobile-app">برنامه موبایل</a> یک برنامه React Native است؛ README آن دستورات را فهرست می‌کند (<code>npm run ios</code>، <code>npm run android</code>). برای ساخت نسخه خودتان همچنین به کلیدهای امضای خودتان، یک پروژه Firebase برای اعلان‌های Android، یک کلید APNs برای iOS و یک <a href="https://github.com/AntimatterChat/push-proxy">push proxy</a> که این اعتبارنامه‌ها را نگه می‌دارد، نیاز دارید.</p>

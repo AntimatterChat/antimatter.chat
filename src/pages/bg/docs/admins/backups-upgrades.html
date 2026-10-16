@@ -1,0 +1,105 @@
+title: Резервни копия и ъпгрейди
+description: Резервиране и възстановяване на сървър Antimatter (база данни, файлово хранилище, конфигурация), безопасно ъпгрейдване, преместване на сървър Mattermost към Antimatter, както и експортиране или импортиране на данни.
+guide: admins
+order: 10
+nav: Резервни копия и ъпгрейди
+lead: Какво да резервирате, как да го възстановите на нов хост, как да ъпгрейдирате и как да преместите сървър Mattermost или отделна общност към Antimatter.
+source: b0797af8b6e7
+---
+<h2 id="what">Какво да резервирате</h2>
+<table>
+<thead><tr><th>Какво</th><th>С compose файла на сайта</th><th>С архив на версия</th></tr></thead>
+<tbody>
+<tr><td>Базата данни: съобщения, потребители, общности, канали и, с compose файла на сайта, конфигурацията</td><td>том <code>antimatter_postgres</code>, чрез <code>pg_dump</code></td><td>вашата база данни PostgreSQL</td></tr>
+<tr><td>Качени файлове, изображения и инсталирани приложения</td><td>том <code>antimatter_files</code> (S3 хранилището)</td><td><code>FileSettings.Directory</code>, по подразбиране <code>./data/</code></td></tr>
+<tr><td>Конфигурационният файл</td><td>(в базата данни)</td><td><code>config/config.json</code></td></tr>
+<tr><td>GIF-ове и стикери</td><td>том <code>antimatter_gifs</code></td><td>каталогът с данни на GIF услугата</td></tr>
+<tr><td>Тайни</td><td><code>.env</code> (и <code>compose.override.yaml</code>)</td><td>вашият файл с променливи на средата</td></tr>
+</tbody>
+</table>
+<p>Базата данни и файловете принадлежат заедно: резервирайте ги едновременно и пазете копия извън сървъра. Имената на томове започват с името на compose проекта, <code>antimatter</code> (списъкът им се вижда с <code>docker volume ls</code>).</p>
+
+<h2 id="backup">Резервиране</h2>
+<p>От каталога на <code>compose.yaml</code>. Спирането на Antimatter предварително дава напълно последователно копие; резервно копие, направено докато работи, обикновено е наред, но файловете, качени по време на резервирането, може да липсват от него.</p>
+<pre><code>stamp=$(date +%Y%m%d-%H%M%S)
+mkdir -p backups
+docker compose stop antimatter
+# Database
+docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
+    &gt; "backups/antimatter-db-$stamp.dump"
+# File storage and GIF service
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
+        alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
+done
+docker compose start antimatter
+# Secrets
+cp .env "backups/env-$stamp"</code></pre>
+<p>Изпълнявайте го от cron за ежедневни резервни копия и копирайте каталога <code>backups/</code> на друга машина. Пазете копията на <code>.env</code> толкова сигурно, колкото и самия сървър: те съдържат паролите му.</p>
+<p>За да копирате качените файлове обект по обект (напр. към друго S3 хранилище), използвайте AWS командния инструмент на услугата <code>bucket</code>:</p>
+<pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
+    "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
+<p>С архив на версия, резервирайте базата данни с <code>pg_dump -Fc</code>, а каталозите <code>data/</code> и <code>config/</code> с вашите обичайни инструменти.</p>
+
+<h2 id="restore">Възстановяване на нов хост</h2>
+<p>Поставете <code>compose.yaml</code>, запазения <code>.env</code> и резервните копия в нов каталог, след което:</p>
+<pre><code>stamp=20261016-030000          # the backup to restore
+docker compose create           # creates the volumes, starts nothing
+docker compose up -d postgres
+docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
+    &lt; "backups/antimatter-db-$stamp.dump"
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
+        alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
+done
+docker compose up -d</code></pre>
+<p>Използвайте същия <code>.env</code>: хранилището и базата данни трябва да запазят паролите, които са имали. Ако новият хост има друг адрес, обновете <code>SITE_URL</code> (и <code>DOMAIN</code>).</p>
+<p>Тествайте резервните си копия, като ги възстановявате от време на време на друга машина.</p>
+
+<h2 id="upgrade">Ъпгрейд</h2>
+<ol>
+<li>Направете резервно копие.</li>
+<li>Променете тага на образа в <code>.env</code> (<code>ANTIMATTER_IMAGE</code>), ако го фиксирате, както се препоръчва.</li>
+<li>Изтеглете и рестартирайте:
+<pre><code>docker compose pull
+docker compose up -d
+docker compose logs -f antimatter</code></pre></li>
+</ol>
+<p>При стартиране сървърът надгражда схемата на базата данни (процесът се следи в журнала; при голям сървър може да отнеме няколко минути) и инсталира по-новите версии на приложенията, включени в образа. При архив за версия: спрете сървъра, заменете всичко, освен <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> и <code>client/plugins/</code>, със съдържанието на новия архив и го стартирайте отново.</p>
+<div class="callout warn">Надграждането е само напред. Когато по-нов сървър надгради базата данни, по-стара версия вече не може да я използва: за връщане възстановете резервното копие, направено преди надграждането. Същото важи и при преместване от <code>antimatter-next</code> обратно към <code>antimatter</code>.</div>
+<h3>Версии</h3>
+<p>Сървърът на Antimatter докладва версията на линията Mattermost, върху която е базиран (в момента 12.0.0). Образите се преизграждат от клоните <code>main</code>: <code>antimatter-next</code> всяка нощ (етикети <code>nightly-&lt;YYYYMMDD&gt;</code>), и и двата образа при всяка промяна (етикети <code>sha-&lt;commit&gt;</code>). Зафиксирайте един от тези етикети, надграждайте съзнателно и записвайте предишния етикет, за да знаете кое резервно копие отговаря на него.</p>
+<h3>Основни версии на PostgreSQL</h3>
+<p>Композ файлът използва <code>postgres:17-alpine</code>. Antimatter изисква PostgreSQL 15 или по-нова версия. Нова основна версия на PostgreSQL не може да прочете директорията с данни на предишната: за преместване към нея извличайте (dump) базата данни, стартирайте новата версия върху нов том и възстановявайте извлечените данни в нея.</p>
+
+<h2 id="mattermost">Преместване от Mattermost</h2>
+<p>Antimatter използва схемата на базата данни на Mattermost и добавя собствени таблици, така че може да поеме базата данни и файловете на сървър на Mattermost. Първо опитайте върху копие:</p>
+<ol>
+<li>Направете резервно копие на базата данни на Mattermost, хранилището му с файлове (<code>data/</code> или S3 кош) и <code>config.json</code>, след което спрете Mattermost.</li>
+<li>Възстановете базата данни в PostgreSQL на Antimatter или насочете Antimatter към копие на нея (<code>AM_SQLSETTINGS_DATASOURCE</code>).</li>
+<li>Копирайте файловете в хранилището на Antimatter, запазвайки пътя им: в коша <code>antimatter</code> с S3 инструмент, или в <code>data/</code> с архив за версия.</li>
+<li>Възползвайте се от настройките си: копирайте <code>config.json</code> или го преместете в базата данни с <code>amctl --local config migrate</code> (вижте <a href="{{root}}docs/admins/configuration.html">Настройки</a>). Променливите на средата <code>MM_</code> продължават да работят; преименувайте ги на <code>AM_</code>, когато е удобно.</li>
+<li>Стартирайте Antimatter и следете лога, докато се извърши ъпгрейд на базата данни. После проверете <b>Системна конзола › Приставка › Управление на приставките</b>. Antimatter инсталира собствените си версии на Calls, Playbooks, Kanban (Boards), Agents и интеграциите, когато те са по-нови от инсталираната версия. Ако Mattermost има по-нова версия на някоя от тях, премахнете това приложение и рестартирайте Antimatter, за да се инсталира собствената му версия.</li>
+<li>Настройте изскачащите известия отново, като използвате собствен push прокси: Antimatter никога не изпраща известия до push услугите на Mattermost, дали тестови или хостирани, тъй като те доставят известия само до собствените приложения на Mattermost. Докато не промените <b>Сървър за изскачащи известия</b>, сървърът не изпраща push известия (вижте <a href="{{root}}docs/admins/email-push.html#push">Изскачащи известия</a>).</li>
+</ol>
+<p>Antimatter не се свързва с нито една услуга, управлявана от Mattermost, Inc. (вижте <a href="{{root}}docs/admins/security.html#outbound">Свързване с външни услуги</a>), дори ако конфигурацията ви все още сочи към такава:</p>
+<ul>
+<li>пуш сървърът на Mattermost остава в настройките, но никога не се използва;</li>
+<li>адресите на Mattermost за пазара на приложения (<b>URL адрес на Marketplace</b>) и за продуктови известия се изчистват;</li>
+<li>приложението Calls използва публичния STUN сървър на Cloudflare вместо този на Mattermost, без да променя запазената настройка (вижте <a href="{{root}}docs/admins/calls.html#network">Calls</a>);</li>
+<li>проверката за сигурност и докладването за сривове се премахват, заедно с настройките им в Системната конзола (<b>Enable Security Alerts</b>, <b>Enable Diagnostics and Error Reporting</b>) и страницата <b>Бележки</b>.</li>
+</ul>
+<p>Сокетът за локален режим сега е <code>/var/tmp/antimatter_local.socket</code>; <code>amctl</code> също опитва стария <code>/var/tmp/mattermost_local.socket</code>. Mattermost поддържа само PostgreSQL в последните си версии, и Antimatter също: първо преместете MySQL базата данни в PostgreSQL. Връщане към Mattermost след надграждане на базата данни от Antimatter означава възстановяване на резервното копие на Mattermost.</p>
+
+<h2 id="export-import">Експортиране и импортиране на данни</h2>
+<p>Форматът за масово експортиране прехвърля данни между сървъри: целия сървър, някои общности или някои канали, с прикачени файлове, профилни снимки и персонализирани емоджи, ако ги желаете.</p>
+<pre><code># on the source server
+amctl export create --team-name design --include-profile-pictures
+amctl export list
+amctl export download &lt;export file&gt; design.zip
+# on the destination server
+amctl import upload design.zip
+amctl import list available
+amctl import process &lt;uploaded file&gt; --imported-users active</code></pre>
+<p>Следете задачите с <code>amctl export job list</code> и <code>amctl import job list</code>. При експортиране на общност или канал <code>--imported-users</code> е задължителен: <code>active</code>, когато хората се преместват на този сървър, и <code>inactive</code>, при импортиране в сървър, където вече имат акаунти, така че акаунтите, създадени от несигурни съвпадения, остават неактивни, докато администраторът не ги провери. <code>--destination-team-name</code> импортира в съществуваща общност. Експортите и импортите се запазват в хранилището на сървъра (<code>ExportSettings.Directory</code>, <code>ImportSettings.Directory</code>) за 30 дни по подразбиране.</p>
+<p>На самия сървър <code>antimatter export bulk</code> и <code>antimatter import bulk --apply</code> извършват същото от файлове, без да използват API.</p>

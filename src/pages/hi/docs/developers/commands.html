@@ -1,0 +1,122 @@
+title: सलाश कमैंड
+description: Antimatter में कस्टम सलाश कमैंड: उन्हें बनाना, आपकी सर्विस को मिलने वाला अनुरोध, रिस्पॉन्स फॉर्मेट, एफिमेरल और इन-चैनल जवाब, विलंबित जवाब और ऑटोकम्प्लीट।
+guide: developers
+order: 4
+nav: सलाश कमैंड
+lead: कस्टम सलाश कमैंड लोगों को मैसेज बॉक्स में /something टाइप करके आपकी सर्विस को कॉल करने की अनुमति देता है। Antimatter कमैंड को आपके URL पर भेजता है और आपके जवाब को दिखाता है, या तो केवल उस व्यक्ति को या पूरे चैनल में।
+source: 24dbc9730e62
+---
+<h2 id="how">सलाश कमैंड कैसे काम करता है</h2>
+<ol>
+<li>किसी व्यक्ति ने <code>/weather Paris</code> टाइप किया और भेज दिया। टेक्स्ट पोस्ट नहीं होता है।</li>
+<li>Antimatter कमैंड के URL पर एक HTTP अनुरोध भेजता है, जिसमें यह जानकारी होती है कि कौन टाइप किया, कहाँ, और ट्रिगर के बाद का टेक्स्ट।</li>
+<li>आपकी सर्विस अनुरोध टाइमआउट (डिफ़ॉल्ट रूप से 30 सेकंड) के भीतर एक मैसेज के साथ जवाब देती है।</li>
+<li>Antimatter जवाब दिखाता है: केवल उस व्यक्ति को (एफिमेरल) या चैनल में सभी के लिए।</li>
+</ol>
+<p>कमैंड किसी कम्युनिटी से जुड़े होते हैं, और ट्रिगर वर्ड उसमें अद्वितीय होता है। <code>/join</code>, <code>/msg</code> या <code>/away</code> जैसे बिल्ट-इन कमैंड को बदला नहीं जा सकता। ऐप्स (प्लग-इन्स) भी कमैंड रजिस्टर कर सकते हैं; देखें <a href="{{root}}docs/developers/apps.html#server">सर्विस का हिस्सा</a>।</p>
+
+<h2 id="create">कमैंड बनाएं</h2>
+<p>कस्टम स्लैश कमांड डिफ़ॉल्ट रूप से सक्रिय होते हैं (<b>सिस्टम कंसोल › इंटीग्रेशन › इंटीग्रेशन प्रबंधन</b> में <b>कस्टम स्लैश कमांड सक्षम करें</b>, <code>ServiceSettings.EnableCommands</code>)। कम्युनिटी एडमिन और सिस्टम एडमिन डिफ़ॉल्ट रूप से इन्हें बना सकते हैं।</p>
+<ol>
+<li>ऊपर दाईं ओर अपने अवतार पर क्लिक करें, फिर <b>इंटीग्रेशन › स्लैश कमांड</b>, और फिर <b>स्लैश कमंड जोड़ें</b> चुनें।</li>
+<li><b>शीर्षक</b> और <b>विवरण</b> भरें (यह इंटीग्रेशन पेज पर दिखता है)।</li>
+<li><b>कमांड ट्रिगर शब्द</b> दर्ज करें, स्लैश और स्पेस के बिना, उदाहरण के लिए <code>weather</code>।</li>
+<li><b>रिक्वेस्ट URL</b> दर्ज करें और <b>रिक्वेस्ट विधि</b> चुनें: <b>POST</b> (डिफ़ॉल्ट) या <b>GET</b>।</li>
+<li>वैकल्पिक रूप से <b>रिस्पॉन्स यूज़रनेम</b> और <b>प्रतिक्रिया आइकॉन</b> सेट करें। ये तब ही उपयोग में आते हैं जब सर्वर इंटीग्रेशन को नामों और आइकॉनों को ओवरराइड करने की अनुमति देता है (देखें <a href="{{root}}docs/developers/webhooks.html#identity">नाम और आइकॉन</a>)।</li>
+<li>जब लोग <code>/</code> टाइप करते हैं, तो कमांड की सूची दिखाने के लिए <b>ऑटो-कंप्लीट</b> पर टिक करें, साथ में <b>ऑटोकम्प्लीट हिंट</b> (इसके आर्गुमेंट, जैसे <code>[city]</code>) और <b>ऑटोकम्प्लीट विवरण</b>।</li>
+<li><b>सहेजें</b> चुनें, और दिखाई देने वाले टोकन की कॉपी करें। आपका सर्विस इसका उपयोग इसकी जांच के लिए करता है कि रिक्वेस्ट आपके सर्वर से आ रही हैं।</li>
+</ol>
+<p>API के माध्यम से: <code>POST /api/v4/commands</code> के साथ <code>{"team_id", "trigger", "url", "method": "P", "display_name", "description", "auto_complete": true, "auto_complete_hint", "auto_complete_desc", "username", "icon_url"}</code>। <code>P</code> का अर्थ POST है और <code>G</code> का अर्थ GET। <code>PUT /api/v4/commands/{command_id}/regen_token</code> एक नया टोकन जारी करता है।</p>
+
+<h2 id="request">आपके सर्विस को प्राप्त अनुरोध</h2>
+<p>POST कमांड एक फॉर्म-एनकोडेड बॉडी (<code>application/x-www-form-urlencoded</code>) भेजता है; GET कमांड वही फील्ड्स क्वेरी स्ट्रिंग में भेजता है। टोकन <code>Authorization: Token &lt;token&gt;</code> हेडर में भी होता है।</p>
+<table>
+<thead><tr><th>फील्ड</th><th>मान</th></tr></thead>
+<tbody>
+<tr><td><code>token</code></td><td>कमांड का टोकन। हर अनुरोध पर इसकी जांच करें।</td></tr>
+<tr><td><code>command</code></td><td>स्लैश के साथ ट्रिगर, उदाहरण के लिए <code>/weather</code>।</td></tr>
+<tr><td><code>text</code></td><td>ट्रिगर के बाद का सब कुछ, उदाहरण के लिए <code>Paris</code>।</td></tr>
+<tr><td><code>user_id</code>, <code>user_name</code></td><td>किसने इसे चलाया।</td></tr>
+<tr><td><code>channel_id</code>, <code>channel_name</code></td><td>यह कहाँ चलाया गया।</td></tr>
+<tr><td><code>team_id</code>, <code>team_domain</code></td><td>समुदाय की ID और URL नाम।</td></tr>
+<tr><td><code>root_id</code></td><td>थ्रेड, यदि इसे किसी थ्रेड के उत्तर बॉक्स में चलाया गया।</td></tr>
+<tr><td><code>trigger_id</code></td><td>आपके उत्तर को एक डायलॉग खोलने देता है (देखें <a href="{{root}}docs/developers/bots.html#dialogs">Dialogs</a>)। यह केवल एक छोटे समय के लिए मान्य है।</td></tr>
+<tr><td><code>response_url</code></td><td>बाद में और उत्तर पोस्ट करने के लिए एक URL (देखें <a href="#delayed">Delayed answers</a>)।</td></tr>
+<tr><td><code>user_mentions</code>, <code>user_mentions_ids</code>, <code>channel_mentions</code>, <code>channel_mentions_ids</code></td><td>टेक्स्ट में उल्लेख किए गए लोग और सार्वजनिक चैनल, यदि कोई हैं।</td></tr>
+</tbody>
+</table>
+<div class="callout">कस्टम कमांड चालू होने के लिए सर्वर का <b>साइट URL</b> सेट होना चाहिए: Antimatter इससे <code>response_url</code> बनाता है।</div>
+
+<h2 id="response">प्रतिक्रिया</h2>
+<p>JSON (<code>Content-Type: application/json</code>) के साथ <code>200</code> उत्तर दें:</p>
+<pre><code>{
+  "response_type": "in_channel",
+  "text": "Paris: 18 °C, light rain",
+  "attachments": []
+}</code></pre>
+<table>
+<thead><tr><th>फील्ड</th><th>अर्थ</th></tr></thead>
+<tbody>
+<tr><td><code>response_type</code></td><td><code>ephemeral</code> (डिफ़ॉल्ट): केवल वही व्यक्ति जोने कमांड चलाया, उसे उत्तर दिखता है, और रीलोड के बाद यह सहेजा नहीं जाता। <code>in_channel</code>: उत्तर चैनल में पोस्ट किया जाता है।</td></tr>
+<tr><td><code>text</code>, <code>attachments</code></td><td>संदेश, वेबहुक की तरह: Markdown टेक्स्ट और <a href="{{root}}docs/developers/webhooks.html#attachments">attachments</a>, बटन और मेन्यू सहित।</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code></td><td>दिखाने के लिए नाम और तस्वीर, यदि ओवरराइड्स की अनुमति है। कमांड की अपनी सेटिंग्स इन पर प्राथमिकता रखती हैं।</td></tr>
+<tr><td><code>channel_id</code></td><td>उत्तर किसी अन्य चैनल में पोस्ट करें, जिसका सदस्य वह व्यक्ति होना चाहिए।</td></tr>
+<tr><td><code>goto_location</code></td><td>कमांड चलने के बाद खोलने के लिए एक URL।</td></tr>
+<tr><td><code>props</code>, <code>type</code></td><td>वेबहुक की तरह अतिरिक्त गुण और कस्टम पोस्ट प्रकार।</td></tr>
+<tr><td><code>extra_responses</code></td><td>अधिक उत्तर, प्रत्येक में वही फील्ड्स, पहले उत्तर के बाद पोस्ट किए जाते हैं।</td></tr>
+<tr><td><code>skip_slack_parsing</code></td><td><code>true</code> टेक्स्ट को वैसा ही रखता है, Slack-शैली के लिंक और उल्लेखों को परिवर्तित किए बिना।</td></tr>
+</tbody>
+</table>
+<p>JSON न होने वाली प्रतिक्रिया एक एफिमेरल संदेश के रूप में दिखाई जाती है, जिसका बॉडी उसका टेक्स्ट होता है। <code>204 No Content</code> कुछ नहीं दिखाता। 200–299 के बाहर कोई भी स्थिति व्यक्ति को एक त्रुटि दिखाती है।</p>
+
+<h2 id="example">उदाहरण सर्विस</h2>
+<p>Python में एक न्यूनतम कमांड सर्विस, केवल स्टैंडर्ड लाइब्रेरी के साथ:</p>
+<pre><code>import hmac
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
+
+TOKEN = "the token shown when you saved the command"
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        form = {key: values[0] for key, values in parse_qs(body).items()}
+        if not hmac.compare_digest(form.get("token", ""), TOKEN):
+            self.send_response(401)
+            self.end_headers()
+            return
+        answer = {
+            "response_type": "ephemeral",
+            "text": f"Hello @{form['user_name']}, you asked for: {form.get('text', '')}",
+        }
+        data = json.dumps(answer).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(data)
+
+HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()</code></pre>
+<p>यदि सर्विस एक प्राइवेट नेटवर्क एड्रेस पर चल रही है, तो एक सिस्टम एडमिन को <b>अविश्वसनीय आंतरिक कनेक्शन की अनुमति दें</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>) में इसे अनुमति देनी होगी।</p>
+
+<h2 id="delayed">विलंबित उत्तर</h2>
+<p>जिस कार्य के लिए टाइमआउट से अधिक समय लगता है, उसके लिए तुरंत उत्तर दें (उदाहरण के लिए एक अस्थायी "Working on it…"), फिर वास्तविक उत्तर को <code>response_url</code> पर POST करें। इसमें उत्तर के समान JSON जाता है, और यह कमांड के 30 मिनट के भीतर 5 बार तक काम करता है।</p>
+<pre><code>curl -X POST "$RESPONSE_URL" -H 'Content-Type: application/json' \
+  -d '{"response_type": "in_channel", "text": "Report ready: https://reports.example.com/42"}'</code></pre>
+
+<h2 id="run">API के साथ कमांड चलाएँ</h2>
+<p>स्क्रिप्ट और बॉट किसी भी कमांड को, चाहे वह बिल्ट-इन हो या कस्टम, ऐसे चला सकते हैं जैसे वे इसे टाइप कर रहे हों:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/commands/execute \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "command": "/weather Paris"}'</code></pre>
+<p><code>GET /api/v4/teams/{team_id}/commands/autocomplete</code> उन कमांड्स की सूची देता है जिन्हें लोग एक कम्युनिटी में ऑटोकम्प्लीट कर सकते हैं।</p>
+
+<h2 id="autocomplete">ऑटोकम्प्लीट</h2>
+<p>इंटीग्रेशन पेज पर बनाए गए कमांड्स अपने ट्रिगर, हिंट और विवरण के साथ ऑटोकम्प्लीट होते हैं। ऐप्स द्वारा पंजीकृत कमांड्स <code>AutocompleteData</code> के माध्यम से अपने सबकमांड्स और तर्कों का विस्तार से विवरण दे सकते हैं, जो <code>model.NewAutocompleteData(trigger, hint, helpText)</code> से आता है:</p>
+<ul>
+<li><code>AddCommand(sub)</code> एक सबकमांड जोड़ता है, जो स्वयं एक <code>AutocompleteData</code> होता है।</li>
+<li><code>AddTextArgument(helpText, hint, pattern)</code> मुक्त टेक्स्ट जोड़ता है।</li>
+<li><code>AddStaticListArgument(helpText, required, items)</code> <code>AutocompleteListItem{Item, Hint, HelpText}</code> की एक निश्चित सूची प्रदान करता है।</li>
+<li><code>AddDynamicListArgument(helpText, url, required)</code> उपयोगकर्ताओं के टाइप करते समय आपके ऐप से सुझाव मांगता है। URL आपके ऐप की एक राउट है, जैसे <code>/plugins/com.example.weather/cities</code>। यह उपयोगकर्ता, चैनल और कम्युनिटी प्राप्त करता है, और <code>{"Item", "Hint", "HelpText"}</code> की एक JSON सूची लौटाता है।</li>
+</ul>
+<p><code>Named…</code> वेरिएंट्स (<code>AddNamedTextArgument</code> और अन्य) <code>--name value</code> फ्लैग जोड़ते हैं। दोनों वेब इंटरफेस इन सुझावों को दिखाते हैं।</p>

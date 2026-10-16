@@ -1,0 +1,113 @@
+title: 登入與帳號
+description: 控制誰可以在 Antimatter 上建立帳號，以及人們如何登入：電子郵件與密碼、密碼規則、多因素驗證、OpenID Connect、GitLab、Google、Entra ID、SAML 2.0、AD/LDAP 以及訪客帳號。
+guide: admins
+order: 9
+nav: 登入與帳號
+lead: 決定誰可以建立帳號，以及人們如何登入。Antimatter 的所有登入方式都無需授權即可使用，包括單一登入和目錄服務。
+source: b4466d5ccfe1
+---
+<h2 id="signup">誰可以建立帳號</h2>
+<p>安裝完成後，請檢查 <b>系統控制台 › 驗證 › 註冊</b>。預設設定下，任何持有社群邀請連結的人都可以建立帳號，但沒有連結則無法註冊。</p>
+<table>
+<thead><tr><th>設定</th><th>金鑰</th><th>預設值</th><th>功能說明</th></tr></thead>
+<tbody>
+<tr><td><b>啟用建立帳號</b></td><td><code>TeamSettings.EnableUserCreation</code></td><td>開啟</td><td>關閉時，任何人都無法透過任何方式建立帳號；只有管理員可以（透過系統控制台或 <code>amctl user create</code>）。</td></tr>
+<tr><td><b>啟用開放伺服器</b></td><td><code>TeamSettings.EnableOpenServer</code></td><td>關閉</td><td>開啟時，任何能連接到伺服器的人都可以使用電子郵件地址註冊，無需邀請。請僅用於公開社群。</td></tr>
+<tr><td><b>限制新的系統和團隊成員為指定的電子郵件網域</b></td><td><code>TeamSettings.RestrictCreationToDomains</code></td><td>留空</td><td>以逗號分隔的網域，例如 <code>example.com, example.org</code>：只有這些網域的地址才能建立帳號。</td></tr>
+<tr><td><b>啟用電子郵件邀請</b></td><td><code>ServiceSettings.EnableEmailInvitations</code></td><td>新伺服器上為關閉</td><td>讓成員可以透過電子郵件邀請他人（需要 <a href="{{root}}docs/admins/email-push.html">SMTP</a>）。<b>廢除擱置中的電子郵件邀請</b> 會取消尚未接受的邀請；這些邀請無論如何都會在 48 小時後過期。</td></tr>
+</tbody>
+</table>
+<p>社群管理員也可以控制誰加入他們的社群，透過邀請連結和他們自己允許的網域：請參閱 <a href="{{root}}docs/communities/index.html">營運社群</a> 指南。</p>
+<p>從命令列執行：<code>amctl user create</code>（加上 <code>--system-admin</code> 或 <code>--guest</code>）、<code>amctl user invite</code>、<code>amctl user deactivate</code>、<code>amctl roles system-admin &lt;user&gt;</code> 將某人設為系統管理員，以及 <code>amctl roles member &lt;user&gt;</code> 取消該設定。</p>
+
+<h2 id="email-password">電子郵件與密碼</h2>
+<p>在 <b>系統控制台 › 驗證 › 電子郵件</b> 中：</p>
+<table>
+<thead><tr><th>設定</th><th>金鑰</th><th>預設值</th></tr></thead>
+<tbody>
+<tr><td><b>啟用以電子郵件建立帳號</b></td><td><code>EmailSettings.EnableSignUpWithEmail</code></td><td>開啟。當所有人都透過單一登入時，請將其關閉。</td></tr>
+<tr><td><b>需要驗證電子郵件</b></td><td><code>EmailSettings.RequireEmailVerification</code></td><td>關閉。一旦 <a href="{{root}}docs/admins/email-push.html">電子郵件</a> 運作正常，請將其開啟：人們在登入前必須先確認其地址。</td></tr>
+<tr><td><b>啟用電子郵件登入</b></td><td><code>EmailSettings.EnableSignInWithEmail</code></td><td>開啟</td></tr>
+<tr><td><b>啟用以使用者名稱登入</b></td><td><code>EmailSettings.EnableSignInWithUsername</code></td><td>開啟</td></tr>
+</tbody>
+</table>
+<p>在 <b>系統控制台 › 驗證 › 密碼</b> 中：</p>
+<table>
+<thead><tr><th>設定</th><th>金鑰</th><th>預設值</th></tr></thead>
+<tbody>
+<tr><td><b>密碼最短長度</b></td><td><code>PasswordSettings.MinimumLength</code></td><td>8（5 至 72）</td></tr>
+<tr><td><b>密碼要求</b>：小寫、大寫、數字、符號</td><td><code>PasswordSettings.Lowercase</code>, <code>.Uppercase</code>, <code>.Number</code>, <code>.Symbol</code></td><td>全部關閉</td></tr>
+<tr><td><b>最大登入嘗試次數</b></td><td><code>ServiceSettings.MaximumLoginAttempts</code></td><td>10：超過此數量的失敗次數後，帳戶將被鎖定，直到透過電子郵件重設密碼為止</td></tr>
+<tr><td><b>啟用忘記密碼連結</b></td><td><code>PasswordSettings.EnableForgotLink</code></td><td>開啟</td></tr>
+</tbody>
+</table>
+<p>長度達 12 個字元以上，比字元規則更能提升安全性。若要為某人重設密碼：<b>系統控制台 › 使用者管理 › 使用者</b>，或執行 <code>amctl user change-password &lt;user&gt; --password &lt;new&gt;</code>。</p>
+
+<h2 id="mfa">多因子驗證</h2>
+<p>多因子驗證（MFA）會在密碼之外，加入來自驗證應用程式的代碼。它適用於使用電子郵件或 AD/LDAP 登入的帳戶；若使用單一登入，請使用您的身分提供者之 MFA。在 <b>系統控制台 › 驗證 › 多因子驗證</b> 中：</p>
+<ul>
+<li><b>啟用多因子驗證</b>（<code>ServiceSettings.EnableMultifactorAuthentication</code>，預設為關閉）：使用者可在其安全性設定中開啟 MFA。</li>
+<li><b>強制使用多因子驗證</b>（<code>ServiceSettings.EnforceMultifactorAuthentication</code>，預設為關閉）：所有使用者都必須設定，於註冊時或下次登入時完成。</li>
+</ul>
+<p>如果有人遺失裝置：<code>amctl user resetmfa &lt;user&gt;</code>，或從 <b>系統控制台 › 使用者管理 › 使用者</b> 中的個人頁面重設。</p>
+
+<h2 id="sso">單一登入</h2>
+<p>Antimatter 可透過您的身分提供者讓使用者登入。首次登入時，若允許建立帳戶，系統會根據提供者傳送的名稱、電子郵件與使用者名稱建立其帳戶。</p>
+<h3>OpenID Connect、GitLab、Google 與 Entra ID</h3>
+<p>前往 <b>系統控制台 › 驗證 › OpenID Connect</b>，並在 <b>選擇服務提供者</b> 下選擇：GitLab、Google Apps、Entra ID (Office 365)，或 <b>OpenID Connect（其它）</b> 以支援其他提供者（Keycloak、Authentik、Zitadel、Okta、Auth0…）。</p>
+<ol>
+<li>在您的提供者中，建立一個 Web 類型的應用程式（「客戶端」），並使用您站點網址對應的此重定向 URI：
+<table>
+<thead><tr><th>提供者</th><th>重定向 URI</th></tr></thead>
+<tbody>
+<tr><td>OpenID Connect（其它）</td><td><code>https://chat.example.com/signup/openid/complete</code></td></tr>
+<tr><td>GitLab</td><td><code>https://chat.example.com/signup/gitlab/complete</code></td></tr>
+<tr><td>Google</td><td><code>https://chat.example.com/signup/google/complete</code></td></tr>
+<tr><td>Entra ID</td><td><code>https://chat.example.com/signup/office365/complete</code></td></tr>
+</tbody>
+</table></li>
+<li>在 Antimatter 中，填寫 <b>探索端點</b>（提供者的 <code>/.well-known/openid-configuration</code> URL；對於 GitLab，則填寫 <b>GitLab 站點網址</b>）、<b>客戶端 ID</b> 與 <b>客戶端金鑰</b>。對於其他提供者，也需填寫登入按鈕的 <b>按鈕名稱</b> 與 <b>按鈕顏色</b>。</li>
+<li><b>使用偏好使用者名稱</b>（GitLab 及其他提供者）會從提供者的 <code>preferred_username</code> 聲明中取得 Antimatter 使用者名稱。</li>
+<li>儲存後登出，並嘗試登入頁面上的新按鈕。</li>
+</ol>
+<p>這些設定儲存在 <code>OpenIdSettings</code>、<code>GitLabSettings</code>、<code>GoogleSettings</code> 或 <code>Office365Settings</code> 中（例如 <code>AM_OPENIDSETTINGS_ENABLE</code>、<code>AM_OPENIDSETTINGS_DISCOVERYENDPOINT</code>、<code>AM_OPENIDSETTINGS_ID</code>、<code>AM_OPENIDSETTINGS_SECRET</code>）。舊版的 OAuth 2.0 頁面僅出現在仍保留 OAuth 2.0 GitLab、Google 或 Entra ID 設定的伺服器上。</p>
+<h3>SAML 2.0</h3>
+<p>在 <b>系統控制台 › 驗證 › SAML 2.0</b> 中，開啟 <b>啟用 SAML 2.0 登入</b>（<code>SamlSettings.Enable</code>），並填入身分識別提供者提供的資訊：<b>身分識別提供者後設資料網址</b>，或 <b>SAML SSO網址</b>、<b>身分識別提供者核發者網址</b> 以及 <b>身分識別提供者公開憑證</b>。在身分識別提供者端：</p>
+<ul>
+<li>服務提供者登入網址（斷言消費者服務）：<code>https://chat.example.com/login/sso/saml</code>；</li>
+<li>Antimatter 的後設資料，供需要匯入的提供者使用：<code>https://chat.example.com/api/v4/saml/metadata</code>。</li>
+</ul>
+<p>對應您的提供者所傳送的屬性：至少需要 <b>電子郵件屬性</b> 和 <b>使用者名稱屬性</b>，並可選配 ID、名字、姓氏、暱稱、職位、語言、訪客和管理員屬性。<b>核對簽章</b> 和 <b>啟用加密</b> 預設為開啟（加密需要服務提供者的金鑰和憑證；僅支援 RSA 金鑰）；<b>簽署請求</b> 預設為關閉。簽章演算法預設為 RSAwithSHA256。</p>
+<h3>AD/LDAP</h3>
+<p>在 <b>系統控制台 › 驗證 › AD/LDAP</b> 中，逐步引導頁面將 Antimatter 連接到 Active Directory 或其他 LDAP 伺服器：伺服器與埠號（<code>LdapSettings.LdapServer</code>、<code>LdapSettings.LdapPort</code>，預設為 389）、連線安全性（無、TLS 或 STARTTLS）、基礎 DN 和繫結帳號（<code>BaseDN</code>、<code>BindUsername</code>、<code>BindPassword</code>）、用於使用者、訪客、管理員和群組的過濾器，以及電子郵件、使用者名稱、ID、姓名和照片的屬性。使用者隨後可使用目錄登入憑證登入。</p>
+<p>同步作業每 60 分鐘執行一次（<code>LdapSettings.SyncIntervalMinutes</code>），以更新姓名並停用從目錄中移除的使用者；您可以使用 <code>amctl ldap sync</code> 立即執行。LDAP 群組可在 <b>系統控制台 › 使用者管理 › 群組</b> 中與社群和頻道連結。SAML 帳號也可以與 AD/LDAP 保持同步（<b>啟用與 AD/LDAP 同步 SAML 帳號</b>）。</p>
+<h3>遷移現有帳號</h3>
+<p>若要將現有的 Email 帳號切換為單一登入，可使用 <code>amctl user migrate-auth email saml users.json</code>（或 <code>ldap</code>）進行批量遷移。當 <b>允許轉移驗證</b>（<code>ServiceSettings.ExperimentalEnableAuthenticationTransfer</code>，位於 <b>系統控制台 › 實驗性 › 功能</b>）開啟時，使用者也可以在自己的安全設定中變更登入方式。</p>
+
+<h2 id="guests">訪客帳號</h2>
+<p>訪客是組織外部的人員，只能看到被邀請加入的頻道。請在 <b>系統控制台 › 驗證 › 訪客存取</b> 中開啟：</p>
+<table>
+<thead><tr><th>設定</th><th>金鑰</th><th>預設值</th></tr></thead>
+<tbody>
+<tr><td><b>啟用訪客存取</b></td><td><code>GuestAccountsSettings.Enable</code></td><td>關閉</td></tr>
+<tr><td><b>訪客網域白名單</b></td><td><code>GuestAccountsSettings.RestrictCreationToDomains</code></td><td>留空：訪客可使用任何 Email 網域</td></tr>
+<tr><td><b>強制使用多因子驗證</b></td><td><code>GuestAccountsSettings.EnforceMultifactorAuthentication</code></td><td>關閉；僅在多因子驗證已啟用並對所有人強制執行時可用</td></tr>
+<tr><td><b>隱藏訪客標籤</b></td><td><code>GuestAccountsSettings.HideTags</code></td><td>關閉：其姓名旁會顯示「訪客」標籤</td></tr>
+</tbody>
+</table>
+<p>開啟後，社群管理員可邀請訪客加入特定頻道。管理員可使用 <code>amctl user demote</code> 將成員降級為訪客，或使用 <code>amctl user promote</code> 將訪客升級為成員。</p>
+
+<h2 id="sessions">工作階段</h2>
+<p>使用者保持登入的時間長度可在 <b>系統控制台 › 環境 › 工作階段長度</b> 中設定：</p>
+<table>
+<thead><tr><th>設定</th><th>金鑰</th><th>新伺服器的預設值</th></tr></thead>
+<tbody>
+<tr><td><b>使用者活動可延長其工作階段</b></td><td><code>ServiceSettings.ExtendSessionLengthWithActivity</code></td><td>開啟：當使用者使用 Antimatter 時，工作階段會自動續期</td></tr>
+<tr><td><b>工作階段長度（AD/LDAP 及 Email 登入，小時）</b></td><td><code>ServiceSettings.SessionLengthWebInHours</code></td><td>720 小時（30 天）</td></tr>
+<tr><td><b>工作階段長度（手機版，小時）</b></td><td><code>ServiceSettings.SessionLengthMobileInHours</code></td><td>720 小時</td></tr>
+<tr><td><b>工作階段長度（SSO，小時）</b></td><td><code>ServiceSettings.SessionLengthSSOInHours</code></td><td>720 小時</td></tr>
+<tr><td><b>工作階段閒置時間（分）</b></td><td><code>ServiceSettings.SessionIdleTimeoutInMinutes</code></td><td>43200 分鐘（30 天）；僅在工作階段不會因活動而延長時顯示</td></tr>
+<tr><td><b>更換密碼時終結所有的工作階段</b></td><td><code>ServiceSettings.TerminateSessionsOnPasswordChange</code></td><td>開啟</td></tr>
+</tbody>
+</table>
+<p>若要讓所有人都登出，請使用 <b>系統控制台 › 使用者管理 › 使用者</b> 中的 <b>廢除所有工作階段</b>。若要讓特定使用者登出，請在那裡開啟該使用者的頁面。</p>

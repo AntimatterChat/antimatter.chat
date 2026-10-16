@@ -1,0 +1,107 @@
+title: Segurança
+description: Endurecer um servidor Antimatter: que portas expor, segredos, limitação de taxa, filtragem de IP, limites de carregamento, definições de privacidade e bloqueio de utilizadores, sessões, as ligações que o servidor faz a serviços externos e como reportar uma vulnerabilidade.
+guide: admins
+order: 12
+nav: Segurança
+lead: Uma lista de verificação para endurecer um servidor Antimatter: o que expor, os limites e definições de privacidade a rever, os serviços externos com os quais o servidor se comunica e como reportar um problema de segurança.
+source: dbe2371ecf30
+---
+<h2 id="exposure">O que expor</h2>
+<table>
+<thead><tr><th>Porta</th><th>Serviço</th><th>Exposição</th></tr></thead>
+<tbody>
+<tr><td>443/tcp, 443/udp, 80/tcp</td><td>O seu proxy HTTPS (Caddy ou nginx)</td><td>Público: é assim que as pessoas acedem ao Antimatter.</td></tr>
+<tr><td>8443/udp e 8443/tcp</td><td>Média de chamadas</td><td>Público, se as pessoas usarem chamadas a partir de fora da sua rede.</td></tr>
+<tr><td>8065/tcp</td><td>Servidor web do Antimatter</td><td>Apenas para o proxy: publique-o em <code>127.0.0.1</code> (<code>HTTP_PORT=127.0.0.1:8065</code>).</td></tr>
+<tr><td>8067/tcp</td><td>Métricas</td><td>Apenas na rede privada, quando ativado. Sem início de sessão.</td></tr>
+<tr><td>8074/tcp e udp</td><td>Gossip do cluster</td><td>Apenas entre nós do cluster.</td></tr>
+<tr><td>5432, 9000, 8080, 8066</td><td>PostgreSQL, armazenamento de ficheiros, serviço GIF, proxy de notificações push</td><td>Nunca. Os ficheiros compose mantêm-nos em redes internas, sem porta publicada.</td></tr>
+</tbody>
+</table>
+<p>O ficheiro compose do site também executa todos os contentores com <code>no-new-privileges</code>, executa o Antimatter como um utilizador sem privilégios numa imagem distroless e executa o serviço GIF com um sistema de ficheiros apenas de leitura. A base de dados, o armazenamento e o serviço GIF ficam numa rede sem acesso à Internet.</p>
+
+<h2 id="checklist">Lista de verificação após a instalação</h2>
+<ol>
+<li>Crie a primeira conta de administrador antes de qualquer outra pessoa poder aceder ao servidor (<a href="{{root}}docs/admins/install.html#first-admin">Instalação</a>).</li>
+<li>Sirva o Antimatter apenas através de HTTPS e defina o URL do site para o endereço <code>https://</code> (<a href="{{root}}docs/admins/https.html">Domínio e HTTPS</a>).</li>
+<li>Mantenha <code>.env</code>, <code>config.json</code> e as chaves TLS legíveis apenas por root (ou pelo utilizador do servidor): <code>chmod 600 .env</code>.</li>
+<li>Decida quem pode criar contas, mantenha <b>Ativar servidor aberto</b> desativado, a menos que a comunidade seja pública, e ative <b>Exigir verificação de e-mail</b> assim que o e-mail estiver a funcionar (<a href="{{root}}docs/admins/authentication.html">Início de sessão e contas</a>).</li>
+<li>Ative a autenticação de dois fatores e exija-a, pelo menos, para as contas dos administradores, ou utilize a do seu prestador de identidade.</li>
+<li>Revise as ligações externas abaixo, em particular o servidor STUN que as Chamadas utilizam por omissão.</li>
+<li>Faça cópias de segurança e teste uma restauração (<a href="{{root}}docs/admins/backups-upgrades.html">Cópia de segurança e atualizações</a>).</li>
+<li>Mantenha as imagens atualizadas: as correções de segurança chegam com as novas imagens.</li>
+</ol>
+
+<h2 id="rate-limiting">Limitação de taxa</h2>
+<p>O servidor pode limitar o número de pedidos de API que cada cliente faz. Esta opção está desativada por omissão. Em <b>Consola do sistema › Ambiente › Limitação de taxa</b>:</p>
+<table>
+<thead><tr><th>Definição</th><th>Chave</th><th>Padrão</th></tr></thead>
+<tbody>
+<tr><td><b>Ativar limitação de taxa</b></td><td><code>RateLimitSettings.Enable</code></td><td>desativado</td></tr>
+<tr><td><b>Consultas máximas por segundo</b></td><td><code>RateLimitSettings.PerSec</code></td><td>10</td></tr>
+<tr><td><b>Tamanho máximo de rajada</b></td><td><code>RateLimitSettings.MaxBurst</code></td><td>100</td></tr>
+<tr><td><b>Tamanho da loja de memória</b></td><td><code>RateLimitSettings.MemoryStoreSize</code></td><td>10000 clientes monitorizados</td></tr>
+<tr><td><b>Variar limite de taxa por endereço remoto</b></td><td><code>RateLimitSettings.VaryByRemoteAddr</code></td><td>ligado</td></tr>
+<tr><td><b>Variar limite de taxa por utilizador</b></td><td><code>RateLimitSettings.VaryByUser</code></td><td>desativado</td></tr>
+<tr><td><b>Variar limite de taxa por cabeçalho HTTP</b></td><td><code>RateLimitSettings.VaryByHeader</code></td><td>vazio</td></tr>
+</tbody>
+</table>
+<p>Atrás de um proxy, os limites por endereço só funcionam se o servidor conhecer o endereço de cada cliente (<code>ServiceSettings.TrustedProxyIPHeader</code> e <code>ServiceSettings.TrustedProxyIPs</code>, ver <a href="{{root}}docs/admins/https.html#client-address">Endereços de clientes atrás de um proxy</a>). Caso contrário, todos os pedidos parecem vir do proxy, e todos partilham o mesmo limite. O mesmo se aplica à filtragem por IP e aos endereços nos registos de auditoria.</p>
+<p>As tentativas de início de sessão são limitadas separadamente: <b>Número máximo de tentativas de início de sessão</b> (10) bloqueia uma conta após esse número de palavras-passe incorretas.</p>
+
+<h2 id="ip-filtering">Filtragem por IP</h2>
+<p><b>Consola do sistema › Configuração do site › Filtragem de IP</b> limita o acesso ao servidor por endereço IP, com regras de permissão e de bloqueio (cada uma com um endereço ou um intervalo CIDR). Com <b>Ativar filtragem de IP</b> ativado, as pessoas cujo endereço corresponde a uma regra de bloqueio, ou que não correspondem a nenhuma regra de permissão quando existem regras de permissão, não conseguem aceder ao servidor. A página recusa regras que bloqueiem o seu próprio endereço. Atrás de um proxy, configure primeiro os endereços dos clientes (<a href="{{root}}docs/admins/https.html#client-address">Endereços de clientes atrás de um proxy</a>): caso contrário, todos os pedidos parecem vir do proxy.</p>
+
+<h2 id="uploads">Carregamentos e partilha de ficheiros</h2>
+<table>
+<thead><tr><th>Definição</th><th>Local</th><th>Padrão</th></tr></thead>
+<tbody>
+<tr><td><b>Tamanho máximo do ficheiro</b> (<code>FileSettings.MaxFileSize</code>)</td><td>Ambiente › Armazenamento de ficheiros</td><td>100 MB. Mantenha o limite de tamanho do pedido do proxy pelo menos neste valor.</td></tr>
+<tr><td><b>Tamanho máximo da carga (bytes)</b> (<code>ServiceSettings.MaximumPayloadSizeBytes</code>)</td><td>Ambiente › Servidor Web</td><td>300000: o maior pedido de API, exceto carregamentos de ficheiros</td></tr>
+<tr><td><b>Permitir partilha de ficheiros</b> (<code>FileSettings.EnableFileAttachments</code>)</td><td>Configuração do site › Partilha e descargas de ficheiros</td><td>ligado</td></tr>
+<tr><td><b>Permitir carregamento de ficheiros no telemóvel</b>, <b>Permitir descarregamento de ficheiros em dispositivos móveis</b></td><td>Configuração do site › Partilha e descargas de ficheiros</td><td>ligado</td></tr>
+<tr><td><b>Ativar links públicos de ficheiros</b> (<code>FileSettings.EnablePublicLink</code>)</td><td>Configuração do site › Ligações públicas</td><td>desativado: quando ativado, as pessoas podem partilhar um ficheiro com uma ligação que funciona sem iniciar sessão</td></tr>
+<tr><td><b>Ativar SVGs</b> (<code>ServiceSettings.EnableSVGs</code>)</td><td>Configuração do site › Mensagens</td><td>desativado num servidor novo: quando ativado, as imagens SVG são mostradas em linha</td></tr>
+</tbody>
+</table>
+<p>O Antimatter não analisa os ficheiros carregados em busca de malware.</p>
+
+<h2 id="privacy">Definições de privacidade</h2>
+<p>Em <b>Consola do sistema › Configuração do site › Utilizadores e equipas</b>:</p>
+<table>
+<thead><tr><th>Definição</th><th>Chave</th><th>Padrão</th><th>O que faz</th></tr></thead>
+<tbody>
+<tr><td><b>Mostrar endereço de e-mail</b></td><td><code>PrivacySettings.ShowEmailAddress</code></td><td>ligado</td><td>Desligado, os endereços de e-mail dos membros ficam ocultos para todos, exceto para os administradores. Desligue esta opção em servidores públicos.</td></tr>
+<tr><td><b>Mostrar nome completo</b></td><td><code>PrivacySettings.ShowFullName</code></td><td>ligado</td><td>Desligado, os nomes completos ficam ocultos e são mostrados os nomes de utilizador.</td></tr>
+<tr><td><b>Ativar ignorar, bloquear e pedidos de mensagem</b></td><td><code>PrivacySettings.EnableUserBlocking</code></td><td>ligado</td><td>Veja abaixo.</td></tr>
+<tr><td><b>Permitir que os utilizadores abram canais de Mensagens diretas com</b></td><td><code>TeamSettings.RestrictDirectMessage</code></td><td>Qualquer utilizador no servidor Antimatter</td><td>Ou <b>Qualquer membro da equipa</b>: apenas pessoas que partilham uma comunidade.</td></tr>
+</tbody>
+</table>
+<h3>Ignorar, bloquear e pedidos de mensagem</h3>
+<p>Com <b>Ativar ignorar, bloquear e pedidos de mensagem</b> ligado (o predefinido), as pessoas podem ignorar e bloquear umas às outras, e podem escolher receber mensagens diretas de pessoas que não conhecem como pedidos de mensagem, que não as notificam até serem aceites. Isto é adequado para comunidades públicas. Num local de trabalho onde os colegas devem poder sempre contactar-se, desligue esta opção (<code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING=false</code>): nada disto é aplicado, mas as listas e as escolhas feitas pelas pessoas são mantidas e voltam a ser aplicadas se a ligar novamente.</p>
+
+<h2 id="sessions">Sessões e tokens</h2>
+<ul>
+<li>Duração das sessões e tempo limite de inatividade: veja <a href="{{root}}docs/admins/authentication.html#sessions">Início de sessão e contas</a>. Sessões mais curtas significam que um portátil ou telemóvel perdido fica com sessão iniciada por menos tempo.</li>
+<li><b>Ativar fichas de acesso pessoal</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, desativado) permite às pessoas criar tokens de API; <b>Duração máxima de validade do token de acesso pessoal (dias)</b> limita-os. Ambos estão em <b>Consola do sistema › Integrações › Gestão de integrações</b>.</li>
+<li>Para terminar todas as sessões de uma vez, por exemplo após uma violação suspeita: <b>Revogar todas as sessões</b> em <b>Consola do sistema › Gestão de utilizadores › Utilizadores</b>.</li>
+</ul>
+
+<h2 id="outbound">Ligações a serviços externos</h2>
+<p>O Antimatter não contacta nenhum serviço operado pela Mattermost, Inc. Não envia telemetria, relatórios de falhas ou verificações de atualizações de segurança, nem obtém avisos de produto. Uma configuração trazida do Mattermost que ainda nomeie um dos serviços da Mattermost (os seus serviços de notificações push, a sua loja de aplicações, os seus avisos ou o seu servidor STUN para chamadas) não faz com que o servidor os contacte: esses endereços são ignorados.</p>
+<p>O servidor e as aplicações ligam-se a outros serviços externos apenas para as funcionalidades que os necessitam, e aos serviços que configurar:</p>
+<table>
+<thead><tr><th>Funcionalidade</th><th>Contactos</th><th>Por omissão</th></tr></thead>
+<tbody>
+<tr><td>Chamadas: encontrar endereços públicos com STUN. O servidor e cada pessoa que entra numa chamada enviam um pedido, que mostra ao servidor STUN o seu endereço IP e porta.</td><td>Servidor STUN público da Cloudflare, <code>stun.cloudflare.com</code></td><td>ativado, enquanto a app de chamadas estiver ativa. Para o alterar, consulte <a href="{{root}}docs/admins/calls.html#network">Chamadas</a>.</td></tr>
+<tr><td>Pré-visualizações de ligações: o servidor obtém as páginas ligadas nas mensagens (<b>Ativar pré-visualizações de ligações de websites</b>, <code>ServiceSettings.EnableLinkPreviews</code>)</td><td>os sites para as quais as pessoas ligam</td><td>ativado. Desative com <code>AM_SERVICESETTINGS_ENABLELINKPREVIEWS=false</code>.</td></tr>
+<tr><td>Notificações push para a aplicação móvel</td><td>o seu próprio proxy de notificações push (<a href="{{root}}docs/admins/email-push.html#push">Notificações push</a>)</td><td>desativado até definir o seu endereço</td></tr>
+<tr><td>o mercado de apps remoto (<code>PluginSettings.EnableRemoteMarketplace</code>)</td><td>o <b>URL do Marketplace</b> que configurou</td><td>desativado, e sem endereço</td></tr>
+<tr><td>Email</td><td>o seu servidor SMTP</td><td>o servidor predefinido é <code>localhost</code></td></tr>
+<tr><td>Identificação única, modelos de IA, conversão de voz em texto e tradução, webhooks de saída, e apps como Mail, Calendar, GitHub, GitLab ou Jira</td><td>os serviços que configurar</td><td>desativado até os configurar</td></tr>
+</tbody>
+</table>
+<p>Por predefinição, o servidor recusa-se a ligar a endereços privados e de loopback para estes (pré-visualizações de ligações, webhooks, apps), de modo a que uma mensagem ou uma integração não possa ser usada para aceder à sua rede interna. Liste os hosts internos a que pode ligar em <b>Permitir ligações internas não fiáveis a</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>, em <b>Consola do sistema › Ambiente › Desenvolvedor</b>); o ficheiro compose do site lista <code>gifs</code> aí.</p>
+
+<h2 id="report">Reportar uma vulnerabilidade</h2>
+<p>Reporte problemas de segurança em privado, conforme explicado na <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">política de segurança do Antimatter</a>, e não em problemas públicos.</p>

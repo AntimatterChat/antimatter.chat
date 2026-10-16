@@ -1,0 +1,136 @@
+title: メールとプッシュ通知
+description: Antimatter の送信メール (SMTP) を招待、パスワードリセット、通知用に設定し、独自のプッシュプロキシ経由でモバイルアプリへのプッシュ通知を設定します。
+guide: admins
+order: 6
+nav: メールとプッシュ
+lead: Antimatter は、招待、パスワードリセット、認証、未読メッセージのためにメールを送信し、プッシュプロキシ経由でモバイルアプリにプッシュ通知を送ります。設定が完了するまで、どちらも機能しません。
+source: 4e9b08a2674b
+---
+<h2 id="smtp">送信メール (SMTP)</h2>
+<p>Antimatter は、指定した SMTP サーバー (組織のメールサーバーまたはトランザクションメールサービス) 経由でメールを送信します。設定されていない場合、パスワードのリセットができず、メールによる招待や認証が届かず、未読メッセージのメール通知も受け取れません。</p>
+<p><b>システムコンソール › 環境 › SMTP</b> で設定するか、変数を使用します:</p>
+<table>
+<thead><tr><th>設定項目</th><th>キーと変数</th><th>デフォルト値</th></tr></thead>
+<tbody>
+<tr><td><b>SMTPサーバー</b></td><td><code>EmailSettings.SMTPServer</code>, <code>AM_EMAILSETTINGS_SMTPSERVER</code></td><td><code>localhost</code></td></tr>
+<tr><td><b>SMTPサーバーポート</b></td><td><code>EmailSettings.SMTPPort</code>, <code>AM_EMAILSETTINGS_SMTPPORT</code></td><td><code>10025</code></td></tr>
+<tr><td><b>SMTP認証を有効にする</b></td><td><code>EmailSettings.EnableSMTPAuth</code>, <code>AM_EMAILSETTINGS_ENABLESMTPAUTH</code></td><td>接続セキュリティなしの場合はオフ、ある場合はオン</td></tr>
+<tr><td><b>SMTPサーバーのユーザー名</b></td><td><code>EmailSettings.SMTPUsername</code>, <code>AM_EMAILSETTINGS_SMTPUSERNAME</code></td><td>空</td></tr>
+<tr><td><b>SMTPサーバーパスワード</b></td><td><code>EmailSettings.SMTPPassword</code>, <code>AM_EMAILSETTINGS_SMTPPASSWORD</code></td><td>空</td></tr>
+<tr><td><b>接続のセキュリティー</b></td><td><code>EmailSettings.ConnectionSecurity</code>, <code>AM_EMAILSETTINGS_CONNECTIONSECURITY</code></td><td>なし (空欄); または <code>TLS</code> または <code>STARTTLS</code></td></tr>
+<tr><td><b>証明書の検証をしない</b></td><td><code>EmailSettings.SkipServerCertificateVerification</code></td><td>オフ。本番環境ではオフのままにしてください。</td></tr>
+</tbody>
+</table>
+<p>プロバイダーの指示に従い、ポート587で<code>STARTTLS</code>またはポート465で<code>TLS</code>を使用してください。その後、同じページ上の<b>テスト接続</b>をクリックします。Antimatterはあなたのメールアドレスにテストメールを送信します。</p>
+<p>Docker Compose を使用した典型的なセットアップ (<code>compose.yaml</code> の隣にある <code>compose.override.yaml</code> 内):</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_EMAILSETTINGS_CONNECTIONSECURITY: STARTTLS
+      AM_EMAILSETTINGS_ENABLESMTPAUTH: "true"
+      AM_EMAILSETTINGS_SMTPUSERNAME: chat@example.com
+      AM_EMAILSETTINGS_SMTPPASSWORD: ${SMTP_PASSWORD}
+      AM_EMAILSETTINGS_FEEDBACKNAME: Antimatter
+      AM_EMAILSETTINGS_FEEDBACKEMAIL: chat@example.com
+      AM_EMAILSETTINGS_REPLYTOADDRESS: chat@example.com</code></pre>
+<p><code>SMTP_PASSWORD</code> を <code>.env</code> に配置します。サイトの compose ファイルはサーバーをデフォルトネットワークに配置します。このネットワークはインターネットにアクセスできるため、外部の SMTP サーバーに到達できます。</p>
+
+<h3>送信元と通知メールの設定</h3>
+<p><b>システムコンソール › サイト設定 › 通知</b> で:</p>
+<table>
+<thead><tr><th>設定項目</th><th>キー</th><th>デフォルト値</th></tr></thead>
+<tbody>
+<tr><td><b>電子メール通知を有効にする</b></td><td><code>EmailSettings.SendEmailNotifications</code></td><td>on</td></tr>
+<tr><td><b>通知の表示名</b></td><td><code>EmailSettings.FeedbackName</code></td><td>空</td></tr>
+<tr><td><b>通知の送信元電子メールアドレス</b></td><td><code>EmailSettings.FeedbackEmail</code></td><td><code>test@example.com</code>: 変更してください</td></tr>
+<tr><td><b>通知のReply-Toアドレス</b></td><td><code>EmailSettings.ReplyToAddress</code></td><td><code>test@example.com</code>: 変更してください</td></tr>
+<tr><td><b>サポートメールアドレス</b></td><td><code>SupportSettings.SupportEmail</code></td><td>空</td></tr>
+<tr><td><b>通知のフッターの住所</b></td><td><code>EmailSettings.FeedbackOrganization</code></td><td>空</td></tr>
+<tr><td><b>プッシュ通知の内容</b></td><td><code>EmailSettings.EmailNotificationContentsType</code></td><td>メッセージの全文を送信 (<code>full</code>)するか、送信者の名前のみの一般的な説明を送信 (<code>generic</code>)するか</td></tr>
+<tr><td><b>電子メールバッチ処理を有効にする</b></td><td><code>EmailSettings.EnableEmailBatching</code></td><td>オフ。オンにすると、ユーザーは 1 通ずつメールを受け取る代わりに、15 分ごとまたは 1 時間ごとに未読メッセージをまとめた 1 通のメールを受け取るように選択できます。</td></tr>
+<tr><td><b>メール通知にチャンネル名を使用する</b></td><td><code>EmailSettings.UseChannelInEmailNotifications</code></td><td>オフ</td></tr>
+<tr><td><b>プレビューモードバナーを有効にする</b></td><td><code>EmailSettings.EnablePreviewModeBanner</code></td><td>オン: メール通知がオフの間、メールが設定されていないことを管理者に知らせるバナーが表示されます</td></tr>
+</tbody>
+</table>
+<p>From アドレスは、SMTP サーバーが送信を許可されているアドレスである必要があります。そのドメインに対して SPF と DKIM を設定してください。そうしないと、メールがスパムフォルダに振り分けられる可能性があります。</p>
+<p>メール関連のサインイン設定（新規アカウントがメールアドレスの確認を必要とするかどうか、招待をメールで送れるかどうか）は、<a href="{{root}}docs/admins/authentication.html">サインインとアカウント</a>にあります。</p>
+
+<h2 id="push">モバイルアプリへのプッシュ通知</h2>
+<h3>プッシュ通知の仕組み</h3>
+<p>Antimatter は Apple や Google に直接接続しません。各通知について、<b>プッシュプロキシ</b>を呼び出します。このプロキシはモバイルアプリの認証情報を保持し、iPhone には Apple (APNs) へ、Android には Google (Firebase Cloud Messaging) へ通知を転送します。Apple と Google は、対象アプリの認証情報で送信された場合のみ通知を配信します。したがって、プッシュプロキシは、その認証情報を保持するモバイルアプリのビルド 1 つのみで動作します。</p>
+<ul>
+<li>Antimatter は公開のプッシュプロキシを運営していません。ユーザーがインストールするモバイルアプリのビルドの認証情報を使用して、Antimatter のプッシュプロキシを自分で実行してください。</li>
+<li>Antimatter は、テスト環境でもホスト環境でも、Mattermost のプッシュサービスに通知を送信しません。これらは Mattermost 独自のモバイルアプリへのみ配信されるためです。サーバーがこれらのアドレス（旧型の Mattermost 設定で使用される <code>https://push-test.mattermost.com</code> など）に設定されている場合、何も送信されず、起動時に警告がログに記録されます。</li>
+</ul>
+<p>新しいサーバーにはプッシュ通知サーバーが設定されていないため、プッシュプロキシのアドレスを設定するまでプッシュ通知は送信されません。それまで、モバイルアプリは動作しますが、通知は受信できません。</p>
+
+<h3>プッシュプロキシの実行</h3>
+<p>プッシュプロキシは <a href="https://github.com/AntimatterChat/push-proxy">push-proxy</a> リポジトリにあります。その README では、モバイルアプリのビルドを公開するアカウントから取得する 2 つの認証情報の入手方法が説明されています。</p>
+<ul>
+<li><b>Android</b>: Android ビルドで使用している Firebase プロジェクトのサービスアカウントファイル。</li>
+<li><b>iOS</b>: iOS ビルドを公開する Apple 開発者アカウントの APNs 認証キー (<code>AuthKey_&lt;KEY ID&gt;.p8</code>)、およびそのキー ID とチーム ID。</li>
+</ul>
+<p>これらをプロキシの設定ファイルとともに <code>compose.yaml</code> の隣に配置します。</p>
+<pre><code>push-proxy/
+  config/antimatter-push-proxy.json
+  certs/AuthKey_ABCDE12345.p8
+  certs/firebase-service-account.json</code></pre>
+<p><code>push-proxy/config/antimatter-push-proxy.json</code> に、バンドル識別子、キー ID、チーム ID を入力します。</p>
+<pre><code>{
+    "ListenAddress": ":8066",
+    "ThrottlePerSec": 300,
+    "ThrottleMemoryStoreSize": 50000,
+    "ThrottleVaryByHeader": "X-Forwarded-For",
+    "EnableMetrics": false,
+    "SendTimeoutSec": 30,
+    "RetryTimeoutSec": 8,
+    "ApplePushSettings": [
+        {
+            "Type": "apple_rn",
+            "ApplePushUseDevelopment": false,
+            "ApplePushTopic": "chat.antimatter.app",
+            "AppleAuthKeyFile": "./certs/AuthKey_ABCDE12345.p8",
+            "AppleAuthKeyID": "ABCDE12345",
+            "AppleTeamID": "FGHIJ67890"
+        }
+    ],
+    "AndroidPushSettings": [
+        {
+            "Type": "android_rn",
+            "ServiceFileLocation": "./certs/firebase-service-account.json"
+        }
+    ],
+    "EnableConsoleLog": true,
+    "EnableFileLog": false,
+    "LogFormat": "plain",
+    "LogLevel": "info"
+}</code></pre>
+<p><code>ApplePushTopic</code> はビルドの iOS バンドル識別子です。<code>ApplePushUseDevelopment</code> は Xcode からインストールされたビルドの場合のみ <code>true</code> にします。通話の着信は iPhone に対して VoIP プッシュを通じて行われ、同じキーを使用するため、ここではこれ以上の設定は不要です。</p>
+<p>サイトには、compose ファイル用の完成済みの追加設定 <a href="{{root}}compose.push.example.yaml">compose.push.example.yaml</a> が用意されています。プロキシのイメージは公開されていないため、初回はリポジトリからビルドされます。</p>
+<pre><code>curl -fsSLO https://antimatter.chat/compose.push.example.yaml
+docker compose -f compose.yaml -f compose.push.example.yaml --profile push up -d
+docker compose -f compose.yaml -f compose.push.example.yaml logs push-proxy</code></pre>
+<p>起動時、プロキシのログには設定された各プッシュターゲットの名前が記録され、認証情報をロードできないターゲットにはエラーが記録されます。プロキシはポートを公開しません。compose ネットワーク上で Antimatter からのアクセスのみを受け付けます。</p>
+<div class="callout warn">プッシュプロキシは呼び出し元を認証しません。インターネットに公開しないでください。別のホストで実行する場合は、HTTPS の背後に置き、アクセスできるユーザーを制限してください。通知にはメッセージ本文が含まれる可能性があるためです。</div>
+
+<h3>Antimatter をプロキシに接続する</h3>
+<p><b>システムコンソール › 環境 › プッシュ通知サーバー</b>で、<b>プッシュ通知を有効にする</b>を<b>独自のプッシュプロキシ経由でプッシュ通知を送信する</b>に設定し、<b>プッシュ通知サーバー</b>を<code>http://push-proxy:8066</code>（他の場所で実行している場合はプロキシのHTTPSアドレス）に設定します。このオプションが設定されているがアドレスが空の場合、ページは保存できません。プッシュ通知の送信を停止するには、<b>プッシュ通知を送らない</b>を選択します。または、<code>antimatter</code>サービスの環境変数を使用します：</p>
+<pre><code>AM_EMAILSETTINGS_SENDPUSHNOTIFICATIONS: "true"
+AM_EMAILSETTINGS_PUSHNOTIFICATIONSERVER: http://push-proxy:8066</code></pre>
+<p>確認方法：モバイルアプリでサインインし、バックグラウンドに移動した状態で、別のアカウントからメンションを送ります。通知が届かない場合は、Antimatter のログとプロキシのログで <code>push</code> を検索してください。デバイスタイプが不明であるか、キーが拒否されたか、またはデバイスが別のアプリビルドに属しているかが記録されています。</p>
+
+<h3>通知の内容</h3>
+<p><b>システムコンソール › サイト設定 › 通知 › プッシュ通知の内容</b>（<code>EmailSettings.PushNotificationContents</code>）：</p>
+<table>
+<thead><tr><th>オプション</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>送信者の名前のみの一般的な説明</td><td><code>generic_no_channel</code></td></tr>
+<tr><td>送信者とチャンネル名の一般的な説明</td><td><code>generic</code></td></tr>
+<tr><td>通知ペイロードに送信される完全なメッセージ内容（デフォルト）</td><td><code>full</code></td></tr>
+<tr><td>受信時にサーバーから取得される完全なメッセージ内容</td><td><code>id_loaded</code></td></tr>
+</tbody>
+</table>
+<p><code>id_loaded</code> を使用すると、プロキシ、Apple、Google 経由で送られる通知には ID のみが含まれ、アプリがサーバーからメッセージを取得します。メッセージ本文はこれらのサービスを経由しません。メッセージが機密である場合、これが最善の選択です。</p>
+<p>プッシュ通知サーバーページにある<b>大規模チャンネルの通知閾値</b>（<code>TeamSettings.MaxNotificationsPerChannel</code>、デフォルトは1000）は、@here、@all、@channelが機能するチャンネルの最大メンバー数です。これより大きいチャンネルでは、これらのメンションと入力中のインジケーターは無効になります。</p>

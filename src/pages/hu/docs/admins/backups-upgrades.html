@@ -1,0 +1,105 @@
+title: Biztonsági mentések és frissítések
+description: Antimatter-szerver biztonsági mentése (adatbázis, fájl-tárhely, konfiguráció) és visszaállítása, biztonságos frissítése, Mattermost-szerver áthelyezése Antimatterre, valamint adatok exportálása vagy importálása.
+guide: admins
+order: 10
+nav: Biztonsági mentések és frissítések
+lead: Mit kell menteni, hogyan állítható vissza új gazdagépen, hogyan frissíthető, és hogyan helyezhető át egy Mattermost-szerver vagy egy közösség Antimatterre.
+source: b0797af8b6e7
+---
+<h2 id="what">Mit kell menteni</h2>
+<table>
+<thead><tr><th>Mit</th><th>A site compose-fájllal</th><th>Kiadási archívummal</th></tr></thead>
+<tbody>
+<tr><td>Az adatbázis: üzenetek, felhasználók, közösségek, csatornák és, a site compose-fájllal, a konfiguráció</td><td><code>antimatter_postgres</code> kötet, <code>pg_dump</code> segítségével</td><td>PostgreSQL-adatbázis</td></tr>
+<tr><td>Feltöltött fájlok, képek és telepített alkalmazások</td><td><code>antimatter_files</code> kötet (az S3-tárhely)</td><td><code>FileSettings.Directory</code>, alapértelmezetten <code>./data/</code></td></tr>
+<tr><td>A konfigurációs fájl</td><td>(az adatbázisban)</td><td><code>config/config.json</code></td></tr>
+<tr><td>GIF-ek és matricák</td><td><code>antimatter_gifs</code> kötet</td><td>a GIF-szolgáltatás adattárhelye</td></tr>
+<tr><td>Titkok</td><td><code>.env</code> (és <code>compose.override.yaml</code>)</td><td>környezeti fájl</td></tr>
+</tbody>
+</table>
+<p>Az adatbázis és a fájlok egymáshoz tartoznak: egyszerre mentse őket, és tartsa a másolatokat a szerveren kívül. A kötetnevek a compose-projekt névvel kezdődnek, <code>antimatter</code> (<code>docker volume ls</code> sorolja fel őket).</p>
+
+<h2 id="backup">Biztonsági mentés</h2>
+<p>A <code>compose.yaml</code> könyvtárából. Az Antimatter előzetes leállítása teljesen konzisztens másolatot eredményez; a futás közben készített mentés általában rendben van, de a mentés idején feltöltött fájlok hiányozhatnak belőle.</p>
+<pre><code>stamp=$(date +%Y%m%d-%H%M%S)
+mkdir -p backups
+docker compose stop antimatter
+# Database
+docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
+    &gt; "backups/antimatter-db-$stamp.dump"
+# File storage and GIF service
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
+        alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
+done
+docker compose start antimatter
+# Secrets
+cp .env "backups/env-$stamp"</code></pre>
+<p>Futtassa cronból napi mentésekhez, és másolja a <code>backups/</code> könyvtárat másik gépre. A <code>.env</code> másolatait ugyanolyan biztonságban tartsa, mint a szervert: azok tartalmazzák a jelszavakat.</p>
+<p>Ha a feltöltött fájlokat objektumonként szeretné másolni (például másik S3-tárhelyre), használja a <code>bucket</code> szolgáltatás AWS parancssori eszközét:</p>
+<pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
+    "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
+<p>Kiadási archívummal az adatbázist <code>pg_dump -Fc</code> segítségével, a <code>data/</code> és <code>config/</code> könyvtárakat pedig a szokásos eszközeivel mentse.</p>
+
+<h2 id="restore">Visszaállítás új gazdagépen</h2>
+<p>Helyezze el a <code>compose.yaml</code>-t, a mentett <code>.env</code>-t és a biztonsági mentéseket egy új könyvtárban, majd:</p>
+<pre><code>stamp=20261016-030000          # the backup to restore
+docker compose create           # creates the volumes, starts nothing
+docker compose up -d postgres
+docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
+    &lt; "backups/antimatter-db-$stamp.dump"
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
+        alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
+done
+docker compose up -d</code></pre>
+<p>Használja ugyanazt a <code>.env</code>-t: a tárhelynek és az adatbázisnak meg kell őriznie a korábbi jelszavait. Ha az új gazdagépnek más címe van, frissítse a <code>SITE_URL</code>-t (és a <code>DOMAIN</code>-t).</p>
+<p>Időnként állítsa vissza a biztonsági mentéseket másik gépen, hogy tesztelje őket.</p>
+
+<h2 id="upgrade">Frissítés</h2>
+<ol>
+<li>Készítsen biztonsági mentést.</li>
+<li>Módosítsa a <code>.env</code> fájlban lévő képküszöböt (<code>ANTIMATTER_IMAGE</code>), ha rögzített verziót használ, ahogy ajánlott.</li>
+<li>Húzza le és indítsa újra:
+<pre><code>docker compose pull
+docker compose up -d
+docker compose logs -f antimatter</code></pre></li>
+</ol>
+<p>Induláskor a szerver frissíti a adatbázis sémét (a folyamatot a naplóban követheted; nagyobb szerver esetén ez több percet is igénybe vehet), és telepíti a képhez tartozó alkalmazások újabb verzióit. Kiadási archívum esetén: állítsd le a szervert, cseréld le minden más tartalmat a <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> és <code>client/plugins/</code> mappák kivételével az új archívum tartalmára, majd indítsd újra.</p>
+<div class="callout warn">A frissítések csak előre irányulnak. Amint egy újabb szerververzió frissítette az adatbázist, a régebbi verzió már nem használhatja: a visszaváltáshoz állítsd vissza a frissítés előtt készített mentést. Ez a szabály éppúgy vonatkozik a <code>antimatter-next</code>-ről a <code>antimatter</code>-re való átvándorlásra is.</div>
+<h3>Verziók</h3>
+<p>Az Antimatter szerver jelzi, melyik Mattermost verziósávon alapul (jelenleg a 12.0.0). A képeket a <code>main</code> ágakból állítják össze: az <code>antimatter-next</code> verziót minden éjszaka (címkék: <code>nightly-&lt;YYYYMMDD&gt;</code>), mindkét képet pedig minden módosítás esetén (címkék: <code>sha-&lt;commit&gt;</code>). Rögzítsd az egyik ilyen címkét, szándékosan frissíts, és jegyezd fel a korábbi címkét is, hogy tudd, melyik mentés tartozik hozzá.</p>
+<h3>PostgreSQL főverziók</h3>
+<p>A compose fájl a <code>postgres:17-alpine</code> verziót használja. Az Antimatter PostgreSQL 15 vagy újabb verziót igényel. Egy új PostgreSQL főverzió nem tudja beolvasni a korábbi verzió adatkönyvtárát: az átvándorláshoz készíts dumpot az adatbázisról, indítsd el az új verziót egy új köteten, és állítsd vissza a dumpot ebbe.</p>
+
+<h2 id="mattermost">Átvándorlás Mattermostból</h2>
+<p>Az Antimatter a Mattermost adatbázis-sémáját használja, és saját táblákat ad hozzá, ezért átveheti egy Mattermost szerver PostgreSQL-adatbázisát és fájljait. Először egy másolaton próbáld ki:</p>
+<ol>
+<li>Készíts mentést a Mattermost-adatbázisról, a fájl-tárhelyéről (<code>data/</code> vagy S3-böket) és a <code>config.json</code> fájlról, majd állítsd le a Mattermostot.</li>
+<li>Állítsd vissza az adatbázist az Antimatter PostgreSQL-be, vagy mutasd rá az Antimattert annak egy másolatára (<code>AM_SQLSETTINGS_DATASOURCE</code>).</li>
+<li>Másold át a fájljait az Antimatter tárhelyére, megőrizve az útvonalaikat: S3-es eszközzel az <code>antimatter</code> böketbe, vagy kiadási archívum esetén a <code>data/</code> mappába.</li>
+<li>Használd újra a beállításaidat: másold át a <code>config.json</code> fájlt, vagy mentsd át az adatbázisba a <code>amctl --local config migrate</code> paranccsal (lásd: <a href="{{root}}docs/admins/configuration.html">Konfiguráció</a>). A <code>MM_</code> környezeti változóid továbbra is működnek; ha alkalmas, nevezd át őket <code>AM_</code> előtagúra.</li>
+<li>Indítsa el az Antimattert, és figyelje a naplót, amíg frissíti az adatbázist. Ezután ellenőrizze a <b>Rendszerkonzol › Bővítmények › Bővítmény kezelés</b> menüpontot. Az Antimatter saját verzióit telepíti a Hívások, Playbookok, Kanban (Táblák), Ügynökök és az integrációk számára, ha ezek újabbak, mint a telepített verzió. Ha a Mattermostban valamelyik bővítmény újabb verziója volt telepítve, távolítsa el azt, és indítsa újra az Antimattert, hogy a saját verziója kerüljön telepítésre.</li>
+<li>Állítsa be újra a push értesítéseket a saját push proxy szolgáltatásával: az Antimatter soha nem küld értesítéseket a Mattermost push szolgáltatásaihoz (se teszt, se hostolt verzióhoz), amelyek kizárólag a Mattermost saját alkalmazásaihoz juttatják el az értesítéseket. Amíg meg nem változtatja a <b>Push értesítés szerver</b> beállítást, a szerver nem küld push értesítéseket (lásd: <a href="{{root}}docs/admins/email-push.html#push">Push értesítések</a>).</li>
+</ol>
+<p>Az Antimatter nem létesít kapcsolatot a Mattermost, Inc. által üzemeltetett szolgáltatásokkal (lásd: <a href="{{root}}docs/admins/security.html#outbound">Kapcsolatok külső szolgáltatásokkal</a>), még akkor sem, ha a konfigurációban még mindig szerepel valamelyik:</p>
+<ul>
+<li>a Mattermost push-értesítési szervere szerepel a beállításokban, de soha nem kerül használatba;</li>
+<li>A Mattermost piactér (<b>Piactér URL</b>) és a termékértesítések címmezése kiürül;</li>
+<li>a Hívások alkalmazás a Mattermost helyett a Cloudflare nyilvános STUN szerverét használja, anélkül, hogy a mentett beállítást módosítaná (lásd: <a href="{{root}}docs/admins/calls.html#network">Hívások</a>);</li>
+<li>a biztonsági frissítések ellenőrzése és a hibajelentés eltűnt, ahogy a hozzájuk tartozó Rendszerkonzol-beállítások (<b>Biztonsági figyelmeztetések engedélyezése</b>, <b>Diagnosztika és hibajelentés engedélyezése</b>) és a <b>Közlemények</b> oldal is.</li>
+</ul>
+<p>A helyi mód szoketfájlja mostantól a <code>/var/tmp/antimatter_local.socket</code>; az <code>amctl</code> parancs a régi <code>/var/tmp/mattermost_local.socket</code> fájlt is megpróbálja. A Mattermost a legújabb verzióiban csak PostgreSQL adatbázist támogat, és az Antimatter is: először migrálja a MySQL adatbázist PostgreSQL-re. Ha az Antimatter adatbázis-frissítése után visszatér a Mattermosthoz, akkor a Mattermost mentését kell visszaállítania.</p>
+
+<h2 id="export-import">Adatok exportálása és importálása</h2>
+<p>A tömeges exportálási formátum a szerverek közötti adatátvitelt szolgálja: az egész szerver, egyes közösségek vagy csatornák adatait, csatolmányokkal, profilképekkel és egyedi emojikkal, ha ezeket is szeretné.</p>
+<pre><code># on the source server
+amctl export create --team-name design --include-profile-pictures
+amctl export list
+amctl export download &lt;export file&gt; design.zip
+# on the destination server
+amctl import upload design.zip
+amctl import list available
+amctl import process &lt;uploaded file&gt; --imported-users active</code></pre>
+<p>A <code>amctl export job list</code> és <code>amctl import job list</code> parancsokkal figyelheted a feladatokat. Közösségi vagy csatorna exportálás esetén a <code>--imported-users</code> paraméter megadása kötelező: <code>active</code> érték, ha a felhasználók átköltöznek erre a szerverre, <code>inactive</code> érték, ha olyan szerverre importálunk, ahol már van fiókjuk, így a bizonytalan egyezések alapján létrehozott fiókok addig inaktívak maradnak, amíg egy adminisztrátor nem ellenőrzi őket. A <code>--destination-team-name</code> paraméterrel meglévő közösségre importálhatsz. Az exportok és importok 30 napig tárolódnak a szerver tárhelyén (<code>ExportSettings.Directory</code>, <code>ImportSettings.Directory</code>).</p>
+<p>A szerveren közvetlenül a <code>antimatter export bulk</code> és <code>antimatter import bulk --apply</code> parancsok végzik el ugyanezt fájlokból, API nélkül.</p>

@@ -1,0 +1,161 @@
+title: Domena, HTTPS i serwery proxy odwrotne
+description: Serwuj Antimatter na własnej domenie przez HTTPS, używając dołączonego profilu Caddy lub własnego serwera proxy odwrotnego nginx, oraz poprawnie ustaw adres URL witryny i adresy klientów.
+guide: admins
+order: 4
+nav: Domena i HTTPS
+lead: Umieść Antimatter na nazwie domeny z HTTPS, używając profilu Caddy z pliku compose lub własnego serwera proxy odwrotnego, oraz poprawnie ustaw adres URL witryny i adresy klientów.
+source: 69e8779d356e
+---
+<h2 id="site-url">Adres URL witryny</h2>
+<p>Adres URL witryny (<code>ServiceSettings.SiteURL</code>) to adres, którego użytkownicy używają, aby uzyskać dostęp do Antimatter, np. <code>https://chat.example.com</code>. Serwer używa go w linkach w e-mailach i powiadomieniach, w przekierowaniach logowania (OAuth, OpenID Connect, SAML), dla aplikacji mobilnych i desktopowych oraz do sprawdzania, skąd pochodzą żądania. Ustaw go dokładnie na adres z paska adresu przeglądarki: schemat, domena i port (jeśli nie jest domyślny), bez ukośnika na końcu.</p>
+<ul>
+<li>W pliku compose witryny: <code>SITE_URL</code> w pliku <code>.env</code>.</li>
+<li>W innym miejscu: <code>AM_SERVICESETTINGS_SITEURL</code> lub <b>Konsola systemu › Środowisko › Serwer WWW › URL strony</b>.</li>
+</ul>
+<p>Jeśli adres URL witryny jest nieprawidłowy, logowanie za pomocą dostawcy tożsamości nie powiedzie się, linki w e-mailach będą wskazywać na błędne miejsce, a aplikacje mogą nie nawiązać połączenia. Po zmianie domeny zaktualizuj ją tutaj oraz w adresach URL przekierowań każdego dostawcy tożsamości.</p>
+
+<h2 id="caddy">HTTPS z dołączonym profilem Caddy</h2>
+<p>Plik <code>compose.yaml</code> witryny zawiera usługę <a href="https://caddyserver.com">Caddy</a> w profilu <code>https</code>. Pobiera ona certyfikat z Let's Encrypt, odnawia go automatycznie, przekierowuje HTTP na HTTPS i przekazuje wszystko, w tym websockety, do Antimatter.</p>
+<ol>
+<li>Wskaż rekord DNS (A, a dla IPv6 AAAA) swojej domeny na serwer.</li>
+<li>Otwórz porty 80/tcp, 443/tcp i 443/udp (HTTP/3) w zaporze. Let's Encrypt musi mieć dostęp do portu 80 lub 443 z Internetu.</li>
+<li>Dodaj domenę do pliku <code>.env</code> i ustaw adres URL witryny:
+<pre><code>echo "DOMAIN=chat.example.com" &gt;&gt; .env
+sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env</code></pre></li>
+<li>Uruchom z profilem:
+<pre><code>docker compose --profile https up -d</code></pre></li>
+</ol>
+<p>Dodaj <code>--profile https</code> do każdego kolejnego polecenia <code>docker compose up</code> lub umieść <code>COMPOSE_PROFILES=https</code> w pliku <code>.env</code>, aby zwykłe polecenie <code>docker compose up -d</code> uwzględniało ten profil. Caddy przechowuje swoje certyfikaty w wolumenie <code>https</code>.</p>
+<p>Własny port Antimatter pozostaje udostępniony na hoście (<code>HTTP_PORT</code>, domyślnie 8065). Przy Caddy przed nim, utrzymuj go wyłącznie dla samego serwera:</p>
+<pre><code>echo "HTTP_PORT=127.0.0.1:8065" &gt;&gt; .env
+docker compose --profile https up -d</code></pre>
+<p>Caddy komunikuje się z Antimatter przez wewnętrzną sieć <code>edge</code>, a nie przez ten port, więc nie ma to żadnego wpływu na Twoich użytkowników.</p>
+
+<h2 id="nginx">Z własnym serwerem proxy odwrotnym (nginx)</h2>
+<p>Jeśli serwer już uruchamia nginx lub inny proxy, wyłącz profil <code>https</code> i skieruj proxy do portu 8065 Antimatter. Proxy musi:</p>
+<ul>
+<li>przekazywać uaktualnienia websocket (aplikacja webowa i aplikacje mobilne utrzymują otwarte połączenie websocket na <code>/api/v4/websocket</code>, a niektóre aplikacje otwierają własne);</li>
+<li>akceptować ciała żądań o rozmiarze co najmniej równym największemu plikowi do przesłania (<b>Maksymalny rozmiar pliku</b>, domyślnie 100 MB);</li>
+<li>utrzymywać otwarte długotrwałe połączenia (websockets, duże przesyłania i pobierania);</li>
+<li>przekazywać nagłówek <code>Host</code> oraz adres klienta.</li>
+</ul>
+<p>Pełny blok serwera, dostosowany z szablonu produkcyjnego w antimatter-docker. Zamień domenę i ścieżki do certyfikatów:</p>
+<pre><code>upstream antimatter {
+    server 127.0.0.1:8065;
+    keepalive 64;
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+proxy_cache_path /var/cache/nginx/antimatter levels=1:2 keys_zone=antimatter_cache:10m
+                 max_size=3g inactive=120m use_temp_path=off;
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name chat.example.com;
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name chat.example.com;
+
+    ssl_certificate     /etc/ssl/chat.example.com/fullchain.pem;
+    ssl_certificate_key /etc/ssl/chat.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:AntimatterSSL:10m;
+    ssl_session_tickets off;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # At least FileSettings.MaxFileSize (100 MB by default).
+    client_max_body_size 100M;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade           $http_upgrade;
+    proxy_set_header Connection        $connection_upgrade;
+    proxy_buffers 256 16k;
+    proxy_buffer_size 16k;
+
+    location ~ ^/api/v[0-9]+/(users/)?websocket$ {
+        client_body_timeout 60s;
+        send_timeout 300s;
+        lingering_timeout 5s;
+        proxy_connect_timeout 90s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 90s;
+        proxy_pass http://antimatter;
+    }
+
+    location / {
+        proxy_read_timeout 600s;
+        proxy_cache antimatter_cache;
+        proxy_cache_revalidate on;
+        proxy_cache_min_uses 2;
+        proxy_cache_use_stale timeout;
+        proxy_cache_lock on;
+        proxy_pass http://antimatter;
+    }
+}</code></pre>
+<p>Sprawdź plik poleceniem <code>nginx -t</code> i zastosuj zmiany poleceniem <code>systemctl reload nginx</code>. Serwer sam wysyła nagłówki <code>X-Content-Type-Options</code>, <code>Referrer-Policy</code>, <code>Permissions-Policy</code> i <code>X-Frame-Options</code>; tylko HSTS zależy od proxy. Podnieś wartość <code>max-age</code>, gdy HTTPS zacznie działać, i dodaj <code>includeSubDomains</code> tylko wtedy, gdy wszystkie subdomeny używają HTTPS.</p>
+<p>Przy użyciu Docker Compose i nginx na hoście, <code>upstream</code> powyżej wskazuje na opublikowany port 8065. Opublikuj go tylko na <code>127.0.0.1</code> (<code>HTTP_PORT=127.0.0.1:8065</code>), aby nikt nie omijał proxy.</p>
+<p>Repozytorium antimatter-docker zawiera pełną konfigurację z nginx w kontenerze i Let's Encrypt przez certbot, w <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">deploy/compose</a>.</p>
+
+<h3>Inne proxy</h3>
+<p>Dowolne proxy zadziała, jeśli spełni cztery powyższe warunki. Dzwonienie audio i wideo nigdy nie przechodzi przez proxy: używa własnego portu, patrz <a href="{{root}}docs/admins/calls.html">Rozmowy i głos</a>.</p>
+
+<h2 id="client-address">Adresy klientów za proxy</h2>
+<p>Za proxy każde żądanie wydaje się przychodzić z proxy. Aby logować rzeczywisty adres klienta, stosować limity żądań per klient i używać filtrowania IP, powiedz serwerowi, który nagłówek zawiera adres i którym proxy może ufać. Żadna z tych ustawień nie ma pola w Konsoli systemu: ustaw je w <code>config.json</code> lub za pomocą zmiennych.</p>
+<table>
+<thead><tr><th>Klucz i zmienna</th><th>Domyślnie</th><th>Opis</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.TrustedProxyIPHeader</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER</code></td><td>puste: serwer używa adresu połączenia</td><td>Nagłówki zawierające adres klienta, na przykład <code>X-Forwarded-For</code>. Używany jest pierwszy z nich, który występuje w żądaniu.</td></tr>
+<tr><td><code>ServiceSettings.TrustedProxyIPs</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code></td><td>pusta</td><td>Adresy lub zakresy CIDR twoich proxy, na przykład <code>172.29.71.0/28</code>. Nagłówki są brane pod uwagę tylko dla żądań przychodzących z jednego z nich.</td></tr>
+</tbody>
+</table>
+<p>W zmiennej oddziel kilka wartości spacjami: <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>. Serwer odrzuca konfigurację, w której wpis w <code>TrustedProxyIPs</code> nie jest ani adresem IP, ani zakresem CIDR.</p>
+<h3>Jak serwer znajduje adres klienta</h3>
+<p>Każdy proxy dodaje adres, z którego otrzymał żądanie, po prawej stronie nagłówka <code>X-Forwarded-For</code>. To, co klient wysłał w samym nagłówku, pozostaje po lewej. Serwer czyta więc nagłówek od prawej strony, pomija adresy zaufanych proxy i bierze pierwszy inny adres jako adres klienta. Klient nie może wybrać własnego adresu, wysyłając własny nagłówek.</p>
+<ul>
+<li>Za jednym proxy sam <code>TrustedProxyIPHeader</code> daje poprawny adres: serwer bierze najprawiejszy adres z nagłówka. Do czasu, aż ustawisz również <code>TrustedProxyIPs</code>, loguje ostrzeżenie przy starcie. Bez tego każdy, kto ma bezpośredni dostęp do portu 8065, może ustawić nagłówek, więc udostępniaj ten port tylko na <code>127.0.0.1</code> lub w sieci prywatnej.</li>
+<li>Za kilkoma proxy, na przykład CDN lub balanserem obciążenia przed własnym proxy, wymień je wszystkie w <code>TrustedProxyIPs</code>. W przeciwnym razie serwer weźmie adres zewnętrznego proxy za adres klienta.</li>
+<li>Proxy może zastąpić nagłówek adresem, który widzi, jak w powyższym przykładzie z nginx (<code>X-Forwarded-For $remote_addr</code>), albo dodać do niego wartość (nginx: <code>$proxy_add_x_forwarded_for</code>). Oba warianty działają.</li>
+</ul>
+<h3>Jakie adresy wymienić</h3>
+<p>Wymień adres, z którego przychodzą żądania proxy, tak jak go widzi Antimatter.</p>
+<ul>
+<li>W pliku compose dla witryny z Caddy jest to już zrobione: Caddy łączy się z Antimatter przez sieć <code>edge</code>, a plik compose ustawia <code>TrustedProxyIPHeader</code> na <code>X-Forwarded-For</code> oraz <code>TrustedProxyIPs</code> na zakres tej sieci, <code>EDGE_SUBNET</code> (domyślnie <code>172.29.71.0/28</code>, chyba że zmienisz to w <code>.env</code>). Zmień <code>EDGE_SUBNET</code>, jeśli nakłada się na którąś z Twoich sieci.</li>
+<li>Konfiguracja produkcyjna w antimatter-docker robi to samo dla kontenera nginx, używając <code>FRONTEND_SUBNET</code>.</li>
+<li>Przy nginx na hoście i Antimatter w Dockerze żądania docierają do Antimatter przez opublikowany port, zwykle z adresu bramki sieci projektu compose (możesz go sprawdzić za pomocą <code>docker network inspect</code>). Ustaw <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code> na ten adres w <code>compose.override.yaml</code>.</li>
+<li>Bez Dockera, gdy nginx działa na tym samym hoście, jest to <code>127.0.0.1</code> (oraz <code>::1</code>, jeśli nginx łączy się przez IPv6).</li>
+</ul>
+
+<h2 id="builtin-tls">TLS bez proxy</h2>
+<p>Serwer może również sam obsługiwać HTTPS w <b>Konsola systemu › Środowisko › Serwer WWW</b>: ustawiając <b>Bezpieczeństwo połączenia</b> na TLS (<code>ServiceSettings.ConnectionSecurity</code>), z <b>Plik Certyfikatu TLS</b> i <b>Plik z kluczem TLS</b> (<code>ServiceSettings.TLSCertFile</code>, <code>ServiceSettings.TLSKeyFile</code>), lub <b>Użyj Let's Encrypt</b> (<code>ServiceSettings.UseLetsEncrypt</code>). W takim przypadku serwer musi nasłuchiwać na porcie 443 (<b>Adres nasłuchiwania</b>, <code>ServiceSettings.ListenAddress</code>, domyślnie <code>:8065</code>), a <code>ServiceSettings.Forward80To443</code> przekierowuje port 80. Proxy odwrotne jest łatwiejsze w utrzymaniu i odnawianiu certyfikatów, i to właśnie ono jest założone w tym przewodniku.</p>
+
+<h2 id="timeouts">Limit czasu serwera i rozmiar żądań</h2>
+<p>Ustawienia własnego serwera WWW, w <b>Konsola systemu › Środowisko › Serwer WWW</b>:</p>
+<table>
+<thead><tr><th>Ustawienie</th><th>Klucz</th><th>Domyślnie</th></tr></thead>
+<tbody>
+<tr><td><b>Adres nasłuchiwania</b></td><td><code>ServiceSettings.ListenAddress</code></td><td><code>:8065</code></td></tr>
+<tr><td><b>Upłynięcie Limitu Czasu na Odczyt</b></td><td><code>ServiceSettings.ReadTimeout</code></td><td>300 sekund</td></tr>
+<tr><td><b>Timeout Zapisu</b></td><td><code>ServiceSettings.WriteTimeout</code></td><td>300 sekund</td></tr>
+<tr><td>Limit czasu bezczynności (brak pola w Konsoli systemu)</td><td><code>ServiceSettings.IdleTimeout</code></td><td>60 sekund</td></tr>
+<tr><td><b>Maksymalny rozmiar ładunku (bajty)</b></td><td><code>ServiceSettings.MaximumPayloadSizeBytes</code></td><td>zob. <a href="{{root}}docs/admins/security.html">Bezpieczeństwo</a></td></tr>
+</tbody>
+</table>
+<p>Ustaw limity czasu samego proxy na wartość co najmniej równą tym limitom dla zwykłych żądań, a maksymalny rozmiar treści (body) na co najmniej <b>Maksymalny rozmiar pliku</b>.</p>

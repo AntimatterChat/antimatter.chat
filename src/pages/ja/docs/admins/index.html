@@ -1,0 +1,75 @@
+title: サーバーの運用
+description: Antimatterをインストールして運用するシステム管理者向けのガイドです。デプロイメントの構成、必要なもの、そして着手すべき場所について説明します。
+guide: admins
+order: 1
+nav: 概要
+lead: このガイドは、Antimatterサーバーをインストールして運用するシステム管理者向けです。Linux、Docker、リバースプロキシに精通していることを前提としますが、Antimatterの知識は不要です。
+source: bf9ad573ed07
+---
+<h2 id="parts">デプロイメントの構成</h2>
+<p>Antimatterは、Mattermostのフォークであるセルフホスト型チームチャットです。完全なデプロイメントには以下のコンポーネントが含まれます。最初の3つが必須です。</p>
+<table>
+<thead><tr><th>コンポーネント</th><th>機能</th><th>必須</th></tr></thead>
+<tbody>
+<tr><td><b>Antimatterサーバー</b></td><td>Webアプリ、API、WebSocketをポート8065で提供し、バンドルされたアプリ（プラグイン）を実行し、通話メディアをポート8443で処理するGo言語で書かれた単一のプログラム（<code>antimatter</code>）です。コマンドラインツール<code>amctl</code>で管理します。</td><td>はい</td></tr>
+<tr><td><b>PostgreSQL</b></td><td>メッセージ、ユーザー、コミュニティ、推奨セットアップではサーバーの設定を保存するデータベースです。バージョン15以降が必要です。</td><td>はい</td></tr>
+<tr><td><b>ファイルストレージ</b></td><td>アップロードされたファイル、画像、インストールされたアプリを保存します。S3互換サービス（ComposeファイルではRustFSを使用）またはローカルディレクトリを使用します。</td><td>はい</td></tr>
+<tr><td><b>リバースプロキシ</b></td><td>サーバーの前にHTTPSを配置します。ComposeファイルのCaddyプロファイルまたは独自のnginxを使用します。</td><td>本番環境向け</td></tr>
+<tr><td><b>GIFサービス</b>（<code>gifs-server</code>）</td><td>GIFピッカーで使用するGIFとステッカーを、独自のカタログから提供します。Tenor APIに準拠しています。</td><td>いいえ</td></tr>
+<tr><td><b>プッシュプロキシ</b></td><td>AppleおよびGoogle経由でモバイルアプリに通知を転送します。</td><td>モバイル通知向け</td></tr>
+<tr><td><b>rtcd</b>、<b>TURNサーバー</b></td><td>多数の通話に対応するための独立したメディアサーバー、および厳格なファイアウォール后面的ユーザーのためのリレーです。</td><td>いいえ</td></tr>
+<tr><td><b>AIエンドポイント</b></td><td>AIエージェント、通話の文字起こし、読み上げ、翻訳の背後にあるモデルです。クラウドプロバイダーまたは自社で運用するサーバーを使用します。</td><td>いいえ</td></tr>
+</tbody>
+</table>
+<p>Antimatterにはライセンス料や有料版はありません。Mattermostの有料プランで提供される単一サインオン、LDAP、高可用性、コンプライアンスエクスポート、データ保持などの機能もすべて含まれています。</p>
+
+<h2 id="requirements">要件</h2>
+<ul>
+<li>数百人のユーザーをサポートするには、<code>amd64</code>または<code>arm64</code>のLinuxサーバー、CPUコア2個以上、メモリ4GB以上、およびユーザーがアップロードするファイル用のディスクスペースが必要です。</li>
+<li>推奨されるインストールには、Composeプラグイン（<code>docker compose</code>）を備えたDocker Engineが必要です。</li>
+<li>本番環境向け：サーバーを指すドメイン名、およびHTTPS用のポート80と443の開放。</li>
+<li>通話向け：通話するユーザーから到達可能なポート8443（UDPおよびTCP）。</li>
+<li>メール向け：Antimatterから送信できるSMTPサーバー。</li>
+</ul>
+
+<h2 id="quick-start">クイックスタート</h2>
+<pre><code>mkdir antimatter &amp;&amp; cd antimatter
+curl -fsSLO https://antimatter.chat/compose.yaml
+cat &gt; .env &lt;&lt;EOF
+SITE_URL=http://localhost:8065
+POSTGRES_PASSWORD=$(openssl rand -hex 24)
+S3_SECRET_KEY=$(openssl rand -hex 24)
+GIFS_API_KEY=$(openssl rand -hex 24)
+EOF
+docker compose up -d</code></pre>
+<p>次に、サイトのURLを開いてアカウントを作成します。最初のアカウントがシステム管理者になります。<a href="{{root}}docs/admins/install.html">インストール</a>では、各ステップとその他のインストール方法について説明しています。</p>
+
+<h2 id="in-this-guide">このガイドの内容</h2>
+<ul>
+<li><a href="{{root}}docs/admins/install.html">インストール</a>: Docker Compose、イメージ、リリースアーカイブ、最初の管理者。</li>
+<li><a href="{{root}}docs/admins/configuration.html">設定</a>: データベースまたはファイルによる設定、<code>AM_</code>環境変数、システムコンソール、<code>amctl</code>、ログ。</li>
+<li><a href="{{root}}docs/admins/https.html">ドメインとHTTPS</a>: サイトのURL、Caddy、nginx、クライアントアドレス。</li>
+<li><a href="{{root}}docs/admins/calls.html">通話と音声</a>: ポート、NAT、TURN、rtcd、文字起こしと字幕。</li>
+<li><a href="{{root}}docs/admins/email-push.html">メールとプッシュ</a>: SMTP、プッシュプロキシ、モバイルアプリ。</li>
+<li><a href="{{root}}docs/admins/apps.html">バンドルアプリ</a>: 有効なアプリ、その設定、その他のアプリのインストール。</li>
+<li><a href="{{root}}docs/admins/ai.html">AI</a>: エージェント、音声、翻訳用のモデル、およびデータの保存先。</li>
+<li><a href="{{root}}docs/admins/authentication.html">サインインとアカウント</a>: サインアップ、パスワード、MFA、シングルサインオン、LDAP、ゲスト、セッション。</li>
+<li><a href="{{root}}docs/admins/backups-upgrades.html">バックアップとアップグレード</a>: バックアップ、リストア、アップグレード、Mattermostからの移行。</li>
+<li><a href="{{root}}docs/admins/operations.html">運用</a>: モニタリング、スケーリング、データ保持、コンプライアンス、トラブルシューティング。</li>
+<li><a href="{{root}}docs/admins/security.html">セキュリティ</a>: ハードニングチェックリストと外部接続。</li>
+</ul>
+<p>サーバーではなくコミュニティを運営する（チャンネル、ロール、モデレーション）場合は、<a href="{{root}}docs/communities/index.html">コミュニティの運営</a>を参照してください。インテグレーションを構築する場合は、<a href="{{root}}docs/developers/index.html">Antimatterでの構築</a>を参照してください。</p>
+
+<h2 id="first-hour">最初の1時間</h2>
+<ol>
+<li>インストールし、すぐに管理者アカウントを作成します。</li>
+<li>サーバーを独自のドメインでHTTPSの背後に配置します。</li>
+<li>SMTPを設定し、テストメールを送信します。</li>
+<li>通話のポートを開き、通話アプリのテストモードをオフにします。</li>
+<li>誰がサインアップできるかを決め、MFAを有効にします。</li>
+<li><a href="{{root}}docs/admins/security.html#outbound">セキュリティ</a>の外部接続を確認します。</li>
+<li>日次バックアップを設定します。</li>
+</ol>
+
+<h2 id="help">ヘルプの取得</h2>
+<p>質問は<a href="https://github.com/AntimatterChat/community/discussions">コミュニティディスカッション</a>で、バグ報告は<a href="https://github.com/AntimatterChat/community/issues/new/choose">コミュニティリポジトリ</a>で行ってください。セキュリティ上の問題は、<a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">セキュリティポリシー</a>に従って非公開で報告してください。</p>

@@ -1,0 +1,122 @@
+title: Lệnh gạch chéo
+description: Lệnh gạch chéo tùy chỉnh trong Antimatter: cách tạo, yêu cầu mà dịch vụ của bạn nhận được, định dạng phản hồi, câu trả lời tạm thời và trong kênh, câu trả lời bị trì hoãn và tự động hoàn thành.
+guide: developers
+order: 4
+nav: Lệnh gạch chéo
+lead: Lệnh gạch chéo tùy chỉnh cho phép người dùng nhập /something trong ô nhắn tin để gọi dịch vụ của bạn. Antimatter sẽ gửi lệnh đến URL của bạn và hiển thị câu trả lời, chỉ cho riêng người đó hoặc cho cả kênh.
+source: 24dbc9730e62
+---
+<h2 id="how">Cách lệnh gạch chéo hoạt động</h2>
+<ol>
+<li>Một người nhập <code>/weather Paris</code> và gửi đi. Nội dung này không được đăng lên kênh.</li>
+<li>Antimatter gửi một yêu cầu HTTP đến URL của lệnh, kèm theo thông tin về người đã nhập, vị trí và phần văn bản sau từ kích hoạt.</li>
+<li>Dịch vụ của bạn phải trả lời trong thời gian chờ của yêu cầu (mặc định là 30 giây) bằng một tin nhắn.</li>
+<li>Antimatter hiển thị câu trả lời: chỉ cho riêng người đó (tạm thời) hoặc trong kênh cho tất cả mọi người.</li>
+</ol>
+<p>Lệnh thuộc về một cộng đồng, và từ kích hoạt phải là duy nhất trong cộng đồng đó. Các lệnh tích hợp sẵn như <code>/join</code>, <code>/msg</code> hoặc <code>/away</code> không thể bị thay thế. Các ứng dụng (plugin) cũng có thể đăng ký lệnh; xem <a href="{{root}}docs/developers/apps.html#server">Phần máy chủ</a>.</p>
+
+<h2 id="create">Tạo một lệnh</h2>
+<p>Lệnh gạch chéo tùy chỉnh được bật theo mặc định (<b>Bật Lệnh Slash Tùy chỉnh</b> trong <b>Bảng điều khiển Hệ thống › Tích Hợp › Quản lý tích hợp</b>, <code>ServiceSettings.EnableCommands</code>). Quản trị viên cộng đồng và quản trị viên hệ thống có thể tạo chúng theo mặc định.</p>
+<ol>
+<li>Mở ảnh đại diện của bạn ở góc trên bên phải, sau đó chọn <b>Tích Hợp › Lệnh gạch chéo</b>, rồi chọn <b>Thêm Slash Command</b>.</li>
+<li>Điền vào <b>Tiêu đề</b> và <b>Mô tả</b> (hiển thị trên các trang tích hợp).</li>
+<li>Nhập <b>Command Trigger Word</b>, không kèm dấu gạch chéo và không có khoảng trắng, ví dụ <code>weather</code>.</li>
+<li>Nhập <b>URL yêu cầu</b> và chọn <b>Phương thức Yêu cầu</b>: <b>POST</b> (mặc định) hoặc <b>GET</b>.</li>
+<li>Tùy chọn, đặt <b>Tên người dùng phản hồi</b> và <b>Biểu tượng phản hồi</b>. Chúng chỉ được sử dụng khi máy chủ cho phép các tích hợp ghi đè tên và biểu tượng (xem <a href="{{root}}docs/developers/webhooks.html#identity">Tên và biểu tượng</a>).</li>
+<li>Đánh dấu <b>Tự động hoàn thành</b> để liệt kê lệnh khi người dùng nhập <code>/</code>, kèm theo <b>Gợi ý tự động điền</b> (các đối số của nó, chẳng hạn <code>[city]</code>) và <b>Mô tả Tự động Hoàn thành</b>.</li>
+<li>Chọn <b>Lưu</b>, và sao chép token được hiển thị. Dịch vụ của bạn sẽ sử dụng nó để xác minh rằng các yêu cầu đến từ máy chủ của bạn.</li>
+</ol>
+<p>Với API: <code>POST /api/v4/commands</code> bằng <code>{"team_id", "trigger", "url", "method": "P", "display_name", "description", "auto_complete": true, "auto_complete_hint", "auto_complete_desc", "username", "icon_url"}</code>. Phương thức là <code>P</code> cho POST hoặc <code>G</code> cho GET. <code>PUT /api/v4/commands/{command_id}/regen_token</code> phát hành một token mới.</p>
+
+<h2 id="request">Yêu cầu mà dịch vụ của bạn nhận được</h2>
+<p>Lệnh POST gửi một thân yêu cầu dạng biểu mẫu (<code>application/x-www-form-urlencoded</code>); lệnh GET gửi các trường tương tự trong chuỗi truy vấn. Token cũng có trong tiêu đề <code>Authorization: Token &lt;token&gt;</code>.</p>
+<table>
+<thead><tr><th>Trường</th><th>Giá trị</th></tr></thead>
+<tbody>
+<tr><td><code>token</code></td><td>Token của lệnh. Hãy kiểm tra nó trong mỗi yêu cầu.</td></tr>
+<tr><td><code>command</code></td><td>Lời kích hoạt kèm dấu gạch chéo, ví dụ <code>/weather</code>.</td></tr>
+<tr><td><code>text</code></td><td>Mọi nội dung sau lời kích hoạt, ví dụ <code>Paris</code>.</td></tr>
+<tr><td><code>user_id</code>, <code>user_name</code></td><td>Người đã chạy lệnh.</td></tr>
+<tr><td><code>channel_id</code>, <code>channel_name</code></td><td>Nơi lệnh được chạy.</td></tr>
+<tr><td><code>team_id</code>, <code>team_domain</code></td><td>ID và tên URL của cộng đồng.</td></tr>
+<tr><td><code>root_id</code></td><td>Chủ đề, nếu lệnh được chạy trong hộp trả lời của một chủ đề.</td></tr>
+<tr><td><code>trigger_id</code></td><td>Cho phép câu trả lời của bạn mở một hộp thoại (xem <a href="{{root}}docs/developers/bots.html#dialogs">Hộp thoại</a>). Nó chỉ có hiệu lực trong một thời gian ngắn.</td></tr>
+<tr><td><code>response_url</code></td><td>Một URL để đăng thêm các câu trả lời sau đó (xem <a href="#delayed">Câu trả lời trì hoãn</a>).</td></tr>
+<tr><td><code>user_mentions</code>, <code>user_mentions_ids</code>, <code>channel_mentions</code>, <code>channel_mentions_ids</code></td><td>Các người dùng và kênh công khai được nhắc đến trong văn bản, nếu có.</td></tr>
+</tbody>
+</table>
+<div class="callout">Trường <b>URL trang web</b> của máy chủ phải được thiết lập để lệnh tùy chỉnh có thể chạy: Antimatter xây dựng <code>response_url</code> từ trường này.</div>
+
+<h2 id="response">Phản hồi</h2>
+<p>Trả lời <code>200</code> với JSON (<code>Content-Type: application/json</code>):</p>
+<pre><code>{
+  "response_type": "in_channel",
+  "text": "Paris: 18 °C, light rain",
+  "attachments": []
+}</code></pre>
+<table>
+<thead><tr><th>Trường</th><th>Ý nghĩa</th></tr></thead>
+<tbody>
+<tr><td><code>response_type</code></td><td><code>ephemeral</code> (mặc định): chỉ người chạy lệnh nhìn thấy câu trả lời, và nó không được lưu lại sau khi tải lại trang. <code>in_channel</code>: câu trả lời được đăng trong kênh.</td></tr>
+<tr><td><code>text</code>, <code>attachments</code></td><td>Tin nhắn, giống như với webhook: văn bản Markdown và <a href="{{root}}docs/developers/webhooks.html#attachments">tệp đính kèm</a>, bao gồm cả nút và menu.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code></td><td>Tên và hình ảnh để hiển thị, khi cho phép ghi đè. Cài đặt của chính lệnh sẽ có ưu tiên cao hơn các trường này.</td></tr>
+<tr><td><code>channel_id</code></td><td>Đăng câu trả lời trong một kênh khác, người dùng phải là thành viên của kênh đó.</td></tr>
+<tr><td><code>goto_location</code></td><td>Một URL để mở sau khi lệnh đã chạy.</td></tr>
+<tr><td><code>props</code>, <code>type</code></td><td>Các thuộc tính bổ sung và loại bài đăng tùy chỉnh, giống như với webhook.</td></tr>
+<tr><td><code>extra_responses</code></td><td>Các câu trả lời bổ sung, mỗi câu có cùng các trường, được đăng sau câu đầu tiên.</td></tr>
+<tr><td><code>skip_slack_parsing</code></td><td><code>true</code> giữ nguyên văn bản, không chuyển đổi các liên kết và nhắc đến theo phong cách Slack.</td></tr>
+</tbody>
+</table>
+<p>Phản hồi không phải JSON sẽ được hiển thị như một tin nhắn tạm thời với thân yêu cầu làm nội dung văn bản. <code>204 No Content</code> không hiển thị gì. Bất kỳ mã trạng thái nào ngoài khoảng 200–299 sẽ hiển thị cho người dùng một lỗi.</p>
+
+<h2 id="example">Dịch vụ ví dụ</h2>
+<p>Một dịch vụ lệnh tối thiểu bằng Python, chỉ sử dụng thư viện chuẩn:</p>
+<pre><code>import hmac
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
+
+TOKEN = "the token shown when you saved the command"
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        form = {key: values[0] for key, values in parse_qs(body).items()}
+        if not hmac.compare_digest(form.get("token", ""), TOKEN):
+            self.send_response(401)
+            self.end_headers()
+            return
+        answer = {
+            "response_type": "ephemeral",
+            "text": f"Hello @{form['user_name']}, you asked for: {form.get('text', '')}",
+        }
+        data = json.dumps(answer).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(data)
+
+HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()</code></pre>
+<p>Nếu dịch vụ chạy trên một địa chỉ mạng riêng, quản trị viên hệ thống phải cho phép nó trong <b>Cho phép các kết nối nội bộ không đáng tin cậy vào</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>).</p>
+
+<h2 id="delayed">Trả lời chậm</h2>
+<p>Đối với các tác vụ mất nhiều thời gian hơn thời gian chờ, hãy trả lời ngay lập tức (ví dụ bằng một tin nhắn tạm thời "Đang xử lý…"), sau đó POST câu trả lời thực sự đến <code>response_url</code>. Nó nhận cùng một JSON như phản hồi và hoạt động tối đa 5 lần trong vòng 30 phút kể từ lệnh.</p>
+<pre><code>curl -X POST "$RESPONSE_URL" -H 'Content-Type: application/json' \
+  -d '{"response_type": "in_channel", "text": "Report ready: https://reports.example.com/42"}'</code></pre>
+
+<h2 id="run">Chạy lệnh bằng API</h2>
+<p>Các script và bot có thể chạy bất kỳ lệnh nào, tích hợp sẵn hoặc tùy chỉnh, như thể chúng đã nhập nó:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/commands/execute \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "command": "/weather Paris"}'</code></pre>
+<p><code>GET /api/v4/teams/{team_id}/commands/autocomplete</code> liệt kê các lệnh mà người dùng có thể tự động hoàn thành trong một cộng đồng.</p>
+
+<h2 id="autocomplete">Tự động hoàn thành</h2>
+<p>Các lệnh được tạo trên các trang tích hợp sẽ tự động hoàn thành với kích hoạt, gợi ý và mô tả của chúng. Các lệnh được đăng ký bởi ứng dụng có thể mô tả chi tiết các lệnh con và đối số của chúng bằng <code>AutocompleteData</code>, từ <code>model.NewAutocompleteData(trigger, hint, helpText)</code>:</p>
+<ul>
+<li><code>AddCommand(sub)</code> thêm một lệnh con, bản thân nó là một <code>AutocompleteData</code>.</li>
+<li><code>AddTextArgument(helpText, hint, pattern)</code> thêm văn bản tự do.</li>
+<li><code>AddStaticListArgument(helpText, required, items)</code> cung cấp một danh sách cố định các <code>AutocompleteListItem{Item, Hint, HelpText}</code>.</li>
+<li><code>AddDynamicListArgument(helpText, url, required)</code> yêu cầu ứng dụng của bạn cung cấp các gợi ý khi người dùng nhập. URL là một route của ứng dụng của bạn, chẳng hạn như <code>/plugins/com.example.weather/cities</code>. Nó nhận người dùng, kênh và cộng đồng, và trả về một danh sách JSON của <code>{"Item", "Hint", "HelpText"}</code>.</li>
+</ul>
+<p>Các biến thể <code>Named…</code> (<code>AddNamedTextArgument</code> và các biến thể khác) thêm các cờ <code>--name value</code>. Cả hai giao diện web đều hiển thị các gợi ý này.</p>

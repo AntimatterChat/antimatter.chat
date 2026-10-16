@@ -1,0 +1,172 @@
+title: Bots and interactive messages
+description: Conturile de bot în Antimatter: crearea lor, tokenurile și permisiunile, publicarea în numele unui bot, mesajele directe, butoanele și meniurile interactive, precum și dialogurile.
+guide: developers
+order: 5
+nav: Bots
+lead: Un cont de bot este un cont de utilizator creat pentru un program. Are propriul nume, imagine și tokenuri, iar lângă nume apare eticheta BOT. Această pagină acoperă și părțile interactive ale mesajelor: butoane, meniuri și dialoguri, pe care orice integrare le poate utiliza.
+source: 45503666f647
+---
+<h2 id="why">De ce un cont de bot</h2>
+<ul>
+<li>Mesajele sale provin de la o identitate clară, cu eticheta <b>BOT</b>, în loc să vină de la contul unui coleg.</li>
+<li>Tokenurile sale rămân funcționale chiar și atunci când persoana care l-a configurat își schimbă rolul sau părăsește organizația (cu excepția cazului în care serverul dezactivează boturile ale căror proprietari sunt dezactivați, vezi mai jos).</li>
+<li>Boturile nu se pot autentifica cu o parolă și nu văd niciodată aplicația web.</li>
+</ul>
+<p>Aplicațiile își creează propriile boturi, cum ar fi boturile Todo sau Playbooks, prin API-ul de pluginuri (<code>EnsureBotUser</code>).</p>
+
+<h2 id="enable">Activarea conturilor de bot</h2>
+<p>Un administrator de sistem activează <b>Activează crearea de cont Bot</b> în <b>Consola de sistem › Integrări › Conturi de bot</b> (<code>ServiceSettings.EnableBotAccountCreation</code>, <code>AM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION</code>). Opțiunea este dezactivată implicit. Doar administratorii de sistem pot crea boturi, cu excepția cazului în care acordă acest drept altor roluri în setările de permisiuni.</p>
+<p>Pe aceeași pagină, <b>Dezactivați conturile botului atunci când proprietarul este dezactivat</b> (<code>ServiceSettings.DisableBotsWhenOwnerIsDeactivated</code>, activat implicit) dezactivează un bot atunci când contul proprietarului este dezactivat.</p>
+
+<h2 id="create">Crearea unui bot</h2>
+<ol>
+<li>Deschideți avatarul din colțul din dreapta sus, apoi <b>Integrări › Conturi de bot</b>, apoi <b>Adaugă Cont Bot</b>.</li>
+<li>Introduceți un <b>Utilizator</b> (litere mici, cifre, puncte, cratime și liniuțe de subliniere) și, opțional, o <b>Icoana Bot</b>, un <b>Nume afișat</b> și o <b>Descriere</b>.</li>
+<li>Alegeți <b>Rol</b>: <b>Membru</b>, sau <b>Administrator de sistem</b> pentru un bot care gestionează serverul. Acordați unui bot doar permisiunile de care are nevoie.</li>
+<li>Bifați <b>poștale: canale</b> pentru a-i permite să posteze în fiecare canal public, sau <b>articol:toate</b> pentru fiecare canal, inclusiv cele private și mesajele directe, fără a fi membru.</li>
+<li>Setați când expiră tokenul implicit, apoi alegeți <b>Creează cont Bot</b>.</li>
+<li>Copiază tokenul de acces afișat. Acesta nu va mai fi afișat niciodată.</li>
+</ol>
+<p>Mai târziu, <b>Creați un token nou</b> pe rândul botului adaugă un token, iar fiecare token poate fi dezactivat sau șters. Tokenurile boturilor funcționează chiar și atunci când tokenurile de acces personale sunt dezactivate pentru utilizatori.</p>
+<p>Cu API-ul:</p>
+<pre><code># create the bot (you become its owner)
+curl -X POST https://chat.example.com/api/v4/bots \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username": "deploy-bot", "display_name": "Deploy", "description": "Posts deployments"}'
+
+# give it a token
+curl -X POST https://chat.example.com/api/v4/users/$BOT_USER_ID/tokens \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"description": "deploy pipeline"}'</code></pre>
+<p>Din linia de comandă, autentificat ca administrator (nu în modul local): <code>amctl bot create deploy-bot --display-name Deploy --with-token --expires-in 90d</code>. Alte puncte de acces: <code>GET /api/v4/bots</code>, <code>PUT /api/v4/bots/{bot_user_id}</code>, <code>POST /api/v4/bots/{bot_user_id}/disable</code> și <code>/enable</code>, <code>POST /api/v4/bots/{bot_user_id}/assign/{user_id}</code> pentru a-i schimba proprietarul.</p>
+
+<h2 id="membership">Adăugați botul în comunități și canale</h2>
+<p>Un bot nou nu face parte din nicio comunitate. Adăugați-l ca pe o persoană, din gestionarea membrilor comunității sau prin API:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/teams/$TEAM_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"team_id": "'$TEAM_ID'", "user_id": "'$BOT_USER_ID'"}'
+
+curl -X POST https://chat.example.com/api/v4/channels/$CHANNEL_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"user_id": "'$BOT_USER_ID'"}'</code></pre>
+<p>Un bot cu <b>poștale: canale</b> sau <b>articol:toate</b> poate posta fără a fi membru, dar primește evenimente WebSocket doar pentru canalele în care se află.</p>
+
+<h2 id="post">Postați în numele botului</h2>
+<p>Folosiți tokenul botului pentru orice apel API; <code>POST /api/v4/posts</code> este cel mai frecvent (a se vedea <a href="{{root}}docs/developers/api.html#resources">Resurse principale</a>). Pentru a scriu direct cuiva, deschideți mai întâi canalul de mesaj direct:</p>
+<pre><code># returns the channel; use its "id" as channel_id
+curl -X POST https://chat.example.com/api/v4/channels/direct \
+  -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' \
+  -d '["'$BOT_USER_ID'", "'$USER_ID'"]'</code></pre>
+<p>Pentru a reacționa la ce spun oamenii, urmați <a href="{{root}}docs/developers/api.html#websocket">WebSocket</a> cu tokenul botului și răspundeți la evenimentele <code>posted</code> care vă interesează. Ignorați mesajele proprii ale botului pentru a evita buclele.</p>
+<p>Un mesaj vizibil doar de o singură persoană (un mesaj efemer) este trimis cu <code>POST /api/v4/posts/ephemeral</code> și <code>{"user_id", "post": {"channel_id", "message"}}</code>. Necesită permisiunea <code>create_post_ephemeral</code>, pe care, implicit, o au doar administratorii de sistem. Integrările trimit de obicei mesaje efemere ca răspuns la comenzi cu slash și butoane.</p>
+
+<h2 id="interactive">Mesaje interactive: butoane și meniuri</h2>
+<p>Orice mesaj cu atașamente poate include acțiuni: butoane și meniuri pentru selecție. Acestea funcționează în mesajele postate prin API, webhooks și răspunsurile la comenzi cu slash. Când cineva folosește una dintre ele, Antimatter apelează URL-ul integrării dvs.</p>
+<pre><code>{
+  "channel_id": "…",
+  "message": "Deploy **api 2.4.0** to production?",
+  "props": {
+    "attachments": [{
+      "actions": [
+        {
+          "id": "approve",
+          "type": "button",
+          "name": "Approve",
+          "style": "primary",
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "approve"}}
+        },
+        {
+          "id": "env",
+          "type": "select",
+          "name": "Pick an environment",
+          "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}],
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "env"}}
+        }
+      ]
+    }]
+  }
+}</code></pre>
+<ul>
+<li><code>type</code>: <code>button</code> sau <code>select</code>.</li>
+<li><code>id</code>: litere, cifre, cratime și liniuțe de subliniere, diferite pentru fiecare acțiune a mesajului. Este generat dacă lăsați câmpul gol.</li>
+<li><code>style</code> (butoane): <code>default</code>, <code>primary</code>, <code>success</code>, <code>good</code>, <code>warning</code>, <code>danger</code> sau o culoare în hex.</li>
+<li><code>options</code> (meniuri) sau <code>data_source</code>: <code>users</code> sau <code>channels</code> pentru a alege o persoană sau un canal. <code>default_option</code> preselectează o valoare.</li>
+<li><code>integration.url</code>: unde este trimis clicul. O aplicație (plugin) poate folosi propria sa rută, de exemplu <code>/plugins/com.example.deploy/actions</code>. <code>integration.context</code> este al dumneavoastră: revine împreună cu clicul, iar clienții nu îl văd niciodată.</li>
+</ul>
+<h3>Cererea primită de integrarea dumneavoastră</h3>
+<pre><code>{
+  "user_id": "…",
+  "user_name": "priya",
+  "channel_id": "…",
+  "channel_name": "releases",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "post_id": "…",
+  "trigger_id": "…",
+  "type": "button",
+  "context": {"release": "2.4.0", "action": "approve"}
+}</code></pre>
+<p>Pentru un meniu, <code>type</code> este <code>select</code>, iar <code>context.selected_option</code> conține valoarea aleasă.</p>
+<h3>Răspunsul dumneavoastră</h3>
+<pre><code>{
+  "update": {"message": "Deploy of **api 2.4.0** approved by @priya", "props": {}},
+  "ephemeral_text": "Done. The deploy starts in a minute."
+}</code></pre>
+<ul>
+<li><code>update</code>: înlocuiește textul și proprietățile mesajului, de exemplu pentru a elimina butoanele după ce au fost folosite (un <code>props</code> gol).</li>
+<li><code>ephemeral_text</code>: un mesaj vizibil doar pentru persoana care a făcut clic.</li>
+<li><code>goto_location</code>: o adresă URL care va fi deschisă.</li>
+<li>Un corp gol nu modifică nimic.</li>
+</ul>
+<p>Serverul așteaptă atât timp cât permite <b>Timp de așteptare pentru cererile de integrare</b> (30 de secunde implicit). Adresele de rețea privată pentru URL-urile de integrare trebuie să fie permise de un administrator de sistem, la fel ca în cazul webhook-urilor.</p>
+
+<h2 id="dialogs">Dialoguri</h2>
+<p>Un dialog este un formular care se deschide peste chat. Puteți deschide unul doar ca răspuns la ceva ce a făcut tocmai persoana, o comandă cu slash sau un buton, deoarece este necesar <code>trigger_id</code> al acelei cereri. <code>trigger_id</code> este valid pentru toată durata timeout-ului cererii de integrare.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/actions/dialogs/open \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "trigger_id": "'$TRIGGER_ID'",
+    "url": "https://deploy.example.com/dialog",
+    "dialog": {
+      "callback_id": "new-release",
+      "title": "New release",
+      "introduction_text": "Fill in the release details.",
+      "submit_label": "Create",
+      "notify_on_cancel": false,
+      "state": "anything you want back",
+      "elements": [
+        {"display_name": "Version", "name": "version", "type": "text", "placeholder": "2.4.0"},
+        {"display_name": "Notes", "name": "notes", "type": "textarea", "optional": true},
+        {"display_name": "Environment", "name": "env", "type": "select",
+         "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}]},
+        {"display_name": "Owner", "name": "owner", "type": "select", "data_source": "users"},
+        {"display_name": "Notify the channel", "name": "notify", "type": "bool", "default": "true"}
+      ]
+    }
+  }'</code></pre>
+<table>
+<thead><tr><th>Tipul elementului</th><th>Ce afișează</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>Un câmp pe o singură linie. <code>subtype</code>: <code>text</code>, <code>email</code>, <code>number</code>, <code>password</code>, <code>tel</code> sau <code>url</code>. <code>min_length</code> și <code>max_length</code> îl limitează.</td></tr>
+<tr><td><code>textarea</code></td><td>Un câmp pe mai multe linii.</td></tr>
+<tr><td><code>select</code></td><td>O listă: <code>options</code>, sau <code>data_source</code> <code>users</code>, <code>channels</code>, sau <code>dynamic</code> cu un <code>data_source_url</code>. <code>multiselect</code> permite mai multe valori.</td></tr>
+<tr><td><code>bool</code></td><td>O casetă de bifare.</td></tr>
+<tr><td><code>radio</code></td><td>O singură alegere dintre <code>options</code>.</td></tr>
+<tr><td><code>date</code>, <code>datetime</code></td><td>O dată, sau o dată și o oră.</td></tr>
+</tbody>
+</table>
+<p>Fiecare element primește <code>display_name</code>, <code>name</code>, <code>help_text</code>, <code>placeholder</code>, <code>default</code> și <code>optional</code>.</p>
+<p>Când persoana trimite formularul, Antimatter trimite o cerere POST către <code>url</code> dialogului:</p>
+<pre><code>{
+  "type": "dialog_submission",
+  "callback_id": "new-release",
+  "state": "anything you want back",
+  "user_id": "…",
+  "channel_id": "…",
+  "team_id": "…",
+  "submission": {"version": "2.4.0", "notes": "", "env": "staging", "owner": "…", "notify": true},
+  "cancelled": false
+}</code></pre>
+<p>Răspundeți cu un corp gol pentru a închide dialogul, sau lăsați-l deschis și arătați ce este greșit:</p>
+<pre><code>{"errors": {"version": "This version already exists."}}</code></pre>
+<p><code>{"error": "…"}</code> afișează un mesaj pentru întregul formular. Cu <code>notify_on_cancel</code>, închiderea dialogului trimite <code>"cancelled": true</code>. Dialogurile funcționează la fel în aplicații: <code>OpenInteractiveDialog</code> din API-ul plugin-urilor primește aceeași cerere.</p>

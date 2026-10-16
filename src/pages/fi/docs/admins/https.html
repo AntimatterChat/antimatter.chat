@@ -1,0 +1,161 @@
+title: Domaini, HTTPS ja välimuurit
+description: Palvita Antimatteria oman domainin kautta HTTPS:llä, mukana toimitetulla Caddy-profiililla tai omalla nginx-välimuurillasi, ja aseta sivuston URL-osoite ja asiakasosoitteet oikein.
+guide: admins
+order: 4
+nav: Domaini ja HTTPS
+lead: Aseta Antimatter domaininimen alle HTTPS:llä käyttäen compose-tiedoston Caddy-profiilia tai omaa välimuuriasi, ja varmista, että sivuston URL-osoite ja asiakasosoitteet ovat oikein.
+source: 69e8779d356e
+---
+<h2 id="site-url">Sivuston URL-osoite</h2>
+<p>Sivuston URL-osoite (<code>ServiceSettings.SiteURL</code>) on osoite, jonka kautta ihmiset saavat yhteyden Antimatteriin, esimerkiksi <code>https://chat.example.com</code>. Palvelin käyttää sitä linkkien sisällyttämiseen sähköposteissa ja ilmoituksissa, kirjautumisumppauksissa (OAuth, OpenID Connect, SAML), mobiili- ja pöytätietokone-sovelluksissa sekä pyyntöjen lähtöosoitteen tarkistuksessa. Aseta se täsmälleen sellaiseksi, kuin se näkyy selaimen osoiterivillä: protokolla, domaini ja portti, ellei se ole oletusarvoinen, ilman peräkkäistä kauttaviivaa.</p>
+<ul>
+<li>Sivuston compose-tiedostolla: <code>SITE_URL</code> <code>.env</code>-tiedostossa.</li>
+<li>Muualta: <code>AM_SERVICESETTINGS_SITEURL</code> tai <b>Järjestelmäkonsoli › Ympäristö › Verkkopalvelin › Sivuston URL-osoite</b>.</li>
+</ul>
+<p>Jos sivuston URL-osoite on väärin, kirjautuminen identiteettitoimittajan kautta epäonnistuu, sähköpostien linkit osoittavat väärään kohtaan ja sovellukset eivät välttämättä muodosta yhteyttä. Kun domaini on muutettu, päivitä se tähän kohtaan ja kaikkien identiteettitoimittajien umppausosoitteisiin.</p>
+
+<h2 id="caddy">HTTPS mukana toimitetulla Caddy-profiililla</h2>
+<p>Sivuston <code>compose.yaml</code>-tiedosto sisältää <a href="https://caddyserver.com">Caddy</a>-palvelun <code>https</code>-profiilissa. Se hankkii sertifikaatin Let's Encrypt -palvelusta, uudistaa sen automaattisesti, ohjaa HTTP-liikenteen HTTPS:ään ja välittää kaiken, websocketit mukaan lukien, Antimatteriin.</p>
+<ol>
+<li>Osoita domainin DNS-tallenne (A, ja AAAA IPv6:n osalta) palvelimeen.</li>
+<li>Avaa palomuurissa portit 80/tcp, 443/tcp ja 443/udp (HTTP/3). Let's Encrypt -palvelun on päästävä porttiin 80 tai 443 Internetin kautta.</li>
+<li>Lisää domaini <code>.env</code>-tiedostoon ja aseta sivuston URL-osoite:
+<pre><code>echo "DOMAIN=chat.example.com" &gt;&gt; .env
+sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env</code></pre></li>
+<li>Käynnistä profiililla:
+<pre><code>docker compose --profile https up -d</code></pre></li>
+</ol>
+<p>Lisää <code>--profile https</code> jokaiseen myöhempään <code>docker compose up</code>-komentoon, tai aseta <code>COMPOSE_PROFILES=https</code> <code>.env</code>-tiedostoon, jolloin tavallinen <code>docker compose up -d</code> sisältää sen. Caddy säilyttää sertifikaatit <code>https</code>-volyymissa.</p>
+<p>Antimatterin oma portti jätetään julkaistuna isäntäkonetta varten (<code>HTTP_PORT</code>, oletusarvo 8065). Kun Caddy on eteenpäin, pidä se vain palvelinta varten:</p>
+<pre><code>echo "HTTP_PORT=127.0.0.1:8065" &gt;&gt; .env
+docker compose --profile https up -d</code></pre>
+<p>Caddy pääsee Antimatteriin sisäisen <code>edge</code>-verkkoyhteyden kautta, ei sen portin kautta, joten tämä ei muuta mitkä käyttäjillesi.</p>
+
+<h2 id="nginx">Omalla välimuurilla (nginx)</h2>
+<p>Jos palvelimella on jo nginx tai jokin muu proxy, jätä <code>https</code>-profiili pois ja osoita proxy Antimatterin porttiin 8065. Proxyllä on oltava:</p>
+<ul>
+<li>kyky siirtää websocket-päivitykset (web-sovellus ja mobiilisovellukset pitävät websocket-yhteyden auki osoitteessa <code>/api/v4/websocket</code>, ja jotkin sovellukset avaavat omat yhteytensä);</li>
+<li>hyväksy pyyntöruumiit, jotka ovat vähintään yhtä suuria kuin suurin lähetys (<b>Suurin tiedostokoko</b>, oletus 100 Mt);</li>
+<li>kyky pitää pitkät yhteydet auki (websockets, suuret lähetys- ja latausoperaatiot);</li>
+<li>kyky siirtää <code>Host</code>-otsake ja asiakkaan osoite.</li>
+</ul>
+<p>Täydellinen palvelinblokki, joka on mukautettu antimatter-dockerin tuotantopohjasta. Korvaa domainin ja sertifikaattien polut:</p>
+<pre><code>upstream antimatter {
+    server 127.0.0.1:8065;
+    keepalive 64;
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+proxy_cache_path /var/cache/nginx/antimatter levels=1:2 keys_zone=antimatter_cache:10m
+                 max_size=3g inactive=120m use_temp_path=off;
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name chat.example.com;
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name chat.example.com;
+
+    ssl_certificate     /etc/ssl/chat.example.com/fullchain.pem;
+    ssl_certificate_key /etc/ssl/chat.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:AntimatterSSL:10m;
+    ssl_session_tickets off;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # At least FileSettings.MaxFileSize (100 MB by default).
+    client_max_body_size 100M;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade           $http_upgrade;
+    proxy_set_header Connection        $connection_upgrade;
+    proxy_buffers 256 16k;
+    proxy_buffer_size 16k;
+
+    location ~ ^/api/v[0-9]+/(users/)?websocket$ {
+        client_body_timeout 60s;
+        send_timeout 300s;
+        lingering_timeout 5s;
+        proxy_connect_timeout 90s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 90s;
+        proxy_pass http://antimatter;
+    }
+
+    location / {
+        proxy_read_timeout 600s;
+        proxy_cache antimatter_cache;
+        proxy_cache_revalidate on;
+        proxy_cache_min_uses 2;
+        proxy_cache_use_stale timeout;
+        proxy_cache_lock on;
+        proxy_pass http://antimatter;
+    }
+}</code></pre>
+<p>Tarkista tiedosto komennolla <code>nginx -t</code> ja soita se komennolla <code>systemctl reload nginx</code>. Palvelin lähettää <code>X-Content-Type-Options</code>, <code>Referrer-Policy</code>, <code>Permissions-Policy</code> ja <code>X-Frame-Options</code> -otsakkeet itse; vain HSTS on proxyn hoidettavissa. Nosta sen <code>max-age</code>-arvo, kun HTTPS toimii, ja lisää <code>includeSubDomains</code> vain, jos kaikki alidominit käyttävät HTTPS:ää.</p>
+<p>Docker Compose -ympäristössä, jossa nginx on isäntäpalvelimella, yllä oleva <code>upstream</code> osoittaa julkaistuun porttiin 8065. Julkaise se vain osoitteessa <code>127.0.0.1</code> (<code>HTTP_PORT=127.0.0.1:8065</code>), jotta kukaan ei ohita proxyä.</p>
+<p>antimatter-docker -varastossa on täysi asennus, jossa nginx on kontissa ja Let's Encrypt -sertifikaatit hankitaan certbotin kautta, hakemistossa <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">deploy/compose</a>.</p>
+
+<h3>Muut proxyt</h3>
+<p>Mikä tahansa proxy toimii, jos se täyttää yllä olevat neljä ehtoa. Ääni- ja videopuhelut eivät koskaan kulje proxyä: ne käyttävät omaa porttiansa, ks. <a href="{{root}}docs/admins/calls.html">Puhelut ja ääni</a>.</p>
+
+<h2 id="client-address">Asiakasosoitteet proxyn takana</h2>
+<p>Proxyn takana jokainen pyyntö näyttää tulevan proxyltä. Jotta todellinen asiakasosoite kirjataan, jotta nopeusrajoituksia voidaan soveltaa asiakaskohtaisesti ja IP-suodatus toimii, on kerrottava palvelimelle, mikä otsake sisältää osoitteen ja mitkä proxyt sille voi luottaa. Molemmissa asetuksissa ei ole kenttää Järjestelmäkonsolissa: aseta ne <code>config.json</code>-tiedostoon tai ympäristömuuttujina.</p>
+<table>
+<thead><tr><th>Avain ja muuttuja</th><th>Oletusarvo</th><th>Toiminto</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.TrustedProxyIPHeader</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER</code></td><td>tyhjä: palvelin käyttää yhteyden osoitetta</td><td>Otsakkeet, jotka sisältävät asiakkaan osoitteen, esimerkiksi <code>X-Forwarded-For</code>. Ensimmäinen pyyntössä esiintyvä otsake käytetään.</td></tr>
+<tr><td><code>ServiceSettings.TrustedProxyIPs</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code></td><td>tyhjä</td><td>Proxyttenne osoitteet tai CIDR-alueet, esimerkiksi <code>172.29.71.0/28</code>. Otsakkeet lasketaan vain pyyntöjen osalta, jotka tulevat jostain näistä.</td></tr>
+</tbody>
+</table>
+<p>Muuttujassa erotetaan useat arvot välilyönneillä: <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>. Palvelin hylkää asetukset, joissa <code>TrustedProxyIPs</code>-listassa on arvo, joka ei ole IP-osoite eikä CIDR-alue.</p>
+<h3>Miten palvelin löytää asiakkaan osoitteen</h3>
+<p>Jokainen välityspalvelin lisää <code>X-Forwarded-For</code>-otsakkeen oikeaan reunaan osoitteen, josta se sai pyynnin. Asiakkaan itse lähettämä otsake pysyy vasemmalla. Palvelin lukee siis otsakkeen oikealta, ohittaa luotettujen välityspalvelinten osoitteet ja ottaa ensimmäisen muun osoitteen asiakkaan osoitteeksi. Asiakas ei voi valita omaa osoitettaan lähettämällä oman otsakkeen.</p>
+<ul>
+<li>Yhden välityspalvelimen takana <code>TrustedProxyIPHeader</code> riittää saamaan oikean osoitteen: palvelin ottaa otsakkeen oikeanpuoleisin osoitteen. Se kirjaa varoituksen käynnistyksen yhteydessä, kunnes asetat myös <code>TrustedProxyIPs</code>. Ilman sitä kuka tahansa, joka pääsee porttiin 8065 suoraan, voi asettaa otsakkeen, joten julkaise portti vain osoitteessa <code>127.0.0.1</code> tai yksityisessä verkossa.</li>
+<li>Useamman välityspalvelimen takana, esimerkiksi CDN:n tai kuormantasaimen edessä, listaa ne kaikki <code>TrustedProxyIPs</code>-asetukseen. Muuten palvelin tulkkaa ulomman välityspalvelimen osoitteen asiakkaan osoitteeksi.</li>
+<li>Välityspalvelin voi joko korvata otsakkeen näkemällään osoitteella, kuten yllä oleva nginx-esimerkki tekee (<code>X-Forwarded-For $remote_addr</code>), tai lisätä siihen (nginx:n <code>$proxy_add_x_forwarded_for</code>). Molemmat toimivat.</li>
+</ul>
+<h3>Mitä osoitteita listataan</h3>
+<p>Listaa osoite, josta välityspalvelimen pyynnöt tulevat, Antimatterin näkökulmasta.</p>
+<ul>
+<li>Sivuston compose-tiedostolla ja Caddyllä tämä on jo hoidettu: Caddy pääsee Antimatteriin <code>edge</code>-verkon kautta, ja compose-tiedosto asettaa <code>TrustedProxyIPHeader</code>-asetukseksi <code>X-Forwarded-For</code> ja <code>TrustedProxyIPs</code>-asetukseksi kyseisen verkon alueen, <code>EDGE_SUBNET</code> (<code>172.29.71.0/28</code>, ellei muuta sitä <code>.env</code>-tiedostossa). Muuta <code>EDGE_SUBNET</code>-arvoa, jos se päällekkäin jonkin muun verkkoalueesi kanssa.</li>
+<li>antimatter-dockerin tuotantoympäristön asennus tekee saman nginx-kontteilleen, käyttäen <code>FRONTEND_SUBNET</code>-muuttujaa.</li>
+<li>Kun nginx on isäntakoneella ja Antimatter Docker-kontissa, pyynnöt saapuvat Antimatteriin julkaistun portin kautta, yleensä compose-projektin verkon gateway-osoitteesta (<code>docker network inspect</code> näyttää sen). Aseta <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code>-muuttujaksi se osoite <code>compose.override.yaml</code>-tiedostossa.</li>
+<li>Ilman Dockeriä, kun nginx on samalla isäntakoneella, osoite on <code>127.0.0.1</code> (ja <code>::1</code>, jos nginx käyttää IPv6-yhteyttä).</li>
+</ul>
+
+<h2 id="builtin-tls">TLS ilman välityspalvelinta</h2>
+<p>Palvelin voi myös palvella HTTPS-yhteyksiä itse, osoitteessa <b>Järjestelmäkonsoli › Ympäristö › Verkkopalvelin</b>: aseta <b>Yhteyden turvallisuus</b> arvoon TLS (<code>ServiceSettings.ConnectionSecurity</code>), ja määritä <b>TLS-sertifikaattitiedosto</b> sekä <b>TLS-avaintiedosto</b> (<code>ServiceSettings.TLSCertFile</code>, <code>ServiceSettings.TLSKeyFile</code>) tai käytä <b>Käytä Let's Encryptiä</b> (<code>ServiceSettings.UseLetsEncrypt</code>). Tällöin palvelin on kuuntelemassa portissa 443 (<b>Kuunteluosoite</b>, <code>ServiceSettings.ListenAddress</code>, oletus <code>:8065</code>), ja <code>ServiceSettings.Forward80To443</code> ohjaa portin 80 liikennettä. Vääntäpikseli on helpompi ylläpitää ja uudistaa, ja tämä ohje olettaa sen käytön.</p>
+
+<h2 id="timeouts">Palvelimen aikakatkaisut ja pyyntikoko</h2>
+<p>Palvelimen oman verkkopalvelimen asetukset, osoitteessa <b>Järjestelmäkonsoli › Ympäristö › Verkkopalvelin</b>:</p>
+<table>
+<thead><tr><th>Asetus</th><th>Avain</th><th>Oletusarvo</th></tr></thead>
+<tbody>
+<tr><td><b>Kuunteluosoite</b></td><td><code>ServiceSettings.ListenAddress</code></td><td><code>:8065</code></td></tr>
+<tr><td><b>Lukuaikakatkaisu</b></td><td><code>ServiceSettings.ReadTimeout</code></td><td>300 sekuntia</td></tr>
+<tr><td><b>Kirjoitus aikakatkaisu</b></td><td><code>ServiceSettings.WriteTimeout</code></td><td>300 sekuntia</td></tr>
+<tr><td>Tyhjää odotteluaika (ei kenttää järjestelmäkonsolissa)</td><td><code>ServiceSettings.IdleTimeout</code></td><td>60 sekuntia</td></tr>
+<tr><td><b>Maksimi kuormakoko (tavua)</b></td><td><code>ServiceSettings.MaximumPayloadSizeBytes</code></td><td>katso <a href="{{root}}docs/admins/security.html">Turvallisuus</a></td></tr>
+</tbody>
+</table>
+<p>Säilytä pikselin omat aikakatkauset vähintään yhtä pitkänä kuin nämä arvo tavallisissa pyynnöissä, ja sen ruumiin koko vähintään <b>Suurin tiedostokoko</b>.</p>

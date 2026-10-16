@@ -1,0 +1,168 @@
+title: Az Antimatter telepítése
+description: Telepítse az Antimattert Docker Compose használatával, vagy egy kiadási archívumból, válasszon egy képet, indítsa el először, és hozza létre az első rendszergazdát.
+guide: admins
+order: 2
+nav: Telepítés
+lead: Telepítse az Antimattert a kész compose-fájl használatával, válassza ki a megfelelő képet, vagy futtassa a szervert egy kiadási archívumból. Ezután hozza létre az első adminisztrátori fiókot.
+source: 64cd522c4946
+---
+<h2 id="compose">Telepítés Docker Compose használatával</h2>
+<p>Ez a javasolt módszer. Egy compose-fájl futtatja az Antimattert, a PostgreSQLt, a fájl tárhelyet és a GIF-szolgáltatást. Ehhez Linux szerverre van szükség Docker Engine és Compose plugin (<code>docker compose</code>) telepítéssel, 2 CPU maggal és 4 GB memória vagy többel.</p>
+
+<h3>1. Töltse le a compose-fájlt</h3>
+<pre><code>mkdir antimatter &amp;&amp; cd antimatter
+curl -fsSLO https://antimatter.chat/compose.yaml</code></pre>
+
+<h3>2. Hozza létre a .env fájlt</h3>
+<p>A compose-fájl a beállításait egy ugyanabban a könyvtárban lévő <code>.env</code> fájlból olvassa be. Hozza létre véletlenszerű titkokkal:</p>
+<pre><code>cat &gt; .env &lt;&lt;EOF
+SITE_URL=http://localhost:8065
+POSTGRES_PASSWORD=$(openssl rand -hex 24)
+S3_SECRET_KEY=$(openssl rand -hex 24)
+GIFS_API_KEY=$(openssl rand -hex 24)
+EOF
+chmod 600 .env</code></pre>
+<p>Állítsa be a <code>SITE_URL</code> értéket arra a címre, amelyet a felhasználók a böngészőjükbe írnak, például <code>http://192.168.1.20:8065</code> helyi hálózaton, vagy <code>https://chat.example.com</code> domain névvel. Őrizze meg a <code>.env</code> fájlt: az adatbázis és a tárhely az első indítástól kezdve ezeket a jelszavakat használja, és a mentés visszaállításához is ugyanerre a fájlra van szükség.</p>
+
+<h3>3. Indítsa el</h3>
+<pre><code>docker compose up -d
+docker compose ps</code></pre>
+<p>Az első indítás egy-két percet vesz igénybe: a PostgreSQL létrehozza az adatbázist, egy egyszeri <code>bucket</code> szolgáltatás létrehozza a tárhely-kosarat, egy egyszeri <code>gifs-stickers</code> szolgáltatás importálja a kezdő matricacsomagot, az Antimatter pedig létrehozza a tábláit. Kövesse figyelemmel a <code>docker compose logs -f antimatter</code> paranccsal.</p>
+<p>Ha domain nevet és HTTPS-t szeretne használni már az elején, lásd: <a href="{{root}}docs/admins/https.html">Domain és HTTPS</a>: a compose-fájllal ez mindössze két további sor a <code>.env</code> fájlban, valamint a <code>https</code> profil.</p>
+
+<h3>A .env változók</h3>
+<table>
+<thead><tr><th>Változó</th><th>Alapérték</th><th>Mire szolgál</th></tr></thead>
+<tbody>
+<tr><td><code>SITE_URL</code></td><td>kötelező</td><td>Az Antimatter nyilvános címe (<code>ServiceSettings.SiteURL</code>).</td></tr>
+<tr><td><code>POSTGRES_PASSWORD</code></td><td>kötelező</td><td>Az <code>antimatter</code> adatbázis-felhasználó jelszava.</td></tr>
+<tr><td><code>S3_SECRET_KEY</code></td><td>kötelező</td><td>A fájl tárhely titkos kulcsa.</td></tr>
+<tr><td><code>GIFS_API_KEY</code></td><td>kötelező</td><td>A kulcs, amellyel az Antimatter a GIF-szolgáltatást hívja.</td></tr>
+<tr><td><code>GIFS_UPLOAD_KEY</code></td><td>üres</td><td>Lehetővé teszi, hogy a felhasználók saját GIF-jeiket és matricáikat adják hozzá a válogatóból. Ha üresen hagyja, a feltöltés kikapcsolva marad.</td></tr>
+<tr><td><code>DOMAIN</code></td><td>üres</td><td>A domain neve, a <code>https</code> profilhoz.</td></tr>
+<tr><td><code>HTTP_PORT</code></td><td><code>8065</code></td><td>Az Antimatter web-szerverének host-portja.</td></tr>
+<tr><td><code>CALLS_PORT</code></td><td><code>8443</code></td><td>A hívások hang- és videójának UDP- és TCP-portja.</td></tr>
+<tr><td><code>EDGE_SUBNET</code></td><td><code>172.29.71.0/28</code></td><td>A Caddy és az Antimatter közötti hálózat alhálózata. Módosítsa, ha átfedést mutat valamelyik hálózatával.</td></tr>
+<tr><td><code>TZ</code></td><td><code>UTC</code></td><td>A konténerek időzónája.</td></tr>
+<tr><td><code>ANTIMATTER_IMAGE</code></td><td><code>ghcr.io/antimatterchat/antimatter-next:latest</code></td><td>Az Antimatter futtatandó képe (lásd alább).</td></tr>
+</tbody>
+</table>
+
+<h3>Mi fut</h3>
+<table>
+<thead><tr><th>Szolgáltatás</th><th>Kép</th><th>Szerepkör</th></tr></thead>
+<tbody>
+<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>A szerver, a webalkalmazás és a csomagolt alkalmazások. Közzéteszi a <code>HTTP_PORT</code> és a <code>CALLS_PORT</code> portokat.</td></tr>
+<tr><td><code>postgres</code></td><td><code>postgres:17-alpine</code></td><td>Az adatbázis, a <code>postgres</code> kötetben.</td></tr>
+<tr><td><code>files</code></td><td><code>rustfs/rustfs</code></td><td>S3-kompatibilis tárhely a feltöltött fájlokhoz és a telepített alkalmazásokhoz, a <code>files</code> kötetben.</td></tr>
+<tr><td><code>bucket</code></td><td><code>amazon/aws-cli</code></td><td>Létrehozza az <code>antimatter</code> tárolót, majd kilép.</td></tr>
+<tr><td><code>gifs</code></td><td><code>ghcr.io/antimatterchat/gifs-server</code></td><td>A GIF- és matricaszolgáltatás, a <code>gifs</code> kötetben.</td></tr>
+<tr><td><code>gifs-stickers</code></td><td><code>ghcr.io/antimatterchat/gifs-server</code></td><td>Első alkalommal importálja a kezdő matricacsomagot, majd kilép.</td></tr>
+<tr><td><code>https</code></td><td><code>caddy:2-alpine</code></td><td>Csak az <code>https</code> profil esetén: HTTPS a 80-as és 443-as porton.</td></tr>
+</tbody>
+</table>
+<p>A PostgreSQL, a tárhely és a GIF-szolgáltatás egy belső hálózaton (<code>private</code>) fut, amelyhez nincs internetes hozzáférés, és ahhoz csak az Antimatter csatlakozik. Egyik sem publikál portot.</p>
+<p>Az Antimatter-konténer nem tárol semmit a lemezen: a beállításai az adatbázisban vannak (erre mutat az <code>AM_CONFIG</code>), a fájlok és az alkalmazások pedig a tárhelyszolgáltatásban. A konténert bármikor törölheti és újrakészítheti. Minden, amit mentenie kell, a <code>postgres</code>, <code>files</code> és <code>gifs</code> kötetekben, valamint a <code>.env</code> fájlban található.</p>
+
+<h2 id="images">Válasszon egy képet</h2>
+<p>Két Antimatter-kép érhető el, mindkettő <code>linux/amd64</code> és <code>linux/arm64</code> architektúrára, és mindkettő minden repozitórium <code>main</code> ága alapján készül:</p>
+<table>
+<thead><tr><th>Kép</th><th>Beépített alkalmazások</th><th>Címkék</th></tr></thead>
+<tbody>
+<tr><td><code>ghcr.io/antimatterchat/antimatter</code></td><td>Ügynökök, Hívások, GitHub, GitLab, Jira, Kanban, Metriki és Playbookok.</td><td><code>latest</code>, <code>X.Y.Z</code> a kiadásokhoz, <code>sha-&lt;commit&gt;</code></td></tr>
+<tr><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>Ugyanezek, plusz Hangcsatornák, Szavazások, E-mail, Naptár, Megjegyzések, Fehértábla, GIF-ek, Teendők és Memek. Minden éjszaka újraépül.</td><td><code>latest</code>, <code>nightly</code>, <code>nightly-&lt;YYYYMMDD&gt;</code>, <code>sha-&lt;commit&gt;</code></td></tr>
+</tbody>
+</table>
+<p>A weboldal compose-fájla az <code>antimatter-next</code> képet használja, mert a GIF-szolgáltatás és a weboldalon leírt alkalmazások többsége csak ebben a képből érhető el. A kép cseréjéhez állítsa be az <code>ANTIMATTER_IMAGE</code> változót a <code>.env</code> fájlban, majd futtassa a <code>docker compose up -d</code> parancsot.</p>
+<div class="callout warn">A <code>latest</code> címke alatt a kép tartalma változhat. Éles környezetben rögzítsen egy címkét, például <code>nightly-20261015</code> vagy <code>sha-&lt;commit&gt;</code>, és csak tudatosan módosítsa frissítéskor. A szerver induláskor frissíti az adatbázist, ezért nem térhet vissza régebbi képre, vagy nem válthat <code>antimatter-next</code> képről <code>antimatter</code> képre, hacsak nem állítja vissza egy korábban készített mentést. Lásd: <a href="{{root}}docs/admins/backups-upgrades.html">Mentések és frissítések</a>.</div>
+
+<h3>A kép belső felépítése</h3>
+<ul>
+<li>A szerver a <code>/antimatter</code> könyvtárban található, a <code>antimatter</code> és <code>amctl</code> binárisok pedig a <code>/antimatter/bin</code> könyvtárban (a <code>PATH</code>-on).</li>
+<li>A nem jogosultsággal rendelkező <code>antimatter</code> felhasználóként (uid 2000) fut egy minimális, distroless alaprendszeren, shell nélkül.</li>
+<li>Portok: 8065 (web és API), 8067 (metriki), 8074 (klaszter), 8443 UDP és TCP (hívások).</li>
+<li>A helyi mód (<code>ServiceSettings.EnableLocalMode</code>) be van kapcsolva, ezért a <code>amctl --local</code> a konténeren belül is működik. Az egészségellenőrzés a <code>amctl system status --local</code> parancsot futtatja.</li>
+<li>A beépített alkalmazások a <code>/antimatter/prepackaged_plugins</code> könyvtárban találhatók, és az Antimatter alkalmazás-aláíró kulcsával vannak aláírva.</li>
+<li>A csomag tartalmaz szövegkivonási eszközöket (<code>pdftotext</code>, <code>wvText</code>, <code>unrtf</code>, <code>tidy</code>), így a feltöltött dokumentumok tartalma is kereshető.</li>
+</ul>
+
+<h3>Egyéb compose-fájlok</h3>
+<p>Az <a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> tárhelyen egy éles környezetbe való telepítési beállítás található a <code>deploy/compose/</code> könyvtárban: nginx saját tanúsítvánnyal vagy Let's Encrypt (certbot) használatával, PostgreSQL, a opcionális GIF-szolgáltatás (<code>gifs</code> profil) és nevezett kötetek a szerver konfigurációjához, adataihoz és naplófájljaihoz, mind a README-ben dokumentálva. Alapértelmezetten a stabil képet használja, és a fájlokat helyi köteten tárolja, nem S3-tárhelyen. Használd, ha a Caddy helyett a nginx-t preferálod, vagy már rendelkezned tanúsítványokkal.</p>
+
+<h2 id="first-admin">Az első rendszergazda létrehozása</h2>
+<p>Nyisd meg a <code>SITE_URL</code> címet a böngésződben, és hozz létre egy fiókot. <b>Az első, az új szerveren létrehozott fiók a rendszer rendszergazdája lesz</b>, majd a beállítás útmutatást ad az első közösség (az Antimatterben a csapat vagy munkaterület megnevezése) létrehozásához.</p>
+<p>Ezt a szerver első elindítása után azonnal végezd el: addig ugyanis bárki, aki előbb eléri a szerveret, annak rendszergazdája lesz. Ha a fiókot a parancssorból szeretnéd létrehozni, mielőtt a szerver kívülről elérhetővé válik:</p>
+<pre><code>docker compose exec antimatter amctl --local user create --system-admin --email-verified \
+    --email admin@example.com --username admin --password 'a-long-password'
+docker compose exec antimatter amctl --local team create --name main --display-name "Main"
+docker compose exec antimatter amctl --local team users add main admin</code></pre>
+<p>Ezután jelentkezz be a <code>SITE_URL</code> címen. Írd a parancs elejére egy szóközt, hogy a jelszó ne kerüljön a parancssor naplódba (ha <code>HISTCONTROL=ignorespace</code> van beállítva), vagy a bejelentkezés után állítsd át a jelszót.</p>
+<p>Következő lépések a bejelentkezés után:</p>
+<ol>
+<li>Döntsd el, ki hozhat létre fiókokat: <a href="{{root}}docs/admins/authentication.html">Bejelentkezés és fiókok</a>.</li>
+<li>Állítsd be az e-mailt, hogy a meghívók és a jelszó-visszaállítás működjenek: <a href="{{root}}docs/admins/email-push.html">E-mail- és push-értesítések</a>.</li>
+<li>Nyisd meg a hívásokhoz szükséges portot a tűzfaladban: <a href="{{root}}docs/admins/calls.html">Hívások és hang</a>.</li>
+<li>Nézd meg, melyik alkalmazások vannak bekapcsolva: <a href="{{root}}docs/admins/apps.html">Beépített alkalmazások</a>.</li>
+</ol>
+
+<h2 id="archive">Telepítés kiadási archívumból</h2>
+<p>Docker nélkül a szerver egy <code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code> nevű archívumból fut (például <code>antimatter-linux-amd64.tar.gz</code>). Ez egyetlen <code>antimatter/</code> könyvtárat tartalmaz, benne a <code>bin/antimatter</code>, a <code>bin/amctl</code>, a <code>config/config.json</code>, a webes alkalmazások (<code>client/</code> és <code>client-fusion/</code>), valamint a e-mail sablonok és a fordítások.</p>
+
+<h3>1. PostgreSQL előkészítése</h3>
+<p>Az Antimatter kizárólag a PostgreSQL 15-ös vagy újabb verzióját támogatja (a régebbi verziók elindulnak, de hibát írnak a naplóba). Hozz létre egy felhasználót és egy adatbázist:</p>
+<pre><code>sudo -u postgres psql &lt;&lt;'EOF'
+CREATE USER antimatter WITH PASSWORD 'a-long-password';
+CREATE DATABASE antimatter OWNER antimatter;
+EOF</code></pre>
+
+<h3>2. Kibontás és konfigurálás</h3>
+<pre><code>sudo tar -xzf antimatter-linux-amd64.tar.gz -C /opt
+sudo useradd --system --user-group antimatter
+sudo mkdir -p /opt/antimatter/data
+sudo chown -R antimatter:antimatter /opt/antimatter</code></pre>
+<p>Állítsd be, hogy a szerver melyik adatbázist használja, vagy a <code>/opt/antimatter/config/config.json</code> (<code>SqlSettings.DataSource</code>) segítségével, vagy környezeti változókkal, és add meg a webhely URL-jét:</p>
+<pre><code>AM_SQLSETTINGS_DRIVERNAME=postgres
+AM_SQLSETTINGS_DATASOURCE=postgres://antimatter:a-long-password@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10
+AM_SERVICESETTINGS_SITEURL=https://chat.example.com</code></pre>
+<p>Az archívum <code>config.json</code> fájlja egy teljes alapértelmezett konfiguráció: a Rendszerkonzolban végzett módosítások ide mentődnek vissza. Ha az adatbázisban szeretnéd tárolni a konfigurációt, lásd: <a href="{{root}}docs/admins/configuration.html">Konfiguráció</a>.</p>
+
+<h3>3. Futtatás szolgáltatásként</h3>
+<p>Egy systemd egység, a <code>/etc/systemd/system/antimatter.service</code> fájlban:</p>
+<pre><code>[Unit]
+Description=Antimatter
+After=network.target postgresql.service
+
+[Service]
+Type=notify
+User=antimatter
+Group=antimatter
+WorkingDirectory=/opt/antimatter
+ExecStart=/opt/antimatter/bin/antimatter
+EnvironmentFile=-/etc/antimatter.env
+TimeoutStartSec=3600
+Restart=always
+RestartSec=10
+LimitNOFILE=49152
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+<p>A <code>AM_</code> változókat tedd a <code>/etc/antimatter.env</code> fájlba (csak root olvashassa), majd:</p>
+<pre><code>sudo systemctl daemon-reload
+sudo systemctl enable --now antimatter
+journalctl -u antimatter -f</code></pre>
+<p>A szerver a 8065-ös porton figyel. Nyisd meg a <code>http://&lt;server&gt;:8065</code> címet, vagy a saját domainedet, miután beállítottál egy reverse proxyt (lásd: <a href="{{root}}docs/admins/https.html">Domain és HTTPS</a>), és hozz létre egy első fiókot: ez lesz a rendszergazda.</p>
+<p>A <code>bin/amctl</code> a futó szervert kezeli parancssorból. A szerveren magán, helyi módban működik bejelentkezés nélkül: állítsd be, hogy <code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>, majd futtasd: <code>sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code>.</p>
+
+<h2 id="other-commands">Egyéb szerverparancsok</h2>
+<p>A szerver futtatása (<code>antimatter</code>, vagy <code>antimatter server</code>) mellett a bináris néhány karbantartási parancsot is tartalmaz. Ezek ugyanazt a konfigurációt olvassák, mint a szerver.</p>
+<table>
+<thead><tr><th>Parancs</th><th>Mire szolgál</th></tr></thead>
+<tbody>
+<tr><td><code>antimatter version</code></td><td>Kiírja a verziót, a build számot, a build dátumát és a build hash-et.</td></tr>
+<tr><td><code>antimatter db ping</code></td><td>Ellenőrzi, hogy az adatbázis elérhető-e.</td></tr>
+<tr><td><code>antimatter db init</code></td><td>Létrehozza a konfigurációt az adatbázisban (ahol az <code>AM_CONFIG</code> egy <code>postgres://</code> URL-re van beállítva).</td></tr>
+<tr><td><code>antimatter db migrate</code></td><td>Alkalmazza az adatbázis-migrációkat a szerver indítása nélkül.</td></tr>
+<tr><td><code>antimatter db version</code></td><td>Kiírja az adatbázisban utoljára alkalmazott migrációt.</td></tr>
+<tr><td><code>antimatter import bulk</code>, <code>antimatter export bulk</code></td><td>Importálja vagy exportálja az adatokat tömeges formátumban (lásd: <a href="{{root}}docs/admins/backups-upgrades.html">Biztonsági mentések és frissítések</a>).</td></tr>
+</tbody>
+</table>

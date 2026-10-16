@@ -1,0 +1,313 @@
+title: Написання додатків (плагінів)
+description: Як написати додаток Antimatter (плагін): структура пакета та plugin.json, серверні хуки та API, реєстр веб-додатку, підтримка інтерфейсу Fusion, налаштування, сховище ключ-значення, переклади, пакування та встановлення.
+guide: developers
+order: 6
+nav: Написання додатків
+lead: Додатки додають функції до Antimatter зсередини: серверна частина на Go, яка підключається до сервера, і веб-додаток на React, який додає меню, панелі, типи повідомлень та сторінки. На цій сторінці показано, як організовано додаток, на прикладі вбудованого додатка «Опитування», і які зміни відбуваються в інтерфейсі Fusion Antimatter.
+source: d9c132cac759
+---
+<h2 id="overview">Як працює додаток</h2>
+<ul>
+<li><b>Серверна частина</b> — це програма на Go. Сервер запускає її як окремий процес і спілкується з нею через RPC: він викликає <b>хуки</b> додатка (повідомлення збирається опублікувати, виконано команду…) і додаток викликає <b>API плагінів</b> сервера (створити запис, прочитати користувача, зберегти дані…). Вона також може надавати HTTP-маршрути під <code>/plugins/&lt;app id&gt;/</code>.</li>
+<li><b>Веб-додаток</b> — це JavaScript-пакет, який завантажується в браузер разом із веб-додатком. Він реєструє компоненти React та колбэки в <b>реєстрі</b>: кнопку в меню, панель, спосіб відображення типу повідомлення.</li>
+<li>Обидві частини є необов’язковими. Додаток встановлюється як пакет <code>.tar.gz</code>, а системні адміністратори вмикають, вимикають та налаштовують його.</li>
+</ul>
+<div class="callout warn">Серверна частина працює з повним доступом до даних сервера. Вважайте додаток кодом, який ви розгортаєте на сервері.</div>
+<p>Antimatter запускає додатки, написані для Mattermost, і навпаки, за умови, що додаток використовує лише хуки, які є в обох. Див. <a href="#antimatter-hooks">Хуки, які є лише в Antimatter</a>.</p>
+
+<h2 id="layout">Структура пакета</h2>
+<p>Окремого стартового шаблона немає: почніть із невеликого вбудованого додатка, наприклад <a href="https://github.com/AntimatterChat/antimatter-plugin-polls">antimatter-plugin-polls</a> або <a href="https://github.com/AntimatterChat/antimatter-plugin-todo">antimatter-plugin-todo</a>, і змініть його ID та код. Додаток «Опитування» організовано так:</p>
+<pre><code>antimatter-plugin-polls/
+├── plugin.json            the manifest
+├── Makefile               build, test, bundle, deploy
+├── build/                 the manifest and pluginctl helper tools (Go), setup.mk
+├── assets/icon.svg        files shipped with the bundle
+├── go.mod
+├── server/
+│   ├── main.go            plugin.ClientMain(&amp;Plugin{})
+│   ├── plugin.go          the Plugin type, OnActivate, ServeHTTP
+│   ├── manifest.go        generated from plugin.json
+│   ├── api.go, command.go, hooks.go, store.go …
+│   └── dist/              compiled binaries, one per platform
+└── webapp/
+    ├── package.json, webpack.config.js, tsconfig.json
+    ├── i18n/              en.json and one file per language
+    ├── src/index.tsx      registers the app with the web app
+    ├── src/manifest.ts    generated from plugin.json
+    ├── src/translations.ts
+    └── dist/main.js       the bundle</code></pre>
+<p>Необов’язково: папка <code>public/</code>, яка надається як є під <code>/plugins/&lt;app id&gt;/public/</code>.</p>
+
+<h2 id="manifest">plugin.json</h2>
+<pre><code>{
+  "id": "com.example.weather",
+  "name": "Weather",
+  "description": "Forecasts in the chat.",
+  "homepage_url": "https://github.com/example/weather",
+  "support_url": "https://github.com/example/weather/issues",
+  "icon_path": "assets/icon.svg",
+  "version": "1.0.0",
+  "min_server_version": "12.0.0",
+  "server": {
+    "executables": {
+      "linux-amd64": "server/dist/plugin-linux-amd64",
+      "linux-arm64": "server/dist/plugin-linux-arm64",
+      "darwin-amd64": "server/dist/plugin-darwin-amd64",
+      "darwin-arm64": "server/dist/plugin-darwin-arm64",
+      "windows-amd64": "server/dist/plugin-windows-amd64.exe"
+    }
+  },
+  "webapp": {"bundle_path": "webapp/dist/main.js"},
+  "settings_schema": {"settings": []}
+}</code></pre>
+<ul>
+<li><code>id</code>: унікальний і незмінний; зазвичай використовується ім’я домену у зворотному порядку. Він визначає маршрути, збережені налаштування та події WebSocket.</li>
+<li><code>version</code>: семантична версія. Вбудовані додатки не вказують її в <code>plugin.json</code>; їхній інструмент збірки бере її з останнього git-тегу <code>v*</code>.</li>
+<li><code>min_server_version</code>: Antimatter повідомляє <code>12.0.0</code>.</li>
+<li><code>settings_schema</code>: сторінка налаштувань додатка в Системній консолі (див. <a href="#settings">Налаштування</a>).</li>
+</ul>
+<p><code>make apply</code> копіює маніфест у <code>server/manifest.go</code> та <code>webapp/src/manifest.ts</code>; <code>make manifest-check</code> перевіряє його.</p>
+
+<h2 id="server">Серверна частина</h2>
+<p>Серверна частина імпортує той самий Go-модуль, що й додатки Mattermost, <code>github.com/mattermost/mattermost/server/public</code>, з проксі Go-модулів. Її <code>main</code> лише запускає додаток:</p>
+<pre><code>package main
+
+import "github.com/mattermost/mattermost/server/public/plugin"
+
+func main() {
+	plugin.ClientMain(&amp;Plugin{})
+}</code></pre>
+<p>Тип <code>Plugin</code> вбудовує <code>plugin.MattermostPlugin</code>, що надає йому <code>p.API</code>, та реалізує потрібні хуки:</p>
+<pre><code>type Plugin struct {
+	plugin.MattermostPlugin
+	router *mux.Router
+}
+
+func (p *Plugin) OnActivate() error {
+	p.router = p.newRouter()
+	return p.API.RegisterCommand(&amp;model.Command{
+		Trigger:          "weather",
+		AutoComplete:     true,
+		AutoCompleteDesc: "Show the forecast",
+		AutoCompleteHint: "[city]",
+	})
+}
+
+func (p *Plugin) ExecuteCommand(c *plugin.Context, args *model.CommandArgs) (*model.CommandResponse, *model.AppError) {
+	city := strings.TrimSpace(strings.TrimPrefix(args.Command, "/weather"))
+	return &amp;model.CommandResponse{
+		ResponseType: model.CommandResponseTypeEphemeral,
+		Text:         "Forecast for " + city + ": sunny",
+	}, nil
+}
+
+func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Request) {
+	p.router.ServeHTTP(w, r)
+}</code></pre>
+<h3>Загальні хуки</h3>
+<table>
+<thead><tr><th>Хук</th><th>Коли виконується</th></tr></thead>
+<tbody>
+<tr><td><code>OnActivate</code>, <code>OnDeactivate</code></td><td>Коли додаток вмикається або вимикається, а також при запуску та зупинці сервера. Реєструйте команди та ботів у <code>OnActivate</code>.</td></tr>
+<tr><td><code>OnConfigurationChange</code></td><td>Коли змінюються його налаштування; завантажуйте їх за допомогою <code>p.API.LoadPluginConfiguration(&amp;cfg)</code>.</td></tr>
+<tr><td><code>ServeHTTP</code></td><td>Запити до <code>/plugins/&lt;app id&gt;/…</code>. Сервер встановлює заголовок <code>Mattermost-User-Id</code>, коли запит надходить від користувача, який увійшов в систему; відхиляйте запити без нього, якщо вони не призначені для публічного доступу.</td></tr>
+<tr><td><code>ExecuteCommand</code></td><td>Коли виконується команда, зареєстрована додатком.</td></tr>
+<tr><td><code>MessageWillBePosted</code>, <code>MessageWillBeUpdated</code></td><td>Перед збереженням повідомлення: поверніть змінений пост або причину для його відхилення.</td></tr>
+<tr><td><code>MessageHasBeenPosted</code>, <code>MessageHasBeenUpdated</code>, <code>MessageHasBeenDeleted</code></td><td>Після факту, для побічних ефектів.</td></tr>
+<tr><td><code>ReactionHasBeenAdded</code>, <code>ReactionHasBeenRemoved</code></td><td>Реакції.</td></tr>
+<tr><td><code>UserHasJoinedChannel</code>, <code>UserHasLeftChannel</code>, <code>UserHasJoinedTeam</code>, <code>UserHasLeftTeam</code>, <code>ChannelHasBeenCreated</code></td><td>Зміни в учасниках та каналах. Команда — це спільнота.</td></tr>
+<tr><td><code>FileWillBeUploaded</code></td><td>Перед збереженням файлу: змініть його або відхиліть.</td></tr>
+<tr><td><code>OnPluginClusterEvent</code></td><td>Повідомлення від того самого додатка на іншому сервері кластера.</td></tr>
+</tbody>
+</table>
+<p>Повний список з точними сигнатурами наведено в <code>server/public/plugin/hooks.go</code>; API — в <code>server/public/plugin/api.go</code>. Пакет <code>pluginapi</code> (<code>server/public/pluginapi</code>) обгортає API у зручніші допоміжні функції.</p>
+<h3>Корисні виклики API</h3>
+<ul>
+<li><code>CreatePost</code>, <code>UpdatePost</code>, <code>SendEphemeralPost</code>: публікуйте від імені бота додатка або від імені користувача.</li>
+<li><code>EnsureBotUser(&amp;model.Bot{Username, DisplayName})</code>: створюйте бота додатка один раз і отримуйте його ID.</li>
+<li><code>PublishWebSocketEvent("poll_updated", payload, &amp;model.WebsocketBroadcast{ChannelId: id})</code>: надсилайте подію веб-додатку. Вона надходить як <code>custom_&lt;app id&gt;_poll_updated</code>.</li>
+<li><code>OpenInteractiveDialog</code>: відкриває <a href="{{root}}docs/developers/bots.html#dialogs">діалог</a>.</li>
+<li><code>LogInfo</code>, <code>LogError</code> та інші: записує в журнал сервера, позначаючи запис ID додатка.</li>
+<li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: перевіряйте, хто має право робити що, перед діями від імені користувача.</li>
+</ul>
+<p>Додаток працює на кожному сервері кластера. Зберігайте стан у сховищі ключ-значення або в базі даних, а не лише в пам’яті.</p>
+
+<h2 id="kv">Зберігання даних</h2>
+<p>Кожен додаток має власне сховище ключ-значення в базі даних сервера:</p>
+<ul>
+<li><code>KVSet(key, value)</code>, <code>KVGet(key)</code>, <code>KVDelete(key)</code>: значення — це байти, зазвичай JSON. Ключі — не довше 150 символів.</li>
+<li><code>KVSetWithExpiry(key, value, seconds)</code>: значення зникає після зазначеного часу.</li>
+<li><code>KVCompareAndSet(key, old, new)</code> та <code>KVSetWithOptions</code> з <code>Atomic</code>: безпечні оновлення, коли кілька запитів або сервери записують один і той самий ключ. Опитування зберігає кожен голос саме так і повторює спробу в разі конфлікту.</li>
+<li><code>KVList(page, perPage)</code>: ключі, сторінка за сторінкою.</li>
+</ul>
+
+<h2 id="webapp">Веб-додаткова частина</h2>
+<p>Бандл реєструє клас за допомогою <code>window.registerPlugin</code>. Його <code>initialize</code> отримує реєстр та сховище Redux:</p>
+<pre><code>import manifest from './manifest';
+
+class Plugin {
+    initialize(registry, store) {
+        registry.registerTranslations((locale) =&gt; translationsFor(locale));
+        registry.registerPostTypeComponent('custom_poll', PollPost);
+        registry.registerWebSocketEventHandler(`custom_${manifest.id}_poll_updated`, (msg) =&gt; {
+            store.dispatch(pollUpdated(JSON.parse(msg.data.poll)));
+        });
+        registry.registerReconnectHandler(() =&gt; store.dispatch(reloadPolls()));
+    }
+}
+
+window.registerPlugin(manifest.id, new Plugin());</code></pre>
+<ul>
+<li><b>Спільні бібліотеки.</b> Веб-додаток надає React, ReactDOM, Redux, React Redux та React Intl: вказуйте їх як <code>externals</code> у webpack (<code>React</code>, <code>ReactDOM</code>, <code>Redux</code>, <code>ReactRedux</code>, <code>ReactIntl</code>), замість того щоб включати власні копії. Дивіться <code>webpack.config.js</code> в Опитуваннях.</li>
+<li><b>Виклики вашої серверної частини.</b> Використовуйте <code>${window.basename}/plugins/&lt;app id&gt;/…</code> з параметрами з <code>Client4.getOptions()</code> (з <code>mattermost-redux/client</code>): вони містять заголовки, які серверу потрібні, щоб прийняти запит від браузера.</li>
+<li><b>Ваш власний стан.</b> <code>registerReducer</code> додає редьюсер, який зберігається під <code>state['plugins-&lt;app id&gt;']</code>.</li>
+<li><b>Типи.</b> Додаткові методи реєстру Antimatter відсутні в опублікованих типах Mattermost: Опитування декларує реєстр, який використовує, у <code>webapp/src/types/host.ts</code>.</li>
+</ul>
+<p>Методи реєстру та їхні параметри задокументовано в коді, у <code>webapp/fusion/src/plugins/registry.ts</code> (Fusion) та <code>webapp/channels/src/plugins/registry.ts</code> (класичний).</p>
+
+<h2 id="fusion">Підтримка інтерфейсу Fusion</h2>
+<p>Antimatter має два веб-інтерфейси: Fusion (типовий) та класичний. Обидва завантажують ті самі бандли додатків і мають той самий реєстр, але Fusion малює багато елементів сам і розміщує компоненти додатків по-своєму. Перевірте ваш додаток в обох.</p>
+<h3>Визначення інтерфейсу</h3>
+<p>Перед завантаженням будь-якого додатка обидва інтерфейси встановлюють <code>window.antimatterWebUI</code> у <code>'fusion'</code> або <code>'classic'</code>, а також те саме значення на кореневому елементі сторінки як <code>data-am-web-ui</code>. У Mattermost жодне з них не встановлюється.</p>
+<pre><code>export function isFusionUI(): boolean {
+    return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
+}</code></pre>
+<p>Вбудовані додатки використовують це для відмінного відображення. Додаток «Опитування» малює свої картки опитувань і діалогове вікно створення у стилі Fusion, а для команди <code>/poll</code> у Fusion відкриває власне діалогове вікно. Додатки «Дзвінки» та «Голосові канали» не відображають бічну панель та спливаючі повідомлення, оскільки Fusion замінює їх власним інтерфейсом дзвінка. Додаток «Агенти» розміщує свої дії ШІ у підменю меню повідомлення, а не на панелі інструментів, що з’являється при наведенні. Власні класи CSS Fusion (з префіксом <code>am-</code>) та його шар діалогових вікон (елемент <code>am-layer</code>) — це те, що використовують ці додатки для відповідності інтерфейсу; це не задокументований стабільний API.</p>
+<h3>Де Fusion відображає компоненти плагінів</h3>
+<table>
+<thead><tr><th>Метод реєстру</th><th>Де з’являється у Fusion</th></tr></thead>
+<tbody>
+<tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>Панель додатків, стовпчик іконок на правому краю, між вашим аватаром і кнопкою <b>Про Antimatter</b>. Кнопки заголовка каналу також розміщуються там, а не у заголовку каналу. Приховується, коли системний адміністратор вмикає <b>Вимкнути панель програм</b> (<code>ExperimentalSettings.DisableAppBar</code>, вимкнено за замовчуванням).</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>Правобічна панель. Користувачі можуть змінювати її розмір, перетягуючи край. Якщо додаток також є продуктом, панель пропонує <b>Відкрити як повну сторінку</b>.</td></tr>
+<tr><td><code>registerChannelHeaderIcon</code></td><td>Іконки у заголовку каналу, після кнопок дзвінка; на телефонах — у меню <b>Більше</b> заголовка.</td></tr>
+<tr><td><code>registerCallButtonAction</code></td><td>Кнопка дзвінка у заголовку каналу; кілька провайдерів спільно використовують меню <b>Інші способи здійснити дзвінок</b>.</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>Меню <b>Інші дії</b> (⋯) повідомлення, у підменю <b>Дії з повідомленнями</b>; також у меню <b>Дії з обговоренням</b> панелі обговорення, під <b>Інші дії</b>.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Власне підменю тих самих меню, з назвою та іконкою додатка.</td></tr>
+<tr><td><code>registerPostActionComponent</code></td><td>Панель інструментів повідомлення, що з’являється при наведенні, перед кнопкою ⋯.</td></tr>
+<tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>Саме повідомлення: його тіло, під текстом, після часу, та замість попереднього перегляду посилань.</td></tr>
+<tr><td><code>registerChannelHeaderMenuAction</code></td><td>Меню <b>Параметри каналу</b> (⋯ на каналі у бічній панелі або правий клік), як пункти з іконкою роз’єму.</td></tr>
+<tr><td><code>registerMainMenuAction</code></td><td>Меню спільноти (назва спільноти вгорі списку каналів), під <b>Інші дії</b>, згруповане за додатками.</td></tr>
+<tr><td><code>registerSidebarBrowseOrAddChannelMenuAction</code></td><td>Меню спільноти, після <b>Створити канал</b> та <b>Створити категорію</b>.</td></tr>
+<tr><td><code>registerFileUploadMethod</code></td><td>Меню <b>+</b> редактора (<b>Додати до повідомлення</b>), після <b>Завантажити файл</b>.</td></tr>
+<tr><td><code>registerPostEditorActionComponent</code></td><td>Панель форматування редактора, коли форматування відображається.</td></tr>
+<tr><td><code>registerAIActionMenuItemComponent</code></td><td>Меню <b>ШІ</b> редактора.</td></tr>
+<tr><td><code>registerFileDropdownMenuAction</code>, <code>registerFilePreviewComponent</code></td><td>Меню параметрів файлу та попередній перегляд файлу.</td></tr>
+<tr><td><code>registerUserSettings</code></td><td><b>Профіль і налаштування</b>, одна вкладка на додаток під заголовком <b>Плагіни</b>.</td></tr>
+<tr><td><code>registerChannelSettingsTab</code></td><td>Діалогове вікно налаштувань каналу, під заголовком <b>Додатки</b>.</td></tr>
+<tr><td><code>registerPopoverUserAttributesComponent</code>, <code>registerPopoverUserActionsComponent</code></td><td>Картка профілю, що відображається, коли ви натискаєте на ім’я або аватар.</td></tr>
+<tr><td><code>registerLeftSidebarHeaderComponent</code>, <code>registerSidebarChannelLinkLabelComponent</code>, <code>registerChannelIconOverride</code>, <code>registerBottomTeamSidebarComponent</code></td><td>Верхня частина списку каналів спільноти, поруч із назвою каналу, іконкою каналу та нижня частина бічної панелі спільноти зліва.</td></tr>
+<tr><td><code>registerChannelIntro</code>, <code>registerChannelIntroButtonAction</code>, <code>registerChannelToastComponent</code>, <code>registerNewMessagesSeparatorActionComponent</code>, <code>registerChannelComposerBannerComponent</code>, <code>registerComposerPlaceholder</code></td><td>Початок історії каналу, верхня частина списку повідомлень, лінія непрочитаних, над полем введення та заповнювач поля введення.</td></tr>
+<tr><td><code>registerChannelTypeOption</code></td><td>Типи каналів у діалоговому вікні <b>Створити канал</b>.</td></tr>
+<tr><td><code>registerSearchComponents</code></td><td>Поле пошуку в заголовку каналу: сфери застосунків з’являються, коли воно порожнє.</td></tr>
+<tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>Про Antimatter</b> (внизу бічної панелі застосунку), під <b>Допомога</b>.</td></tr>
+<tr><td><code>registerProduct</code></td><td>Повні сторінки за URL продукту, перелічені під <b>Продукти</b> у <b>Про Antimatter</b>. Сторінки продуктів зберігають класичну рамку сторінки.</td></tr>
+<tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, хуки, такі як <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>Працюють так, як у класичному інтерфейсі.</td></tr>
+<tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>Системна консоль, яка є класичною в обох інтерфейсах.</td></tr>
+</tbody>
+</table>
+<h3>Що Fusion не показує або не запускає</h3>
+<ul>
+<li><code>registerPostDropdownMenuComponent</code> (компонент у меню повідомлення), <code>registerPostCardTypeComponent</code> (картка повідомлення в правій панелі) та <code>registerProductSwitcherMenuItem</code> не показуються в основних видах Fusion. Замість першого використовуйте <code>registerPostDropdownMenuAction</code>.</li>
+<li><code>registerMessageWillBeUpdatedHook</code> не запускається, коли повідомлення редагується в Fusion. Перевіряйте редагування на сервері за допомогою хука <code>MessageWillBeUpdated</code>.</li>
+<li><code>registerActionAfterChannelCreation</code> запускається лише з класичного діалогового вікна створення каналу, яке Fusion відкриває з <b>Інші опції…</b> у своєму діалоговому вікні <b>Створити канал</b>.</li>
+<li>Компоненти панелі застосунків показуються незалежно від їхніх <code>supportedProductIds</code>.</li>
+<li>Маршрути з <code>registerNeedsTeamRoute</code> та <code>registerCustomRoute</code> зберігають класичну рамку сторінки, як і продукти.</li>
+</ul>
+
+<h2 id="antimatter-hooks">Хуки, які є лише в Antimatter</h2>
+<p>Ці методи реєстрації не існують у Mattermost. Перевіряйте, що метод існує, перед викликом, щоб застосунок також працював там:</p>
+<pre><code>if (typeof registry.registerComposerMenuItem === 'function') {
+    registry.registerComposerMenuItem({
+        text: 'Create a poll',
+        icon: &lt;i className='icon icon-chart-bar'/&gt;,
+        fusionIcon: 'poll',
+        action: ({channelId, rootId}) =&gt; openPollCreation(channelId, rootId),
+    });
+} else {
+    registry.registerChannelHeaderButtonAction(icon, (channel) =&gt; openPollCreation(channel.id), 'Create a poll', 'Create a poll');
+}</code></pre>
+<table>
+<thead><tr><th>Метод</th><th>Що він додає</th></tr></thead>
+<tbody>
+<tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>Елемент у меню <b>+</b> поля повідомлення, в обох інтерфейсах. <code>action</code> отримує <code>{channelId, rootId}</code>.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Вкладка вибірника емодзі у полі повідомлень, наприклад GIF або наклейки. У Fusion вкладки з <code>order</code> меншим за 10 з’являються перед вкладкою «Емодзі». Компонент отримує <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> та <code>isFusion</code>.</td></tr>
+<tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>Панель між заголовком каналу та повідомленнями для каналів, які обирає <code>matcher(state, channel)</code>. Вона може приховувати повідомлення та поле введення (<code>setMessagesVisible</code>), як це роблять голосові канали.</td></tr>
+<tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>Рядок під каналом у бічній панелі, наприклад учасники його дзвінка. Він отримує <code>channel</code>.</td></tr>
+<tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Лише Fusion: запис на сторінках <b>Інтеграції</b>, поруч із власними емодзі. Додаток GIF додає туди свої власні GIF і наклейки.</td></tr>
+</tbody>
+</table>
+<p><code>fusionIcon</code> вказує на іконку з набору іконок Fusion (наприклад <code>poll</code>, <code>sticker</code>, <code>calendar</code> або <code>image</code>; див. <code>webapp/fusion/src/fusion/components/icon</code>). Fusion показує її замість <code>icon</code>, щоб елемент гармонійно вписувався в загальний стиль.</p>
+
+<h2 id="settings">Налаштування</h2>
+<p><code>settings_schema</code> у <code>plugin.json</code> описує сторінку додатка в <b>Системна консоль › Плагіни</b>:</p>
+<pre><code>"settings_schema": {
+  "header": "Forecasts come from the weather service below.",
+  "settings": [
+    {"key": "ServiceURL", "display_name": "Service URL", "type": "text", "default": "https://api.example.com"},
+    {"key": "Units", "display_name": "Units", "type": "dropdown", "default": "metric",
+     "options": [{"display_name": "Celsius", "value": "metric"}, {"display_name": "Fahrenheit", "value": "imperial"}]},
+    {"key": "EnableAlerts", "display_name": "Severe weather alerts", "type": "bool", "default": false,
+     "help_text": "Post alerts in the channels that follow a city."}
+  ]
+}</code></pre>
+<p>Типи налаштувань: <code>bool</code>, <code>text</code>, <code>longtext</code>, <code>number</code>, <code>dropdown</code>, <code>radio</code>, <code>generated</code> (випадковий секрет), <code>username</code> та <code>custom</code> (відображається компонентом, який веб-додаток реєструє за допомогою <code>registerAdminConsoleCustomSetting</code>). Налаштування можна групувати в <code>sections</code>.</p>
+<p>Серверна частина читає їх у структуру, поля якої відповідають ключам:</p>
+<pre><code>type configuration struct {
+	ServiceURL   string
+	Units        string
+	EnableAlerts bool
+}
+
+func (p *Plugin) OnConfigurationChange() error {
+	var cfg configuration
+	if err := p.API.LoadPluginConfiguration(&amp;cfg); err != nil {
+		return err
+	}
+	p.setConfiguration(&amp;cfg)
+	return nil
+}</code></pre>
+<p>Адміністратори також можуть встановити їх у конфігурації, у розділі <code>PluginSettings.Plugins.&lt;app id&gt;</code>, з ключами в нижньому регістрі (див. <a href="{{root}}docs/admins/configuration.html#amctl">посібник адміністратора</a>).</p>
+
+<h2 id="translations">Переклади</h2>
+<p>Antimatter перекладено 37 мовами, а вбудовані додатки — теж. Веб-додаток робить це так:</p>
+<ol>
+<li>Написуйте кожний рядок за допомогою React Intl, з ID та англійським текстом: <code>&lt;FormattedMessage id='polls.create' defaultMessage='Create a poll'/&gt;</code> або <code>defineMessages</code>. Префіксуйте ID назвою вашого додатка.</li>
+<li>Виділіть англійські рядки у <code>webapp/i18n/en.json</code> (вбудовані додатки використовують <code>formatjs extract</code>).</li>
+<li>Додайте по одному файлу для кожної мови поруч із ним, з тими самими ID: <code>fr.json</code>, <code>de.json</code>, <code>pt-BR.json</code>, <code>zh-CN.json</code>…</li>
+<li>Передайте їх веб-додатку, який запитує мову користувача:
+<pre><code>import fr from '../i18n/fr.json';
+import ptBR from '../i18n/pt-BR.json';
+
+const catalogs = {fr, 'pt-BR': ptBR};
+
+export function translationsFor(locale) {
+    return catalogs[locale] || catalogs[locale.split('-')[0]] || {};
+}
+
+registry.registerTranslations(translationsFor);</code></pre></li>
+</ol>
+<p>Якщо рядок відсутній, використовується його англійський <code>defaultMessage</code>. Для рядків, які надсилає серверна частина (відповіді на команди, повідомлення ботів), пакет <code>pluginapi/i18n</code> завантажує файли перекладів, включені в пакет (наприклад, <code>assets/i18n</code>), і надає локалізатор мовою кожного користувача.</p>
+
+<h2 id="build">Збирання, встановлення та налагодження</h2>
+<p>Потрібні Go та Node.js (версія з <code>.nvmrc</code> додатка). У папці додатка:</p>
+<table>
+<thead><tr><th>Команда</th><th>Призначення</th></tr></thead>
+<tbody>
+<tr><td><code>make dist</code></td><td>Збирає серверну частину для всіх платформ та веб-додаток, а записує пакет у <code>dist/&lt;app id&gt;-&lt;version&gt;.tar.gz</code>.</td></tr>
+<tr><td><code>make test</code></td><td>Запускає тести Go та JavaScript.</td></tr>
+<tr><td><code>make check-style</code></td><td>Перевіряє код (golangci-lint, ESLint) та типи TypeScript.</td></tr>
+<tr><td><code>make deploy</code></td><td>Збирає, потім встановлює та вмикає пакет на сервері.</td></tr>
+<tr><td><code>make watch</code>, <code>make deploy-from-watch</code></td><td>Перший перебудовує веб-додаток щоразу, коли ви зберігаєте зміни; другий пакує те, що зібрав, і встановлює його на сервері.</td></tr>
+<tr><td><code>make enable</code>, <code>make disable</code>, <code>make reset</code></td><td>Вмикає, вимикає або перезапускає додаток на сервері.</td></tr>
+<tr><td><code>make logs</code>, <code>make logs-watch</code></td><td>Показує рядки журналу сервера, що стосуються додатка.</td></tr>
+<tr><td><code>make attach</code></td><td>Приєднує налагоджувач Delve до запущеної серверної частини (спочатку зберіть із <code>AM_DEBUG=1</code>).</td></tr>
+</tbody>
+</table>
+<p><code>make deploy</code> та інші серверні команди використовують локальний сокет, якщо його знаходять (<code>/var/tmp/antimatter_local.socket</code> або <code>AM_LOCALSOCKETPATH</code>): запускайте їх на машині сервера з увімкненим локальним режимом. Інакше вони вхідять на сервер, заданий <code>MM_SERVICESETTINGS_SITEURL</code>, за допомогою <code>AM_ADMIN_TOKEN</code> або <code>AM_ADMIN_USERNAME</code> та <code>AM_ADMIN_PASSWORD</code>. Інструменти збирання ще не читають ім’я <code>AM_</code> для URL сайту.</p>
+<h3>Ручне встановлення пакета</h3>
+<ul>
+<li>Системний адміністратор дозволяє завантаження за допомогою <code>AM_PLUGINSETTINGS_ENABLEUPLOADS=true</code> (вимкнено за замовчуванням; у системній консолі немає перемикача).</li>
+<li>Потім <b>Системна консоль › Плагіни › Керування плагінами › Завантажити плагін</b>, або <code>amctl plugin add weather.tar.gz</code>, а потім <code>amctl plugin enable com.example.weather</code>.</li>
+<li>Якщо на сервері увімкнено <b>Вимагати підпис плагіна</b>, він приймає лише пакети, підписані ключем, якому довіряє; див. <a href="{{root}}docs/admins/apps.html#other-apps">Встановлення інших додатків</a>.</li>
+</ul>
+<div class="callout">Для швидких ітерацій на сервері розробки встановіть <code>AM_SERVICESETTINGS_ENABLEDEVELOPER=true</code> на сервері: тоді помилки міститимуть деталі. Makefile вбудованих додатків збирають серверну частину лише для вашої платформи, якщо <code>MM_SERVICESETTINGS_ENABLEDEVELOPER</code> встановлено у вашій оболонці.</div>

@@ -1,0 +1,170 @@
+title: Webhooks
+description: Antimatters indgående og udgående webhooks: oprettelse, payloads og svar, vedhæftninger og kort til beskeder, overskrivning af navn og ikon samt eksempler.
+guide: developers
+order: 3
+nav: Webhooks
+lead: En indgående webhook giver et andet system mulighed for at sende beskeder til en kanal ved at sende JSON til en hemmelig URL. En udgående webhook gør det modsatte: den sender beskeder, der starter med et triggerord, til din URL, og poster det svar, du giver.
+source: ecd698619944
+---
+<h2 id="where">Hvor du administrerer webhooks</h2>
+<p>Åbn din avatar øverst til højre, og vælg derefter <b>Integrationer</b>. Integrations siderne for det aktuelle fællesskab viser <b>Indgående webhooks</b> og <b>Udgående webhooks</b>. Hver webhook tilhører ét fællesskab.</p>
+<p>Som standard kan fællesskabsadministratorer og systemadministratorer oprette webhooks. En systemadministrator kan give andre roller denne rettighed i rettighedsindstillingerne i Systemkonsol. En systemadministrator kan også slå hver type fra i <b>Systemkonsol › Integrationer › Integrationshåndtering</b>: <b>Aktivér indgående Webhooks</b> og <b>Aktivér udgående webhooks</b> er begge aktiveret som standard.</p>
+<figure><img src="{{root}}assets/img/shots/integrations.webp" alt="A channel with messages from a CI bot and from GitHub, shown as cards with fields, pipeline stages and a button"><figcaption>Integrationsbeskeder vist som kort: felter, pipelinefaser og en aktionsknap.</figcaption></figure>
+
+<h2 id="incoming">Opret en indgående webhook</h2>
+<ol>
+<li>Vælg <b>Indgående webhooks</b> i <b>Integrationer</b>, og vælg derefter <b>Tilføj indgående webhook</b>.</li>
+<li>Udfyld en <b>Titel</b> og en <b>Beskrivelse</b>: De vises kun på integrations siderne.</li>
+<li>Vælg den <b>Kanal</b>, beskederne sendes til som standard. For en privat kanal skal du være medlem af den.</li>
+<li>Marker <b>Lås til denne kanal</b>, hvis afsendere ikke skal kunne poste andre steder.</li>
+<li>Vælg evt. et <b>Brugernavn</b> og en <b>Profilbillede</b>-URL til dets beskeder (se <a href="#identity">Navn og ikon</a>).</li>
+<li>Vælg <b>Gem</b>. Kopiér den viste URL: <code>https://chat.example.com/hooks/&lt;key&gt;</code>.</li>
+</ol>
+<div class="callout warn">URL'en er den eneste hemmelighed: alle, der har den, kan sende beskeder i kanalen. Hold den væk fra offentlige repositories, og slet webhookken, hvis den lægger sig ud.</div>
+<p>Med API'et: <code>POST /api/v4/hooks/incoming</code> med <code>{"channel_id", "display_name", "description", "username", "icon_url", "channel_locked"}</code>; svarets <code>id</code> er nøglen. Fra kommandolinjen: <code>amctl webhook create-incoming --channel &lt;channel id&gt; --user &lt;user&gt; --display-name "CI"</code>.</p>
+
+<h2 id="incoming-send">Send en besked til en indgående webhook</h2>
+<pre><code>curl -X POST https://chat.example.com/hooks/xgh5ycrx1jf7mbs9w8z4c8e7ho \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Deploy of **api 2.4.0** finished :white_check_mark:"}'</code></pre>
+<p>Serveren svarer med <code>200</code> og kroppen <code>ok</code>. Den accepterer også <code>application/x-www-form-urlencoded</code> med JSON i et <code>payload</code>-felt, ligesom Slacks webhooks, så værktøjer lavet til Slack normalt virker uden ændringer.</p>
+<table>
+<thead><tr><th>Felt</th><th>Betydning</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>Beskeden i Markdown. Kræves, medmindre der er <code>attachments</code>. En tekst, der er længere end serverens grænse for beskedlængde, opdeles i flere beskeder.</td></tr>
+<tr><td><code>channel</code></td><td>En anden kanal i webhook'ets community, angivet med navnet (<code>ops-alerts</code> eller <code>#ops-alerts</code>), eller <code>@username</code> for en direkte besked fra webhook'ets ejer. Afvises, hvis webhook'et er låst til sin kanal.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code>, <code>icon_emoji</code></td><td>Navnet og billedet, der skal vises, når serveren tillader overskrivninger.</td></tr>
+<tr><td><code>attachments</code></td><td>Vedhæftninger til beskeden, vist som kort (nedenfor).</td></tr>
+<tr><td><code>props</code></td><td>Ekstra egenskaber gemt på beskeden, som apps kan læse.</td></tr>
+<tr><td><code>type</code></td><td>En brugerdefineret beskedtype, f.eks. <code>custom_poll</code>, til en app, der tegner den. Typer, der starter med <code>system_</code>, afvises.</td></tr>
+<tr><td><code>root_id</code></td><td>ID'et på en tråds første besked, for at svare i den pågældende tråd.</td></tr>
+<tr><td><code>priority</code></td><td>Beskedens prioritet, f.eks. <code>{"priority": "urgent"}</code>.</td></tr>
+<tr><td><code>silent</code></td><td><code>true</code> sender beskeden uden push-notifikationer.</td></tr>
+</tbody>
+</table>
+<p>Beskeder vist under et overskrevet navn bærer et <b>BOT</b>-mærke ved siden af, så man kan skelne dem fra rigtige konti. Webhook-beskeder udløser aldrig udgående webhooks.</p>
+
+<h2 id="identity">Navn og ikon</h2>
+<p>En webhook poster som den person, der oprettede den, medmindre serveren tillader overskrivninger. To indstillinger i <b>Systemkonsol › Integrationer › Integrationshåndtering</b>, begge slået fra som standard, ændrer dette:</p>
+<ul>
+<li><b>Aktivér integrationer, der kan overskrive brugernavne</b> (<code>ServiceSettings.EnablePostUsernameOverride</code>): webhooken <b>Brugernavn</b> eller anmodningens <code>username</code> vises i stedet; hvis ingen af dem er angivet, er navnet <code>webhook</code>.</li>
+<li><b>Aktivér, at integrations kan overskrive profilbilleder</b> (<code>ServiceSettings.EnablePostIconOverride</code>): Webhook'ets <b>Profilbillede</b>, eller anmodningens <code>icon_url</code> eller <code>icon_emoji</code>, vises.</li>
+</ul>
+<p>En værdi i anmodningen har forrang over den gemte på webhook'et.</p>
+
+<h2 id="attachments">Vedhæftninger</h2>
+<p>Vedhæftninger tilføjer struktureret indhold under teksten. De følger Slacks format for beskedvedhæftninger:</p>
+<pre><code>{
+  "text": "Build failed on `main`",
+  "attachments": [{
+    "fallback": "main #1902 failed",
+    "color": "#d24b4e",
+    "author_name": "GitHub Actions",
+    "author_icon": "https://chat.example.com/static/ci.png",
+    "title": "main #1902 failed",
+    "title_link": "https://ci.example.com/runs/1902",
+    "text": "Commit `0f4d8e2` by Jonas Weber",
+    "fields": [
+      {"title": "Branch", "value": "zephyr-3.7", "short": true},
+      {"title": "Duration", "value": "3m 40s", "short": true}
+    ],
+    "footer": "Lumen CI",
+    "ts": 1760000000
+  }]
+}</code></pre>
+<table>
+<thead><tr><th>Felt</th><th>Betydning</th></tr></thead>
+<tbody>
+<tr><td><code>fallback</code></td><td>Ren tekst til steder, der ikke kan vise kortet, f.eks. notifikationer.</td></tr>
+<tr><td><code>color</code></td><td>Farvestriben: en hex-farve, eller <code>good</code>, <code>warning</code>, <code>danger</code>.</td></tr>
+<tr><td><code>pretext</code></td><td>Tekst over kortet.</td></tr>
+<tr><td><code>author_name</code>, <code>author_link</code>, <code>author_icon</code></td><td>En lille overskriftslinje.</td></tr>
+<tr><td><code>title</code>, <code>title_link</code></td><td>Kortets titel, valgfrit med et link.</td></tr>
+<tr><td><code>text</code></td><td>Kortets brødtekst, i Markdown.</td></tr>
+<tr><td><code>fields</code></td><td>En liste af <code>{"title", "value", "short"}</code>; <code>short</code>-felter vises side om side.</td></tr>
+<tr><td><code>image_url</code>, <code>thumb_url</code></td><td>Et stort billede nederst, eller et lille billede til siden.</td></tr>
+<tr><td><code>footer</code>, <code>footer_icon</code>, <code>ts</code></td><td>En fodlinje og et tidspunkt (Unix-sekunder).</td></tr>
+<tr><td><code>actions</code></td><td>Knapper og menuer: se <a href="{{root}}docs/developers/bots.html#interactive">Interaktive beskeder</a>.</td></tr>
+</tbody>
+</table>
+
+<h2 id="cards">Kort: faser og diagrammer</h2>
+<p>Antimatter tilføjer to felter til vedhæftninger, som vises af standardgrænsefladen:</p>
+<ul>
+<li><code>stages</code>: Trin i en pipeline som piller, op til 20. Hvert trin er <code>{"name", "status"}</code>, hvor status kan være <code>passed</code>, <code>failed</code>, <code>running</code>, <code>pending</code>, <code>skipped</code> eller <code>canceled</code>.</li>
+<li><code>chart</code>: et lille linjediagram over seneste værdier, <code>{"values": [2 to 200 numbers], "threshold": number, "label": "…"}</code>. Tærsklen tegnes som en streglinje, for en alarms grænse.</li>
+</ul>
+<pre><code>{
+  "attachments": [{
+    "color": "danger",
+    "title": "main #1902 failed",
+    "stages": [
+      {"name": "build", "status": "failed"},
+      {"name": "unit", "status": "skipped"},
+      {"name": "publish", "status": "skipped"}
+    ]
+  }, {
+    "color": "warning",
+    "title": "API latency above 400 ms",
+    "chart": {"values": [210, 230, 260, 390, 450, 470], "threshold": 400, "label": "p95 latency, ms"}
+  }]
+}</code></pre>
+<p>Den klassiske grænseflade og andre klienter ignorerer disse to felter, så sørg for også at inkludere de vigtigste oplysninger i <code>text</code> eller <code>fields</code>.</p>
+
+<h2 id="outgoing">Opret en udgående webhook</h2>
+<p>En udgående webhook overvåger <b>offentlige</b> kanaler i et community. Når en besked starter med et af webhook'ets udløsningsord, sender Antimatter beskeden til din URL.</p>
+<ol>
+<li>Vælg <b>Udgående webhooks</b> i <b>Integrationer</b>, og vælg derefter <b>Tilføj udgående webhook</b>.</li>
+<li>Udfyld <b>Titel</b> og <b>Beskrivelse</b>.</li>
+<li>Vælg <b>Indholdstype</b> for anmodningen: <code>application/x-www-form-urlencoded</code> eller <code>application/json</code>.</li>
+<li>Vælg en <b>Kanal</b>, indtast <b>Udløsende ord (ét pr. linje)</b>, eller begge dele. Med en kanal og ingen udløsende ord sendes alle beskeder i den kanal. Med begge dele skal beskeden matche begge.</li>
+<li>Vælg under <b>Udløses ved</b> enten <b>Første ord matcher et triggerord præcist</b> eller <b>Første ord starter med et triggerord</b>.</li>
+<li>Indtast <b>Callback-URL’er (én pr. linje)</b>. Hver URL modtager alle matchende beskeder.</li>
+<li>Vælg valgfrit den <b>Brugernavn</b> og <b>Profilbillede</b>, der bruges til svar.</li>
+<li>Vælg <b>Gem</b> og kopier den viste token. Din service bruger den til at verificere, at anmodninger kommer fra din server.</li>
+</ol>
+<p>Med API: <code>POST /api/v4/hooks/outgoing</code> med <code>{"team_id", "channel_id", "trigger_words", "trigger_when", "callback_urls", "content_type", "display_name"}</code> (<code>trigger_when</code>: 0 for præcis match, 1 for "starter med").</p>
+<div class="callout">Hvis din service ligger på et privat netværk, skal en systemadministrator tillade adressen under <b>Tillad upålidelige interne forbindelser til</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>). Serveren ellers ikke kalder private adresser.</div>
+
+<h2 id="outgoing-request">Den udgående anmodning</h2>
+<p>Antimatter sender en POST med disse felter, som JSON eller formular-kodet afhængigt af indholdstypen:</p>
+<pre><code>{
+  "token": "6kd1ofo5ojr5zgu5ipfipybgnc",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "channel_id": "…",
+  "channel_name": "ops-alerts",
+  "timestamp": 1760010000000,
+  "user_id": "…",
+  "user_name": "priya",
+  "post_id": "…",
+  "text": "deploy api 2.4.0",
+  "trigger_word": "deploy",
+  "file_ids": ""
+}</code></pre>
+<p>Sammenlign <code>token</code> med webhook'ets token, før du gør noget. I den formkodede version er <code>timestamp</code> i sekunder i stedet for millisekunder. Serveren venter på dit svar i den tid, som <b>Integration anmodning timeout</b> tillader (30 sekunder som standard, <code>ServiceSettings.OutgoingIntegrationRequestsTimeout</code>).</p>
+
+<h2 id="outgoing-response">Svar på en outgoing webhook</h2>
+<p>For at sende et svar, svar med JSON. For ikke at sende noget, svar med et tomt body.</p>
+<pre><code>{
+  "text": "Deploying **api 2.4.0** to staging…",
+  "response_type": "comment",
+  "username": "deploy-bot",
+  "icon_url": "https://chat.example.com/static/deploy.png"
+}</code></pre>
+<ul>
+<li><code>text</code> og <code>attachments</code>: svaret. Uden begge dele, sendes der intet.</li>
+<li><code>response_type</code>: <code>comment</code> sender svaret i tråden for den udløsende besked; ellers sendes det til kanalen.</li>
+<li><code>username</code>, <code>icon_url</code>: vises, når serveren tillader overrides; webhook'ens egne værdier bruges ellers.</li>
+<li><code>props</code>, <code>type</code>, <code>priority</code>: som for incoming webhooks.</li>
+</ul>
+<p>Svaret sendes som webhook'ens opretter, under det overstyrede navn, hvis der er ét. For alt længere end et hurtigt svar, svar straks og send senere med en incoming webhook eller API'et.</p>
+
+<h2 id="troubleshooting">Når en webhook ikke virker</h2>
+<ul>
+<li><b>501 fra hook URL</b>: incoming webhooks er slået fra på serveren.</li>
+<li><b>400 "Failed to decode the payload…"</b>: JSON er ugyldig, eller form-feltet hedder ikke <code>payload</code>. <b>"No text specified."</b> betyder, at anmodningen hverken har <code>text</code> eller <code>attachments</code>.</li>
+<li><b>403</b>: webhook'ens er låst til en anden kanal, eller dens ejer kan ikke længere læse kanalen.</li>
+<li><b>En outgoing webhook udløses aldrig</b>: kanalen er privat, udløseren er ikke det første ord, eller beskeden kom fra en webhook.</li>
+<li><b>Logs</b>: med <b>Aktivér webhook-fejlafsløring</b> slået til (<code>LogSettings.EnableWebhookDebugging</code>) og logniveauet sat til <code>DEBUG</code>, logger serveren payloads for mislykkede indgående anmodninger. Mislykkede udgående opkald logges som <code>Outgoing Webhook POST failed</code>.</li>
+</ul>

@@ -1,0 +1,161 @@
+title: Domain, HTTPS, dan reverse proxy
+description: Sajikan Antimatter di domain Anda sendiri melalui HTTPS, menggunakan profil Caddy bawaan atau reverse proxy nginx Anda sendiri, dan atur alamat situs serta alamat klien dengan benar.
+guide: admins
+order: 4
+nav: Domain dan HTTPS
+lead: Pasang Antimatter di nama domain dengan HTTPS, menggunakan profil Caddy dari file compose atau reverse proxy Anda sendiri, dan pastikan alamat situs serta alamat klien diatur dengan benar.
+source: 69e8779d356e
+---
+<h2 id="site-url">Alamat situs</h2>
+<p>Alamat situs (<code>ServiceSettings.SiteURL</code>) adalah alamat yang digunakan orang untuk mengakses Antimatter, seperti <code>https://chat.example.com</code>. Server menggunakannya dalam tautan di email dan notifikasi, dalam pengalihan masuk (OAuth, OpenID Connect, SAML), untuk aplikasi seluler dan desktop, serta untuk memeriksa asal permintaan. Atur persis seperti alamat di bilah alamat browser: skema, domain, dan port jika bukan port bawaan, tanpa garis miring di akhir.</p>
+<ul>
+<li>Dengan file compose situs: <code>SITE_URL</code> di <code>.env</code>.</li>
+<li>Di tempat lain: <code>AM_SERVICESETTINGS_SITEURL</code>, atau <b>Konsol Sistem › Lingkungan › Server Web › URL Situs</b>.</li>
+</ul>
+<p>Jika alamat situs salah, masuk dengan penyedia identitas akan gagal, tautan di email mengarah ke tempat yang salah, dan aplikasi mungkin tidak dapat terhubung. Setelah mengubah domain, perbarui di sini dan di URL pengalihan setiap penyedia identitas.</p>
+
+<h2 id="caddy">HTTPS dengan profil Caddy bawaan</h2>
+<p>File <code>compose.yaml</code> situs menyertakan layanan <a href="https://caddyserver.com">Caddy</a> dalam profil <code>https</code>. Caddy mendapatkan sertifikat dari Let's Encrypt, memperbaruinya secara otomatis, mengalihkan HTTP ke HTTPS, dan meneruskan semuanya, termasuk websocket, ke Antimatter.</p>
+<ol>
+<li>Arahkan catatan DNS (A, dan AAAA untuk IPv6) domain Anda ke server.</li>
+<li>Buka port 80/tcp, 443/tcp, dan 443/udp (HTTP/3) di firewall. Let's Encrypt harus dapat mengakses port 80 atau 443 dari Internet.</li>
+<li>Tambahkan domain ke <code>.env</code> dan atur alamat situs:
+<pre><code>echo "DOMAIN=chat.example.com" &gt;&gt; .env
+sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env</code></pre></li>
+<li>Mulai dengan profil:
+<pre><code>docker compose --profile https up -d</code></pre></li>
+</ol>
+<p>Tambahkan <code>--profile https</code> ke setiap <code>docker compose up</code> berikutnya, atau letakkan <code>COMPOSE_PROFILES=https</code> di <code>.env</code> agar <code>docker compose up -d</code> biasa menyertakannya. Caddy menyimpan sertifikatnya di volume <code>https</code>.</p>
+<p>Port Antimatter sendiri tetap dipublikasikan di host (<code>HTTP_PORT</code>, 8065 secara bawaan). Dengan Caddy di depan, biarkan port ini hanya untuk server itu sendiri:</p>
+<pre><code>echo "HTTP_PORT=127.0.0.1:8065" &gt;&gt; .env
+docker compose --profile https up -d</code></pre>
+<p>Caddy mengakses Antimatter melalui jaringan internal <code>edge</code>, bukan melalui port tersebut, sehingga ini tidak mengubah apa pun bagi pengguna Anda.</p>
+
+<h2 id="nginx">Dengan reverse proxy Anda sendiri (nginx)</h2>
+<p>Jika server sudah menjalankan nginx atau proxy lain, nonaktifkan profil <code>https</code> dan arahkan proxy ke port 8065 Antimatter. Proxy harus:</p>
+<ul>
+<li>melewati peningkatan websocket (aplikasi web dan aplikasi seluler mempertahankan koneksi websocket yang terbuka di <code>/api/v4/websocket</code>, dan beberapa aplikasi membuka koneksinya sendiri);</li>
+<li>menerima isi permintaan (request body) setidaknya sebesar unggahan terbesar (<b>Ukuran File Maksimum</b>, 100 MB secara bawaan);</li>
+<li>mempertahankan koneksi jangka panjang (websocket, unggahan dan unduhan besar);</li>
+<li>melewati header <code>Host</code> dan alamat klien.</li>
+</ul>
+<p>Blok server lengkap, diadaptasi dari template produksi di antimatter-docker. Ganti domain dan jalur sertifikat:</p>
+<pre><code>upstream antimatter {
+    server 127.0.0.1:8065;
+    keepalive 64;
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+proxy_cache_path /var/cache/nginx/antimatter levels=1:2 keys_zone=antimatter_cache:10m
+                 max_size=3g inactive=120m use_temp_path=off;
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name chat.example.com;
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name chat.example.com;
+
+    ssl_certificate     /etc/ssl/chat.example.com/fullchain.pem;
+    ssl_certificate_key /etc/ssl/chat.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:AntimatterSSL:10m;
+    ssl_session_tickets off;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # At least FileSettings.MaxFileSize (100 MB by default).
+    client_max_body_size 100M;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade           $http_upgrade;
+    proxy_set_header Connection        $connection_upgrade;
+    proxy_buffers 256 16k;
+    proxy_buffer_size 16k;
+
+    location ~ ^/api/v[0-9]+/(users/)?websocket$ {
+        client_body_timeout 60s;
+        send_timeout 300s;
+        lingering_timeout 5s;
+        proxy_connect_timeout 90s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 90s;
+        proxy_pass http://antimatter;
+    }
+
+    location / {
+        proxy_read_timeout 600s;
+        proxy_cache antimatter_cache;
+        proxy_cache_revalidate on;
+        proxy_cache_min_uses 2;
+        proxy_cache_use_stale timeout;
+        proxy_cache_lock on;
+        proxy_pass http://antimatter;
+    }
+}</code></pre>
+<p>Periksa file dengan <code>nginx -t</code> dan terapkan dengan <code>systemctl reload nginx</code>. Server mengirim <code>X-Content-Type-Options</code>, <code>Referrer-Policy</code>, <code>Permissions-Policy</code>, dan <code>X-Frame-Options</code> sendiri; hanya HSTS yang menjadi tanggung jawab proxy. Naikkan <code>max-age</code> setelah HTTPS berfungsi, dan tambahkan <code>includeSubDomains</code> hanya jika semua subdomain menggunakan HTTPS.</p>
+<p>Dengan Docker Compose dan nginx di host, <code>upstream</code> di atas menunjuk ke port 8065 yang dipublikasikan. Publikasikan hanya di <code>127.0.0.1</code> (<code>HTTP_PORT=127.0.0.1:8065</code>), sehingga tidak ada yang dapat melewati proxy.</p>
+<p>Repositori antimatter-docker memiliki pengaturan lengkap dengan nginx dalam kontainer dan Let's Encrypt melalui certbot, di <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">deploy/compose</a>.</p>
+
+<h3>Proxy lainnya</h3>
+<p>Proxy apa pun dapat digunakan jika memenuhi empat poin di atas. Audio dan video panggilan tidak pernah melewati proxy: mereka menggunakan port mereka sendiri, lihat <a href="{{root}}docs/admins/calls.html">Panggilan dan suara</a>.</p>
+
+<h2 id="client-address">Alamat klien di belakang proxy</h2>
+<p>Di belakang proxy, setiap permintaan tampaknya berasal dari proxy. Untuk mencatat alamat klien yang sebenarnya, terapkan batas laju per klien dan gunakan penyaringan IP, beri tahu server header mana yang membawa alamat, dan proxy mana yang dapat dipercaya. Tidak ada pengaturan Konsol Sistem untuk keduanya: atur di <code>config.json</code> atau dengan variabel.</p>
+<table>
+<thead><tr><th>Kunci dan variabel</th><th>Bawaan</th><th>Fungsinya</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.TrustedProxyIPHeader</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER</code></td><td>kosong: server menggunakan alamat koneksi</td><td>Header yang membawa alamat klien, misalnya <code>X-Forwarded-For</code>. Yang pertama hadir dalam permintaan akan digunakan.</td></tr>
+<tr><td><code>ServiceSettings.TrustedProxyIPs</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code></td><td>kosong</td><td>Alamat atau rentang CIDR proxy Anda, misalnya <code>172.29.71.0/28</code>. Header hanya dihitung untuk permintaan yang berasal dari salah satu dari mereka.</td></tr>
+</tbody>
+</table>
+<p>Di variabel, pisahkan beberapa nilai dengan spasi: <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>. Server menolak konfigurasi yang memiliki entri di <code>TrustedProxyIPs</code> yang bukan alamat IP maupun rentang CIDR.</p>
+<h3>Cara server menemukan alamat klien</h3>
+<p>Setiap proxy menambahkan alamat tempatnya menerima permintaan ke sisi kanan <code>X-Forwarded-For</code>. Apa pun yang dikirim klien di header itu sendiri tetap berada di sisi kiri. Jadi, server membaca header dari kanan, melewati alamat proxy yang Anda percaya, dan mengambil alamat lain pertama sebagai alamat klien. Klien tidak dapat memilih alamatnya dengan mengirim header miliknya sendiri.</p>
+<ul>
+<li>Di belakang satu proxy, <code>TrustedProxyIPHeader</code> saja sudah memberikan alamat yang benar: server mengambil alamat paling kanan dari header. Server mencatat peringatan saat startup sampai Anda juga mengatur <code>TrustedProxyIPs</code>. Tanpanya, siapa pun yang mencapai port 8065 secara langsung dapat mengatur header, jadi publikasikan port tersebut hanya di <code>127.0.0.1</code> atau di jaringan privat.</li>
+<li>Di belakang beberapa proxy, misalnya CDN atau load balancer di depan proxy Anda sendiri, cantumkan semuanya di <code>TrustedProxyIPs</code>. Jika tidak, server akan mengambil alamat proxy terluar sebagai alamat klien.</li>
+<li>Proxy dapat mengganti header dengan alamat yang dilihatnya, seperti contoh nginx di atas (<code>X-Forwarded-For $remote_addr</code>), atau menambahkannya (nginx's <code>$proxy_add_x_forwarded_for</code>). Keduanya berfungsi.</li>
+</ul>
+<h3>Alamat mana yang harus dicantumkan</h3>
+<p>Cantumkan alamat tempat permintaan proxy berasal, sebagaimana dilihat oleh Antimatter.</p>
+<ul>
+<li>Dengan file compose situs dan Caddy, ini sudah dilakukan: Caddy mencapai Antimatter melalui jaringan <code>edge</code>, dan file compose mengatur <code>TrustedProxyIPHeader</code> ke <code>X-Forwarded-For</code> dan <code>TrustedProxyIPs</code> ke rentang jaringan tersebut, <code>EDGE_SUBNET</code> (<code>172.29.71.0/28</code> kecuali Anda mengubahnya di <code>.env</code>). Ubah <code>EDGE_SUBNET</code> jika tumpang tindih dengan salah satu jaringan Anda.</li>
+<li>Konfigurasi produksi di antimatter-docker melakukan hal yang sama untuk kontainer nginx-nya, dengan <code>FRONTEND_SUBNET</code>.</li>
+<li>Dengan nginx di host dan Antimatter di Docker, permintaan mencapai Antimatter melalui port yang dipublikasikan, biasanya dari alamat gateway jaringan proyek compose (<code>docker network inspect</code> menampilkannya). Atur <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code> ke alamat tersebut di <code>compose.override.yaml</code>.</li>
+<li>Tanpa Docker, dengan nginx di host yang sama, gunakan <code>127.0.0.1</code> (dan <code>::1</code> jika nginx terhubung melalui IPv6).</li>
+</ul>
+
+<h2 id="builtin-tls">TLS tanpa proxy</h2>
+<p>Server juga dapat menyajikan HTTPS sendiri, di <b>Konsol Sistem › Lingkungan › Server Web</b>: <b>Keamanan Koneksi</b> diatur ke TLS (<code>ServiceSettings.ConnectionSecurity</code>), dengan <b>Berkas Sertifikat TLS</b> dan <b>Berkas Kunci TLS</b> (<code>ServiceSettings.TLSCertFile</code>, <code>ServiceSettings.TLSKeyFile</code>), atau <b>Gunakan Let's Encrypt</b> (<code>ServiceSettings.UseLetsEncrypt</code>). Server kemudian harus mendengarkan pada port 443 (<b>Alamat Dengar</b>, <code>ServiceSettings.ListenAddress</code>, <code>:8065</code> secara bawaan), dan <code>ServiceSettings.Forward80To443</code> mengalihkan port 80. Proxy terbalik lebih mudah dijalankan dan diperbarui, dan itulah yang diasumsikan oleh panduan ini.</p>
+
+<h2 id="timeouts">Waktu habis (timeout) server dan ukuran permintaan</h2>
+<p>Pengaturan server web milik server itu sendiri, di <b>Konsol Sistem › Lingkungan › Server Web</b>:</p>
+<table>
+<thead><tr><th>Pengaturan</th><th>Kunci</th><th>Bawaan</th></tr></thead>
+<tbody>
+<tr><td><b>Alamat Dengar</b></td><td><code>ServiceSettings.ListenAddress</code></td><td><code>:8065</code></td></tr>
+<tr><td><b>Batas Waktu Baca</b></td><td><code>ServiceSettings.ReadTimeout</code></td><td>300 detik</td></tr>
+<tr><td><b>Waktu Habis Tulis</b></td><td><code>ServiceSettings.WriteTimeout</code></td><td>300 detik</td></tr>
+<tr><td>Waktu habis saat tidak aktif (tidak ada bidang di Konsol Sistem)</td><td><code>ServiceSettings.IdleTimeout</code></td><td>60 detik</td></tr>
+<tr><td><b>Ukuran Muatan Maksimal (Bita)</b></td><td><code>ServiceSettings.MaximumPayloadSizeBytes</code></td><td>lihat <a href="{{root}}docs/admins/security.html">Keamanan</a></td></tr>
+</tbody>
+</table>
+<p>Jaga agar batas waktu proxy itu sendiri setidaknya sama panjang dengan nilai-nilai ini untuk permintaan normal, dan ukuran bodinya setidaknya <b>Ukuran File Maksimum</b>.</p>

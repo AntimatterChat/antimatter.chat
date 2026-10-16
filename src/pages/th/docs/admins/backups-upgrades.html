@@ -1,0 +1,105 @@
+title: การสำรองข้อมูลและการอัปเกรด
+description: สำรองและกู้คืนเซิร์ฟเวอร์ Antimatter (ฐานข้อมูล, ที่เก็บไฟล์, การตั้งค่า), อัปเกรดอย่างปลอดภัย, ย้ายเซิร์ฟเวอร์ Mattermost ไปยัง Antimatter และส่งออกหรือนำเข้าข้อมูล
+guide: admins
+order: 10
+nav: การสำรองข้อมูลและการอัปเกรด
+lead: สิ่งที่ต้องสำรอง, วิธีกู้คืนบนโฮสต์ใหม่, วิธีอัปเกรด และวิธีย้ายเซิร์ฟเวอร์ Mattermost หรือชุมชนเดียวไปยัง Antimatter
+source: b0797af8b6e7
+---
+<h2 id="what">สิ่งที่ต้องสำรอง</h2>
+<table>
+<thead><tr><th>รายการ</th><th>ด้วยไฟล์ compose ของไซต์</th><th>ด้วยอาร์ไคฟ์เวอร์ชัน</th></tr></thead>
+<tbody>
+<tr><td>ฐานข้อมูล: ข้อความ, ผู้ใช้, ชุมชน, ช่อง และ (เมื่อใช้ไฟล์ compose ของไซต์) การตั้งค่า</td><td>โวลุ่ม <code>antimatter_postgres</code> ผ่าน <code>pg_dump</code></td><td>ฐานข้อมูล PostgreSQL ของคุณ</td></tr>
+<tr><td>ไฟล์ที่อัปโหลด, รูปภาพ และแอปที่ติดตั้ง</td><td>โวลุ่ม <code>antimatter_files</code> (ที่เก็บข้อมูล S3)</td><td><code>FileSettings.Directory</code>, ค่าเริ่มต้นคือ <code>./data/</code></td></tr>
+<tr><td>ไฟล์การตั้งค่า</td><td>(ในฐานข้อมูล)</td><td><code>config/config.json</code></td></tr>
+<tr><td>GIF และสติ๊กเกอร์</td><td>โวลุ่ม <code>antimatter_gifs</code></td><td>ไดเรกทอรีข้อมูลของบริการ GIF</td></tr>
+<tr><td>ข้อมูลลับ (Secrets)</td><td><code>.env</code> (และ <code>compose.override.yaml</code>)</td><td>ไฟล์ environment ของคุณ</td></tr>
+</tbody>
+</table>
+<p>ฐานข้อมูลและไฟล์ต้องไปด้วยกัน: สำรองพร้อมกัน และเก็บสำเนาไว้ภายนอกเซิร์ฟเวอร์ ชื่อโวลุ่มขึ้นต้นด้วยชื่อโปรเจกต์ compose, <code>antimatter</code> (ดูรายการด้วย <code>docker volume ls</code>)</p>
+
+<h2 id="backup">สำรองข้อมูล</h2>
+<p>จากไดเรกทอรีของ <code>compose.yaml</code> การหยุด Antimatter ก่อนจะให้สำเนาที่สอดคล้องกันสมบูรณ์; การสำรองขณะทำงานมักไม่เป็นไร แต่ไฟล์ที่อัปโหลดระหว่างสำรองอาจขาดหาย</p>
+<pre><code>stamp=$(date +%Y%m%d-%H%M%S)
+mkdir -p backups
+docker compose stop antimatter
+# Database
+docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
+    &gt; "backups/antimatter-db-$stamp.dump"
+# File storage and GIF service
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
+        alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
+done
+docker compose start antimatter
+# Secrets
+cp .env "backups/env-$stamp"</code></pre>
+<p>รันผ่าน cron เพื่อสำรองรายวัน และคัดลอกไดเรกทอรี <code>backups/</code> ไปยังเครื่องอื่น เก็บสำเนาของ <code>.env</code> ให้ปลอดภัยเท่าเซิร์ฟเวอร์: เพราะมีรหัสผ่านอยู่ในนั้น</p>
+<p>หากต้องการคัดลอกไฟล์ที่อัปโหลดเป็นรายอ็อบเจกต์ (เช่น ไปยังที่เก็บ S3 อื่น) ใช้เครื่องมือ command-line ของ AWS ของบริการ <code>bucket</code>:</p>
+<pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
+    "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
+<p>เมื่อใช้อาร์ไคฟ์เวอร์ชัน ให้สำรองฐานข้อมูลด้วย <code>pg_dump -Fc</code> และไดเรกทอรี <code>data/</code> และ <code>config/</code> ด้วยเครื่องมือปกติของคุณ</p>
+
+<h2 id="restore">กู้คืนบนโฮสต์ใหม่</h2>
+<p>วาง <code>compose.yaml</code>, <code>.env</code> ที่บันทึกไว้ และไฟล์สำรองในไดเรกทอรีใหม่ จากนั้น:</p>
+<pre><code>stamp=20261016-030000          # the backup to restore
+docker compose create           # creates the volumes, starts nothing
+docker compose up -d postgres
+docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
+    &lt; "backups/antimatter-db-$stamp.dump"
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
+        alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
+done
+docker compose up -d</code></pre>
+<p>ใช้ <code>.env</code> เดิม: ที่เก็บข้อมูลและฐานข้อมูลต้องรักษารหัสผ่านเดิมไว้ หากโฮสต์ใหม่มีที่อยู่ต่างไป ให้ปรับปรุง <code>SITE_URL</code> (และ <code>DOMAIN</code>)</p>
+<p>ทดสอบการสำรองข้อมูลของคุณโดยกู้คืนบนเครื่องอื่นเป็นครั้งคราว</p>
+
+<h2 id="upgrade">อัปเกรด</h2>
+<ol>
+<li>สำรองข้อมูล</li>
+<li>เปลี่ยนแท็กของ image ใน <code>.env</code> (<code>ANTIMATTER_IMAGE</code>) หากคุณตรึงเวอร์ชันไว้ ตามคำแนะนำ</li>
+<li>ดึงและรีสตาร์ท:
+<pre><code>docker compose pull
+docker compose up -d
+docker compose logs -f antimatter</code></pre></li>
+</ol>
+<p>เมื่อกับเครื่อง เซิร์ฟเวอร์จะอัปเกรดโครงสร้างฐานข้อมูล (ติดตามความคืบหน้าในบันทึก; เซิร์ฟเวอร์ขนาดใหญ่อาจใช้เวลาหลายนาที) และติดตั้งเวอร์ชันใหม่กว่าของแอปที่รวมอยู่ในอิมเมจ สำหรับอาร์ไคฟ์การปล่อยเวอร์ชัน: หยุดเซิร์ฟเวอร์ แทนที่ทุกอย่างยกเว้น <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> และ <code>client/plugins/</code> ด้วยเนื้อหาจากอาร์ไคฟ์ใหม่ แล้วเริ่มเซิร์ฟเวอร์อีกครั้ง</p>
+<div class="callout warn">การอัปเกรดทำได้เฉพาะไปข้างหน้าเท่านั้น เมื่อเซิร์ฟเวอร์เวอร์ชันใหม่กว่าอัปเกรดฐานข้อมูลแล้ว เวอร์ชันเก่าจะไม่สามารถใช้งานฐานข้อมูลนั้นได้: หากต้องการย้อนกลับ ให้กู้คืนแบ็กอัพที่สร้างไว้ก่อนการอัปเกรด ข้อนี้ใช้กับการย้ายจาก <code>antimatter-next</code> กลับไป <code>antimatter</code> เช่นกัน</div>
+<h3>เวอร์ชัน</h3>
+<p>เซิร์ฟเวอร์ของ Antimatter รายงานเวอร์ชันของสาย Mattermost ที่ใช้เป็นฐาน (ปัจจุบันคือ 12.0.0) อิมเมจจะสร้างใหม่จากสาขา <code>main</code>: <code>antimatter-next</code> ทุกคืน (แท็ก <code>nightly-&lt;YYYYMMDD&gt;</code>) และอิมเมจทั้งสองเมื่อมีการเปลี่ยนแปลง (แท็ก <code>sha-&lt;commit&gt;</code>) กำหนดให้ใช้แท็กใดแท็กหนึ่ง อัปเกรดอย่างมีเจตนา และจดบันทึกแท็กเวอร์ชันก่อนหน้าไว้เพื่อทราบว่าจะใช้แบ็กอัพตัวใด</p>
+<h3>เวอร์ชันหลักของ PostgreSQL</h3>
+<p>ไฟล์ compose ใช้ <code>postgres:17-alpine</code> Antimatter ต้องการ PostgreSQL 15 หรือใหม่กว่า เวอร์ชันหลักใหม่ของ PostgreSQL ไม่สามารถอ่านไดเรกทอรีข้อมูลของเวอร์ชันก่อนหน้าได้: หากต้องการย้ายไปเวอร์ชันใหม่ ให้ทำ dump ฐานข้อมูล เริ่มเวอร์ชันใหม่บนโวลุ่มใหม่ และกู้คืน dump เข้าไป</p>
+
+<h2 id="mattermost">การย้ายจาก Mattermost</h2>
+<p>Antimatter ใช้โครงสร้างฐานข้อมูลของ Mattermost และเพิ่มตารางของตัวเอง จึงสามารถรับช่วงต่อฐานข้อมูล PostgreSQL และไฟล์ของเซิร์ฟเวอร์ Mattermost ได้ ลองทำกับสำเนาข้อมูลก่อน:</p>
+<ol>
+<li>สำรองข้อมูลฐานข้อมูล Mattermost, ที่เก็บไฟล์ (<code>data/</code> หรือ S3 bucket) และ <code>config.json</code> จากนั้นหยุด Mattermost</li>
+<li>กู้คืนฐานข้อมูลเข้าสู่ PostgreSQL ของ Antimatter หรือชี้ Antimatter ไปยังสำเนาของฐานข้อมูลนั้น (<code>AM_SQLSETTINGS_DATASOURCE</code>)</li>
+<li>คัดลอกไฟล์เข้าสู่ที่เก็บของ Antimatter โดยรักษาเส้นทางเดิม: ไปยัง S3 bucket ของ <code>antimatter</code> ด้วยเครื่องมือ S3 หรือไปยัง <code>data/</code> ด้วยอาร์ไคฟ์การปล่อยเวอร์ชัน</li>
+<li>นำการตั้งค่าของคุณกลับมาใช้: คัดลอก <code>config.json</code> หรือย้ายเข้าสู่ฐานข้อมูลด้วย <code>amctl --local config migrate</code> (ดู <a href="{{root}}docs/admins/configuration.html">การตั้งค่า</a>) ตัวแปรสภาพแวดล้อม <code>MM_</code> ของคุณยังคงทำงานได้; เปลี่ยนชื่อเป็น <code>AM_</code> เมื่อสะดวก</li>
+<li>เริ่ม Antimatter และติดตามบันทึก (log) ขณะอัปเกรดฐานข้อมูล จากนั้นตรวจสอบ <b>คอนโซลระบบ › ปลั๊กอิน › การจัดการปลั๊กอิน</b> Antimatter จะติดตั้งเวอร์ชันที่สร้างเองของ Calls, Playbooks, Kanban (Boards), Agents และอินทิเกรชันต่าง ๆ เมื่อเวอร์ชันเหล่านั้นใหม่กว่าเวอร์ชันที่ติดตั้งอยู่ หาก Mattermost มีเวอร์ชันที่ใหม่กว่าของแอปใดแอปหนึ่ง ให้ลบแอปนั้นออกแล้วรีสตาร์ท Antimatter เพื่อให้ติดตั้งเวอร์ชันที่สร้างเอง</li>
+<li>ตั้งค่าการแจ้งเตือนแบบพุชอีกครั้ง โดยใช้พร็อกซีพุชของคุณเอง: Antimatter จะไม่ส่งการแจ้งเตือนไปยังบริการพุชของ Mattermost ไม่ว่าจะเป็นเวอร์ชันทดสอบหรือโฮสต์ เพราะบริการเหล่านั้นส่งการแจ้งเตือนไปยังแอปของ Mattermost เท่านั้น จนกว่าคุณจะเปลี่ยน <b>เซิร์ฟเวอร์การแจ้งเตือนแบบพุช</b> เซิร์ฟเวอร์จะไม่ส่งการแจ้งเตือนแบบพุช (ดู <a href="{{root}}docs/admins/email-push.html#push">การแจ้งเตือนแบบพุช</a>)</li>
+</ol>
+<p>Antimatter ไม่ติดต่อใช้บริการใด ๆ ที่ดำเนินการโดย Mattermost, Inc. (ดู <a href="{{root}}docs/admins/security.html#outbound">การเชื่อมต่อไปยังบริการภายนอก</a>) แม้การตั้งค่าของคุณจะยังระบุไว้ก็ตาม:</p>
+<ul>
+<li>เซิร์ฟเวอร์การแจ้งเตือนแบบ push ของ Mattermost ยังคงถูกเก็บไว้ในตั้งค่า แต่จะไม่ถูกใช้งาน;</li>
+<li>ล้างที่อยู่ของ Marketplace สำหรับแอป (<b>URL ของ Marketplace</b>) และที่อยู่สำหรับประกาศผลิตภัณฑ์ของ Mattermost;</li>
+<li>แอป Calls ใช้เซิร์ฟเวอร์ STUN สาธารณะของ Cloudflare แทนที่จะใช้ของ Mattermost โดยไม่มีการเปลี่ยนแปลงค่าที่ตั้งไว้ (ดู <a href="{{root}}docs/admins/calls.html#network">การโทร</a>);</li>
+<li>การตรวจสอบการอัปเดตด้านความปลอดภัยและการรายงานข้อผิดพลาดถูกลบออก รวมถึงการตั้งค่าในคอนโซลระบบ (<b>เปิดการแจ้งเตือนด้านความปลอดภัย</b>, <b>เปิดการรายงานข้อมูลวินิจฉัยและข้อผิดพลาด</b>) และหน้า <b>ประกาศ</b></li>
+</ul>
+<p>ซ็อกเก็ตสำหรับโหมดท้องถิ่นตอนนี้คือ <code>/var/tmp/antimatter_local.socket</code>; <code>amctl</code> จะลองใช้ <code>/var/tmp/mattermost_local.socket</code> เดิมด้วย Mattermost รองรับเฉพาะ PostgreSQL ในเวอร์ชันล่าสุด และ Antimatter ก็เช่นกัน: ย้ายฐานข้อมูล MySQL ไปยัง PostgreSQL ก่อน หากต้องการกลับไปใช้ Mattermost หลังจาก Antimatter อัปเกรดฐานข้อมูลแล้ว คุณต้องกู้คืนข้อมูลสำรอง (backup) ของ Mattermost ของคุณ</p>
+
+<h2 id="export-import">ส่งออกและนำเข้าข้อมูล</h2>
+<p>รูปแบบการส่งออกข้อมูลจำนวนมาก (bulk export) ช่วยย้ายข้อมูลระหว่างเซิร์ฟเวอร์: ทั้งเซิร์ฟเวอร์, ชุมชนบางส่วน หรือช่องบางส่วน พร้อมไฟล์แนบ รูปภาพโปรไฟล์ และอิโมจิกำหนดเอง หากคุณต้องการ</p>
+<pre><code># on the source server
+amctl export create --team-name design --include-profile-pictures
+amctl export list
+amctl export download &lt;export file&gt; design.zip
+# on the destination server
+amctl import upload design.zip
+amctl import list available
+amctl import process &lt;uploaded file&gt; --imported-users active</code></pre>
+<p>ดูสถานะของงานด้วย <code>amctl export job list</code> และ <code>amctl import job list</code> สำหรับงานส่งออกชุมชนหรือช่อง จำเป็นต้องใช้ <code>--imported-users</code>: ใช้ <code>active</code> เมื่อผู้ใช้ย้ายมาที่เซิร์ฟเวอร์นี้ และ <code>inactive</code> เมื่อนำเข้าข้อมูลไปยังเซิร์ฟเวอร์ที่ผู้ใช้เหล่านั้นมีบัญชีอยู่แล้ว เพื่อให้บัญชีที่สร้างขึ้นจากการจับคู่ที่ไม่ชัดเจนยังคงถูกปิดอยู่จนกว่าผู้ดูแลระบบจะตรวจสอบ <code>--destination-team-name</code> ใช้สำหรับนำเข้าข้อมูลไปยังชุมชนที่มีอยู่แล้ว การส่งออกและนำเข้าข้อมูลจะถูกเก็บไว้ในพื้นที่จัดเก็บของเซิร์ฟเวอร์ (<code>ExportSettings.Directory</code>, <code>ImportSettings.Directory</code>) เป็นเวลา 30 วันโดยค่าเริ่มต้น</p>
+<p>บนเซิร์ฟเวอร์เอง คำสั่ง <code>antimatter export bulk</code> และ <code>antimatter import bulk --apply</code> ทำหน้าที่เดียวกันจากไฟล์ โดยไม่ต้องใช้ API</p>

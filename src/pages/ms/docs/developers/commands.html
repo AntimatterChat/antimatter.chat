@@ -1,0 +1,122 @@
+title: Arahan garis miring
+description: Arahan garis miring tersuai dalam Antimatter: cara mencipta, permintaan yang diterima oleh perkhidmatan anda, format respons, jawapan sementara dan dalam saluran, jawapan berkelewangan dan auto-isi.
+guide: developers
+order: 4
+nav: Arahan garis miring
+lead: Arahan garis miring tersuai membolehkan pengguna menaip /sesuatu dalam kotak mesej untuk memanggil perkhidmatan anda. Antimatter menghantar arahan tersebut ke URL anda dan memaparkan jawapan anda, sama ada kepada pengguna tersebut sahaja atau kepada seluruh saluran.
+source: 24dbc9730e62
+---
+<h2 id="how">Cara arahan garis miring berfungsi</h2>
+<ol>
+<li>Seseorang menaip <code>/weather Paris</code> dan menghantarnya. Teks tersebut tidak diposkan.</li>
+<li>Antimatter menghantar permintaan HTTP ke URL arahan, bersama maklumat tentang siapa yang menaipnya, di mana, dan teks selepas pemicu.</li>
+<li>Perkhidmatan anda menjawab dalam masa had permintaan (30 saat secara lalai) dengan satu mesej.</li>
+<li>Antimatter memaparkan jawapan: hanya kepada pengguna tersebut (sementara) atau dalam saluran untuk semua orang.</li>
+</ol>
+<p>Arahan tergolong dalam komuniti, dan perkataan pemicu adalah unik dalam komuniti tersebut. Arahan terbina dalam seperti <code>/join</code>, <code>/msg</code> atau <code>/away</code> tidak boleh digantikan. Aplikasi (pelengkap) juga boleh mendaftarkan arahan; lihat <a href="{{root}}docs/developers/apps.html#server">Bahagian pelayan</a>.</p>
+
+<h2 id="create">Cipta arahan</h2>
+<p>Arahan garis miring custom adalah diaktifkan secara lalai (<b>Benarkan Arahan Garis Miling Custom</b> dalam <b>Konsol Sistem › Integrasi › Pengurusan Integrasi</b>, <code>ServiceSettings.EnableCommands</code>). Pentadbir komuniti dan pentadbir sistem boleh mencipta arahan ini secara lalai.</p>
+<ol>
+<li>Buka avatar anda di bahagian kanan atas, kemudian <b>Integrasi › Arahan Garis Miling</b>, kemudian <b>Tambah Arahan Garis Miling</b>.</li>
+<li>Isi <b>Tajuk</b> dan <b>Penerangan</b> (ditunjukkan pada halaman integrasi).</li>
+<li>Masukkan <b>Perkataan Pencetus Arahan</b>, tanpa garis miring dan tanpa ruang, sebagai contoh <code>weather</code>.</li>
+<li>Masukkan <b>URL Permintaan</b> dan pilih <b>Kaedah Permintaan</b>: <b>POST</b> (lalai) atau <b>GET</b>.</li>
+<li>Secara pilihan, tetapkan <b>Nama Pengguna Respons</b> dan <b>Ikon Respons</b>. Ia hanya digunakan apabila pelayan membenarkan integrasi untuk menimpa nama dan ikon (lihat <a href="{{root}}docs/developers/webhooks.html#identity">Nama dan ikon</a>).</li>
+<li>Tanda <b>Lengkapkan Secara Automatik</b> untuk senaraikan arahan apabila pengguna menaip <code>/</code>, dengan <b>Petunjuk Autocomplete</b> (argumennya, seperti <code>[city]</code>) dan <b>Penerangan Autocomplete</b>.</li>
+<li>Pilih <b>Simpan</b>, dan salin token yang dipaparkan. Perkhidmatan anda menggunakannya untuk mengesahkan bahawa permintaan datang dari pelayan anda.</li>
+</ol>
+<p>Dengan API: <code>POST /api/v4/commands</code> dengan <code>{"team_id", "trigger", "url", "method": "P", "display_name", "description", "auto_complete": true, "auto_complete_hint", "auto_complete_desc", "username", "icon_url"}</code>. Kaedah ialah <code>P</code> untuk POST atau <code>G</code> untuk GET. <code>PUT /api/v4/commands/{command_id}/regen_token</code> mengeluarkan token baharu.</p>
+
+<h2 id="request">Permintaan yang diterima perkhidmatan anda</h2>
+<p>Arahan POST menghantar badan yang dikodkan sebagai borang (<code>application/x-www-form-urlencoded</code>); arahan GET menghantar medan yang sama dalam strung kueri. Token juga terdapat dalam pengepala <code>Authorization: Token &lt;token&gt;</code>.</p>
+<table>
+<thead><tr><th>Medan</th><th>Nilai</th></tr></thead>
+<tbody>
+<tr><td><code>token</code></td><td>Token arahan. Semak ia pada setiap permintaan.</td></tr>
+<tr><td><code>command</code></td><td>Pemicu dengan garis miringnya, contohnya <code>/weather</code>.</td></tr>
+<tr><td><code>text</code></td><td>Semua teks selepas pemicu, contohnya <code>Paris</code>.</td></tr>
+<tr><td><code>user_id</code>, <code>user_name</code></td><td>Siapa yang menjalankannya.</td></tr>
+<tr><td><code>channel_id</code>, <code>channel_name</code></td><td>Di mana ia dijalankan.</td></tr>
+<tr><td><code>team_id</code>, <code>team_domain</code></td><td>ID dan nama URL komuniti.</td></tr>
+<tr><td><code>root_id</code></td><td>Bebenang, jika ia dijalankan dalam kotak balas bebenang.</td></tr>
+<tr><td><code>trigger_id</code></td><td>Membolehkan jawapan anda membuka dialog (lihat <a href="{{root}}docs/developers/bots.html#dialogs">Dialog</a>). Ia sah untuk tempoh masa yang singkat sahaja.</td></tr>
+<tr><td><code>response_url</code></td><td>URL untuk menghantar lebih banyak jawapan kemudian (lihat <a href="#delayed">Jawapan tertangguh</a>).</td></tr>
+<tr><td><code>user_mentions</code>, <code>user_mentions_ids</code>, <code>channel_mentions</code>, <code>channel_mentions_ids</code></td><td>Orang dan saluran awam yang disebut dalam teks, jika ada.</td></tr>
+</tbody>
+</table>
+<div class="callout"><b>URL Laman</b> pelayan mesti ditetapkan untuk arahan khusus berfungsi: Antimatter membina <code>response_url</code> daripadanya.</div>
+
+<h2 id="response">Respons</h2>
+<p>Jawab <code>200</code> dengan JSON (<code>Content-Type: application/json</code>):</p>
+<pre><code>{
+  "response_type": "in_channel",
+  "text": "Paris: 18 °C, light rain",
+  "attachments": []
+}</code></pre>
+<table>
+<thead><tr><th>Medan</th><th>Maksud</th></tr></thead>
+<tbody>
+<tr><td><code>response_type</code></td><td><code>ephemeral</code> (lalai): hanya orang yang menjalankan arahan melihat jawapan, dan ia tidak disimpan selepas dimuat semula. <code>in_channel</code>: jawapan diposkan dalam saluran.</td></tr>
+<tr><td><code>text</code>, <code>attachments</code></td><td>Mesej, seperti untuk webhook: teks Markdown dan <a href="{{root}}docs/developers/webhooks.html#attachments">lampiran</a>, termasuk butang dan menu.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code></td><td>Nama dan gambar untuk dipaparkan, jika penggantian dibenarkan. Tetapan arahan itu sendiri menang ke atas ini.</td></tr>
+<tr><td><code>channel_id</code></td><td>Poskan jawapan dalam saluran lain, yang orang tersebut mesti menjadi ahlinya.</td></tr>
+<tr><td><code>goto_location</code></td><td>URL untuk dibuka setelah arahan dijalankan.</td></tr>
+<tr><td><code>props</code>, <code>type</code></td><td>Sifat tambahan dan jenis pos khusus, seperti untuk webhook.</td></tr>
+<tr><td><code>extra_responses</code></td><td>Jawapan tambahan, setiap satu dengan medan yang sama, diposkan setelah yang pertama.</td></tr>
+<tr><td><code>skip_slack_parsing</code></td><td><code>true</code> mengekalkan teks seperti apa adanya, tanpa menukar pautan dan sebutan gaya Slack.</td></tr>
+</tbody>
+</table>
+<p>Respons yang bukan JSON dipaparkan sebagai mesej sementara dengan badan sebagai teksnya. <code>204 No Content</code> tidak memaparkan apa-apa. Status apa pun di luar 200–299 memaparkan ralat kepada pengguna.</p>
+
+<h2 id="example">Perkhidmatan contoh</h2>
+<p>Perkhidmatan arahan minimum dalam Python, dengan hanya pustaka piawai:</p>
+<pre><code>import hmac
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
+
+TOKEN = "the token shown when you saved the command"
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        form = {key: values[0] for key, values in parse_qs(body).items()}
+        if not hmac.compare_digest(form.get("token", ""), TOKEN):
+            self.send_response(401)
+            self.end_headers()
+            return
+        answer = {
+            "response_type": "ephemeral",
+            "text": f"Hello @{form['user_name']}, you asked for: {form.get('text', '')}",
+        }
+        data = json.dumps(answer).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(data)
+
+HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()</code></pre>
+<p>Jika perkhidmatan berjalan pada alamat rangkaian peribadi, pentadbir sistem mesti membenarkannya dalam <b>Benarkan sambungan dalaman tidak dipercayai kepada</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>).</p>
+
+<h2 id="delayed">Jawapan lewat</h2>
+<p>Untuk kerja yang mengambil masa lebih lama daripada had masa, jawab serta-merta (contohnya dengan mesej sementara "Sedang diproses…"), kemudian hantar jawapan sebenar ke <code>response_url</code>. Ia menerima JSON yang sama seperti respons, dan berfungsi sehingga 5 kali dalam tempoh 30 minit selepas arahan.</p>
+<pre><code>curl -X POST "$RESPONSE_URL" -H 'Content-Type: application/json' \
+  -d '{"response_type": "in_channel", "text": "Report ready: https://reports.example.com/42"}'</code></pre>
+
+<h2 id="run">Jalankan arahan dengan API</h2>
+<p>Skrip dan bot boleh menjalankan sebarang arahan, terbina dalam atau tersuai, seolah-olah mereka telah menaipnya:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/commands/execute \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "command": "/weather Paris"}'</code></pre>
+<p><code>GET /api/v4/teams/{team_id}/commands/autocomplete</code> senaraikan arahan yang boleh disempurnakan secara automatik oleh pengguna dalam komuniti.</p>
+
+<h2 id="autocomplete">Penyempurnaan automatik</h2>
+<p>Arahan yang dicipta pada halaman integrasi disempurnakan secara automatik dengan pencetus, petua dan penerangannya. Arahan yang didaftarkan oleh aplikasi boleh menerangkan subarahan dan argumennya secara terperinci dengan <code>AutocompleteData</code>, daripada <code>model.NewAutocompleteData(trigger, hint, helpText)</code>:</p>
+<ul>
+<li><code>AddCommand(sub)</code> menambah subarahan, yang juga merupakan <code>AutocompleteData</code>.</li>
+<li><code>AddTextArgument(helpText, hint, pattern)</code> menambah teks bebas.</li>
+<li><code>AddStaticListArgument(helpText, required, items)</code> menawarkan senarai tetap <code>AutocompleteListItem{Item, Hint, HelpText}</code>.</li>
+<li><code>AddDynamicListArgument(helpText, url, required)</code> meminta aplikasi anda untuk cadangan semasa pengguna menaip. URL ialah laluan aplikasi anda, seperti <code>/plugins/com.example.weather/cities</code>. Ia menerima pengguna, saluran dan komuniti, dan mengembalikan senarai JSON <code>{"Item", "Hint", "HelpText"}</code>.</li>
+</ul>
+<p>Variasi <code>Named…</code> (<code>AddNamedTextArgument</code> dan lain-lain) menambah bendera <code>--name value</code>. Kedua-dua antara muka web memaparkan cadangan ini.</p>

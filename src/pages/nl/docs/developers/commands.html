@@ -1,0 +1,122 @@
+title: Slash-opdrachten
+description: Aangepaste slash-opdrachten in Antimatter: hoe u ze aanmaakt, de aanvraag die uw service ontvangt, het antwoordformaat, tijdelijke en in-kanaal antwoorden, vertraagde antwoorden en automatische aanvulling.
+guide: developers
+order: 4
+nav: Slash-opdrachten
+lead: Met een aangepaste slash-opdracht kunnen mensen /iets in het berichtvak typen om uw service aan te roepen. Antimatter stuurt de opdracht naar uw URL en toont uw antwoord, alleen voor die persoon of voor het hele kanaal.
+source: 24dbc9730e62
+---
+<h2 id="how">Hoe een slash-opdracht werkt</h2>
+<ol>
+<li>Iemand typt <code>/weather Paris</code> en stuurt het. De tekst wordt niet gepost.</li>
+<li>Antimatter stuurt een HTTP-aanvraag naar de URL van de opdracht, met wie hem heeft getypt, waar en de tekst na de trigger.</li>
+<li>Uw service antwoordt binnen de timeout van de aanvraag (standaard 30 seconden) met een bericht.</li>
+<li>Antimatter toont het antwoord: alleen voor die persoon (tijdelijk) of in het kanaal voor iedereen.</li>
+</ol>
+<p>Opdrachten horen bij een community, en een triggerwoord is uniek binnen die community. Ingebouwde opdrachten zoals <code>/join</code>, <code>/msg</code> of <code>/away</code> kunnen niet worden vervangen. Apps (plugins) kunnen ook opdrachten registreren; zie <a href="{{root}}docs/developers/apps.html#server">Het servergedeelte</a>.</p>
+
+<h2 id="create">Een opdracht aanmaken</h2>
+<p>Aangepaste slash-opdrachten zijn standaard ingeschakeld (<b>Inschakelen van Slash opdrachten</b> in <b>Systeem console › Integraties › Integratiebeheer</b>, <code>ServiceSettings.EnableCommands</code>). Gemeenschapsbeheerders en systeembeheerders kunnen ze standaard aanmaken.</p>
+<ol>
+<li>Klik rechtsboven op je avatar, ga daarna naar <b>Integraties › Slash opdrachten</b> en klik op <b>Slash opdracht toevoegen</b>.</li>
+<li>Vul de <b>Titel</b> en de <b>Omschrijving</b> in (getoond op de integratiepagina's).</li>
+<li>Voer het <b>Sleutelwoord voor opdracht</b> in, zonder de slash en zonder spaties, bijvoorbeeld <code>weather</code>.</li>
+<li>Voer de <b>Aanvraag-URL</b> in en kies de <b>Aanvraagmethode</b>: <b>POST</b> (standaard) of <b>GET</b>.</li>
+<li>Stel optioneel een <b>Gebruikersnaam voor de reactie</b> en een <b>Reactie-icoon</b> in. Deze worden alleen gebruikt wanneer de server integraties toelaat om namen en iconen te overschrijven (zie <a href="{{root}}docs/developers/webhooks.html#identity">Naam en icoon</a>).</li>
+<li>Vink <b>Automatisch aanvullen</b> aan om de opdracht weer te geven wanneer mensen <code>/</code> typen, met een <b>Automatisch-aanvullen-tip</b> (de argumenten, zoals <code>[city]</code>) en een <b>Automatisch aanvullen omgeschrijving</b>.</li>
+<li>Kies <b>Opslaan</b> en kopieer het getoonde token. Uw service gebruikt dit om te controleren of aanvragen van uw server komen.</li>
+</ol>
+<p>Via de API: <code>POST /api/v4/commands</code> met <code>{"team_id", "trigger", "url", "method": "P", "display_name", "description", "auto_complete": true, "auto_complete_hint", "auto_complete_desc", "username", "icon_url"}</code>. De methode is <code>P</code> voor POST of <code>G</code> voor GET. <code>PUT /api/v4/commands/{command_id}/regen_token</code> geeft een nieuw token uit.</p>
+
+<h2 id="request">De aanvraag die uw service ontvangt</h2>
+<p>Een POST-opdracht stuurt een form-encoded body (<code>application/x-www-form-urlencoded</code>); een GET-opdracht stuurt dezelfde velden in de query string. Het token staat ook in de <code>Authorization: Token &lt;token&gt;</code>-header.</p>
+<table>
+<thead><tr><th>Veld</th><th>Waarde</th></tr></thead>
+<tbody>
+<tr><td><code>token</code></td><td>Het token van de opdracht. Controleer dit bij elke aanvraag.</td></tr>
+<tr><td><code>command</code></td><td>De trigger met de slash, bijvoorbeeld <code>/weather</code>.</td></tr>
+<tr><td><code>text</code></td><td>Alles na de trigger, bijvoorbeeld <code>Paris</code>.</td></tr>
+<tr><td><code>user_id</code>, <code>user_name</code></td><td>Wie het heeft uitgevoerd.</td></tr>
+<tr><td><code>channel_id</code>, <code>channel_name</code></td><td>Waar het is uitgevoerd.</td></tr>
+<tr><td><code>team_id</code>, <code>team_domain</code></td><td>De ID en de URL-naam van de community.</td></tr>
+<tr><td><code>root_id</code></td><td>Het draadje, wanneer het is uitgevoerd in het antwoordvak van een draadje.</td></tr>
+<tr><td><code>trigger_id</code></td><td>Maakt het mogelijk dat uw antwoord een dialoog opent (zie <a href="{{root}}docs/developers/bots.html#dialogs">Dialogen</a>). Het is slechts voor een korte tijd geldig.</td></tr>
+<tr><td><code>response_url</code></td><td>Een URL om later meer antwoorden te plaatsen (zie <a href="#delayed">Vertraagde antwoorden</a>).</td></tr>
+<tr><td><code>user_mentions</code>, <code>user_mentions_ids</code>, <code>channel_mentions</code>, <code>channel_mentions_ids</code></td><td>De personen en publieke kanalen die in de tekst worden vermeld, indien aanwezig.</td></tr>
+</tbody>
+</table>
+<div class="callout">De <b>Site URL</b> van de server moet zijn ingesteld voor het uitvoeren van aangepaste opdrachten: Antimatter bouwt <code>response_url</code> hieruit.</div>
+
+<h2 id="response">Het antwoord</h2>
+<p>Antwoord met <code>200</code> en JSON (<code>Content-Type: application/json</code>):</p>
+<pre><code>{
+  "response_type": "in_channel",
+  "text": "Paris: 18 °C, light rain",
+  "attachments": []
+}</code></pre>
+<table>
+<thead><tr><th>Veld</th><th>Betekenis</th></tr></thead>
+<tbody>
+<tr><td><code>response_type</code></td><td><code>ephemeral</code> (standaard): alleen de persoon die de opdracht heeft uitgevoerd, ziet het antwoord, en het wordt niet bewaard na een herladen. <code>in_channel</code>: het antwoord wordt geplaatst in het kanaal.</td></tr>
+<tr><td><code>text</code>, <code>attachments</code></td><td>Het bericht, zoals bij webhooks: Markdown-tekst en <a href="{{root}}docs/developers/webhooks.html#attachments">bijlagen</a>, inclusief knoppen en menu's.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code></td><td>De naam en het afbeelding om weer te geven, wanneer overrides zijn toegestaan. De eigen instellingen van de opdracht hebben voorrang op deze.</td></tr>
+<tr><td><code>channel_id</code></td><td>Plaats het antwoord in een ander kanaal, waarvan de persoon lid moet zijn.</td></tr>
+<tr><td><code>goto_location</code></td><td>Een URL om te openen zodra de opdracht is uitgevoerd.</td></tr>
+<tr><td><code>props</code>, <code>type</code></td><td>Extra eigenschappen en een aangepaste post-type, zoals bij webhooks.</td></tr>
+<tr><td><code>extra_responses</code></td><td>Meer antwoorden, elk met dezelfde velden, geplaatst na het eerste.</td></tr>
+<tr><td><code>skip_slack_parsing</code></td><td><code>true</code> behoudt de tekst zoals deze is, zonder Slack-stijl links en vermeldingen te converteren.</td></tr>
+</tbody>
+</table>
+<p>Een antwoord dat geen JSON is, wordt weergegeven als een ephemeral-bericht met de body als tekst. <code>204 No Content</code> toont niets. Elke status buiten 200–299 toont de persoon een fout.</p>
+
+<h2 id="example">Voorbeelddienst</h2>
+<p>Een minimale opdrachtdienst in Python, met alleen de standaardbibliotheek:</p>
+<pre><code>import hmac
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
+
+TOKEN = "the token shown when you saved the command"
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        form = {key: values[0] for key, values in parse_qs(body).items()}
+        if not hmac.compare_digest(form.get("token", ""), TOKEN):
+            self.send_response(401)
+            self.end_headers()
+            return
+        answer = {
+            "response_type": "ephemeral",
+            "text": f"Hello @{form['user_name']}, you asked for: {form.get('text', '')}",
+        }
+        data = json.dumps(answer).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(data)
+
+HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()</code></pre>
+<p>Als de service op een privaat netwerkadres draait, moet een systeembeheerder dit toestaan in <b>Niet-vertrouwde interne verbindingen toestaan naar</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>).</p>
+
+<h2 id="delayed">Vertraagde antwoorden</h2>
+<p>Voor werk dat langer duurt dan de time-out, antwoord onmiddellijk (bijvoorbeeld met een tijdelijk "Ik werk eraan…") en stuur het echte antwoord vervolgens via POST naar <code>response_url</code>. Het accepteert dezelfde JSON als het antwoord en werkt tot 5 keer binnen 30 minuten na het commando.</p>
+<pre><code>curl -X POST "$RESPONSE_URL" -H 'Content-Type: application/json' \
+  -d '{"response_type": "in_channel", "text": "Report ready: https://reports.example.com/42"}'</code></pre>
+
+<h2 id="run">Een commando uitvoeren via de API</h2>
+<p>Scripts en bots kunnen elk commando uitvoeren, ingebouwd of aangepast, alsof ze het zelf hadden getypt:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/commands/execute \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "command": "/weather Paris"}'</code></pre>
+<p><code>GET /api/v4/teams/{team_id}/commands/autocomplete</code> toont de commando's die mensen kunnen voltooien in een community.</p>
+
+<h2 id="autocomplete">Voltooiing</h2>
+<p>Commando's die op de integratiepagina's zijn aangemaakt, worden voltooid met hun trigger, hint en beschrijving. Commando's die door apps zijn geregistreerd, kunnen hun subcommando's en argumenten in detail beschrijven met <code>AutocompleteData</code>, vanaf <code>model.NewAutocompleteData(trigger, hint, helpText)</code>:</p>
+<ul>
+<li><code>AddCommand(sub)</code> voegt een subcommando toe, dat zelf een <code>AutocompleteData</code> is.</li>
+<li><code>AddTextArgument(helpText, hint, pattern)</code> voegt vrije tekst toe.</li>
+<li><code>AddStaticListArgument(helpText, required, items)</code> biedt een vaste lijst van <code>AutocompleteListItem{Item, Hint, HelpText}</code>.</li>
+<li><code>AddDynamicListArgument(helpText, url, required)</code> vraagt uw app om suggesties terwijl mensen typen. De URL is een route van uw app, zoals <code>/plugins/com.example.weather/cities</code>. Het ontvangt de gebruiker, het kanaal en de community en geeft een JSON-lijst van <code>{"Item", "Hint", "HelpText"}</code> terug.</li>
+</ul>
+<p>De <code>Named…</code>-varianten (<code>AddNamedTextArgument</code> en andere) voegen <code>--name value</code>-vlaggen toe. Beide webinterfaces tonen deze suggesties.</p>

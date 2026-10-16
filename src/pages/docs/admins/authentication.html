@@ -1,0 +1,112 @@
+title: Sign-in and accounts
+description: Control who can create an account on Antimatter and how people sign in: email and password, password rules, multi-factor authentication, OpenID Connect, GitLab, Google, Entra ID, SAML 2.0, AD/LDAP and guest accounts.
+guide: admins
+order: 9
+nav: Sign-in and accounts
+lead: Decide who can create an account and how people sign in. Every sign-in method of Antimatter works without a licence, single sign-on and directories included.
+---
+<h2 id="signup">Who can create an account</h2>
+<p>Right after installing, check <b>System Console › Authentication › Signup</b>. With the defaults, anyone with an invitation link to a community can create an account, but nobody can sign up without one.</p>
+<table>
+<thead><tr><th>Setting</th><th>Key</th><th>Default</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><b>Enable Account Creation</b></td><td><code>TeamSettings.EnableUserCreation</code></td><td>on</td><td>Off, nobody can create an account by any method; only administrators can (System Console or <code>amctl user create</code>).</td></tr>
+<tr><td><b>Enable Open Server</b></td><td><code>TeamSettings.EnableOpenServer</code></td><td>off</td><td>On, anyone who reaches the server can sign up with an email address, without an invitation. Use it only for public communities.</td></tr>
+<tr><td><b>Restrict new system and team members to specified email domains</b></td><td><code>TeamSettings.RestrictCreationToDomains</code></td><td>empty</td><td>Comma-separated domains, for example <code>example.com, example.org</code>: only addresses of these domains can create an account.</td></tr>
+<tr><td><b>Enable Email Invitations</b></td><td><code>ServiceSettings.EnableEmailInvitations</code></td><td>off on a new server</td><td>Lets members invite people by email (needs <a href="{{root}}docs/admins/email-push.html">SMTP</a>). <b>Invalidate pending email invites</b> cancels the invitations not yet accepted; they expire after 48 hours anyway.</td></tr>
+</tbody>
+</table>
+<p>Community admins also control who joins their community, with invitation links and their own allowed domains: see the <a href="{{root}}docs/communities/index.html">Running a community</a> guide.</p>
+<p>From the command line: <code>amctl user create</code> (add <code>--system-admin</code> or <code>--guest</code>), <code>amctl user invite</code>, <code>amctl user deactivate</code>, <code>amctl roles system-admin &lt;user&gt;</code> to make someone a system administrator, and <code>amctl roles member &lt;user&gt;</code> to undo it.</p>
+
+<h2 id="email-password">Email and password</h2>
+<p>In <b>System Console › Authentication › Email</b>:</p>
+<table>
+<thead><tr><th>Setting</th><th>Key</th><th>Default</th></tr></thead>
+<tbody>
+<tr><td><b>Enable account creation with email</b></td><td><code>EmailSettings.EnableSignUpWithEmail</code></td><td>on. Turn it off when everyone signs in through single sign-on.</td></tr>
+<tr><td><b>Require Email Verification</b></td><td><code>EmailSettings.RequireEmailVerification</code></td><td>off. Turn it on once <a href="{{root}}docs/admins/email-push.html">email</a> works: people then confirm their address before they can sign in.</td></tr>
+<tr><td><b>Enable sign-in with email</b></td><td><code>EmailSettings.EnableSignInWithEmail</code></td><td>on</td></tr>
+<tr><td><b>Enable sign-in with username</b></td><td><code>EmailSettings.EnableSignInWithUsername</code></td><td>on</td></tr>
+</tbody>
+</table>
+<p>In <b>System Console › Authentication › Password</b>:</p>
+<table>
+<thead><tr><th>Setting</th><th>Key</th><th>Default</th></tr></thead>
+<tbody>
+<tr><td><b>Minimum Password Length</b></td><td><code>PasswordSettings.MinimumLength</code></td><td>8 (5 to 72)</td></tr>
+<tr><td><b>Password Requirements</b>: lowercase, uppercase, number, symbol</td><td><code>PasswordSettings.Lowercase</code>, <code>.Uppercase</code>, <code>.Number</code>, <code>.Symbol</code></td><td>all off</td></tr>
+<tr><td><b>Maximum Login Attempts</b></td><td><code>ServiceSettings.MaximumLoginAttempts</code></td><td>10: after that many failures, the account is locked until its password is reset by email</td></tr>
+<tr><td><b>Enable Forgot Password Link</b></td><td><code>PasswordSettings.EnableForgotLink</code></td><td>on</td></tr>
+</tbody>
+</table>
+<p>A length of 12 or more does more for security than character rules. To reset a password for someone: <b>System Console › User Management › Users</b>, or <code>amctl user change-password &lt;user&gt; --password &lt;new&gt;</code>.</p>
+
+<h2 id="mfa">Multi-factor authentication</h2>
+<p>Multi-factor authentication (MFA) adds a code from an authenticator app to the password. It applies to accounts that sign in with email or AD/LDAP; with single sign-on, use your identity provider's MFA. In <b>System Console › Authentication › MFA</b>:</p>
+<ul>
+<li><b>Enable Multi-factor Authentication</b> (<code>ServiceSettings.EnableMultifactorAuthentication</code>, off): people can turn MFA on in their security settings.</li>
+<li><b>Enforce Multi-factor Authentication</b> (<code>ServiceSettings.EnforceMultifactorAuthentication</code>, off): everyone must set it up, at sign-up or at their next sign-in.</li>
+</ul>
+<p>If someone loses their device: <code>amctl user resetmfa &lt;user&gt;</code>, or reset it from their page in <b>System Console › User Management › Users</b>.</p>
+
+<h2 id="sso">Single sign-on</h2>
+<p>Antimatter can sign people in through your identity provider. On first sign-in it creates their account (if account creation is allowed) from the name, email and username the provider sends.</p>
+<h3>OpenID Connect, GitLab, Google and Entra ID</h3>
+<p>Go to <b>System Console › Authentication › OpenID Connect</b>, and choose under <b>Select service provider</b>: GitLab, Google Apps, Entra ID (Office 365) or <b>OpenID Connect (Other)</b> for any other provider (Keycloak, Authentik, Zitadel, Okta, Auth0…).</p>
+<ol>
+<li>In your provider, create an application (a "client") of the web type, with this redirect URI, for your site URL:
+<table>
+<thead><tr><th>Provider</th><th>Redirect URI</th></tr></thead>
+<tbody>
+<tr><td>OpenID Connect (Other)</td><td><code>https://chat.example.com/signup/openid/complete</code></td></tr>
+<tr><td>GitLab</td><td><code>https://chat.example.com/signup/gitlab/complete</code></td></tr>
+<tr><td>Google</td><td><code>https://chat.example.com/signup/google/complete</code></td></tr>
+<tr><td>Entra ID</td><td><code>https://chat.example.com/signup/office365/complete</code></td></tr>
+</tbody>
+</table></li>
+<li>In Antimatter, fill in the <b>Discovery Endpoint</b> (the provider's <code>/.well-known/openid-configuration</code> URL; for GitLab, the <b>GitLab Site URL</b> instead), the <b>Client ID</b> and the <b>Client Secret</b>. For other providers, also the <b>Button Name</b> and <b>Button Color</b> of the sign-in button.</li>
+<li><b>Use Preferred Username</b> (GitLab and other providers) takes the Antimatter username from the provider's <code>preferred_username</code> claim.</li>
+<li>Save, sign out, and try the new button on the sign-in page.</li>
+</ol>
+<p>The settings are stored in <code>OpenIdSettings</code>, <code>GitLabSettings</code>, <code>GoogleSettings</code> or <code>Office365Settings</code> (for example <code>AM_OPENIDSETTINGS_ENABLE</code>, <code>AM_OPENIDSETTINGS_DISCOVERYENDPOINT</code>, <code>AM_OPENIDSETTINGS_ID</code>, <code>AM_OPENIDSETTINGS_SECRET</code>). The older OAuth 2.0 page only appears for servers that still have an OAuth 2.0 GitLab, Google or Entra ID configuration.</p>
+<h3>SAML 2.0</h3>
+<p>In <b>System Console › Authentication › SAML 2.0</b>, turn on <b>Enable Login With SAML 2.0</b> (<code>SamlSettings.Enable</code>) and fill in what your identity provider gives you: the <b>Identity Provider Metadata URL</b>, or the <b>SAML SSO URL</b>, the <b>Identity Provider Issuer URL</b> and the <b>Identity Provider Public Certificate</b>. On the identity provider's side:</p>
+<ul>
+<li>Service Provider Login URL (assertion consumer service): <code>https://chat.example.com/login/sso/saml</code>;</li>
+<li>Antimatter's metadata, for providers that import it: <code>https://chat.example.com/api/v4/saml/metadata</code>.</li>
+</ul>
+<p>Map the attributes your provider sends: at least the <b>Email Attribute</b> and <b>Username Attribute</b>, and optionally the ID, first and last name, nickname, position, language, guest and admin attributes. <b>Verify Signature</b> and <b>Enable Encryption</b> are on by default (encryption needs a service provider key and certificate; only RSA keys are supported); <b>Sign Request</b> is off. The signature algorithm defaults to RSAwithSHA256.</p>
+<h3>AD/LDAP</h3>
+<p>In <b>System Console › Authentication › AD/LDAP</b>, a step-by-step page connects Antimatter to Active Directory or another LDAP server: the server and port (<code>LdapSettings.LdapServer</code>, <code>LdapSettings.LdapPort</code>, 389 by default), the connection security (none, TLS or STARTTLS), the base DN and a bind account (<code>BaseDN</code>, <code>BindUsername</code>, <code>BindPassword</code>), filters for users, guests, admins and groups, and the attributes for email, username, ID, names and picture. People then sign in with their directory login.</p>
+<p>A synchronisation job runs every 60 minutes (<code>LdapSettings.SyncIntervalMinutes</code>) to update names and deactivate people removed from the directory; run it now with <code>amctl ldap sync</code>. LDAP groups can be linked to communities and channels in <b>System Console › User Management › Groups</b>. SAML accounts can also be kept in sync with AD/LDAP (<b>Enable Synchronizing SAML Accounts With AD/LDAP</b>).</p>
+<h3>Moving existing accounts</h3>
+<p>To switch existing email accounts to single sign-on, <code>amctl user migrate-auth email saml users.json</code> (or <code>ldap</code>) moves them in bulk. A user can also change their own sign-in method in their security settings when <b>Allow Authentication Transfer</b> (<code>ServiceSettings.ExperimentalEnableAuthenticationTransfer</code>, in <b>System Console › Experimental › Features</b>) is on.</p>
+
+<h2 id="guests">Guest accounts</h2>
+<p>Guests are people from outside your organisation who only see the channels they are invited to. Turn them on in <b>System Console › Authentication › Guest Access</b>:</p>
+<table>
+<thead><tr><th>Setting</th><th>Key</th><th>Default</th></tr></thead>
+<tbody>
+<tr><td><b>Enable Guest Access</b></td><td><code>GuestAccountsSettings.Enable</code></td><td>off</td></tr>
+<tr><td><b>Whitelisted Guest Domains</b></td><td><code>GuestAccountsSettings.RestrictCreationToDomains</code></td><td>empty: guests may have any email domain</td></tr>
+<tr><td><b>Enforce Multi-factor Authentication</b></td><td><code>GuestAccountsSettings.EnforceMultifactorAuthentication</code></td><td>off; only available when MFA is enabled and enforced for everyone</td></tr>
+<tr><td><b>Hide guest tag</b></td><td><code>GuestAccountsSettings.HideTags</code></td><td>off: a "guest" tag is shown next to their name</td></tr>
+</tbody>
+</table>
+<p>Once on, community admins invite guests to specific channels. Administrators can turn a member into a guest with <code>amctl user demote</code>, and a guest into a member with <code>amctl user promote</code>.</p>
+
+<h2 id="sessions">Sessions</h2>
+<p>How long people stay signed in is set in <b>System Console › Environment › Session Lengths</b>:</p>
+<table>
+<thead><tr><th>Setting</th><th>Key</th><th>Default on a new server</th></tr></thead>
+<tbody>
+<tr><td><b>Extend session length with activity</b></td><td><code>ServiceSettings.ExtendSessionLengthWithActivity</code></td><td>on: sessions are renewed while people use Antimatter</td></tr>
+<tr><td><b>Session Length AD/LDAP and Email (hours)</b></td><td><code>ServiceSettings.SessionLengthWebInHours</code></td><td>720 hours (30 days)</td></tr>
+<tr><td><b>Session Length Mobile (hours)</b></td><td><code>ServiceSettings.SessionLengthMobileInHours</code></td><td>720 hours</td></tr>
+<tr><td><b>Session Length SSO (hours)</b></td><td><code>ServiceSettings.SessionLengthSSOInHours</code></td><td>720 hours</td></tr>
+<tr><td><b>Session Idle Timeout (minutes)</b></td><td><code>ServiceSettings.SessionIdleTimeoutInMinutes</code></td><td>43200 minutes (30 days); shown only when sessions aren't extended with activity</td></tr>
+<tr><td><b>Terminate Sessions on Password Change</b></td><td><code>ServiceSettings.TerminateSessionsOnPasswordChange</code></td><td>on</td></tr>
+</tbody>
+</table>
+<p>To sign everyone out at once, use <b>Revoke All Sessions</b> in <b>System Console › User Management › Users</b>. To sign one person out, open their page there.</p>

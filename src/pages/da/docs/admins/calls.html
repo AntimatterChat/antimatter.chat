@@ -1,0 +1,126 @@
+title: Opkald og lyd
+description: Konfigurer Antimatters opkald og lydkanaler: medieport, NAT og STUN, TURN, testtilstand, video, en ekstern rtcd-server, transkription og live undertitler med dit eget tale-til-tekst-model, samt optagelser.
+guide: admins
+order: 5
+nav: Opkald og lyd
+lead: Opkald og lydkanaler sender lyd, video og skærmdeling direkte til serveren på deres egen port. Denne side dækker netværksaspektet, de indstillinger, der skal kontrolleres efter installationen, samt transkription med et tale-til-tekst-model, som du kører selv.
+source: 16057458346f
+---
+<h2 id="overview">Sådan fungerer opkald</h2>
+<p>Opkald leveres af <b>Opkald</b>-appen (id <code>com.mattermost.calls</code>), som er installeret og aktiveret som standard. Lydkanaler (<b>Lydkanaler</b>-appen, <code>antimatter-next</code>-billedet) er permanente opkaldsrum bygget på Opkald: de kræver, at Opkald er aktiveret, og de bruger de samme indstillinger, porte og servere.</p>
+<p>Opkaldsappen kører en medieserver inde i Antimatter. Webappen, desktopappen og mobilappene forbinder sig til den med WebRTC:</p>
+<ul>
+<li>signaleringen går gennem den normale webforbindelse (din HTTPS-proxy);</li>
+<li><b>mediet</b> (lyd, video, skærmdeling) gør det ikke: det går direkte til serveren på opkaldsporten, <b>8443 UDP og TCP</b> som standard.</li>
+</ul>
+<p>Indstillingerne findes i <b>Systemkonsol › Plugins › Opkald</b>. Hver af dem kan også indstilles med en <code>AM_CALLS_</code> miljøvariabel på <code>antimatter</code>-tjenesten, som derefter har forrang over Systemkonsolen og låser indstillingen der. De ældre <code>MM_CALLS_</code>-navne virker også.</p>
+
+<h2 id="after-install">Kontroller disse efter installationen</h2>
+<ol>
+<li><b>Åbn opkaldsporten.</b> Tillad 8443/udp og 8443/tcp i serverens og din cloududbyders firewall.</li>
+<li><b>Slå testtilstanden fra.</b> <b>Testtilstand</b> (<code>DefaultEnabled</code>) er tændt som standard: kun systemadministratorer kan starte opkald i kanaler, så du kan kontrollere, at opkald virker, før alle bruger dem. Sæt den til <b>Fra</b> i <b>Systemkonsol › Plugins › Opkald</b>, eller sæt <code>AM_CALLS_DEFAULT_ENABLED=true</code>.</li>
+<li><b>Tag stilling til video.</b> <b>Aktivér videoopkald i DM (Eksperimentel)</b> (<code>EnableVideo</code>, <code>AM_CALLS_ENABLE_VIDEO</code>) er slukket som standard. Mens den er slukket, kan ingen tænde for en kamera, ikke engang i lydkanaler. Når den er tændt, virker kameraer i direkte besked-opkald og i lydkanaler (medmindre Lydkanaler-appens <b>Tillad video i lydkanaler</b> er slukket).</li>
+<li><b>Bag NAT, sæt den offentlige adresse</b> (næste afsnit).</li>
+</ol>
+
+<h2 id="network">Porte, NAT og STUN</h2>
+<table>
+<thead><tr><th>Indstilling</th><th>Variabel</th><th>Standard</th></tr></thead>
+<tbody>
+<tr><td><b>RTC-serverport (UDP)</b></td><td><code>AM_CALLS_UDP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>RTC-serverport (TCP)</b></td><td><code>AM_CALLS_TCP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>RTC-serveradresse (UDP)</b>, <b>(TCP)</b></td><td><code>AM_CALLS_UDP_SERVER_ADDRESS</code>, <code>AM_CALLS_TCP_SERVER_ADDRESS</code></td><td>tom: alle adresser</td></tr>
+<tr><td><b>ICE Host Override</b></td><td><code>AM_CALLS_ICE_HOST_OVERRIDE</code></td><td>tom: fundet via STUN</td></tr>
+<tr><td><b>ICE Host Port Override</b></td><td><code>AM_CALLS_ICE_HOST_PORT_OVERRIDE</code></td><td>tom: serverporten</td></tr>
+<tr><td><b>ICE Servers Configurations</b></td><td><code>AM_CALLS_ICE_SERVERS_CONFIGS</code></td><td><code>[{"urls":["stun:stun.cloudflare.com:3478"]}]</code></td></tr>
+<tr><td><b>(Eksperimentelt) Aktiver IPv6-understøttelse</b></td><td>(Systemkonsol)</td><td>Fra</td></tr>
+</tbody>
+</table>
+<p>Porte skal være mellem 80 og 49151. Med webstedets compose-fil, ændr <code>CALLS_PORT</code> i <code>.env</code>: det sætter begge variabler og udgiver porten, samme nummer på værten og i containeren. Klienter forsøger først UDP og falder tilbage til TCP på samme port.</p>
+<h3>Hvilken adresse klienter sender medie til</h3>
+<p>Serveren fortæller hver klient adressen, de skal sende medie til (deres "host candidate"). Som standard finder den sin offentlige adresse ved at spørge en STUN-server, en offentlig tjeneste, der svarer med adressen og porten, en anmodning kom fra. Standarden er Cloudflares offentlige STUN-server, <code>stun:stun.cloudflare.com:3478</code>. Serveren er ikke den eneste, der bruger den: hver klient, der deltager i et opkald, spørger også den om sin egen offentlige adresse. STUN-serveren ser kun IP-adresser og porte, aldrig opkaldslyd, video eller beskeder.</p>
+<p>En server, der stadig har Mattermosts STUN-server (<code>stun.global.calls.mattermost.com</code>) gemt i <b>ICE Servers Configurations</b>, for eksempel efter et skift fra Mattermost, bruger i stedet Cloudflares. Den gemte indstilling ændres ikke.</p>
+<p>Sæt adressen selv, når:</p>
+<ul>
+<li>serveren er bag NAT, eller har flere offentlige adresser: sæt <b>ICE Host Override</b> til den offentlige IP-adresse (eller et hostname, der løses til den);</li>
+<li>NAT kortlægger en anden offentlig port til 8443: sæt også <b>ICE Host Port Override</b> til den offentlige port;</li>
+<li>serveren har ingen internetadgang, eller du ikke ønsker, at serveren og klienterne skal kontakte en ekstern STUN-server: sæt <b>ICE Host Override</b>, og tom STUN-listen med <code>AM_CALLS_ICE_SERVERS_CONFIGS=[]</code>. Med <b>ICE Host Override</b> sat, spørger serveren ikke længere en STUN-server om sin adresse; den tomme liste forhindrer klienterne i at spørge en.</li>
+</ul>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ICE_HOST_OVERRIDE: 203.0.113.10
+      AM_CALLS_ICE_SERVERS_CONFIGS: "[]"</code></pre>
+<p>For at beholde STUN uden en tredjepart, kør din egen STUN-server (en TURN-server, såsom coturn, svarer også på STUN-anmodninger) og list den i <b>ICE Servers Configurations</b> i stedet, som i TURN-eksemplet nedenfor.</p>
+<p>På et lokalt netværk alene, brug serverens LAN-adresse. Genstart serveren efter ændring af porte, adresser eller ICE-indstillinger, eller deaktiver og aktiver Calls-appen: medieserveren opsættes, når appen starter.</p>
+
+<h2 id="turn">TURN, for strenge firewalls</h2>
+<p>Nogle netværk blokerer både UDP og udgående forbindelser til usædvanlige TCP-porte. Brugere på disse netværk har brug for en TURN-server, der videresender mediet via en port, de kan nå (ofte 443). Antimatter indeholder ikke en TURN-server; kør en TURN-server som coturn og tilføj den til <b>ICE Servers Configurations</b>, en JSON-liste:</p>
+<pre><code>[
+  {"urls": ["stun:turn.example.com:3478"]},
+  {"urls": ["turn:turn.example.com:3478?transport=udp", "turns:turn.example.com:443?transport=tcp"]}
+]</code></pre>
+<ul>
+<li>Ved brug af en fælles hemmelig nøgle (coturns <code>use-auth-secret</code>), skal du indsætte den samme nøgle i <b>TURN Static Auth Secret</b> (<code>AM_CALLS_TURN_STATIC_AUTH_SECRET</code>): serveren udsteder kortvarige legitimationsoplysninger til hver klient, der er gyldige i <b>TURN Credentials Expiration (minutes)</b> (240 som standard).</li>
+<li>Ved brug af faste legitimationsoplysninger, tilføj <code>"username"</code> og <code>"credential"</code> til TURN-posten i stedet.</li>
+<li><b>Server Side TURN</b> (slået fra som standard) bruger også TURN-serverne til forbindelser, der startes af serveren.</li>
+</ul>
+
+<h2 id="general">Andre opkaldsindstillinger</h2>
+<table>
+<thead><tr><th>Indstilling</th><th>Variabel</th><th>Standard</th><th>Hvad den gør</th></tr></thead>
+<tbody>
+<tr><td><b>Max call participants</b></td><td><code>AM_CALLS_MAX_CALL_PARTICIPANTS</code></td><td>0 (ingen begrænsning)</td><td>Største antal personer i ét opkald.</td></tr>
+<tr><td><b>Allow screen sharing</b></td><td>(Systemkonsol)</td><td>til</td><td>Gør det muligt for deltagere at dele deres skærm.</td></tr>
+<tr><td><b>Enable call ringing</b></td><td><code>AM_CALLS_ENABLE_RINGING</code></td><td>til</td><td>Ringer til de andre i en direkte eller gruppebesked, når et opkald startes der.</td></tr>
+<tr><td><b>Enable simulcast for screen sharing (Experimental)</b></td><td>(Systemkonsol)</td><td>Fra</td><td>Sender skærmdelinger i flere kvaliteter.</td></tr>
+<tr><td><b>Enable AV1 codec for screen sharing (Experimental)</b></td><td>(Systemkonsol)</td><td>Fra</td><td>Ignoreret, mens simulcast er slået til.</td></tr>
+</tbody>
+</table>
+<p>Lydkanaler-appen har to indstillinger i <b>Systemkonsol › Plugins › Lydkanaler</b>: <b>Deltag, når en lydkanal åbnes</b> (aktiveret som standard) og <b>Tillad video i lydkanaler</b> (aktiveret som standard, men se videoen ovenfor). Administratører i fællesskabet omdanner en kanal til en lydkanal i kanalens indstillinger.</p>
+<div class="callout">For at slukke for opkald helt, deaktiverer du Opkald-appen i <b>Systemkonsol › Plugins › Plugin-håndtering</b> eller sætter <code>AM_CALLS_DISABLE=true</code>. Lydkanalerne holder også op med at fungere.</div>
+
+<h2 id="rtcd">Større servere: en ekstern rtcd</h2>
+<p>Som standard håndterer én Antimatter-server al medie til opkald. Ved mange samtidige opkald, eller for at holde mediet væk fra chatserveren, kan Calls-appen overføre mediet til <b>rtcd</b>, en separat medieserver (Mattermosts open-source <code>rtcd</code>, version 0.17 eller nyere). Indstil <b>RTCD service URL</b> (<code>AM_CALLS_RTCD_SERVICE_URL</code>), for eksempel <code>https://rtcd.example.com</code>: alle opkald går derefter igennem den, og klienter sender deres medie til rtcd's egen port i stedet for Antimatters. Kredensialer kan angives med <code>AM_CALLS_RTCD_CLIENT_ID</code> og <code>AM_CALLS_RTCD_AUTH_KEY</code>; uden dem registrerer appen sig selv hos rtcd. Der kræves ingen licens. Calls-appen viser administratorer en advarsel, der anbefaler rtcd, når en server ofte har mere end 50 personer i opkald samtidigt.</p>
+
+<h2 id="transcription">Transkription og live undertitler</h2>
+<p>Antimatter kan transkribere opkald med et tale-til-tekst-model, som du kører selv, og vise live undertitler, mens folk taler. Antimatter bruger enhver server, der tilbyder en OpenAI-kompatibel <code>/v1/audio/transcriptions</code>-endepunkt, såsom en Whisper-server på dit netværk. Der kræves ingen ekstra service fra Antimatter.</p>
+<h3>Sådan fungerer det</h3>
+<ul>
+<li>Værten for et opkald starter transkriptionen med <b>Transkriber opkaldet</b> i opkaldskontrollerne. Et <b>Transkriberer</b>-mærke giver besked til alle.</li>
+<li>Hver deltagers app lytter til sin egen mikrofon, skærer talen op i korte stykker (op til 12 sekunder, aldrig mens de er lydløse) og sender dem til Antimatter, som videresender dem til din tale-til-tekst-server.</li>
+<li>Med live undertitler slået til, vises teksten for hvert stykke straks som en undertitel for deltagerne.</li>
+<li>Når transkriptionen stopper eller opkaldet slutter, poster Calls-botten transkriptet som en tekstfil og en WebVTT-undertitelfil i opkaldets tråd (i lydkanaler, i kanalen).</li>
+<li>Med <b>Opsummer transkriptioner</b> slået til, poster også Agents-appens standardagent en opsummering i tråden (se <a href="{{root}}docs/admins/ai.html">AI</a>).</li>
+</ul>
+<figure><img src="{{root}}assets/img/shots/transcript.webp" alt="A call's thread: the Calls bot has posted the transcript as a text file, and an AI agent has posted a summary below it."><figcaption>Efter opkaldet: transkriptet og dets opsummering i opkaldets tråd.</figcaption></figure>
+<h3>Sådan indstiller du det</h3>
+<p>Indstil disse på <code>antimatter</code>-tjenesten:</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ENABLE_TRANSCRIPTIONS: "true"
+      AM_CALLS_TRANSCRIBE_API: openai
+      AM_CALLS_TRANSCRIBE_API_OPEN_AIURL: http://stt.internal:8000/v1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL: whisper-1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY: ""
+      AM_CALLS_ENABLE_LIVE_CAPTIONS: "true"
+      AM_CALLS_LIVE_CAPTIONS_LANGUAGE: en</code></pre>
+<table>
+<thead><tr><th>Indstilling</th><th>Variabel</th><th>Hvad der skal indtastes</th></tr></thead>
+<tbody>
+<tr><td><b>Slå opkaldstranskriptioner til (Beta)</b></td><td><code>AM_CALLS_ENABLE_TRANSCRIPTIONS</code></td><td><code>true</code></td></tr>
+<tr><td><b>Opkaldstranskribent-API</b></td><td><code>AM_CALLS_TRANSCRIBE_API</code></td><td><code>openai</code> (vises som "OpenAI-kompatibelt API (ingen jobtjenest)")</td></tr>
+<tr><td><b>Tale-til-tekst-API URL</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AIURL</code></td><td>API'ets basis-URL, op til og med <code>/v1</code>.</td></tr>
+<tr><td><b>Tale-til-tekst-model</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL</code></td><td>Modelnavnet, som API'et kender det, for eksempel <code>whisper-1</code>. Påkrævet.</td></tr>
+<tr><td><b>Tale-til-tekst-API-nøgle</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY</code></td><td>Sendes som en bearer token. Lad den stå tom, hvis API'et ikke kræver nogen.</td></tr>
+<tr><td><b>Aktivér live undertitler (Beta)</b></td><td><code>AM_CALLS_ENABLE_LIVE_CAPTIONS</code></td><td><code>true</code> for undertitler under opkaldet.</td></tr>
+<tr><td><b>Sprog for live undertitler</b></td><td><code>AM_CALLS_LIVE_CAPTIONS_LANGUAGE</code></td><td>Det talte sprog som en to-bogstavskode (standard er <code>en</code>). Det sendes også til tale-til-tekst-API'et for transkriptioner, så sæt det, selvom du ikke bruger undertitler.</td></tr>
+<tr><td><b>Opsummer transkriptioner</b></td><td><code>AM_CALLS_SUMMARIZE_TRANSCRIPTIONS</code></td><td><code>true</code> for en AI-opsummering efter opkaldet.</td></tr>
+</tbody>
+</table>
+<div class="callout">I Systemkonsolen vises transkriptionsindstillingerne først, når <b>Aktivér optagelser af opkald</b> er slået til, selvom denne type transkription ikke kræver en optagelse. Ved at indstille dem med de ovennævnte variabler undgår du dette. Slå ikke optagelser til sammen med <code>openai</code>-transkriptoren: Hvis en optagelse startes, forsøges der ellers at starte job-service-transkriptoren, hvilket vil fejle.</div>
+<p>Lyden fra alle, der taler, mens transkription er aktiv, sendes til den tale-til-tekst-server, du har konfigureret, og transkriptionen lægges der, hvor alle i kanalen kan læse den. Giv dine brugere besked, og hold serveren på dit eget netværk, hvis opkaldene er fortrolige.</p>
+
+<h2 id="recordings">Optagelser</h2>
+<p>Optagelser af opkald (og transkription med de indbyggede <code>whisper.cpp</code>- eller Azure-transkriptorer) kører i separate containere, der startes af en job-service, Mattermosts open source <code>calls-offloader</code>, som du selv udruller ved siden af Antimatter. Indstillingerne er <b>Aktivér optagelser af opkald</b> (<code>AM_CALLS_ENABLE_RECORDINGS</code>, standard er fra), <b>Job-service-URL</b> (<code>AM_CALLS_JOB_SERVICE_URL</code>), <b>Maksimal varighed for optagelser af opkald</b> (standard er 60 minutter, 15 til 180) og <b>Kvalitet for optagelser af opkald</b> (lav, medium eller høj; standard er medium). Der kræves ingen licens. Hvis du kun vil have transkriptioner og undertitler, er tale-til-tekst-opsætningen ovenfor enklere: Den kræver ingen job-service.</p>

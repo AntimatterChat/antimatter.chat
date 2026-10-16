@@ -1,0 +1,313 @@
+title: Pisanie aplikacji (wtyczek)
+description: Jak napisać aplikację (wtyczkę) Antimatter: struktura pakietu i plik plugin.json, haki i API po stronie serwera, rejestr aplikacji webowych, wsparcie dla interfejsu Fusion, ustawienia, magazyn kluczy i wartości, tłumaczenia, pakowanie i instalacja.
+guide: developers
+order: 6
+nav: Pisanie aplikacji
+lead: Aplikacje dodają funkcje do Antimatter od wewnątrz: część serwerowa w Go, która podpinana jest do serwera, oraz część aplikacji webowej w React, która dodaje menu, panele, typy wiadomości i strony. Ta strona pokazuje, jak wygląda struktura aplikacji, używając jako przykładu dołączonej aplikacji Ankiety, oraz jakie zmiany wprowadza interfejs Fusion w Antimatter.
+source: d9c132cac759
+---
+<h2 id="overview">Jak działa aplikacja</h2>
+<ul>
+<li><b>Część serwerowa</b> to program w Go. Serwer uruchamia go jako osobny proces i komunikuje się z nim przez RPC: wywołuje <b>haki</b> aplikacji (np. wiadomość ma zostać opublikowana, wykonano polecenie…), a aplikacja wywołuje <b>API wtyczki</b> serwera (np. tworzenie posta, odczyt użytkownika, przechowywanie danych…). Może również obsługiwać trasy HTTP pod <code>/plugins/&lt;app id&gt;/</code>.</li>
+<li><b>Część aplikacji webowej</b> to pakiet JavaScript ładowany do przeglądarki wraz z aplikacją webową. Rejestruje komponenty React i wywołania zwrotne w <b>rejestrze</b>: przycisk w menu, panel, sposób rysowania typu wiadomości.</li>
+<li>Każda z części jest opcjonalna. Aplikacja jest instalowana jako pakiet <code>.tar.gz</code>, a administratorzy systemu mogą ją włączać, wyłączać i konfigurować.</li>
+</ul>
+<div class="callout warn">Część serwerowa działa z pełnym dostępem do danych serwera. Traktuj aplikację jak kod wdrażany na serwer.</div>
+<p>Antimatter uruchamia aplikacje napisane dla Mattermost i odwrotnie, o ile aplikacja używa wyłącznie haków wspólnych dla obu systemów. Zobacz <a href="#antimatter-hooks">Haki dostępne tylko w Antimatter</a>.</p>
+
+<h2 id="layout">Struktura pakietu</h2>
+<p>Nie ma osobnej szablony startowej: zacznij od małej dołączonej aplikacji, takiej jak <a href="https://github.com/AntimatterChat/antimatter-plugin-polls">antimatter-plugin-polls</a> lub <a href="https://github.com/AntimatterChat/antimatter-plugin-todo">antimatter-plugin-todo</a>, i zmień jej identyfikator oraz kod. Aplikacja Ankiety ma następującą strukturę:</p>
+<pre><code>antimatter-plugin-polls/
+├── plugin.json            the manifest
+├── Makefile               build, test, bundle, deploy
+├── build/                 the manifest and pluginctl helper tools (Go), setup.mk
+├── assets/icon.svg        files shipped with the bundle
+├── go.mod
+├── server/
+│   ├── main.go            plugin.ClientMain(&amp;Plugin{})
+│   ├── plugin.go          the Plugin type, OnActivate, ServeHTTP
+│   ├── manifest.go        generated from plugin.json
+│   ├── api.go, command.go, hooks.go, store.go …
+│   └── dist/              compiled binaries, one per platform
+└── webapp/
+    ├── package.json, webpack.config.js, tsconfig.json
+    ├── i18n/              en.json and one file per language
+    ├── src/index.tsx      registers the app with the web app
+    ├── src/manifest.ts    generated from plugin.json
+    ├── src/translations.ts
+    └── dist/main.js       the bundle</code></pre>
+<p>Opcjonalnie: folder <code>public/</code>, serwowany bez zmian pod <code>/plugins/&lt;app id&gt;/public/</code>.</p>
+
+<h2 id="manifest">plugin.json</h2>
+<pre><code>{
+  "id": "com.example.weather",
+  "name": "Weather",
+  "description": "Forecasts in the chat.",
+  "homepage_url": "https://github.com/example/weather",
+  "support_url": "https://github.com/example/weather/issues",
+  "icon_path": "assets/icon.svg",
+  "version": "1.0.0",
+  "min_server_version": "12.0.0",
+  "server": {
+    "executables": {
+      "linux-amd64": "server/dist/plugin-linux-amd64",
+      "linux-arm64": "server/dist/plugin-linux-arm64",
+      "darwin-amd64": "server/dist/plugin-darwin-amd64",
+      "darwin-arm64": "server/dist/plugin-darwin-arm64",
+      "windows-amd64": "server/dist/plugin-windows-amd64.exe"
+    }
+  },
+  "webapp": {"bundle_path": "webapp/dist/main.js"},
+  "settings_schema": {"settings": []}
+}</code></pre>
+<ul>
+<li><code>id</code>: unikalny i stały; zwykle ma postać odwróconej nazwy domeny. Określa nazwy tras, przechowywanych ustawień oraz zdarzeń WebSocket.</li>
+<li><code>version</code>: wersja semantyczna. Dołączone aplikacje pomijają ją w pliku <code>plugin.json</code>; ich narzędzie budowania pobiera ją z najnowszej etykiety git <code>v*</code>.</li>
+<li><code>min_server_version</code>: Antimatter zgłasza <code>12.0.0</code>.</li>
+<li><code>settings_schema</code>: strona ustawień aplikacji w Konsoli systemu (patrz <a href="#settings">Ustawienia</a>).</li>
+</ul>
+<p><code>make apply</code> kopiuje manifest do <code>server/manifest.go</code> i <code>webapp/src/manifest.ts</code>; <code>make manifest-check</code> go waliduje.</p>
+
+<h2 id="server">Część serwerowa</h2>
+<p>Część serwerowa importuje ten sam moduł Go co aplikacje Mattermost, <code>github.com/mattermost/mattermost/server/public</code>, z proxy modułów Go. Jej <code>main</code> tylko uruchamia aplikację:</p>
+<pre><code>package main
+
+import "github.com/mattermost/mattermost/server/public/plugin"
+
+func main() {
+	plugin.ClientMain(&amp;Plugin{})
+}</code></pre>
+<p>Typ <code>Plugin</code> osadza <code>plugin.MattermostPlugin</code>, co daje mu <code>p.API</code>, i implementuje potrzebne mu haki:</p>
+<pre><code>type Plugin struct {
+	plugin.MattermostPlugin
+	router *mux.Router
+}
+
+func (p *Plugin) OnActivate() error {
+	p.router = p.newRouter()
+	return p.API.RegisterCommand(&amp;model.Command{
+		Trigger:          "weather",
+		AutoComplete:     true,
+		AutoCompleteDesc: "Show the forecast",
+		AutoCompleteHint: "[city]",
+	})
+}
+
+func (p *Plugin) ExecuteCommand(c *plugin.Context, args *model.CommandArgs) (*model.CommandResponse, *model.AppError) {
+	city := strings.TrimSpace(strings.TrimPrefix(args.Command, "/weather"))
+	return &amp;model.CommandResponse{
+		ResponseType: model.CommandResponseTypeEphemeral,
+		Text:         "Forecast for " + city + ": sunny",
+	}, nil
+}
+
+func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Request) {
+	p.router.ServeHTTP(w, r)
+}</code></pre>
+<h3>Wspólne haki</h3>
+<table>
+<thead><tr><th>Hak</th><th>Kiedy się uruchamia</th></tr></thead>
+<tbody>
+<tr><td><code>OnActivate</code>, <code>OnDeactivate</code></td><td>Gdy aplikacja jest włączana lub wyłączana, a także gdy serwer się uruchamia i zatrzymuje. Rejestruj polecenia i boty w <code>OnActivate</code>.</td></tr>
+<tr><td><code>OnConfigurationChange</code></td><td>Gdy zmieniają się jej ustawienia; wczytaj je za pomocą <code>p.API.LoadPluginConfiguration(&amp;cfg)</code>.</td></tr>
+<tr><td><code>ServeHTTP</code></td><td>Żądania do <code>/plugins/&lt;app id&gt;/…</code>. Serwer ustawia nagłówek <code>Mattermost-User-Id</code>, gdy żądanie pochodzi od zalogowanego użytkownika; odrzucaj żądania bez niego, chyba że mają być publiczne.</td></tr>
+<tr><td><code>ExecuteCommand</code></td><td>Gdy wykonano polecenie zarejestrowane przez aplikację.</td></tr>
+<tr><td><code>MessageWillBePosted</code>, <code>MessageWillBeUpdated</code></td><td>Zanim wiadomość zostanie zapisana: zwróć zmienioną wiadomość lub powód jej odrzucenia.</td></tr>
+<tr><td><code>MessageHasBeenPosted</code>, <code>MessageHasBeenUpdated</code>, <code>MessageHasBeenDeleted</code></td><td>Po fakcie, w celu wykonania działań ubocznych.</td></tr>
+<tr><td><code>ReactionHasBeenAdded</code>, <code>ReactionHasBeenRemoved</code></td><td>Reakcje.</td></tr>
+<tr><td><code>UserHasJoinedChannel</code>, <code>UserHasLeftChannel</code>, <code>UserHasJoinedTeam</code>, <code>UserHasLeftTeam</code>, <code>ChannelHasBeenCreated</code></td><td>Zmiany członkostwa i kanałów. Zespół to społeczność.</td></tr>
+<tr><td><code>FileWillBeUploaded</code></td><td>Zanim plik zostanie zapisany: zmień go lub go odrzuć.</td></tr>
+<tr><td><code>OnPluginClusterEvent</code></td><td>Wiadomość z tej samej aplikacji z innego serwera klastra.</td></tr>
+</tbody>
+</table>
+<p>Pełna lista, z dokładnymi sygnaturami, znajduje się w <code>server/public/plugin/hooks.go</code>; API jest w <code>server/public/plugin/api.go</code>. Pakiet <code>pluginapi</code> (<code>server/public/pluginapi</code>) opakowuje API w wygodniejsze pomocnicze funkcje.</p>
+<h3>Przydatne wywołania API</h3>
+<ul>
+<li><code>CreatePost</code>, <code>UpdatePost</code>, <code>SendEphemeralPost</code>: publikuj jako bot aplikacji lub jako użytkownik.</li>
+<li><code>EnsureBotUser(&amp;model.Bot{Username, DisplayName})</code>: utwórz bota aplikacji raz i uzyskaj jego identyfikator.</li>
+<li><code>PublishWebSocketEvent("poll_updated", payload, &amp;model.WebsocketBroadcast{ChannelId: id})</code>: wyślij zdarzenie do aplikacji webowej. Dociera jako <code>custom_&lt;app id&gt;_poll_updated</code>.</li>
+<li><code>OpenInteractiveDialog</code>: otwiera <a href="{{root}}docs/developers/bots.html#dialogs">okno dialogowe</a>.</li>
+<li><code>LogInfo</code>, <code>LogError</code> i podobne: zapisuj do dziennika serwera, z oznaczeniem identyfikatorem aplikacji.</li>
+<li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: sprawdzaj, kto może co zrobić, zanim wykonasz akcję w imieniu użytkownika.</li>
+</ul>
+<p>Aplikacja działa na każdym serwerze klastra. Przechowuj stan w magazynie kluczo-wartości lub w bazie danych, a nie tylko w pamięci.</p>
+
+<h2 id="kv">Przechowywanie danych</h2>
+<p>Każda aplikacja ma własny magazyn kluczo-wartości w bazie danych serwera:</p>
+<ul>
+<li><code>KVSet(key, value)</code>, <code>KVGet(key)</code>, <code>KVDelete(key)</code>: wartości to bajty, zwykle JSON. Klucze mają maksymalnie 150 znaków.</li>
+<li><code>KVSetWithExpiry(key, value, seconds)</code>: wartość znika po upływie tego czasu.</li>
+<li><code>KVCompareAndSet(key, old, new)</code> oraz <code>KVSetWithOptions</code> z opcją <code>Atomic</code>: bezpieczne aktualizacje, gdy wiele żądań lub serwerów zapisuje ten sam klucz. Ankieta zapisuje w ten sposób każdy głos i ponawia próbę w przypadku konfliktu.</li>
+<li><code>KVList(page, perPage)</code>: klucze, strona po stronie.</li>
+</ul>
+
+<h2 id="webapp">Część aplikacji webowej</h2>
+<p>Pakiet rejestruje klasę za pomocą <code>window.registerPlugin</code>. Jej metoda <code>initialize</code> otrzymuje rejestr oraz magazyn Redux:</p>
+<pre><code>import manifest from './manifest';
+
+class Plugin {
+    initialize(registry, store) {
+        registry.registerTranslations((locale) =&gt; translationsFor(locale));
+        registry.registerPostTypeComponent('custom_poll', PollPost);
+        registry.registerWebSocketEventHandler(`custom_${manifest.id}_poll_updated`, (msg) =&gt; {
+            store.dispatch(pollUpdated(JSON.parse(msg.data.poll)));
+        });
+        registry.registerReconnectHandler(() =&gt; store.dispatch(reloadPolls()));
+    }
+}
+
+window.registerPlugin(manifest.id, new Plugin());</code></pre>
+<ul>
+<li><b>Biblioteki współdzielone.</b> Aplikacja webowa udostępnia React, ReactDOM, Redux, React Redux i React Intl: wymień je jako <code>externals</code> w webpack (<code>React</code>, <code>ReactDOM</code>, <code>Redux</code>, <code>ReactRedux</code>, <code>ReactIntl</code>), zamiast pakować własne kopie. Zobacz <code>webpack.config.js</code> w Ankiecie.</li>
+<li><b>Wywoływanie części serwerowej.</b> Używaj <code>${window.basename}/plugins/&lt;app id&gt;/…</code> z opcjami z <code>Client4.getOptions()</code> (z <code>mattermost-redux/client</code>): zawierają one nagłówki, których serwer potrzebuje, aby zaakceptować żądanie z przeglądarki.</li>
+<li><b>Własny stan.</b> <code>registerReducer</code> dodaje reducer, przechowywany pod <code>state['plugins-&lt;app id&gt;']</code>.</li>
+<li><b>Typy.</b> Dodatkowe metody rejestru Antimatter nie są zawarte w opublikowanych typach Mattermost: Ankieta deklaruje używany rejestr w <code>webapp/src/types/host.ts</code>.</li>
+</ul>
+<p>Metody rejestru i ich parametry są udokumentowane w kodzie, w <code>webapp/fusion/src/plugins/registry.ts</code> (Fusion) oraz <code>webapp/channels/src/plugins/registry.ts</code> (klasyczny).</p>
+
+<h2 id="fusion">Obsługa interfejsu Fusion</h2>
+<p>Antimatter ma dwa interfejsy webowe: Fusion (domyślny) i klasyczny. Oba ładują te same pakiety aplikacji i mają ten sam rejestr, ale Fusion rysuje wiele elementów samodzielnie i umieszcza komponenty pluginów na własny sposób. Przetestuj aplikację w obu interfejsach.</p>
+<h3>Wykrywanie interfejsu</h3>
+<p>Zanim załaduje się jakakolwiek aplikacja, oba interfejsy ustawiają <code>window.antimatterWebUI</code> na <code>'fusion'</code> lub <code>'classic'</code>, a tę samą wartość na elemencie głównym strony jako <code>data-am-web-ui</code>. W Mattermost żadna z nich nie jest ustawiona.</p>
+<pre><code>export function isFusionUI(): boolean {
+    return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
+}</code></pre>
+<p>Zainstalowane aplikacje używają tego mechanizmu, aby renderować interfejs w inny sposób. Ankieta wyświetla swoje karty ankiet oraz okno dialogowe tworzenia w stylu Fusion i otwiera własne okno dialogowe dla polecenia <code>/poll</code> w Fusion. Rozmowy i kanały głosowe pomijają pasek boczny oraz komponenty toast, które Fusion zastępuje własnym interfejsem rozmów. Aplikacja Agent umieszcza swoje akcje AI w podmenu menu wiadomości, a nie na pasku narzędzi pojawiającym się po najechaniu. Własne klasy CSS Fusion (z prefiksem <code>am-</code>) oraz jej warstwa okien dialogowych (element <code>am-layer</code>) są tym, czego te aplikacje używają, aby dopasować się do interfejsu; nie stanowią one udokumentowanego, stabilnego API.</p>
+<h3>Gdzie Fusion wyświetla komponenty wtyczek</h3>
+<table>
+<thead><tr><th>Metoda rejestru</th><th>Gdzie pojawia się w Fusion</th></tr></thead>
+<tbody>
+<tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>Pasek aplikacji, kolumna ikon na prawej krawędzi, między Twoim awatarem a przyciskiem <b>O Antimatter</b>. Przyciski nagłówka kanału również umieszczane są w tym miejscu, a nie w nagłówku kanału. Ukryty, gdy administrator systemu włączy <b>Wyłącz pasek aplikacji</b> (<code>ExperimentalSettings.DisableAppBar</code>, domyślnie wyłączony).</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>Prawy panel. Użytkownicy mogą zmieniać jego rozmiar, przeciągając krawędź. Jeśli aplikacja jest również produktem, panel oferuje opcję <b>Otwórz na całej stronie</b>.</td></tr>
+<tr><td><code>registerChannelHeaderIcon</code></td><td>Ikony w nagłówku kanału, po przyciskach rozmów; na telefonach w menu <b>Więcej</b> nagłówka.</td></tr>
+<tr><td><code>registerCallButtonAction</code></td><td>Przycisk rozmowy w nagłówku kanału; kilku dostawców udostępnia menu <b>Inne opcje rozmowy</b>.</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>Menu <b>Więcej Akcji</b> (⋯) wiadomości, w podmenu <b>Wiadomości akcji</b>; również w menu <b>Akcje wątku</b> panelu wątku, pod <b>Więcej Akcji</b>.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Własne podmenu tych samych menu, z nazwą i ikoną aplikacji.</td></tr>
+<tr><td><code>registerPostActionComponent</code></td><td>Pasek narzędzi pojawiający się po najechaniu na wiadomość, przed przyciskiem ⋯.</td></tr>
+<tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>Sama wiadomość: jej treść, pod jej tekstem, po czasie, oraz w miejscu podglądów linków.</td></tr>
+<tr><td><code>registerChannelHeaderMenuAction</code></td><td>Menu <b>Opcje kanału</b> (⋯ na kanale w pasku bocznym lub kliknięcie prawym przyciskiem myszy), jako elementy z ikoną wtyczki.</td></tr>
+<tr><td><code>registerMainMenuAction</code></td><td>Menu społeczności (nazwa społeczności u góry listy kanałów), pod <b>Więcej akcji</b>, pogrupowane według aplikacji.</td></tr>
+<tr><td><code>registerSidebarBrowseOrAddChannelMenuAction</code></td><td>Menu społeczności, po <b>Utwórz kanał</b> i <b>Utwórz kategorię</b>.</td></tr>
+<tr><td><code>registerFileUploadMethod</code></td><td>Menu <b>+</b> kompozytora (<b>Dodaj do wiadomości</b>), po <b>Prześlij plik</b>.</td></tr>
+<tr><td><code>registerPostEditorActionComponent</code></td><td>Pasek formatowania kompozytora, gdy formatowanie jest wyświetlane.</td></tr>
+<tr><td><code>registerAIActionMenuItemComponent</code></td><td>Menu <b>AI</b> kompozytora.</td></tr>
+<tr><td><code>registerFileDropdownMenuAction</code>, <code>registerFilePreviewComponent</code></td><td>Menu opcji pliku oraz podgląd pliku.</td></tr>
+<tr><td><code>registerUserSettings</code></td><td><b>Profil i ustawienia</b>, jedna zakładka na aplikację pod nagłówkiem <b>Wtyczki</b>.</td></tr>
+<tr><td><code>registerChannelSettingsTab</code></td><td>Okno dialogowe ustawień kanału, pod nagłówkiem <b>Aplikacje</b>.</td></tr>
+<tr><td><code>registerPopoverUserAttributesComponent</code>, <code>registerPopoverUserActionsComponent</code></td><td>Karta profilu wyświetlana po kliknięciu nazwy lub awatara.</td></tr>
+<tr><td><code>registerLeftSidebarHeaderComponent</code>, <code>registerSidebarChannelLinkLabelComponent</code>, <code>registerChannelIconOverride</code>, <code>registerBottomTeamSidebarComponent</code></td><td>Górna część listy kanałów przestrzeni roboczej, obok nazwy kanału, ikony kanału oraz dolna część paska bocznego po lewej stronie.</td></tr>
+<tr><td><code>registerChannelIntro</code>, <code>registerChannelIntroButtonAction</code>, <code>registerChannelToastComponent</code>, <code>registerNewMessagesSeparatorActionComponent</code>, <code>registerChannelComposerBannerComponent</code>, <code>registerComposerPlaceholder</code></td><td>Początek historii kanału, górna część listy wiadomości, linia nieprzeczytanych, nad polem tworzenia wiadomości oraz placeholder w tym polu.</td></tr>
+<tr><td><code>registerChannelTypeOption</code></td><td>Typy kanałów w oknie dialogowym <b>Utwórz kanał</b>.</td></tr>
+<tr><td><code>registerSearchComponents</code></td><td>Pole wyszukiwania w nagłówku kanału: zakresy aplikacji pojawiają się, gdy jest puste.</td></tr>
+<tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>O Antimatter</b> (na dole paska aplikacji), pod <b>Pomoc</b>.</td></tr>
+<tr><td><code>registerProduct</code></td><td>Pełne strony pod adresem URL produktu, wymienione pod <b>Produkty</b> w <b>O Antimatter</b>. Strony produktów zachowują klasyczny układ strony.</td></tr>
+<tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, haki takie jak <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>Działają tak jak w klasycznym interfejsie.</td></tr>
+<tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>Konsola systemu, która jest klasyczna w obu interfejsach.</td></tr>
+</tbody>
+</table>
+<h3>Czego Fusion nie wyświetla ani nie uruchamia</h3>
+<ul>
+<li><code>registerPostDropdownMenuComponent</code> (komponent w menu wiadomości), <code>registerPostCardTypeComponent</code> (karta wiadomości w panelu po prawej) oraz <code>registerProductSwitcherMenuItem</code> nie są wyświetlane w głównych widokach Fusion. Zamiast pierwszego użyj <code>registerPostDropdownMenuAction</code>.</li>
+<li><code>registerMessageWillBeUpdatedHook</code> nie uruchamia się, gdy wiadomość jest edytowana w Fusion. Sprawdź edycje na serwerze za pomocą haka <code>MessageWillBeUpdated</code>.</li>
+<li><code>registerActionAfterChannelCreation</code> uruchamia się tylko z klasycznego okna dialogowego tworzenia kanału, które Fusion otwiera z opcji <b>Więcej opcji…</b> w swoim oknie dialogowym <b>Utwórz kanał</b>.</li>
+<li>Komponenty paska aplikacji są wyświetlane niezależnie od wartości <code>supportedProductIds</code>.</li>
+<li>Trasy z <code>registerNeedsTeamRoute</code> i <code>registerCustomRoute</code> zachowują klasyczny układ strony, podobnie jak produkty.</li>
+</ul>
+
+<h2 id="antimatter-hooks">Haki dostępne tylko w Antimatter</h2>
+<p>Te metody rejestru nie istnieją w Mattermost. Sprawdź, czy metoda istnieje, przed jej wywołaniem, aby aplikacja działała również tam:</p>
+<pre><code>if (typeof registry.registerComposerMenuItem === 'function') {
+    registry.registerComposerMenuItem({
+        text: 'Create a poll',
+        icon: &lt;i className='icon icon-chart-bar'/&gt;,
+        fusionIcon: 'poll',
+        action: ({channelId, rootId}) =&gt; openPollCreation(channelId, rootId),
+    });
+} else {
+    registry.registerChannelHeaderButtonAction(icon, (channel) =&gt; openPollCreation(channel.id), 'Create a poll', 'Create a poll');
+}</code></pre>
+<table>
+<thead><tr><th>Metoda</th><th>Co dodaje</th></tr></thead>
+<tbody>
+<tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>Pozycja w menu <b>+</b> w polu wiadomości, w obu interfejsach. <code>action</code> otrzymuje <code>{channelId, rootId}</code>.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Zakładka w oknie wyboru emoji w polu wiadomości, np. GIF-y lub naklejki. W Fusion zakładki z wartością <code>order</code> mniejszą niż 10 pojawiają się przed zakładką Emoji. Komponent otrzymuje <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> oraz <code>isFusion</code>.</td></tr>
+<tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>Panel umieszczony między nagłówkiem kanału a wiadomościami, dla kanałów wybranych przez <code>matcher(state, channel)</code>. Może ukryć wiadomości i pole kompozycji (<code>setMessagesVisible</code>), tak jak to robią kanały głosowe.</td></tr>
+<tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>Wiersz pod kanałem w pasku bocznym, np. osoby uczestniczące w jego rozmowie. Otrzymuje <code>channel</code>.</td></tr>
+<tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Tylko Fusion: wpis na stronach <b>Integracje</b>, obok niestandardowych emoji. Aplikacja GIF dodaje tam swoje niestandardowe GIF-y i naklejki.</td></tr>
+</tbody>
+</table>
+<p><code>fusionIcon</code> określa nazwę ikony z zestawu ikon Fusion (np. <code>poll</code>, <code>sticker</code>, <code>calendar</code> lub <code>image</code>; patrz <code>webapp/fusion/src/fusion/components/icon</code>). Fusion wyświetla ją zamiast <code>icon</code>, aby element był spójny z pozostałymi.</p>
+
+<h2 id="settings">Ustawienia</h2>
+<p><code>settings_schema</code> w <code>plugin.json</code> opisuje stronę aplikacji w <b>Konsola systemu › Wtyczki</b>:</p>
+<pre><code>"settings_schema": {
+  "header": "Forecasts come from the weather service below.",
+  "settings": [
+    {"key": "ServiceURL", "display_name": "Service URL", "type": "text", "default": "https://api.example.com"},
+    {"key": "Units", "display_name": "Units", "type": "dropdown", "default": "metric",
+     "options": [{"display_name": "Celsius", "value": "metric"}, {"display_name": "Fahrenheit", "value": "imperial"}]},
+    {"key": "EnableAlerts", "display_name": "Severe weather alerts", "type": "bool", "default": false,
+     "help_text": "Post alerts in the channels that follow a city."}
+  ]
+}</code></pre>
+<p>Typy ustawień: <code>bool</code>, <code>text</code>, <code>longtext</code>, <code>number</code>, <code>dropdown</code>, <code>radio</code>, <code>generated</code> (losowa wartość tajna), <code>username</code> oraz <code>custom</code> (rysowane przez komponent zarejestrowany przez część aplikacji webowej za pomocą <code>registerAdminConsoleCustomSetting</code>). Ustawienia można grupować w <code>sections</code>.</p>
+<p>Część serwerowa odczytuje je do struktury, której pola odpowiadają kluczom:</p>
+<pre><code>type configuration struct {
+	ServiceURL   string
+	Units        string
+	EnableAlerts bool
+}
+
+func (p *Plugin) OnConfigurationChange() error {
+	var cfg configuration
+	if err := p.API.LoadPluginConfiguration(&amp;cfg); err != nil {
+		return err
+	}
+	p.setConfiguration(&amp;cfg)
+	return nil
+}</code></pre>
+<p>Administratorzy mogą je również ustawić w konfiguracji, pod <code>PluginSettings.Plugins.&lt;app id&gt;</code>, z kluczami zapisanymi małymi literami (patrz <a href="{{root}}docs/admins/configuration.html#amctl">przewodnik administratora</a>).</p>
+
+<h2 id="translations">Tłumaczenia</h2>
+<p>Antimatter jest tłumaczony na 37 języków, a także na języki używane przez dołączone aplikacje. Część aplikacji webowej robi to w następujący sposób:</p>
+<ol>
+<li>Zapisz każdy ciąg za pomocą React Intl, z identyfikatorem i jego tekstem po angielsku: <code>&lt;FormattedMessage id='polls.create' defaultMessage='Create a poll'/&gt;</code> lub <code>defineMessages</code>. Prefiksuj identyfikatory nazwą swojej aplikacji.</li>
+<li>Wyodrębnij angielskie ciągi do <code>webapp/i18n/en.json</code> (dołączone aplikacje używają <code>formatjs extract</code>).</li>
+<li>Dodaj jeden plik dla każdego języka obok niego, z tymi samymi identyfikatorami: <code>fr.json</code>, <code>de.json</code>, <code>pt-BR.json</code>, <code>zh-CN.json</code>…</li>
+<li>Przekaż je aplikacji webowej, która zapyta o język użytkownika:
+<pre><code>import fr from '../i18n/fr.json';
+import ptBR from '../i18n/pt-BR.json';
+
+const catalogs = {fr, 'pt-BR': ptBR};
+
+export function translationsFor(locale) {
+    return catalogs[locale] || catalogs[locale.split('-')[0]] || {};
+}
+
+registry.registerTranslations(translationsFor);</code></pre></li>
+</ol>
+<p>Brakujący ciąg jest zwracany jako jego angielski <code>defaultMessage</code>. W przypadku ciągów wysyłanych przez część serwerową (odpowiedzi na polecenia, wiadomości botów), pakiet <code>pluginapi/i18n</code> ładuje pliki tłumaczeń dołączone do pakietu (na przykład <code>assets/i18n</code>) i udostępnia lokalizator w języku każdego użytkownika.</p>
+
+<h2 id="build">Kompilacja, instalacja i debugowanie</h2>
+<p>Wymagane są Go i Node.js (wersja z pliku <code>.nvmrc</code> aplikacji). W folderze aplikacji:</p>
+<table>
+<thead><tr><th>Polecenie</th><th>Opis</th></tr></thead>
+<tbody>
+<tr><td><code>make dist</code></td><td>Kompiluje część serwerową dla każdej platformy oraz część aplikacji webowej i zapisuje pakiet do <code>dist/&lt;app id&gt;-&lt;version&gt;.tar.gz</code>.</td></tr>
+<tr><td><code>make test</code></td><td>Uruchamia testy Go i JavaScript.</td></tr>
+<tr><td><code>make check-style</code></td><td>Sprawdza kod (golangci-lint, ESLint) i typy TypeScript.</td></tr>
+<tr><td><code>make deploy</code></td><td>Kompiluje, a następnie instaluje i włącza pakiet na serwerze.</td></tr>
+<tr><td><code>make watch</code>, <code>make deploy-from-watch</code></td><td>Pierwsze polecenie kompiluje część aplikacji webowej za każdym razem, gdy zapiszesz zmiany; drugie tworzy pakiet z wygenerowanych plików i instaluje go na serwerze.</td></tr>
+<tr><td><code>make enable</code>, <code>make disable</code>, <code>make reset</code></td><td>Włącza, wyłącza lub ponownie uruchamia aplikację na serwerze.</td></tr>
+<tr><td><code>make logs</code>, <code>make logs-watch</code></td><td>Wyświetla wpisy aplikacji w dzienniku serwera.</td></tr>
+<tr><td><code>make attach</code></td><td>Dołącza debugger Delve do działającej części serwerowej (najpierw skompiluj z <code>AM_DEBUG=1</code>).</td></tr>
+</tbody>
+</table>
+<p><code>make deploy</code> i inne polecenia serwerowe używają lokalnego gniazda trybu lokalnego, jeśli je znajdą (<code>/var/tmp/antimatter_local.socket</code> lub <code>AM_LOCALSOCKETPATH</code>): uruchom je na maszynie serwera z włączonym trybem lokalnym. W przeciwnym razie logują się na serwerze określonym przez <code>MM_SERVICESETTINGS_SITEURL</code> za pomocą <code>AM_ADMIN_TOKEN</code> lub <code>AM_ADMIN_USERNAME</code> i <code>AM_ADMIN_PASSWORD</code>. Narzędzia do kompilacji nie odczytują jeszcze nazwy <code>AM_</code> dla adresu URL witryny.</p>
+<h3>Ręczna instalacja pakietu</h3>
+<ul>
+<li>Administrator systemu umożliwia przesyłanie plików za pomocą <code>AM_PLUGINSETTINGS_ENABLEUPLOADS=true</code> (domyślnie wyłączona; nie ma przełącznika w Konsoli systemu).</li>
+<li>Następnie <b>Konsola systemu › Wtyczki › Zarządzanie wtyczkami › Wyślij Wtyczkę</b>, albo <code>amctl plugin add weather.tar.gz</code>, a następnie <code>amctl plugin enable com.example.weather</code>.</li>
+<li>Jeśli na serwerze włączona jest opcja <b>Wymagaj sygnatury wtyczki</b>, akceptowane są tylko pakiety podpisane kluczem, któremu serwer ufa; zob. <a href="{{root}}docs/admins/apps.html#other-apps">Instalowanie innych aplikacji</a>.</li>
+</ul>
+<div class="callout">Do szybkiej iteracji na serwerze deweloperskim ustaw <code>AM_SERVICESETTINGS_ENABLEDEVELOPER=true</code> na serwerze: błędy będą wtedy zawierać szczegóły. Makefile'y dołączonych aplikacji kompilują część serwerową tylko dla Twojej platformy, gdy w powłoce ustawione jest <code>MM_SERVICESETTINGS_ENABLEDEVELOPER</code>.</div>

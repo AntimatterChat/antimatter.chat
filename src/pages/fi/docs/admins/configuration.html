@@ -1,0 +1,120 @@
+title: Asetukset
+description: Näin Antimatterin asetukset toimivat: asetukset tietokannassa tai config.json-tiedostossa, AM_-ympäristömuuttujat, järjestelmäkonsoli, amctl-komentorivityökalu ja lokitiedostojen sijainti.
+guide: admins
+order: 3
+nav: Asetukset
+lead: Missä Antimatterin asetukset sijaitsevat, kolme tapaa muuttaa niitä (järjestelmäkonsoli, ympäristömuuttujat, amctl) ja minne lokitiedostot tallennetaan.
+source: e2d6546121d3
+---
+<h2 id="where">Asetusten sijainti</h2>
+<p>Jokaisella palvelimen asetuksella on nimi, joka koostuu osiosta ja avaimesta, kuten <code>ServiceSettings.SiteURL</code> tai <code>EmailSettings.SMTPServer</code>. Yhdessä ne muodostavat yhden asetuskokonaisuuden, joka tallennetaan jompaan kumpaan näistä kahdesta sijainnista:</p>
+<ul>
+<li><b>Tietokannassa.</b> Sivuston komposittitiedosto asettaa <code>AM_CONFIG</code>-muuttujan PostgreSQL-yhteyden osoitteeksi, jolloin asetukset ovat tietokannan rivi ja konttineri ei säilytä mitään levylle. Useat palvelimet, jotka jakavat saman tietokannan, jakavat myös asetukset.</li>
+<li><b>Tiedostossa.</b> Ilman <code>AM_CONFIG</code>-muuttujaa palvelin lukee asetukset <code>config/config.json</code>-tiedostosta, joka sijaitsee <code>bin/</code>-hakemiston vieressä (<code>/antimatter/config/config.json</code> Docker-kuvassa). Antimatter-dockerin julkaisupaketit ja tuotantoympäristön komposittitiedostot toimivat tällä tavalla. Varmista, että tämä tiedosto on luettava vain palvelimen käyttäjälle: se sisältää salasanoja ja avaimia.</li>
+</ul>
+<p><code>AM_CONFIG</code>-muuttuja (tai <code>antimatter</code>-komennon <code>--config</code>-valitsin) hyväksyy joko tiedostopolun tai <code>postgres://</code>-osoitteen. Asetukset, jotka jätät määrittämättä, saavat oletusarvonsa.</p>
+<p>Siirtääksesi olemassa olevan asetuskokonaisuuden tiedostosta tietokantaan, aja tämä komento palvelimella ja käynnistä sitten palvelin asettamalla <code>AM_CONFIG</code>-muuttujaksi sama osoite:</p>
+<pre><code>amctl --local config migrate /opt/antimatter/config/config.json \
+    "postgres://antimatter:PASSWORD@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10"</code></pre>
+
+<h2 id="environment">Ympäristömuuttujat</h2>
+<p>Mikäänkin asetus voidaan myös antaa ympäristömuuttujana. Ympäristömuuttujat ohittavat tallennetut asetukset, mikä tekee niistä sopivia sille, mikä liittyy deploytointiin: tietokanta, sivuston osoite, tiedostovarasto ja portit.</p>
+<h3>Nimennössääntö</h3>
+<p>Kirjoita <code>AM_</code>, sitten osion nimi, sitten avain, isoilla kirjaimilla ja allinvetoilla erotteluna. Osion tai avaimen sisäiset sanat eivät eriytetä:</p>
+<table>
+<thead><tr><th>Asetus</th><th>Muuttuja</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.SiteURL</code></td><td><code>AM_SERVICESETTINGS_SITEURL</code></td></tr>
+<tr><td><code>SqlSettings.DataSource</code></td><td><code>AM_SQLSETTINGS_DATASOURCE</code></td></tr>
+<tr><td><code>EmailSettings.SMTPServer</code></td><td><code>AM_EMAILSETTINGS_SMTPSERVER</code></td></tr>
+<tr><td><code>PrivacySettings.EnableUserBlocking</code></td><td><code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li>True- ja false-asetukset ottavat arvot <code>true</code> tai <code>false</code>; luvut ovat pelkkiä numeroita.</li>
+<li>Listamaiset asetukset ottavat arvonsa välilyönnein erotteluna, esimerkiksi <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>.</li>
+<li>Objektimaiset asetukset ottavat JSON:n. Ainoa tällainen muuttuja sovelluksille on <code>AM_PLUGINSETTINGS_PLUGINS</code>, ja se korvaa <em>kaikkien</em> sovellusten asetukset kerralla: aseta sovellusasetukset sen sijaan järjestelmäkonsolissa tai <code>amctl</code>:llä (katso alla).</li>
+<li>Vanhemmat Mattermost-asennukset käyttävät <code>MM_</code>-eteenliitettä, esimerkiksi <code>MM_SQLSETTINGS_DATASOURCE</code>. Se toimii yhä legacy-nimikkeellä. Jos molemmat on asetettu, <code>AM_</code>-muuttuja voittaa.</li>
+</ul>
+<p>Muuttujalla annettu asetus lukitaan Järjestelmäkonsolissa huomautuksella "Tämä asetus on määritetty ympäristömuuttujalla. Sitä ei voi muuttaa Järjestelmäkonsolissa." Sitä ei kirjoiteta tallennettuun asetuskokonaisuuteen: poista muuttuja, niin tallennettu arvo alkaa jälleen voimaantua.</p>
+<h3>Docker Compose:n kanssa</h3>
+<p>Lisää muuttujat <code>antimatter</code>-palvelun <code>environment:</code>-osioon tai <code>compose.override.yaml</code>-tiedostoon, joka sijaitsee <code>compose.yaml</code>:n vieressä (Compose lukee sen automaattisesti, ja se säilyy ladatun tiedoston päivitysten jälkeen):</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_LOGSETTINGS_CONSOLELEVEL: INFO</code></pre>
+<p>Käytä komentoa <code>docker compose up -d</code> muutosten soveltamiseen. Tämä luo kontin uudestaan.</p>
+<h3>Muuttujat, joita sovellukset lukevat</h3>
+<p>Muutamat sovellukset lukevat omat muuttujansa, jotka asetetaan <code>antimatter</code>-palvelulle: Calls-sovellus lukee <code>AM_CALLS_*</code> (ks. <a href="{{root}}docs/admins/calls.html">Puhelut ja ääni</a>), ja GIFs-sovellus lukee <code>AM_GIFS_SERVICE_URL</code>, <code>AM_GIFS_API_KEY</code> ja <code>AM_GIFS_UPLOAD_KEY</code> (ks. <a href="{{root}}docs/admins/apps.html">Sisällytetyt sovellukset</a>).</p>
+
+<h2 id="console">Järjestelmäkonsoli</h2>
+<p>Järjestelmäkonsoli on web-sovelluksen hallinta-alue järjestelmänvalvojille. Avaa se napsauttamalla profiilikuvaasi ja valitsemalla <b>Järjestelmäkonsoli</b>, tai siirry osoitteeseen <code>https://chat.example.com/admin_console</code>. Sen sivupalkissa on <b>Etsi asetuksia</b>-ruutu, joka hakee kaikilta sivuilta.</p>
+<figure><img src="{{root}}assets/img/shots/admin.webp" alt="The System Console, with its sidebar of sections on the left and the SAML 2.0 settings page on the right."><figcaption>Järjestelmäkonsoli. Sivupalkki ryhmittelee sivut osioihin, kuten Raportointi, Käyttäjien hallinta ja Ympäristö.</figcaption></figure>
+<p>Osiot ovat:</p>
+<ul>
+<li><b>Raportointi</b>: tilastot ja palvelimen lokit.</li>
+<li><b>Käyttäjien hallinta</b>: käyttäjät, ryhmät, yhteisöt (luettelossa nimellä Teams), kanavat, oikeudet ja delegoitu hallinta.</li>
+<li><b>Järjestelmän ominaisuudet</b>: mukautetut profiiliominaisuudet ja ominaisuuteen perustuva pääsy.</li>
+<li><b>Ympäristö</b>: web-palvelin, tietokanta, tiedostovarasto, kuvaprokse, SMTP, push-ilmoitukset, nopeusrajoitus, lokitus, istuntojen kesto ja suorituskyvden seuranta.</li>
+<li><b>Sivuston asetukset</b>: brändäys, käyttäjät ja tiimit, ilmoitukset, viestit, tiedostojen jakaminen ja muut palvelinlaajuiset toiminnallisuudet.</li>
+<li><b>Tunnistautuminen</b>: rekisteröityminen, sähköpostitse ja salasanalla tunnistautuminen, MFA, AD/LDAP, SAML 2.0, OAuth 2.0, OpenID Connect ja vieras käyttö.</li>
+<li><b>Liiteohjelmat</b>: sovellusten hallinta ja kunkin asennetun sovelluksen asetukset.</li>
+<li><b>Integraatiot</b>: webhooks, kauttaviivakomennot, bottitilit, GIFit, teksti puheeksi, CORS.</li>
+<li><b>Noudattaminen</b>: tietojen säilytys, noudattamistiedoston vienti ja seuranta, tilintarkastuslokit, mukautetut käyttöehdot.</li>
+<li><b>Kokeelliset</b>: ominaisuudet, jotka voivat muuttua.</li>
+</ul>
+<p>Tässä ohjeessa asetukset esitetään niiden polkuna järjestelmäkonsolissa, sitten niiden nimikkeellä ja lopuksi niiden asetustavulla. Esimerkiksi <b>Järjestelmäkonsoli › Sivuston asetukset › Käyttäjät ja tiimit › Ota ignorointi, esto ja viestipyynnöt käyttöön</b> (<code>PrivacySettings.EnableUserBlocking</code>).</p>
+<p>Useimmat muutokset tulevat voimaan heti, kun napsautat <b>Tallenna</b>. Joillakin (kuunteluaadressi, tietokanta- ja välimuokka-asetukset) tarvitaan uudelleenkäynnistys, ja sivu kertoo tästä.</p>
+
+<h2 id="amctl">amctl-komentorakennustyökalu</h2>
+<p><code>amctl</code> hallinnoi palvelinta komentoriviltä: käyttäjiä, yhteisöjä, kanavia, sovelluksia, asetuksia, työtehtäviä ja paljon muuta. Se kommunikoi palvelimen kanssa kahdella tavalla.</p>
+<h3>Paikallinen tila, palvelimella</h3>
+<p>Paikallinen tila mahdollistaa <code>amctl</code>:n kommunikoinnin palvelimen kanssa Unix-pistorasian kautta ilman kirjautumista. Se on käytössä Docker-kuvassa. Palvelimelle, joka on asennettu arkistosta, ota se käyttöön asetuksella <b>ServiceSettings.EnableLocalMode</b> (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>). Pistorasia on oletuksena <code>/var/tmp/antimatter_local.socket</code> (<code>ServiceSettings.LocalModeSocketLocation</code>).</p>
+<pre><code># with Docker Compose
+docker compose exec antimatter amctl --local system status
+# with a release archive
+sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code></pre>
+<div class="callout warn">Kaikilla, jotka voivat käyttää pistorasiaa tai ajaa <code>docker compose exec</code> -komentia isäntä koneella, on täydet järjestelmänvalvojan oikeudet.</div>
+<h3>Etätila, tilillä</h3>
+<p>Miltä tahansa koneelta, kirjaudu järjestelmänvalvojan tilillä (tai henkilökohtaisella pääsytunnisteella) ja aja komennot kyseistä palvelinta kohtaan:</p>
+<pre><code>amctl auth login https://chat.example.com --name prod --username admin
+amctl system status</code></pre>
+<h3>Asetuskomennot</h3>
+<table>
+<thead><tr><th>Komento</th><th>Toiminto</th></tr></thead>
+<tbody>
+<tr><td><code>amctl config get ServiceSettings.SiteURL</code></td><td>Tulostaa yhden asetuksen.</td></tr>
+<tr><td><code>amctl config set TeamSettings.EnableOpenServer false</code></td><td>Muuttaa yhden asetuksen. Listan asetuksissa voi olla useita arvoja.</td></tr>
+<tr><td><code>amctl config patch settings.json</code></td><td>Yhdistää JSON-tiedoston asetukset nykyisiin asetuksiin.</td></tr>
+<tr><td><code>amctl config show</code></td><td>Tulostaa koko asetukset JSON-muodossa.</td></tr>
+<tr><td><code>amctl config edit</code></td><td>Avaa asetukset muokkajassasi (<code>$EDITOR</code>).</td></tr>
+<tr><td><code>amctl config reset</code></td><td>Palauttaa asetukset oletusarvoihin.</td></tr>
+<tr><td><code>amctl config reload</code></td><td>Lataa asetukset uudelleen tallennuspaikasta, kun muutokset on tehty palvelimen ulkopuolelta.</td></tr>
+</tbody>
+</table>
+<p>Sovellusasetukset sijaitsevat polulla <code>PluginSettings.Plugins.&lt;app id&gt;</code>, ja avaimet ovat pien kirjaimilla. Esimerkiksi, asettaaksesi GIFs-sovelluksen palvelin URL:n ja avaimen Docker-isännältä:</p>
+<pre><code>docker compose exec -T antimatter amctl --local config patch /dev/stdin &lt;&lt;'EOF'
+{"PluginSettings": {"Plugins": {"com.antimatterchat.gifs": {
+  "serviceurl": "http://gifs:8080/v2",
+  "apikey": "the GIFS_API_KEY of your .env"
+}}}}
+EOF</code></pre>
+<p>Muut hyödylliset komennot: <code>amctl user create</code>, <code>amctl user deactivate</code>, <code>amctl team create</code>, <code>amctl plugin list</code>, <code>amctl plugin enable</code>, <code>amctl system supportpacket</code> ja <code>amctl logs</code>. Aja <code>amctl help &lt;command&gt;</code> nähdäksesi kunkin komennon vaihtoehdot.</p>
+
+<h2 id="logs">Lokit</h2>
+<p>Palvelin kirjoittaa lokinsa kahteen kohtaan, joista kullakin on oma tasonsa (<code>DEBUG</code>, <code>INFO</code>, <code>WARN</code> tai <code>ERROR</code>), jotka määritetään kohdassa <b>Järjestelmäkonsoli › Ympäristö › Lokitus</b>:</p>
+<table>
+<thead><tr><th>Kohde</th><th>Asetukset</th><th>Oletusarvot</th></tr></thead>
+<tbody>
+<tr><td>Konsoli (standardituloste)</td><td><b>Tulosta lokit konsoliin</b> (<code>LogSettings.EnableConsole</code>), <b>Konsolilokin taso</b> (<code>LogSettings.ConsoleLevel</code>), <b>Tulosta konsolilokit JSON-muodossa</b> (<code>LogSettings.ConsoleJson</code>)</td><td>päällä, <code>DEBUG</code>, JSON</td></tr>
+<tr><td>Tiedosto, <code>antimatter.log</code></td><td><b>Loki tiedostoon</b> (<code>LogSettings.EnableFile</code>), <b>Tiedostolokin taso</b> (<code>LogSettings.FileLevel</code>), <b>Tiedostolokin hakemisto</b> (<code>LogSettings.FileLocation</code>)</td><td>päällä, <code>INFO</code>, <code>logs/</code>-hakemisto <code>bin/</code>-hakemiston vieressä</td></tr>
+</tbody>
+</table>
+<p>Lokitiedostot pyörivät 100 Mt:n kohdalla ja vanhat pakataan.</p>
+<p>Sivuston compose-tiedosto poistaa tiedostolokit käytöstä (<code>AM_LOGSETTINGS_ENABLEFILE=false</code>), joten lokit näkyvät vain kontin tulosteessa:</p>
+<pre><code>docker compose logs -f antimatter
+docker compose logs --since 1h antimatter | grep -i error</code></pre>
+<p>Konsolin lokitason oletusarvo on <code>DEBUG</code>, joka on erittäin tarkka. Asioitulla palvelimella aseta <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code>. Järjestelmäarkiston ollessa systemd-palveluna konsolin tuloste ohjataan journaliin (<code>journalctl -u antimatter</code>) ja tiedosto lokitiedostoon <code>/opt/antimatter/logs/antimatter.log</code>.</p>
+<p>Kun tiedostolokitus on käytössä, järjestelmänvalvojat voivat lukea uusin loki-rivit myös kohdasta <b>Järjestelmäkonsoli › Raportointi › Palvelinlokit</b> tai komennolla <code>amctl logs</code>.</p>

@@ -1,0 +1,126 @@
+title: Appels et voix
+description: Configurez les appels et les canaux vocaux d'Antimatter : le port média, NAT et STUN, TURN, le mode test, la vidéo, un serveur rtcd externe, la transcription et les sous-titres en direct avec votre propre modèle de reconnaissance vocale, ainsi que les enregistrements.
+guide: admins
+order: 5
+nav: Appels et voix
+lead: Les appels et les canaux vocaux transmettent l'audio, la vidéo et le partage d'écran directement au serveur sur son propre port. Cette page aborde l'aspect réseau, les paramètres à vérifier après l'installation, ainsi que la transcription avec un modèle de reconnaissance vocale que vous exécutez vous-même.
+source: 16057458346f
+---
+<h2 id="overview">Fonctionnement des appels</h2>
+<p>Les appels sont fournis par l'application <b>Appels</b> (id <code>com.mattermost.calls</code>), qui est installée et activée par défaut. Les canaux vocaux (l'application <b>Canaux vocaux</b>, image <code>antimatter-next</code>) sont des salles d'appel permanentes basées sur Appels : ils nécessitent que l'application Appels soit activée et utilisent les mêmes paramètres, ports et serveurs.</p>
+<p>L'application Appels exécute un serveur média au sein d'Antimatter. L'application web, l'application de bureau et les applications mobiles s'y connectent via WebRTC :</p>
+<ul>
+<li>la signalisation passe par la connexion web normale (votre proxy HTTPS) ;</li>
+<li>le <b>média</b> (audio, vidéo, partage d'écran) ne passe pas par là : il va directement au serveur sur le port des appels, <b>8443 UDP et TCP</b> par défaut.</li>
+</ul>
+<p>Les paramètres se trouvent dans <b>Console système › Plugins › Appels</b>. Chacun d'eux peut également être défini avec une variable d'environnement <code>AM_CALLS_</code> sur le service <code>antimatter</code>, ce qui prend alors le pas sur la Console système et verrouille le paramètre. Les noms hérités <code>MM_CALLS_</code> fonctionnent également.</p>
+
+<h2 id="after-install">Vérifiez ces éléments après l'installation</h2>
+<ol>
+<li><b>Ouvrez le port des appels.</b> Autorisez 8443/udp et 8443/tcp dans le pare-feu du serveur et de votre fournisseur cloud.</li>
+<li><b>Désactivez le mode test.</b> Le <b>Mode test</b> (<code>DefaultEnabled</code>) est activé par défaut : seuls les administrateurs système peuvent démarrer des appels dans les canaux, afin que vous puissiez vérifier que les appels fonctionnent avant que tout le monde ne les utilise. Définissez-le sur <b>Désactivé</b> dans <b>Console système › Plugins › Appels</b>, ou définissez <code>AM_CALLS_DEFAULT_ENABLED=true</code>.</li>
+<li><b>Décider de la vidéo.</b> <b>Activer les appels vidéo dans les messages personnels (expérimental)</b> (<code>EnableVideo</code>, <code>AM_CALLS_ENABLE_VIDEO</code>) est désactivé par défaut. Tant qu’il est désactivé, personne ne peut activer une caméra, même dans les canaux vocaux. Quand il est activé, les caméras fonctionnent dans les appels en message personnel et dans les canaux vocaux (sauf si <b>Autoriser la vidéo dans les canaux vocaux</b> de l’application Canaux vocaux est désactivé).</li>
+<li><b>Derrière un NAT, définissez l'adresse publique</b> (section suivante).</li>
+</ol>
+
+<h2 id="network">Ports, NAT et STUN</h2>
+<table>
+<thead><tr><th>Paramètre</th><th>Variable</th><th>Valeur par défaut</th></tr></thead>
+<tbody>
+<tr><td><b>Port du serveur RTC (UDP)</b></td><td><code>AM_CALLS_UDP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>Port du serveur RTC (TCP)</b></td><td><code>AM_CALLS_TCP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>Adresse du serveur RTC (UDP)</b>, <b>(TCP)</b></td><td><code>AM_CALLS_UDP_SERVER_ADDRESS</code>, <code>AM_CALLS_TCP_SERVER_ADDRESS</code></td><td>vide : toutes les adresses</td></tr>
+<tr><td><b>Remplacement de l'hôte ICE</b></td><td><code>AM_CALLS_ICE_HOST_OVERRIDE</code></td><td>vide : trouvé via STUN</td></tr>
+<tr><td><b>Substitution du port ICE hôte</b></td><td><code>AM_CALLS_ICE_HOST_PORT_OVERRIDE</code></td><td>vide : le port du serveur</td></tr>
+<tr><td><b>Configurations des serveurs ICE</b></td><td><code>AM_CALLS_ICE_SERVERS_CONFIGS</code></td><td><code>[{"urls":["stun:stun.cloudflare.com:3478"]}]</code></td></tr>
+<tr><td><b>(Expérimental) Activer la prise en charge d'IPv6</b></td><td>(Console système)</td><td>Désactivé</td></tr>
+</tbody>
+</table>
+<p>Les ports doivent être compris entre 80 et 49151. Avec le fichier compose du site, modifiez <code>CALLS_PORT</code> dans <code>.env</code> : cela définit les deux variables et publie le port, avec le même numéro sur l'hôte et dans le conteneur. Les clients essaient d'abord UDP, puis basculent sur TCP sur le même port.</p>
+<h3>L'adresse à laquelle les clients envoient les médias</h3>
+<p>Le serveur indique à chaque client l'adresse à laquelle envoyer les médias (son « candidat hôte »). Par défaut, il trouve son adresse publique en interrogeant un serveur STUN, un service public qui répond avec l'adresse et le port d'origine de la requête. La valeur par défaut est le serveur STUN public de Cloudflare, <code>stun:stun.cloudflare.com:3478</code>. Le serveur n'est pas le seul à l'utiliser : chaque client qui rejoint un appel l'interroge également pour obtenir sa propre adresse publique. Le serveur STUN ne voit que des adresses IP et des ports, jamais l'audio, la vidéo ou les messages des appels.</p>
+<p>Un serveur qui a encore le serveur STUN de Mattermost (<code>stun.global.calls.mattermost.com</code>) enregistré dans <b>Configurations des serveurs ICE</b>, par exemple après une migration depuis Mattermost, utilise celui de Cloudflare à la place. Le paramètre enregistré n'est pas modifié.</p>
+<p>Définissez l'adresse vous-même lorsque :</p>
+<ul>
+<li>le serveur est derrière un NAT, ou possède plusieurs adresses publiques : définissez <b>Substitution de l'hôte ICE</b> sur l'adresse IP publique (ou un nom d'hôte qui y résout) ;</li>
+<li>le NAT mappe un port public différent vers 8443 : définissez également <b>Substitution du port ICE hôte</b> sur ce port public ;</li>
+<li>le serveur n'a pas d'accès à Internet, ou vous ne souhaitez pas que le serveur et les clients contactent un serveur STUN externe : définissez <b>Substitution de l'hôte ICE</b>, et videz la liste STUN avec <code>AM_CALLS_ICE_SERVERS_CONFIGS=[]</code>. Avec <b>Substitution de l'hôte ICE</b> défini, le serveur n'interroge plus de serveur STUN pour obtenir son adresse ; la liste vide empêche les clients de le faire.</li>
+</ul>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ICE_HOST_OVERRIDE: 203.0.113.10
+      AM_CALLS_ICE_SERVERS_CONFIGS: "[]"</code></pre>
+<p>Pour conserver STUN sans tiers, exécutez votre propre serveur STUN (un serveur TURN tel que coturn répond également aux requêtes STUN) et listez-le dans <b>Configurations des serveurs ICE</b> à la place, comme dans l'exemple TURN ci-dessous.</p>
+<p>Sur un réseau local uniquement, utilisez l'adresse LAN du serveur. Redémarrez le serveur après avoir modifié les ports, les adresses ou les paramètres ICE, ou désactivez puis activez l'application Appels : le serveur de médias est configuré au démarrage de l'application.</p>
+
+<h2 id="turn">TURN, pour les pare-feu stricts</h2>
+<p>Certains réseaux bloquent à la fois le UDP et les connexions sortantes vers des ports TCP inhabituels. Les personnes qui y sont connectées ont besoin d'un serveur TURN, qui relaie les médias via un port accessible (souvent le 443). Antimatter n'en inclut pas ; exécutez un serveur TURN tel que coturn et ajoutez-le à <b>Configurations des serveurs ICE</b>, une liste JSON :</p>
+<pre><code>[
+  {"urls": ["stun:turn.example.com:3478"]},
+  {"urls": ["turn:turn.example.com:3478?transport=udp", "turns:turn.example.com:443?transport=tcp"]}
+]</code></pre>
+<ul>
+<li>Avec un secret partagé (l'option <code>use-auth-secret</code> de coturn), saisissez le même secret dans <b>Secret d'authentification statique TURN</b> (<code>AM_CALLS_TURN_STATIC_AUTH_SECRET</code>) : le serveur fournit à chaque client des identifiants à durée limitée, valides pendant <b>Durée de validité des identifiants TURN (minutes)</b> (240 par défaut).</li>
+<li>Avec des identifiants fixes, ajoutez <code>"username"</code> et <code>"credential"</code> à l'entrée TURN à la place.</li>
+<li><b>TURN côté serveur</b> (désactivé par défaut) utilise également les serveurs TURN pour les connexions initiées par le serveur.</li>
+</ul>
+
+<h2 id="general">Autres paramètres des appels</h2>
+<table>
+<thead><tr><th>Paramètre</th><th>Variable</th><th>Valeur par défaut</th><th>Fonction</th></tr></thead>
+<tbody>
+<tr><td><b>Nombre maximal de participants à un appel</b></td><td><code>AM_CALLS_MAX_CALL_PARTICIPANTS</code></td><td>0 (aucune limite)</td><td>Nombre maximal de personnes dans un même appel.</td></tr>
+<tr><td><b>Autoriser le partage d'écran</b></td><td>(Console système)</td><td>activé</td><td>Permet aux participants de partager leur écran.</td></tr>
+<tr><td><b>Activer la sonnerie des appels</b></td><td><code>AM_CALLS_ENABLE_RINGING</code></td><td>activé</td><td>Fait sonner les autres personnes d'un message personnel ou de groupe lorsqu'un appel y est initié.</td></tr>
+<tr><td><b>Activer le simulcast pour le partage d'écran (Expérimental)</b></td><td>(Console système)</td><td>Désactivé</td><td>Envoie les partages d'écran en plusieurs qualités.</td></tr>
+<tr><td><b>Activer le codec AV1 pour le partage d'écran (Expérimental)</b></td><td>(Console système)</td><td>Désactivé</td><td>Ignoré lorsque le simulcast est activé.</td></tr>
+</tbody>
+</table>
+<p>L'application Canaux vocaux comporte deux paramètres, dans <b>Console système › Plugins › Canaux vocaux</b> : <b>Rejoindre lors de l'ouverture d'un canal vocal</b> (activé par défaut) et <b>Autoriser la vidéo dans les canaux vocaux</b> (activé par défaut, mais voir la vidéo ci-dessus). Les administrateurs de la communauté transforment un canal en canal vocal dans ses paramètres.</p>
+<div class="callout">Pour désactiver complètement les appels, désactivez l'application Appels dans <b>Console système › Plugins › Gestion des plugins</b>, ou définissez <code>AM_CALLS_DISABLE=true</code>. Les canaux vocaux cessent alors de fonctionner également.</div>
+
+<h2 id="rtcd">Serveurs de grande taille : un rtcd externe</h2>
+<p>Par défaut, un serveur Antimatter gère tous les médias des appels. Pour de nombreux appels simultanés, ou pour ne pas charger le serveur de chat avec les médias, l'application Appels peut confier les médias à <b>rtcd</b>, un serveur de médias distinct (le <code>rtcd</code> open source de Mattermost, version 0.17 ou plus récente). Définissez <b>URL du service RTCD</b> (<code>AM_CALLS_RTCD_SERVICE_URL</code>), par exemple <code>https://rtcd.example.com</code> : tous les appels passent alors par ce service, et les clients envoient leurs médias au port propre de rtcd au lieu de celui d'Antimatter. Les identifiants peuvent être fournis avec <code>AM_CALLS_RTCD_CLIENT_ID</code> et <code>AM_CALLS_RTCD_AUTH_KEY</code> ; sans eux, l'application s'enregistre auprès de rtcd. Aucune licence n'est nécessaire. L'application Appels affiche un avertissement aux administrateurs recommandant rtcd lorsqu'un serveur a souvent plus de 50 personnes en appel simultanément.</p>
+
+<h2 id="transcription">Transcription et sous-titres en direct</h2>
+<p>Antimatter peut transcrire les appels avec un modèle de reconnaissance vocale que vous exécutez vous-même, et afficher des sous-titres en direct pendant que les participants parlent. Antimatter utilise n'importe quel serveur offrant un point de terminaison <code>/v1/audio/transcriptions</code> compatible OpenAI, tel qu'un serveur Whisper sur votre réseau. Aucun service supplémentaire d'Antimatter n'est nécessaire.</p>
+<h3>Fonctionnement</h3>
+<ul>
+<li>L’hôte d’un appel lance la transcription avec <b>Transcrire l’appel</b> dans les contrôles de l’appel. Un badge <b>Transcription en cours</b> informe tout le monde.</li>
+<li>L'application de chaque participant écoute son propre microphone, découpe la parole en courts segments (jusqu'à 12 secondes, jamais pendant une mise en sourdine) et les envoie à Antimatter, qui les transmet à votre serveur de reconnaissance vocale.</li>
+<li>Avec les sous-titres en direct activés, le texte de chaque segment est immédiatement affiché aux participants sous forme de sous-titre.</li>
+<li>Lorsque la transcription s'arrête ou que l'appel se termine, le bot Appels publie la transcription en tant que fichier texte et fichier de sous-titres WebVTT, dans le fil de discussion de l'appel (dans les canaux vocaux, dans le canal).</li>
+<li>Avec <b>Résumer les transcriptions</b> activé, l'agent par défaut de l'application Agents publie également un résumé dans le fil de discussion (voir <a href="{{root}}docs/admins/ai.html">IA</a>).</li>
+</ul>
+<figure><img src="{{root}}assets/img/shots/transcript.webp" alt="A call's thread: the Calls bot has posted the transcript as a text file, and an AI agent has posted a summary below it."><figcaption>Après l'appel, la transcription et son résumé dans le fil de discussion de l'appel.</figcaption></figure>
+<h3>Configuration</h3>
+<p>Définissez ces éléments sur le service <code>antimatter</code> :</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ENABLE_TRANSCRIPTIONS: "true"
+      AM_CALLS_TRANSCRIBE_API: openai
+      AM_CALLS_TRANSCRIBE_API_OPEN_AIURL: http://stt.internal:8000/v1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL: whisper-1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY: ""
+      AM_CALLS_ENABLE_LIVE_CAPTIONS: "true"
+      AM_CALLS_LIVE_CAPTIONS_LANGUAGE: en</code></pre>
+<table>
+<thead><tr><th>Paramètre</th><th>Variable</th><th>Ce qu'il faut saisir</th></tr></thead>
+<tbody>
+<tr><td><b>Activer les transcriptions d'appels (Bêta)</b></td><td><code>AM_CALLS_ENABLE_TRANSCRIPTIONS</code></td><td><code>true</code></td></tr>
+<tr><td><b>API du transcribeur d'appels</b></td><td><code>AM_CALLS_TRANSCRIBE_API</code></td><td><code>openai</code> (affiché comme « API compatible OpenAI (sans service de tâches) »)</td></tr>
+<tr><td><b>URL de l'API de reconnaissance vocale</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AIURL</code></td><td>L'URL de base de l'API, jusqu'à et y compris <code>/v1</code>.</td></tr>
+<tr><td><b>Modèle de reconnaissance vocale</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL</code></td><td>Le nom du modèle tel que l'API le connaît, par exemple <code>whisper-1</code>. Obligatoire.</td></tr>
+<tr><td><b>Clé API de reconnaissance vocale</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY</code></td><td>Envoyée en tant que jeton bearer. Laissez vide si l'API n'en nécessite pas.</td></tr>
+<tr><td><b>Activer les sous-titres en direct (Bêta)</b></td><td><code>AM_CALLS_ENABLE_LIVE_CAPTIONS</code></td><td><code>true</code> pour activer les sous-titres en direct pendant l'appel.</td></tr>
+<tr><td><b>Langue des sous-titres en direct</b></td><td><code>AM_CALLS_LIVE_CAPTIONS_LANGUAGE</code></td><td>La langue parlée, sous forme de code à deux lettres (<code>en</code> par défaut). Elle est également transmise à l'API de transcription vocale pour les transcriptions, il est donc recommandé de la définir même sans sous-titres.</td></tr>
+<tr><td><b>Résumer les transcriptions</b></td><td><code>AM_CALLS_SUMMARIZE_TRANSCRIPTIONS</code></td><td><code>true</code> pour générer un résumé par IA après l'appel.</td></tr>
+</tbody>
+</table>
+<div class="callout">Dans la Console système, les paramètres de transcription n'apparaissent que lorsque <b>Activer les enregistrements d'appels</b> est activé, alors que ce type de transcription ne nécessite pas d'enregistrement. Les définir avec les variables ci-dessus permet d'éviter ce problème. Ne pas activer les enregistrements en même temps que le transcribeur <code>openai</code> : le démarrage d'un enregistrement tenterait alors de lancer le transcribeur du service de tâches et échouerait.</div>
+<p>L'audio de tous les participants qui parlent pendant que la transcription est active est envoyé au serveur de transcription vocale que vous avez configuré, et la transcription est publiée là où tous les membres du canal peuvent la lire. Informez vos utilisateurs et, si les appels sont confidentiels, maintenez ce serveur sur votre propre réseau.</p>
+
+<h2 id="recordings">Enregistrements</h2>
+<p>L'enregistrement des appels (et la transcription avec les transcribeurs intégrés <code>whisper.cpp</code> ou Azure) s'effectue dans des conteneurs distincts lancés par un service de tâches, <code>calls-offloader</code> de Mattermost (open source), que vous déployez vous-même à côté d'Antimatter. Les paramètres sont <b>Activer les enregistrements d'appels</b> (<code>AM_CALLS_ENABLE_RECORDINGS</code>, désactivé par défaut), <b>URL du service de tâches</b> (<code>AM_CALLS_JOB_SERVICE_URL</code>), <b>Durée maximale d'enregistrement d'un appel</b> (60 minutes par défaut, de 15 à 180) et <b>Qualité d'enregistrement des appels</b> (basse, moyenne ou haute ; moyenne par défaut). Aucune licence n'est requise. Pour les transcriptions et les sous-titres uniquement, la configuration de transcription vocale ci-dessus est plus simple : elle ne nécessite pas de service de tâches.</p>

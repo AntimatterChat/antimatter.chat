@@ -1,0 +1,77 @@
+title: Antimatter での開発
+description: Antimatter との統合や拡張を行う開発者向けのガイドです。REST API、Webhook、スラッシュコマンド、ボット、アプリ（プラグイン）、ソースからのビルド、コントリビューションについて説明します。
+guide: developers
+order: 1
+nav: 概要
+lead: 本ガイドは開発者向けです。API を利用するスクリプトやボット、Webhook とスラッシュコマンドを基盤とした統合、サーバーおよび Web アプリに機能を追加するアプリ（プラグイン）、そして Antimatter のソースからのビルドと貢献方法について扱います。
+source: b60d529f2c61
+---
+<h2 id="ways">Antimatter の拡張方法</h2>
+<p>目的を達成できる最も軽量なツールを選択してください。最初の 4 つはサーバー自体へのアクセスを必要としませんが、アプリはサーバー内で実行されます。</p>
+<table>
+<thead><tr><th>ツール</th><th>機能</th><th>適した用途</th></tr></thead>
+<tbody>
+<tr><td><a href="{{root}}docs/developers/api.html">REST API</a></td><td>アプリが実行するすべての操作：メッセージ、チャンネル、ユーザー、ファイル、設定。WebSocket により、イベントが発生した時点で通知されます。</td><td>スクリプト、他のシステムとの同期、カスタムクライアント。</td></tr>
+<tr><td><a href="{{root}}docs/developers/webhooks.html">Incoming Webhook</a></td><td>JSON を送信するとチャンネルにメッセージを投稿する秘密の URL。</td><td>アラート、CI の結果、監視、他のツールからの通知。</td></tr>
+<tr><td><a href="{{root}}docs/developers/webhooks.html#outgoing">Outgoing Webhook</a></td><td>公開チャンネルのメッセージがトリガーワードで始まると、Antimatter があなたの URL を呼び出し、返信を投稿します。</td><td>チャットを起点としたシンプルな自動化。</td></tr>
+<tr><td><a href="{{root}}docs/developers/commands.html">スラッシュコマンド</a></td><td>ユーザーが <code>/something</code> と入力すると、Antimatter があなたの URL を呼び出し、回答をユーザーまたはチャンネルに表示します。</td><td>検索、チャットから開始するアクション。</td></tr>
+<tr><td><a href="{{root}}docs/developers/bots.html">ボット</a></td><td>プログラム用に作成されたアカウント。独自のトークン、<b>BOT</b> タグ、対話型メッセージとダイアログをサポートします。</td><td>アシスタント、通知機能、ユーザーと対話するあらゆるもの。</td></tr>
+<tr><td><a href="{{root}}docs/developers/apps.html">アプリ（プラグイン）</a></td><td>サーバー（Go）および Web アプリ（React）内で実行されるコード。すべてのメッセージへのフック、新しいメニュー、パネル、メッセージタイプ、ページ。</td><td>機能：投票、メモ、カレンダー、ユーザーインターフェースが必要な統合。</td></tr>
+</tbody>
+</table>
+<p>インターフェースでは、プラグインは「アプリ」と呼ばれます。コード、API、設定では依然として「plugin」と呼ばれるため、両方の言葉が役立つ場所では本ガイドでは「アプリ（プラグイン）」と表記します。</p>
+
+<h2 id="compatibility">Mattermost との互換性</h2>
+<p>Antimatter は Mattermost のフォークです。Mattermost サーバーで動作するものの大部分は、Antimatter でも動作します。</p>
+<h3>同じもの</h3>
+<ul>
+<li><code>/api/v4</code> 配下の<b>REST API</b>、その認証、WebSocket、エラー形式。サーバーはバージョン <code>12.0.0</code> を報告するため、サーバーバージョンを確認するクライアントやアプリは、最新の Mattermost を認識します。</li>
+<li><b>Webhookとスラッシュコマンド</b>（Slack互換のペイロードを含む）。</li>
+<li><b>サーバープラグインAPIとフック</b>：Antimatterではこれらは変更されていません。サーバーコードは同じGoモジュール<code>github.com/mattermost/mattermost/server/public</code>に対してビルドされます。</li>
+<li><b>Webアプリプラグインレジストリ</b>：Mattermostのレジストリのすべての<code>register…</code>メソッドは、Antimatterの両方のWebインターフェースに存在します。</li>
+<li><b>クライアントライブラリ</b>：Goクライアント<code>model.Client4</code>とTypeScriptクライアント<code>@mattermost/client</code>（<a href="{{root}}docs/developers/api.html#clients">クライアントライブラリ</a>を参照）。</li>
+<li><b>プラグインバンドル</b>：<code>plugin.json</code>マニフェストを含む<code>.tar.gz</code>ファイル。Mattermostのキーで署名されたプラグインも、Antimatterのキーで署名されたプラグインもインストールできます。</li>
+</ul>
+<h3>異なる点</h3>
+<ul>
+<li><b>2つのWebインターフェース。</b>新しいインターフェースFusionがデフォルトです。従来のMattermostインターフェースも引き続き利用可能です。Fusionはほとんどのプラグインコンポーネントを描画しますが、一部の配置を変更し、いくつかは表示しません。アプリは実行中のインターフェースを判別できます。<a href="{{root}}docs/developers/apps.html#fusion">Fusionインターフェースのサポート</a>を参照してください。</li>
+<li><b>追加のAPI。</b>Antimatterは独自の機能用のエンドポイントを追加しています：コミュニティ属性、タイムアウト、メッセージ上部表示、メッセージリクエスト、チャンネルとカテゴリのオーバーライド、チャンネルエクスポート、コミュニティの新しいフィールドなど。<a href="{{root}}docs/developers/api.html#antimatter">AntimatterがAPIに追加するもの</a>を参照してください。</li>
+<li><b>追加のメッセージ機能。</b>メッセージ添付ファイルはパイプラインのステージや小さなチャートを表示でき、投稿はインライン返信やネタバレ（spoiler）として扱えます。</li>
+<li><b>アプリ用の追加Webアプリフック</b>：コンポーザーの「+」メニュー項目、絵文字ピッカーのタブ、チャンネルビューのパネル、サイドバーのチャンネル下のフッター、統合ページへのエントリなど。<a href="{{root}}docs/developers/apps.html#antimatter-hooks">Antimatter固有のフック</a>を参照してください。</li>
+<li><b>ライセンスなし。</b>すべての機能がライセンスキーなしで利用可能です。ライセンス、トライアル、エンタープライズアップグレードのエンドポイントは削除されましたが、要求するクライアントのために<code>GET /api/v4/license/client</code>は残っています。Mattermostの有料エディション向けに構築された一部のアプリは、ライセンスを自分でチェックし、実行を拒否します。</li>
+<li><b>名称。</b>インターフェースではチームはコミュニティと呼ばれますが、APIとコードでは依然として<code>team</code>と呼ばれます。環境変数は<code>AM_</code>プレフィックスを使用し、コマンドラインツールは<code>amctl</code>、サーバーバイナリは<code>antimatter</code>です。</li>
+</ul>
+
+<h2 id="code">コードの場所</h2>
+<p>すべてはオープンソースであり、GitHub上の<a href="https://github.com/AntimatterChat">AntimatterChat</a>組織に公開されています。すべてのリポジトリは<code>main</code>ブランチで動作します。</p>
+<table>
+<thead><tr><th>リポジトリ</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter">antimatter</a></td><td>サーバー（Go言語で<code>server/</code>に配置）、Webインターフェースの両方（<code>webapp/fusion</code>と<code>webapp/channels</code>）、TypeScriptクライアント、および<code>amctl</code>。</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a></td><td>バンドルされたアプリを含むDockerイメージ、およびComposeファイル。</td></tr>
+<tr><td><code>antimatter-plugin-*</code></td><td>各バンドルアプリのリポジトリ：<a href="https://github.com/AntimatterChat/antimatter-plugin-polls">polls</a>、<a href="https://github.com/AntimatterChat/antimatter-plugin-todo">todo</a>、<a href="https://github.com/AntimatterChat/antimatter-plugin-notes">notes</a>、<a href="https://github.com/AntimatterChat/antimatter-plugin-whiteboard">whiteboard</a>、<a href="https://github.com/AntimatterChat/antimatter-plugin-calendar">calendar</a>、<a href="https://github.com/AntimatterChat/antimatter-plugin-mail">mail</a>、<a href="https://github.com/AntimatterChat/antimatter-plugin-gifs">gifs</a>、<a href="https://github.com/AntimatterChat/antimatter-plugin-memes">memes</a>、<a href="https://github.com/AntimatterChat/antimatter-plugin-voice-channels">voice-channels</a>、<a href="https://github.com/AntimatterChat/antimatter-plugin-calls">calls</a>、<a href="https://github.com/AntimatterChat/antimatter-plugin-boards">boards</a>（Kanban）、<a href="https://github.com/AntimatterChat/antimatter-plugin-playbooks">playbooks</a>、<a href="https://github.com/AntimatterChat/antimatter-plugin-agents">agents</a>、および<a href="https://github.com/AntimatterChat/antimatter-plugin-metrics">metrics</a>。</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/gifs-server">gifs-server</a></td><td>GIFsアプリで使用されるセルフホスト型のGIFおよびステッカーサービス。</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/desktop-app">desktop-app</a>、<a href="https://github.com/AntimatterChat/mobile-app">mobile-app</a>、<a href="https://github.com/AntimatterChat/push-proxy">push-proxy</a></td><td>デスクトップアプリとモバイルアプリ、およびスマートフォンへのプッシュ通知を中継するサービス。</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter.chat">antimatter.chat</a></td><td>このウェブサイトとそのドキュメント。</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/community">community</a></td><td>Antimatterのすべてのコンポーネントに関するIssueとディスカッション。</td></tr>
+</tbody>
+</table>
+
+<h2 id="first-steps">開始前に</h2>
+<ul>
+<li><b>テストサーバーを用意します。</b> 最も手軽なのはDockerイメージです。<a href="{{root}}docs/admins/install.html">Antimatterのインストール</a>を参照してください。Antimatter自体の開発を行う場合は、<a href="{{root}}docs/developers/building.html">ソースからのビルド</a>を参照してください。</li>
+<li><b>サーバーが許可している機能を確認します。</b> いくつかの統合機能はデフォルトで無効になっており、システム管理者による設定が必要です。これには、パーソナルアクセストークン、ボットアカウント、ユーザー名とアイコンの上書き、アプリのアップロードが含まれます。各ページには、必要な設定が記載されています。</li>
+<li><b>サイトURLを把握します。</b> 例では<code>https://chat.example.com</code>を使用しています。これをあなたのサーバーのアドレスに置き換えてください。</li>
+</ul>
+
+<h2 id="in-this-guide">このガイドの内容</h2>
+<ul>
+<li><a href="{{root}}docs/developers/api.html">REST API</a>: 認証、主要リソース、ページネーション、エラー、レート制限、WebSocket、クライアントライブラリ、およびAntimatter独自の機能。</li>
+<li><a href="{{root}}docs/developers/webhooks.html">Webhook</a>: 受信および送信Webhook、ペイロード、添付ファイルとカード。</li>
+<li><a href="{{root}}docs/developers/commands.html">スラッシュコマンド</a>: カスタムコマンド、リクエストとレスポンス、オートコンプリート。</li>
+<li><a href="{{root}}docs/developers/bots.html">ボットと対話型メッセージ</a>: ボットアカウント、ボタン、メニュー、ダイアログ。</li>
+<li><a href="{{root}}docs/developers/apps.html">アプリの作成</a>: プラグインの構成、サーバーフック、Webアプリレジストリ、Fusion、設定、ストレージ、翻訳、パッケージング。</li>
+<li><a href="{{root}}docs/developers/building.html">ソースからのビルド</a>: サーバー、Webインターフェース、Dockerイメージ、アプリ。</li>
+<li><a href="{{root}}docs/developers/contributing.html">コントリビューション</a>: イシュー、プルリクエスト、スタイル、翻訳、セキュリティ、ライセンス。</li>
+</ul>
+<div class="callout">ご質問は<a href="https://github.com/AntimatterChat/community/discussions">コミュニティディスカッション</a>で受け付けています。バグは<a href="https://github.com/AntimatterChat/community/issues">コミュニティイシュー</a>で報告してください。</div>

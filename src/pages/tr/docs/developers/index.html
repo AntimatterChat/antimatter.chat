@@ -1,0 +1,77 @@
+title: Antimatter Üzerinde Geliştirme
+description: Antimatter ile entegrasyon yapan veya onu genişleten geliştiriciler için bir kılavuz: REST API, webhooks, slash komutları, botlar, uygulamalar (eklentiler), kaynaktan derleme ve katkıda bulunma.
+guide: developers
+order: 1
+nav: Genel Bakış
+lead: Bu kılavuz geliştiriciler içindir. API kullanan betik ve botları, webhooks ve slash komutları üzerine kurulan entegrasyonları, sunucuya ve web uygulamasına özellik ekleyen uygulamaları (eklentileri) ve Antimatter'ı kaynaktan derleyerek ona katkıda bulunmayı kapsar.
+source: b60d529f2c61
+---
+<h2 id="ways">Antimatter'ı genişletme yolları</h2>
+<p>İşi gören en hafif aracı seçin. İlk dört seçenek sunucuya doğrudan erişim gerektirmez; uygulamalar ise sunucunun içinde çalışır.</p>
+<table>
+<thead><tr><th>Araç</th><th>Ne işe yarar</th><th>Uygun olduğu alanlar</th></tr></thead>
+<tbody>
+<tr><td><a href="{{root}}docs/developers/api.html">REST API</a></td><td>Uygulamaların yaptığı her şey: iletiler, kanallar, kişiler, dosyalar, ayarlar. WebSocket, olaylar gerçekleştiğinde bunları gönderir.</td><td>Betikler, diğer sistemlerle senkronizasyon, özel istemciler.</td></tr>
+<tr><td><a href="{{root}}docs/developers/webhooks.html">Gelen webhooks</a></td><td>Bir şey JSON gönderdiğinde bir kanala ileti gönderen gizli bir URL.</td><td>Uyarılar, CI sonuçları, izleme, diğer araçlardan gelen bildirimler.</td></tr>
+<tr><td><a href="{{root}}docs/developers/webhooks.html#outgoing">Giden webhooks</a></td><td>Herkese açık bir kanaldaki bir ileti tetikleyici bir kelimeyle başladığında Antimatter URL'inizi çağırır ve yanıtınızı gönderir.</td><td>Basit sohbet tabanlı otomasyonlar.</td></tr>
+<tr><td><a href="{{root}}docs/developers/commands.html">Slash komutları</a></td><td>Kişiler <code>/something</code> yazar; Antimatter URL'inizi çağırır ve yanıtınızı onlara veya kanala gösterir.</td><td>Aramalar, sohbetten başlatılan işlemler.</td></tr>
+<tr><td><a href="{{root}}docs/developers/bots.html">Botlar</a></td><td>Programlar için oluşturulan, kendi jetonlarına, <b>BOT</b> etiketine ve etkileşimli iletiler ile diyaloglara sahip hesaplar.</td><td>Asistanlar, bildirimciler, insanlarla konuşan her şey.</td></tr>
+<tr><td><a href="{{root}}docs/developers/apps.html">Uygulamalar (eklentiler)</a></td><td>Sunucuda (Go) ve web uygulamasında (React) çalışan kod: her iletide kanca (hook), yeni menüler, paneller, ileti türleri, sayfalar.</td><td>Özellikler: anketler, notlar, takvimler, kullanıcı arayüzüne ihtiyaç duyan entegrasyonlar.</td></tr>
+</tbody>
+</table>
+<p>Arayüzde kişiler eklentilere "uygulama" der. Bu kılavuz, kodun, API'nin ve yapılandırmanın hâlâ "plugin" (eklenti) demesi nedeniyle, her iki kelimenin de yardımcı olduğu yerlerde "uygulamalar (eklentiler)" ifadesini kullanır.</p>
+
+<h2 id="compatibility">Mattermost ile uyumluluk</h2>
+<p>Antimatter, Mattermost'un bir çatallanmasıdır (fork). Mattermost sunucusuyla çalışan çoğu şey Antimatter ile de çalışır.</p>
+<h3>Ne aynıdır</h3>
+<ul>
+<li><b>REST API</b> <code>/api/v4</code> altında, kimlik doğrulaması, WebSocket'i ve hata biçimi. Sunucu sürümünü <code>12.0.0</code> olarak bildirir, bu nedenle sunucu sürümünü denetleyen istemciler ve uygulamalar güncel bir Mattermost görür.</li>
+<li><b>Webhook'ler ve slash komutları</b>, Slack ile uyumlu yükleri (payload) dahil.</li>
+<li><b>Sunucu eklenti API'si ve kancaları (hooks)</b>: Antimatter bunları değiştirmemiştir. Sunucu kodu, aynı Go modülü olan <code>github.com/mattermost/mattermost/server/public</code> üzerine derlenir.</li>
+<li><b>Web uygulaması eklenti kayıt defteri (registry)</b>: Mattermost'un kayıt defterindeki her <code>register…</code> metodu, Antimatter'ın her iki web arayüzünde de mevcuttur.</li>
+<li><b>İstemci kütüphaneleri</b>: Go istemcisi <code>model.Client4</code> ve TypeScript istemcisi <code>@mattermost/client</code> (bkz. <a href="{{root}}docs/developers/api.html#clients">İstemci kütüphaneleri</a>).</li>
+<li><b>Eklenti paketleri</b>: <code>plugin.json</code> betik dosyası (manifest) içeren bir <code>.tar.gz</code>. Mattermost'un anahtarıyla imzalanan eklentiler, Antimatter'ın anahtarıyla imzalananlar gibi kurulabilir.</li>
+</ul>
+<h3>Farklı olanlar</h3>
+<ul>
+<li><b>İki web arayüzü.</b> Yeni arayüz olan Fusion varsayılandır; klasik Mattermost arayüzü hâlâ kullanılabilir. Fusion, eklenti bileşenlerinin çoğunu çizer, ancak bazıları farklı konumlara yerleştirilir ve birkaçı hariç tutulur. Bir uygulama, hangi arayüzün çalıştığını tespit edebilir. Bkz. <a href="{{root}}docs/developers/apps.html#fusion">Fusion arayüzünü destekleme</a>.</li>
+<li><b>Ek API.</b> Antimatter, kendi özellikleri için uç noktalar (endpoints) ekler: topluluk öznitelikleri, zaman aşımı süreleri, üstte mesajlar, mesaj istekleri, kanal ve kategori geçersiz kılma (override), kanal dışa aktarımı ve topluluklardaki yeni alanlar. Bkz. <a href="{{root}}docs/developers/api.html#antimatter">Antimatter'ın API'ye ekledikleri</a>.</li>
+<li><b>Ek mesaj özellikleri.</b> Mesaj ekleri (attachment) iş akışı aşamalarını ve küçük bir grafik gösterebilir; gönderiler satır içi yanıtlar veya spoiler olabilir.</li>
+<li><b>Uygulamalar için ek web uygulaması kancaları (hooks)</b>: bir kompozitör "+" menü öğesi, emoji seçici sekmeleri, kanal görünümünde bir panel, kenar çubuğu kanallarının altında bir alt bilgi (footer) ve entegrasyon sayfalarında bir giriş. Bkz. <a href="{{root}}docs/developers/apps.html#antimatter-hooks">Sadece Antimatter'ın sahip olduğu kancalar</a>.</li>
+<li><b>Lisans yok.</b> Her özellik, lisans anahtarı olmadan kullanılabilir. Lisans, deneme ve kurumsal yükseltme uç noktaları kaldırılmıştır; isteyen istemciler için <code>GET /api/v4/license/client</code> hâlâ mevcuttur. Mattermost'un ücretli sürümleri için geliştirilen bazı uygulamalar, lisansı kendileri denetler ve çalışmayı reddeder.</li>
+<li><b>İsimler.</b> Arayüzde takımlar (team) topluluk (community) olarak adlandırılır, ancak API ve kod hâlâ <code>team</code> der. Ortam değişkenleri <code>AM_</code> öneki kullanır, komut satırı aracı <code>amctl</code> ve sunucu ikili dosyası (binary) <code>antimatter</code>'dır.</li>
+</ul>
+
+<h2 id="code">Kodun bulunduğu yer</h2>
+<p>Her şey açık kaynaklıdır ve GitHub'taki <a href="https://github.com/AntimatterChat">AntimatterChat</a> kuruluşunda yer alır. Her depo, <code>main</code> dalında çalışır.</p>
+<table>
+<thead><tr><th>Depo</th><th>İçeriği</th></tr></thead>
+<tbody>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter">antimatter</a></td><td>Sunucu (Go, <code>server/</code> içinde), her iki web arayüzü (<code>webapp/fusion</code> ve <code>webapp/channels</code>), TypeScript istemcisi ve <code>amctl</code>.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a></td><td>Dahili uygulamalarla birlikte Docker görüntüleri ve compose dosyaları.</td></tr>
+<tr><td><code>antimatter-plugin-*</code></td><td>Her dahili uygulama için bir depo: <a href="https://github.com/AntimatterChat/antimatter-plugin-polls">polls</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-todo">todo</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-notes">notes</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-whiteboard">whiteboard</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-calendar">calendar</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-mail">mail</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-gifs">gifs</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-memes">memes</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-voice-channels">voice-channels</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-calls">calls</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-boards">boards</a> (Kanban), <a href="https://github.com/AntimatterChat/antimatter-plugin-playbooks">playbooks</a>, <a href="https://github.com/AntimatterChat/antimatter-plugin-agents">agents</a> ve <a href="https://github.com/AntimatterChat/antimatter-plugin-metrics">metrics</a>.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/gifs-server">gifs-server</a></td><td>GIFs uygulaması tarafından kullanılan, kendi kendine barındırılan GIF ve çıkartma hizmeti.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/desktop-app">desktop-app</a>, <a href="https://github.com/AntimatterChat/mobile-app">mobile-app</a>, <a href="https://github.com/AntimatterChat/push-proxy">push-proxy</a></td><td>Masaüstü ve mobil uygulamalar, iletileri telefonlara ileten bildirim hizmeti.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter.chat">antimatter.chat</a></td><td>Bu web sitesi ve belgeleri.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/community">community</a></td><td>Antimatter'ın her bölümü için sorunlar ve tartışmalar.</td></tr>
+</tbody>
+</table>
+
+<h2 id="first-steps">Başlamadan önce</h2>
+<ul>
+<li><b>Test sunucusu edinin.</b> En hızlı yol Docker görüntüsüdür: <a href="{{root}}docs/admins/install.html">Antimatter'ı Yükleme</a> bölümüne bakın. Antimatter'ın kendisi üzerinde çalışmak için <a href="{{root}}docs/developers/building.html">Kaynaktan Derleme</a> bölümüne bakın.</li>
+<li><b>Sunucunun neye izin verdiğini kontrol edin.</b> Birkaç entegrasyon özelliği varsayılan olarak kapalıdır ve sistem yöneticisi gerektirir: kişisel erişim jetonları, bot hesapları, kullanıcı adı ve simge geçersiz kılma, uygulama yükleme. Her sayfa, hangi ayarı gerektirdiğini belirtir.</li>
+<li><b>Sitenizin URL'sini bilin.</b> Örneklerde <code>https://chat.example.com</code> kullanılır. Bunu sunucunuzun adresiyle değiştirin.</li>
+</ul>
+
+<h2 id="in-this-guide">Bu kılavuzda</h2>
+<ul>
+<li><a href="{{root}}docs/developers/api.html">REST API</a>: kimlik doğrulama, ana kaynaklar, sayfalama, hatalar, hız sınırları, WebSocket, istemci kütüphaneleri ve Antimatter'ın ekleri.</li>
+<li><a href="{{root}}docs/developers/webhooks.html">Webhook'lar</a>: gelen ve giden webhook'lar, yükler, ek dosyalar ve kartlar.</li>
+<li><a href="{{root}}docs/developers/commands.html">Slash komutları</a>: özel komutlar, istek ve yanıtları, otomatik tamamlama.</li>
+<li><a href="{{root}}docs/developers/bots.html">Botlar ve etkileşimli iletiler</a>: bot hesapları, düğmeler, menüler ve diyaloglar.</li>
+<li><a href="{{root}}docs/developers/apps.html">Uygulama yazma</a>: eklenti düzeni, sunucu kancaları, web uygulaması kayıt defteri, Fusion, ayarlar, depolama, çeviriler ve paketleme.</li>
+<li><a href="{{root}}docs/developers/building.html">Kaynaktan derleme</a>: sunucu, web arayüzleri, Docker görüntüsü ve uygulamalar.</li>
+<li><a href="{{root}}docs/developers/contributing.html">Katkıda bulunma</a>: sorunlar, çekme istekleri, stil, çeviriler, güvenlik ve lisanslar.</li>
+</ul>
+<div class="callout">Sorular <a href="https://github.com/AntimatterChat/community/discussions">topluluk tartışmalarında</a> memnuniyetle karşılanır. Hataları <a href="https://github.com/AntimatterChat/community/issues">topluluk sorunlarında</a> bildirin.</div>

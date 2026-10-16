@@ -1,0 +1,120 @@
+title: התאמה
+description: איך עובדת ההתאמה של Antimatter: הגדרות במסד הנתונים או ב־config.json, משתני סביבה AM_, קונסולת המערכת, כלי שורת הפקודה amctl, ואיפה ממוקמים הקבצים.
+guide: admins
+order: 3
+nav: התאמה
+lead: איפה Antimatter שומר את ההגדרות שלו, שלושת הדרכים לשנות אותן (קונסולת המערכת, משתני סביבה, amctl), ואיפה נמצאים הקבצים.
+source: e2d6546121d3
+---
+<h2 id="where">איפה נמצאות ההגדרות</h2>
+<p>לכל הגדרת שרת יש שם המורכב מקטע ומפתח, למשל <code>ServiceSettings.SiteURL</code> או <code>EmailSettings.SMTPServer</code>. יחד הם יוצרים התאמה אחת, שמאוחסנת באחד משני מקומות:</p>
+<ul>
+<li><b>במסד הנתונים.</b> קובץ ה־compose של האתר מגדיר את <code>AM_CONFIG</code> כתקן חיבור ל־PostgreSQL, כך שההתאמה היא שורה במסד הנתונים והמכל לא שומר כלום על המדיה. כמה שרתים ששותפים מסד נתונים אחד שותפים גם את ההתאמה שלהם.</li>
+<li><b>בקובץ.</b> ללא <code>AM_CONFIG</code>, השרת קורא את <code>config/config.json</code> ליד תיקיית <code>bin/</code> שלו (<code>/antimatter/config/config.json</code> בתמונת Docker). ארכיון הפליטה וקבצי ה־compose לייצור של antimatter-docker עובדים כך. יש לשמור את הקובץ הזה קריא למשתמש השרת בלבד: הוא מכיל סיסמאות ומפתחות.</li>
+</ul>
+<p><code>AM_CONFIG</code> (או הדגל <code>--config</code> של פקודת <code>antimatter</code>) מקבל נתיב לקובץ או כתובת <code>postgres://</code>. הגדרות שאתם משאירים בחוץ מקבלות את הערך המוגדר כברירת מחדל.</p>
+<p>כדי להעביר התאמה קיימת מקובץ למסד הנתונים, הרצו את הפקודה הבאה על השרת, ואז הפעילו את השרת עם <code>AM_CONFIG</code> מוגדר לאותה כתובת:</p>
+<pre><code>amctl --local config migrate /opt/antimatter/config/config.json \
+    "postgres://antimatter:PASSWORD@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10"</code></pre>
+
+<h2 id="environment">משתני סביבה</h2>
+<p>כל הגדרה יכולה גם להינתן כמשתנה סביבה. משתנים גולשים על ההתאמה האגורה, מה שהופך אותם מתאימים במיוחד למה ששייך לפרסום: מסד הנתונים, כתובת האתר, אחסון הקבצים, הפורטים.</p>
+<h3>כלל שם</h3>
+<p>כתבו <code>AM_</code>, ואז את הקטע, ואז את המפתח, באותיות גדולות ומפוצלים ב־underscores. המילים בתוך שם קטע או מפתח אינן מפוצלות:</p>
+<table>
+<thead><tr><th>הגדרה</th><th>משתנה</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.SiteURL</code></td><td><code>AM_SERVICESETTINGS_SITEURL</code></td></tr>
+<tr><td><code>SqlSettings.DataSource</code></td><td><code>AM_SQLSETTINGS_DATASOURCE</code></td></tr>
+<tr><td><code>EmailSettings.SMTPServer</code></td><td><code>AM_EMAILSETTINGS_SMTPSERVER</code></td></tr>
+<tr><td><code>PrivacySettings.EnableUserBlocking</code></td><td><code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li>הגדרות של אמת ושקר מקבלות <code>true</code> או <code>false</code>; מספרים הם מספרים רגילים.</li>
+<li>הגדרות רשימה מקבלות את הערכים שלהן מפוצלים במרווחים, למשל <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>.</li>
+<li>הגדרות שהן אובייקטים מקבלות JSON. המשתנה היחיד כזה לאפליקציות הוא <code>AM_PLUGINSETTINGS_PLUGINS</code>, והוא מחליף את ההגדרות של <em>כל</em> האפליקציות בבת אחת: הגדירו את הגדרות האפליקציה בקונסולת המערכת או עם <code>amctl</code> במקום (ראו להלן).</li>
+<li>התקנות Mattermost הישנות משתמשות בקידומת <code>MM_</code>, לדוגמה <code>MM_SQLSETTINGS_DATASOURCE</code>. זה עדיין עובד ככינוי מורש. כאשר שני המשתנים מוגדרים, משתנה <code>AM_</code> זוכה.</li>
+</ul>
+<p>הגדרה שניתנה באמצעות משתנה נעולה בקונסולת המערכת, עם ההערה "הגדרה זו הוגדרה באמצעות משתן סביבה. אינה ניתנת לשינוי דרך קונסולת המערכת." היא אינה נכתבת להגדרה השמורה: הסירו את המשתנה והערך השמור יחול שוב.</p>
+<h3>עם Docker Compose</h3>
+<p>הוסיפו משתנים תחת <code>environment:</code> של השירות <code>antimatter</code>, או בקובץ <code>compose.override.yaml</code> ליד <code>compose.yaml</code> (Compose קורא אותו אוטומטית, והוא שורד עדכונים של הקובץ שהורד):</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_LOGSETTINGS_CONSOLELEVEL: INFO</code></pre>
+<p>החילו שינויים עם <code>docker compose up -d</code>, שיוצר מחדש את המיכל.</p>
+<h3>משתנים שנקראים על ידי האפליקציות</h3>
+<p>כמה אפליקציות קוראות משתנים משלהן, המוגדרים בשירות <code>antimatter</code>: אפליקציית השיחות קוראת <code>AM_CALLS_*</code> (ראו <a href="{{root}}docs/admins/calls.html">שיחות וקול</a>), ואפליקציית ה-GIFs קוראת <code>AM_GIFS_SERVICE_URL</code>, <code>AM_GIFS_API_KEY</code> ו-<code>AM_GIFS_UPLOAD_KEY</code> (ראו <a href="{{root}}docs/admins/apps.html">אפליקציות מובנות</a>).</p>
+
+<h2 id="console">קונסולת המערכת</h2>
+<p>קונסולת המערכת היא אזור הניהול של אפליקציית ה-Web, עבור מנהלי מערכת. כדי לפתוח אותה, לחצו על תמונת הפרופיל שלכם ובחרו <b>קונסולת מערכת</b>, או גשו ל-<code>https://chat.example.com/admin_console</code>. בסרגל הצד שלה יש תיבת <b>חיפוש הגדרות</b> שמחפשת בכל העמודים.</p>
+<figure><img src="{{root}}assets/img/shots/admin.webp" alt="The System Console, with its sidebar of sections on the left and the SAML 2.0 settings page on the right."><figcaption>קונסולת המערכת. סרגל הצד מקבץ את העמודים לסקציות כמו דיווחים, ניהול משתמשים וסביבה.</figcaption></figure>
+<p>הסקציות שלה הן:</p>
+<ul>
+<li><b>דיווחים</b>: סטטיסטיקות ויומני השרת.</li>
+<li><b>ניהול משתמשים</b>: משתמשים, קבוצות, קהילות (מפורטות כצוותים), ערוצים, הרשאות וניהול מופקד.</li>
+<li><b>מאפייני מערכת</b>: מאפייני פרופיל מותאמים אישית וגישה מבוססת מאפיינים.</li>
+<li><b>סביבה</b>: שרת Web, בסיס נתונים, אחסון קבצים, פרוקסי תמונות, SMTP, התראות דחיפה, הגבלת קצב, יומנים, אורכי סשנים, ניטור ביצועים.</li>
+<li><b>הגדרות האתר</b>: מיתוג, משתמשים וצוותים, התראות, פוסטים, שיתוף קבצים וההתנהגויות הרחבות-שרת האחרות.</li>
+<li><b>אימות</b>: הרשמה, התחברות במייל ובסיסמה, MFA, AD/LDAP, SAML 2.0, OAuth 2.0, OpenID Connect וגישת אורחים.</li>
+<li><b>תוספים</b>: ניהול אפליקציות והגדרות של כל אפליקציה מותקנת.</li>
+<li><b>אינטגרציות</b>: Webhooks, פקודות לוכסן, חשבונות בוטים, GIFs, טקסט לקול, CORS.</li>
+<li><b>עמידה בתקנים</b>: שמירת נתונים, ייצוא וניטור עמידה בתקנים, רישום ביקורת, תנאי שימוש מותאמים אישית.</li>
+<li><b>ניסויי</b>: תכונות שעשויות להשתנות.</li>
+</ul>
+<p>במדריך זה, הגדרה מוצגת כנתיבה שלה בקונסולת המערכת, ואז כשם שלה, ואז כמפתח ההגדרה שלה, לדוגמה <b>קונסולת מערכת › הגדרות האתר › משתמשים וצוותים › הפעלת התעלמות, חסימה ובקשות הודעה</b> (<code>PrivacySettings.EnableUserBlocking</code>).</p>
+<p>רוב השינויים נכנסים לתוקף מיד עם לחיצה על <b>שמירה</b>. כמה מהם (כתובת האזנה, מספר הגדרות בסיס נתונים ומטמון) דורשים הפעלה מחדש, והעמוד מצין זאת.</p>
+
+<h2 id="amctl">כלי שורת הפקודה amctl</h2>
+<p><code>amctl</code> מנהל שרת משורת הפקודה: משתמשים, קהילות, ערוצים, אפליקציות, הגדרות, משימות ועוד. הוא מתקשר עם השרת באחת משתי דרכים.</p>
+<h3>מצב מקומי, על השרת</h3>
+<p>מצב מקומי מאפשר ל-<code>amctl</code> לתקשר עם השרת דרך שקע Unix, ללא התחברות. הוא מופעל בתמונת Docker. על שרת שנוסע מארכיון, הפעילו אותו באמצעות <b>ServiceSettings.EnableLocalMode</b> (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>). השקע הוא <code>/var/tmp/antimatter_local.socket</code> כברירת מחדל (<code>ServiceSettings.LocalModeSocketLocation</code>).</p>
+<pre><code># with Docker Compose
+docker compose exec antimatter amctl --local system status
+# with a release archive
+sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code></pre>
+<div class="callout warn">כל מי שיכול להשתמש בשקע, או להריץ <code>docker compose exec</code> על המארח, זוכה לזכויות מנהל מערכת מלאות.</div>
+<h3>מרחוק, עם חשבון</h3>
+<p>מכל מכשיר, התחברו עם חשבון מנהל מערכת (או עם אישור גישה אישי), ואז הריצו פקודות מול השרת הזה:</p>
+<pre><code>amctl auth login https://chat.example.com --name prod --username admin
+amctl system status</code></pre>
+<h3>פקודות הגדרה</h3>
+<table>
+<thead><tr><th>פקודה</th><th>מה היא עושה</th></tr></thead>
+<tbody>
+<tr><td><code>amctl config get ServiceSettings.SiteURL</code></td><td>מציגה הגדרה אחת.</td></tr>
+<tr><td><code>amctl config set TeamSettings.EnableOpenServer false</code></td><td>משנה הגדרה אחת. הגדרות רשימה מקבלות כמה ערכים.</td></tr>
+<tr><td><code>amctl config patch settings.json</code></td><td>ממזג קובץ JSON של הגדרות לתוך ההגדרה.</td></tr>
+<tr><td><code>amctl config show</code></td><td>מציג את כל ההגדרה כ-JSON.</td></tr>
+<tr><td><code>amctl config edit</code></td><td>פותח את ההגדרה בעורך שלך (<code>$EDITOR</code>).</td></tr>
+<tr><td><code>amctl config reset</code></td><td>מאתר הגדרות לערכי ברירת המחדל שלהן.</td></tr>
+<tr><td><code>amctl config reload</code></td><td>טוען מחדש את ההגדרה ממקום שמירתה, לאחר שינוי שבוצע מחוץ לשרת.</td></tr>
+</tbody>
+</table>
+<p>הגדרות אפליקציות נמצאות תחת <code>PluginSettings.Plugins.&lt;app id&gt;</code>, עם מפתחות באותיות קטנות. לדוגמה, להגדרת כתובת השירות והמפתח של אפליקציית GIFs ממארח Docker:</p>
+<pre><code>docker compose exec -T antimatter amctl --local config patch /dev/stdin &lt;&lt;'EOF'
+{"PluginSettings": {"Plugins": {"com.antimatterchat.gifs": {
+  "serviceurl": "http://gifs:8080/v2",
+  "apikey": "the GIFS_API_KEY of your .env"
+}}}}
+EOF</code></pre>
+<p>פקודות שימושיות נוספות: <code>amctl user create</code>, <code>amctl user deactivate</code>, <code>amctl team create</code>, <code>amctl plugin list</code>, <code>amctl plugin enable</code>, <code>amctl system supportpacket</code> ו-<code>amctl logs</code>. הריצו <code>amctl help &lt;command&gt;</code> עבור אפשרויות של כל אחת מהן.</p>
+
+<h2 id="logs">יומנים</h2>
+<p>השרת כותב את היומן שלו בשני מקומות, כל אחד עם רמת יומן משלו (<code>DEBUG</code>, <code>INFO</code>, <code>WARN</code> או <code>ERROR</code>), שמוגדרת ב<b>קונסולת מערכת › סביבה › לוגים</b>:</p>
+<table>
+<thead><tr><th>יעד</th><th>הגדרות</th><th>ברירת מחדל</th></tr></thead>
+<tbody>
+<tr><td>הקונסולה (פלט סטנדרטי)</td><td><b>הפגת יומנים לקונסול</b> (<code>LogSettings.EnableConsole</code>), <b>רמת יומן קונסולה</b> (<code>LogSettings.ConsoleLevel</code>), <b>הפגת יומני קונסול כ-JSON</b> (<code>LogSettings.ConsoleJson</code>)</td><td>דלוק, <code>DEBUG</code>, JSON</td></tr>
+<tr><td>קובץ, <code>antimatter.log</code></td><td><b>פלט יומנים לקובץ</b> (<code>LogSettings.EnableFile</code>), <b>רמת יומן קבצים</b> (<code>LogSettings.FileLevel</code>), <b>ספריית יומן קבצים</b> (<code>LogSettings.FileLocation</code>)</td><td>דלוק, <code>INFO</code>, תיקיית <code>logs/</code> לצד <code>bin/</code></td></tr>
+</tbody>
+</table>
+<p>קבצי יומן ממוחזרים ב־100 MB והקבצים הישנים נדחוסים.</p>
+<p>קובץ ה־compose של האתר מכבה את יומן הקובץ (<code>AM_LOGSETTINGS_ENABLEFILE=false</code>), כך שהיומן נמצא רק בפלט המכל (container):</p>
+<pre><code>docker compose logs -f antimatter
+docker compose logs --since 1h antimatter | grep -i error</code></pre>
+<p>רמת הקונסולה ברירת המחדל היא <code>DEBUG</code>, שהיא פירוטית. בשרת עמוס, יש להגדיר <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code>. עם ארכיון שחרור תחת systemd, פלט הקונסולה נכנס ליומן המערכת (<code>journalctl -u antimatter</code>) והקובץ נשמר ב־<code>/opt/antimatter/logs/antimatter.log</code>.</p>
+<p>כשהפלט לקובץ מופעל, מנהלי מערכת יכולים גם לקרוא את שורות היומן האחרונות ב<b>קונסולת מערכת › דיווחים › לוגי שרת</b>, או באמצעות <code>amctl logs</code>.</p>

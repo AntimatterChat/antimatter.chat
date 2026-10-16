@@ -1,0 +1,164 @@
+title: REST API
+description: Antimatter-এর REST API: বেস URL, পার্সোনাল অ্যাক্সেস টোকেন, সেশন টোকেন এবং OAuth, প্রধান রিসোর্স, পেজিনেশন, এরর, রেট লিমিট, WebSocket ইভেন্ট স্ট্রিম এবং ক্লায়েন্ট লাইব্রেরি।
+guide: developers
+order: 2
+nav: REST API
+lead: Antimatter অ্যাপস যা কিছু করে তা সবই একই HTTP API-র মাধ্যমে ঘটে, তাই আপনার স্ক্রিপ্টও তা করতে পারে। এই পেজে ব্যাখ্যা করা হয়েছে কীভাবে অথেনটিকেশন করতে, কোন রিসোর্সগুলো সবচেয়ে বেশি ব্যবহার করা হয়, রেসপন্স এবং এররগুলো কেমন দেখায়, এবং WebSocket-এর মাধ্যমে লাইভ ইভেন্ট ফলো করার উপায়।
+source: f4b8c83efdba
+---
+<h2 id="basics">মৌলিক বিষয়</h2>
+<ul>
+<li><b>বেস URL</b>: <code>https://chat.example.com/api/v4</code>। নিচের সব এন্ডপয়েন্ট এর সাপেক্ষে।</li>
+<li><b>ফরম্যাট</b>: ইনপুট এবং আউটপুট উভয়ই JSON, ফাইল আপলোড (মাল্টিপার্ট) ছাড়া। পাঠান <code>Content-Type: application/json</code>।</li>
+<li><b>ID</b>: প্রতিটি অবজেক্টের একটি ২৬ অক্ষরের <code>id</code> আছে। সময়গুলো Unix epoch-এর পর থেকে মিলিসেকেন্ড হিসেবে (<code>create_at</code>, <code>update_at</code>, <code>delete_at</code>; 0 মানে "মিটে যায়নি")।</li>
+<li><b>কমিউনিটি হলো টিম</b>: API-তে এগুলিকে <code>teams</code> বলা হয়, একটি <code>team_id</code> সহ।</li>
+<li><b>আপনি</b>: যেখানেই পথে <code>user_id</code> নেয়, <code>me</code> মানে সাইন-ইন করা ইউজার, যেমন <code>GET /users/me</code>।</li>
+</ul>
+<p>এন্ডপয়েন্টগুলোর সম্পূর্ণ তালিকা সার্ভারের কোডে আছে: রুটগুলো ঘোষণা করা হয়েছে <code>server/channels/api4/*.go</code>-তে এবং টাইপগুলো <code>server/public/model</code>-এ। রিপোজিটরির <code>api/v4/source</code> ফোল্ডারে থাকা OpenAPI বর্ণনা Mattermost-এর থেকে উত্তরাধিকারসূত্রে পাওয়া এন্ডপয়েন্টগুলো কভার করে, Antimatter-এর যোগ করা অংশ নয়।</p>
+
+<h2 id="auth">অথেনটিকেশন</h2>
+<p>সাইন-ইন এবং কিছু পাবলিক এন্ডপয়েন্ট ছাড়া প্রতিটি রিকোয়েস্টের জন্য <code>Authorization</code> হেডারে একটি টোকেন প্রয়োজন:</p>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" https://chat.example.com/api/v4/users/me</code></pre>
+<p>সেখানে তিন ধরনের টোকেন গ্রহণ করা হয়: পার্সোনাল অ্যাক্সেস টোকেন, সেশন টোকেন এবং OAuth অ্যাক্সেস টোকেন। <code>Authorization: Token …</code>ও গ্রহণ করা হয়। কুয়েরি স্ট্রিং-এ থাকা টোকেন (<code>?access_token=</code>) শুধুমাত্র OAuth অ্যাক্সেস টোকেনের জন্য গ্রহণ করা হয়।</p>
+
+<h3>পার্সোনাল অ্যাক্সেস টোকেন (স্ক্রিপ্টের জন্য সুপারিশকৃত)</h3>
+<p>একটি পার্সোনাল অ্যাক্সেস টোকেন আপনার হয়ে কাজ করে, আপনি যদি মেয়াদ শেষের তারিখ না দেন তবে এটি মেয়াদ শেষ হয় না, এবং যেকোনো সময় এটি বাতিল করা যায়। ডিফল্টভাবে পার্সোনাল অ্যাক্সেস টোকেন বন্ধ থাকে:</p>
+<ol>
+<li>একজন সিস্টেম অ্যাডমিন <b>System Console › Integrations › Integration Management</b> পেজে <b>ব্যক্তিগত অ্যাক্সেস টোকেন সক্রিয় করুন</b> সক্রিয় করেন (<code>ServiceSettings.EnableUserAccessTokens</code>, <code>AM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS</code>)।</li>
+<li>যে ব্যক্তিগণ টোকেন তৈরি করতে পারেন, তাদের জন্য একজন সিস্টেম অ্যাডমিন <b>System Console › User Management › Users</b> খোলেন, সেই ব্যক্তির মেনু থেকে <b>রোল পরিচালনা</b> বেছে নেন এবং <b>Allow this account to generate personal access tokens</b> টিক করেন। সিস্টেম অ্যাডমিনসমূহ সবসময় টোকেন তৈরি করতে পারেন।</li>
+<li>ব্যক্তিটি ডানদিকে উপরে থাকা তার অ্যাভাটার খোলেন, তারপর <b>Profile &amp; settings › Security</b>। <b>পার্সোনাল অ্যাক্সেস টোকেনসমূহ</b> অংশে, তারা টোকেনটির উদ্দেশ্য বর্ণনা করেন এবং <b>টোকেন তৈরি করুন</b> বেছে নেন। টোকেনটি একবার দেখানো হয়: সেটি কপি করুন।</li>
+</ol>
+<p>API ব্যবহার করে: <code>POST /users/{user_id}/tokens</code> এবং <code>{"description": "backup script", "expires_at": 0}</code> (<code>expires_at</code> মিলিসেকেন্ডে; 0 মানে কোনো মেয়াদ নেই)। রেসপন্সের <code>token</code> ফিল্ডটিই হলো সিক্রেট; এর <code>id</code> ব্যবহার করে টোকেনটি বাতিল করা যায় (<code>POST /users/tokens/revoke</code> এবং <code>{"token_id": "…"}</code>)। কমান্ড লাইন থেকে: <code>amctl token generate &lt;user&gt; &lt;description&gt;</code>।</p>
+<p>একজন সিস্টেম অ্যাডমিন একই System Console পেজে <b>সর্বোচ্চ পার্সোনাল অ্যাক্সেস টোকেন মেয়াদ (দিন)</b> দিয়ে টোকেনের মেয়াদ সীমাবদ্ধ করতে পারেন।</p>
+
+<h3>সেশন টোকেন</h3>
+<p>পাসওয়ার্ড দিয়ে সাইন ইন করলে <code>Token</code> রেসপন্স হেডারে একটি সেশন টোকেন পাওয়া যায়, যা অ্যাপস যে সেশন ব্যবহার করে তারই একই ধরনের:</p>
+<pre><code>curl -i -X POST https://chat.example.com/api/v4/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login_id": "maya", "password": "…"}'</code></pre>
+<p>মাল্টি-ফ্যাক্টর অথেনটিকেশন সহ একটি অ্যাকাউন্টের জন্য <code>"token": "123456"</code> যোগ করুন। সার্ভারের সেশন সেটিংস অনুযায়ী সেশন মেয়াদ শেষ হয়, এবং লগইন এন্ডপয়েন্টে রেট লিমিট প্রযোজ্য (প্রতি সেকেন্ডে ৫টি রিকোয়েস্ট)। <code>POST /users/logout</code> সেশন শেষ করে।</p>
+<div class="callout">ব্রাউজাররা কুকি ব্যবহার করে অথেনটিকেশন করে। GET ছাড়া অন্য যেকোনো কাজের জন্য কুকি দিয়ে অথেনটিকেটেড রিকোয়েস্টে <code>X-CSRF-Token</code> হেডার পাঠাতে হবে; <code>Authorization</code> হেডারে থাকা টোকেনের জন্য CSRF হেডারের প্রয়োজন নেই।</div>
+
+<h3>OAuth 2.0 অ্যাপস</h3>
+<p>আপনার অ্যাপ্লিকেশনে Antimatter অ্যাকাউন্ট দিয়ে সাইন ইন করার অনুমতি দিতে, একটি OAuth 2.0 অ্যাপ নিবন্ধন করুন। Antimatter তখন OAuth প্রোভাইডার হিসেবে কাজ করবে:</p>
+<ol>
+<li><b>OAuth 2.0 সার্ভিস প্রোভাইডার সক্রিয় করুন</b> সক্রিয় থাকতে হবে (<b>System Console › Integrations › Integration Management</b>, <code>ServiceSettings.EnableOAuthServiceProvider</code>, ডিফল্টরূপে সক্রিয়)।</li>
+<li>যে ব্যক্তি OAuth অ্যাপসমূহ পরিচালনা করার অনুমতি রাখে (ডিফল্টরূপে সিস্টেম অ্যাডমিনসমূহ) তার অ্যাভাটার খোলেন, তারপর <b>Integrations › OAuth 2.0 apps</b>, এবং কলব্যাক URLসহ অ্যাপটি যোগ করেন। তারা একটি ক্লায়েন্ট আইডি এবং একটি ক্লায়েন্ট সিক্রেট পান।</li>
+<li>আপনার অ্যাপ্লিকেশন ব্যবহারকারীদের <code>https://chat.example.com/oauth/authorize</code> ঠিকানায় পাঠায়, যেখানে <code>response_type=code</code>, <code>client_id</code>, <code>redirect_uri</code> এবং <code>state</code> থাকে। <code>code_challenge_method=S256</code> সহ PKCE সমর্থিত।</li>
+<li>এটি <code>POST https://chat.example.com/oauth/access_token</code> ঠিকানায় কোড বিনিময় করে (<code>grant_type=authorization_code</code>, তারপর <code>refresh_token</code> দিয়ে নতুন করে), এবং <code>Authorization: Bearer &lt;access token&gt;</code> ব্যবহার করে API-তে কল করে।</li>
+</ol>
+<p>ব্যক্তিগণ <b>Profile &amp; settings › Security › Apps you authorized</b> অংশে তাদের অনুমোদিত অ্যাপসমূহ দেখতে পান।</p>
+
+<h2 id="resources">প্রধান রিসোর্স</h2>
+<table>
+<thead><tr><th>কী</th><th>এন্ডপয়েন্ট</th></tr></thead>
+<tbody>
+<tr><td>আপনি এবং অন্যরা</td><td><code>GET /users/me</code>, <code>GET /users/{user_id}</code>, <code>GET /users/username/{username}</code>, <code>POST /users/ids</code> (একটি আইডি তালিকা), <code>POST /users/search</code>, <code>GET /users?in_team=…&amp;in_channel=…</code></td></tr>
+<tr><td>কমিউনিটি</td><td><code>GET /users/me/teams</code>, <code>GET /teams/{team_id}</code>, <code>GET /teams/name/{name}</code>, <code>PUT /teams/{team_id}/patch</code>, <code>GET /teams/{team_id}/members</code>, <code>POST /teams/{team_id}/members</code></td></tr>
+<tr><td>চ্যানেলসমূহ</td><td><code>GET /users/me/teams/{team_id}/channels</code>, <code>GET /teams/name/{team}/channels/name/{channel}</code>, <code>POST /channels</code>, <code>POST /channels/direct</code> (দুটি ইউজার আইডি), <code>POST /channels/group</code>, <code>POST /channels/{channel_id}/members</code></td></tr>
+<tr><td>মেসেজ (পোস্ট)</td><td><code>POST /posts</code>, <code>GET /posts/{post_id}</code>, <code>PUT /posts/{post_id}/patch</code>, <code>DELETE /posts/{post_id}</code>, <code>GET /channels/{channel_id}/posts</code>, <code>GET /posts/{post_id}/thread</code>, <code>POST /teams/{team_id}/posts/search</code></td></tr>
+<tr><td>প্রতিক্রিয়া</td><td><code>POST /reactions</code> সহ <code>{"user_id", "post_id", "emoji_name"}</code>, <code>DELETE /users/{user_id}/posts/{post_id}/reactions/{emoji_name}</code></td></tr>
+<tr><td>ফাইল</td><td><code>POST /files</code> (মাল্টিপার্ট: <code>channel_id</code> এবং <code>files</code>), তারপর ফিরে আসা আইডিগুলো পোস্টের <code>file_ids</code>-এ বসান; <code>GET /files/{file_id}</code></td></tr>
+<tr><td>প্রেফারেন্স</td><td><code>GET /users/me/preferences</code>, <code>PUT /users/me/preferences</code></td></tr>
+<tr><td>ইন্টিগ্রেশন</td><td><code>/hooks/incoming</code>, <code>/hooks/outgoing</code>, <code>/commands</code>, <code>/bots</code>, <code>/oauth/apps</code> (পরবর্তী পৃষ্ঠাসমূহ দেখুন)</td></tr>
+<tr><td>সার্ভার</td><td><code>GET /system/ping</code> (হেলথ, টোকেনের প্রয়োজন নেই), <code>GET /config/client?format=old</code> (ক্লায়েন্টগুলোর যা সেটিংস দেখতে পায়)</td></tr>
+</tbody>
+</table>
+
+<h3>একটি মেসেজ পোস্ট করুন</h3>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "message": "Backup finished: **42 GB** in 3 min"}'</code></pre>
+<p>মেসেজগুলো Markdown-এ লেখা হয়। থ্রিডে উত্তর দিতে <code>"root_id"</code> (থ্রিডের প্রথম পোস্ট) যোগ করুন, ফাইলের জন্য <code>"file_ids"</code> এবং আটachment ও অন্যান্য বাড়তি তথ্যের জন্য <code>"props"</code> (দেখুন <a href="{{root}}docs/developers/webhooks.html#attachments">আটachment</a>)।</p>
+
+<h3>একটি চ্যানেলের আইডি খুঁজুন</h3>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" \
+  https://chat.example.com/api/v4/teams/name/lumen-labs/channels/name/ops-alerts</code></pre>
+<p>নামগুলো চ্যানেলের লিংকে যেমন আছে: <code>/lumen-labs/channels/ops-alerts</code>।</p>
+
+<h2 id="pagination">পেজিনেশন</h2>
+<p>তালিকা এন্ডপয়েন্টগুলো <code>page</code> (0 থেকে) এবং <code>per_page</code> (ডিফল্ট 60, সর্বোচ্চ 200) গ্রহণ করে। যতক্ষণ না একটি পেজ <code>per_page</code>-এর চেয়ে ছোট ফিরে আসে, ততক্ষণ পরের পেজের জন্য জিজ্ঞাসা করতে থাকুন।</p>
+<p>একটি চ্যানেলের মESSAGES (<code>GET /channels/{channel_id}/posts</code>)-এর জন্য <code>since</code> (একটি সময়: সেই সময়ের পরে যা কিছু পরিবর্তিত হয়েছে) অথবা <code>before</code> এবং <code>after</code> (একটি পোস্ট আইডি) ব্যবহার করা যায়। এগুলো একটি পোস্ট তালিকা হিসেবে ফিরে আসে: <code>{"order": [IDs, newest first], "posts": {ID: post}, "next_post_id", "prev_post_id"}</code>।</p>
+
+<h2 id="errors">ত্রুটি</h2>
+<p>ত্রুটিতে সাধারণ HTTP স্ট্যাটাস কোড ব্যবহার করা হয় (400 ভুল ইনপুট, 401 সাইন ইন করা নেই, 403 অনুমতি নেই, 404 পাওয়া যায়নি, 501 ফিচার বন্ধ) এবং একটি JSON বডি:</p>
+<pre><code>{
+  "id": "api.context.permissions.app_error",
+  "message": "You do not have the appropriate permissions.",
+  "detailed_error": "",
+  "request_id": "jz8zm5nunpbt8f3gpqsz5dq6so",
+  "status_code": 403
+}</code></pre>
+<p>আপনার কোডে <code>id</code> ব্যবহার করুন: <code>message</code> ব্যবহারকারীর ভাষায় অনুবাদ করা হয়। <code>detailed_error</code> খালি থাকে, যদি না সার্ভার ডেভেলপার মোডে চলে (<code>ServiceSettings.EnableDeveloper</code>)। সার্ভারের অ্যাডমিনকে <code>request_id</code> উদ্ধৃত করুন: এটি লগে থাকে।</p>
+
+<h2 id="rate-limits">রেট লিমিট</h2>
+<p>ডিফল্টরূপে রেট লিমিটিং বন্ধ থাকে। যখন একজন সিস্টেম অ্যাডমিন এটি সক্রিয় করেন (<b>System Console › Environment › Rate Limiting</b>), তখন ডিফল্টরূপে প্রতিটি ক্লায়েন্ট প্রতি সেকেন্ডে ১০টি রিকোয়েস্ট পাঠাতে পারে, ১০০টির বার্স্টসহ, যা IP ঠিকানা বা ব্যবহারকারীর ভিত্তিতে গণনা করা হয়। রেসপন্সে <code>X-RateLimit-Limit</code>, <code>X-RateLimit-Remaining</code> এবং <code>X-RateLimit-Reset</code> থাকে; সীমা অতিক্রম করলে সার্ভার <code>429</code> উত্তর দেয়, সাথে সেকেন্ডে <code>Retry-After</code> হেডার থাকে। কিছু এন্ডপয়েন্ট, যেমন সাইন ইন, সেটিংসের নির্বিশেষে তাদের নিজস্ব সীমা রাখে।</p>
+<p>429-এর ক্ষেত্রে অপেক্ষা করে রিট্রাই করার জন্য স্ক্রিপ্ট লিখুন এবং পলিং এড়িয়ে চলুন: WebSocket-এর অনুসরণ করুন।</p>
+
+<h2 id="websocket">WebSocket ইভেন্ট স্ট্রিম</h2>
+<p><code>wss://chat.example.com/api/v4/websocket</code>-এ সংযোগ করুন। সংযোগ রিকোয়েস্টে <code>Authorization: Bearer</code> হেডার ব্যবহার করে অথবা প্রথম বার্তা হিসেবে এটি পাঠিয়ে অথেনটিকেশন করুন:</p>
+<pre><code>{"seq": 1, "action": "authentication_challenge", "data": {"token": "…"}}</code></pre>
+<p>সার্ভার একটি <code>hello</code> ইভেন্ট পাঠায়, তারপর আপনি দেখতে পারেন এমন সবকিছুর জন্য একটি ইভেন্ট পাঠায়:</p>
+<pre><code>{
+  "event": "posted",
+  "data": {"channel_id": "…", "channel_type": "O", "post": "{\"id\":\"…\",\"message\":\"Hello\",…}"},
+  "broadcast": {"channel_id": "…", "team_id": "", "user_id": "", "omit_users": null},
+  "seq": 4
+}</code></pre>
+<p>মনে রাখবেন, <code>data.post</code> হলো একটি JSON স্ট্রিং হিসেবে পোস্টটি। সাধারণ ইভেন্ট: <code>posted</code>, <code>post_edited</code>, <code>post_deleted</code>, <code>reaction_added</code>, <code>reaction_removed</code>, <code>typing</code>, <code>status_change</code>, <code>user_added</code>, <code>direct_added</code>। অ্যাপস তাদের নিজস্ব ইভেন্ট পাঠায়, যাদের নাম <code>custom_&lt;app id&gt;_&lt;event&gt;</code>।</p>
+<p>আপনি অ্যাকশনও পাঠাতে পারেন, প্রতিটির জন্য একটি বর্ধমান <code>seq</code> সহ: <code>user_typing</code> <code>{"channel_id", "parent_id"}</code> সহ, অথবা <code>get_statuses</code>। সংযোগ বিচ্ছিন্ন হলে পুনরায় সংযোগ করুন এবং <code>since</code> ব্যবহার করে যা মিস করেছেন তা আনুন (দেখুন <a href="#pagination">Pagination</a>)।</p>
+<p>Antimatter এই ইভেন্টগুলো যোগ করে: <code>community_attributes_updated</code>, <code>member_timeouts_updated</code>, <code>post_put_on_top</code>, <code>post_removed_from_top</code>, <code>server_categories_updated</code>, <code>channel_overrides_updated</code> এবং <code>category_overrides_updated</code>।</p>
+
+<h2 id="clients">ক্লায়েন্ট লাইব্রেরি</h2>
+<ul>
+<li><b>যান</b>: <code>server/public/model</code> এ <code>model.Client4</code> (<code>github.com/mattermost/mattermost/server/public/model</code> ইমপোর্ট করুন)। <code>model.NewAPIv4Client(url)</code>, তারপর <code>client.SetToken(token)</code>; <code>model.NewWebSocketClient4(wsURL, token)</code> ইভেন্টসমূহ অনুসরণ করে। Antimatter-এর কপি তার নিজস্ব এন্ডপয়েন্টসমূহের জন্য পদ্ধতি যোগ করে, যেমন <code>UpdateMessageRequest</code>, <code>PutPostOnTop</code> এবং <code>ExportChannel</code>।</li>
+<li><b>TypeScript</b>: <code>webapp/platform/client</code>-এ <code>@mattermost/client</code>-এর <code>Client4</code> ক্লাস, এবং <code>webapp/platform/types</code>-এ এর টাইপস। Antimatter-এর রিপোজিটরিতে থাকা কপিতে Antimatter-এর এন্ডপয়েন্ট রয়েছে; Mattermost-এর দ্বারা npm-এ প্রকাশিত প্যাকেজে তা নেই।</li>
+</ul>
+<pre><code>package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/mattermost/mattermost/server/public/model"
+)
+
+func main() {
+	client := model.NewAPIv4Client("https://chat.example.com")
+	client.SetToken("…")
+	post, _, err := client.CreatePost(context.Background(), &amp;model.Post{
+		ChannelId: "…",
+		Message:   "Hello from Go",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("posted", post.Id)
+}</code></pre>
+
+<h2 id="antimatter">Antimatter API-তে যা যোগ করে</h2>
+<p>এই এন্ডপয়েন্ট এবং ফিল্ডগুলো Mattermost সার্ভারে নেই। এগুলোর সবগুলোর জন্য একটি সেশন প্রয়োজন।</p>
+<table>
+<thead><tr><th>এন্ডপয়েন্ট</th><th>এটি কী করে</th></tr></thead>
+<tbody>
+<tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> একই পথ<br><code>PATCH</code>, <code>DELETE …/fields/{field_id}</code></td><td>কমিউনিটি অ্যাট্রিবিউট: কমিউনিটির অ্যাডমিনদের দ্বারা সদস্যদের জন্য সংজ্ঞায়িত প্রোফাইল ফিল্ড (সর্বোচ্চ ২০টি)। সদস্যরা এগুলো পড়তে পারে; কমিউনিটির অ্যাডমিনরা এগুলো তৈরি এবং পরিবর্তন করতে পারে।</td></tr>
+<tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> একই পথ<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>একজন সদস্যের অ্যাট্রিবিউট মান, <code>{field_id: value}</code> হিসেবে। সদস্যরা নিজেরা সেট করতে পারে (অ্যাডমিন-ব্যবস্থিতগুলোর ব্যতীত); অ্যাডমিনরা যেকোনো সদস্যের সেট করতে পারে। সার্চটি <code>{"user_ids": [...]}</code> গ্রহণ করে (সর্বোচ্চ ২০০টি)।</td></tr>
+<tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>টাইমআউট: <code>{"until": time, "reason": "…"}</code> নির্দিষ্ট সময় পর্যন্ত (সর্বোচ্চ ২৮ দিন) কেউ কমিউনিটিতে পোস্ট, প্রতিক্রিয়া এবং আপলোড করতে বাধা দেয়; <code>"until": 0</code> এটি তুলে দেয়। মডারেশন ভিউতে তারা কখন যোগ হয়েছিল এবং সাম্প্রতিক কালে কতটা পোস্ট করেছিল তা দেখায়।</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>একটি চ্যানেলের উপরে রাখা মESSAGES (সর্বোচ্চ ১০টি)। <code>{"duration": ms}</code>, সর্বোচ্চ ৩০ দিন; 0 হলে এটি মুছে ফেলা পর্যন্ত থাকে। চ্যানেলে পোস্ট করার অনুমতি প্রয়োজন।</td></tr>
+<tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>আপনার নিজের মESSAGES অনুরোধের উপর কাজ করে: <code>{"action": "accept"}</code>, <code>"dismiss"</code>, বা <code>"request"</code> একটি কথোপকথনকে আবার অনুরোধগুলোর মধ্যে ফিরিয়ে আনতে। এটি আপনার চ্যানেল সদস্যকে ফিরিয়ে দেয়।</td></tr>
+<tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>একটি চ্যানেলে কোনো রোল বা ব্যক্তি কী করতে পারে, এবং কোন কোন রোল রোল-গেটেড চ্যানেল দেখতে পায়।</td></tr>
+<tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>কমিউনিটির শেয়ার্ড চ্যানেল ক্যাটাগরি, এবং একটি ক্যাটাগরির প্রতিটি চ্যানেলে প্রযোজ্য ওভাররাইড।</td></tr>
+<tr><td><code>GET /groups/{group_id}/team_role</code><br><code>PUT …/team_role/permissions</code></td><td>কমিউনিটির রোল যে অনুমতি প্রদান করে।</td></tr>
+<tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>কমিউনিটির অটোলিংক নিয়মগুলো একটি টেক্সটে পরীক্ষা করে।</td></tr>
+<tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>যে ব্যক্তিরা চ্যানেলটি পড়তে পারে, তাদের জন্য চ্যানেলের ম্যাসেজগুলো CSV হিসেবে ডাউনলোড করে (সর্বোচ্চ ৫০,০০০)।</td></tr>
+<tr><td><code>GET /posts/{post_id}/speech</code></td><td>যখন টেক্সট-টু-স্পিচ সেটআপ করা থাকে, তখন ম্যাসেজটি অডিও হিসেবে পড়া হয়।</td></tr>
+</tbody>
+</table>
+<h3>নতুন ফিল্ড</h3>
+<ul>
+<li><b>কমিউনিটিসমূহ</b> (<code>Team</code>, এবং <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (যেমন Discord-এ, সবাই তাদের দেখতে পাওয়া প্রতিটি চ্যানেলে থাকে), <code>default_channel_id</code> (নতুন সদস্যদের প্রথম দেখা যায় এমন জায়গা; খালি থাকলে Town Square), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> এবং <code>autolinks</code> (উভয়ই JSON স্ট্রিং)।</li>
+<li><b>ইনলাইন রিপ্লাই</b>: <code>"props": {"reply_to": "&lt;post id&gt;"}</code> সহ একটি পোস্ট একই চ্যানেলের সেই ম্যাসেজটি কোট করে। লেখককে নোটিফাই না করার জন্য <code>"reply_to_mention": false</code> যোগ করুন। সার্ভার কোটেড ম্যাসেজের একটি সংক্ষিপ্ত বর্ণনা দিয়ে <code>metadata.reply_to</code> পূরণ করে।</li>
+<li><b>স্পয়লার</b>: <code>"props": {"spoiler": true}</code> পাঠক দেখতে না চাইলে পোস্টের টেক্সট এবং ফাইল লুকিয়ে রাখে।</li>
+<li><b>ইগনোর এবং ব্লক</b> হলো পছন্দ: ক্যাটাগরি <code>user_block</code>, অন্য ব্যক্তির ID-এর নামে, মান <code>ignore</code> বা <code>block</code>। একটি ডাইরেক্ট ম্যাসেজ রিকোয়েস্ট হিসেবে অপেক্ষা করবে কিনা তা আপনার চ্যানেল সদস্যের <code>notify_props.dm_request</code>-এ নির্ধারিত হয় (<code>pending</code>, <code>accepted</code> বা <code>dismissed</code>)।</li>
+<li><b>ম্যাসেজ আটাকমেন্ট</b> <code>stages</code> এবং একটি <code>chart</code> বহন করতে পারে: <a href="{{root}}docs/developers/webhooks.html#cards">কার্ড</a> দেখুন।</li>
+</ul>

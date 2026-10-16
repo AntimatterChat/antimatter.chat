@@ -1,0 +1,170 @@
+title: เว็บฮุค
+description: เว็บฮุคเข้าและเว็บฮุคออกของ Antimatter: การสร้าง, payload และ response, ไฟล์แนบและการ์ดในข้อความ, การเปลี่ยนชื่อและไอคอน, พร้อมตัวอย่าง
+guide: developers
+order: 3
+nav: เว็บฮุค
+lead: เว็บฮุคเข้า (incoming webhook) อนุญาตให้ระบบอื่นโพสต์ข้อความเข้าช่องโดยส่ง JSON ไปยัง URL ที่เป็นความลับ ส่วนเว็บฮุคออก (outgoing webhook) ทำตรงขามกัน: ส่งข้อความที่ตองคำทริกเกอร์ (trigger word) ไปยัง URL ของเรา, แล้วยโพสต์คำตอบที่เราส่งกลับ
+source: ecd698619944
+---
+<h2 id="where">ท่ีจัดการเว็บฮุค</h2>
+<p>เปิดอวตารของคุณที่มุมบนขวา จากนั้นเลือก <b>อินทิเกรชัน</b> หน้าออินทิเกรชันของชุมชนปัจจุบันจะแสดงรายการ <b>เว็บฮุคขาเข้า</b> และ <b>เว็บฮุคทิศทางออก</b> โดยแต่ละเว็บฮุคจะสังกัดชุมชนหนึ่งชุมชน</p>
+<p>โดยค่าเริ่มต้น ผู้ดูแลชุมชนและผู้ดูแลระบบสามารถสร้างเว็บฮุคได้ ผู้ดูแลระบบสามารถให้อำนาจแก่บทบาทอื่่นในการตั้่งค่าสิทธิ์ใน<b>คอนโซลระบบ › อินทิเกรชัน › การจัดการอินทิเกรชัน</b>: <b>เปิดใช้งานเว็บฮุคขาเข้า</b> และ <b>เปิิด Outgoing Webhooks</b> เปิิดใช้อยู่โดยค่าเริ่มต้นทั้่งสอง</p>
+<figure><img src="{{root}}assets/img/shots/integrations.webp" alt="A channel with messages from a CI bot and from GitHub, shown as cards with fields, pipeline stages and a button"><figcaption>ข้อความจากการเชื่อมต่องแสดงในรูปการ์ด: ฟิลด์, ระยะของ pipeline และปุ่ม action</figcaption></figure>
+
+<h2 id="incoming">สร้างเว็บฮุคเข้า</h2>
+<ol>
+<li>ใน <b>ออินทิเกรชัน</b> เลือก <b>เว็บฮุคขาเข้า</b> จากนั้นเลือก <b>เพิ่มเว็บฮุคเข้า</b></li>
+<li>กรอก <b>ชื่อ</b> และ <b>คำอธิบาย</b>: ข้อมูลเหล่านี้จะแสดงเฉพาะในหน้าออินทิเกรชันเท่านั้น</li>
+<li>เลืก <b>Channel</b> (ช่อง) ท่ีข้อความจะไปโดยค่าเริ่มต้น สำหรับช่องส่วนตัว (private channel), ต้องเป็นสมาชิกของช่องนั้่น</li>
+<li>ทำเครื่องหมายที่ <b>ล็อกไว้กับช่องนี้</b> หากต้องการไม่ให้อื่นสามารถโพสต์ไปยังที่อื่นได้</li>
+<li>กำหนด <b>ชื่อผู้ใช้</b> และ URL ของ <b>รูปภาพโปรไฟล์</b> สำหรับข้อความของเว็บฮุค (ดู <a href="#identity">ชื่อและไอคอน</a>)</li>
+<li>เลืก <b>Save</b> (บันทึก) คัดลอก URL ท่ีแสดง: <code>https://chat.example.com/hooks/&lt;key&gt;</code></li>
+</ol>
+<div class="callout warn">URL นั้่นเป็นความลับอยู้่ตัวเดียว: ใค้ท่ีมี URL นั้่นสามารถโพสต์ในช่องได้ อย่าเก็บใน repository ท่ีสาธารณะ, และลบเว็บฮุคนั้่นหาก URL รั่วไหล</div>
+<p>ด้วย API: <code>POST /api/v4/hooks/incoming</code> พร้อม <code>{"channel_id", "display_name", "description", "username", "icon_url", "channel_locked"}</code>; <code>id</code> ใน response คือ key จาก command line: <code>amctl webhook create-incoming --channel &lt;channel id&gt; --user &lt;user&gt; --display-name "CI"</code></p>
+
+<h2 id="incoming-send">ส่งข้อความไปยังเว็บฮุคเข้า</h2>
+<pre><code>curl -X POST https://chat.example.com/hooks/xgh5ycrx1jf7mbs9w8z4c8e7ho \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Deploy of **api 2.4.0** finished :white_check_mark:"}'</code></pre>
+<p>เซิร์ฟเวอร์ตอบกลับ <code>200</code> พร้อม body <code>ok</code> ยังยอมรับ <code>application/x-www-form-urlencoded</code> ท่ีมี JSON ในฟิลด์ <code>payload</code> เหมืนเว็บฮุคของ Slack, ซึ่่งทำให้อุปกรณ์ท่ีสร้างสำหรับ Slack ใช้อยู้่แล้วโดยไมต่้องเปลี่่ยน</p>
+<table>
+<thead><tr><th>ฟิลด์</th><th>ความหมาย</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>ข้อความใน Markdown ต้องมียกเว้นว่ามี <code>attachments</code> ข้อความที่ยาวกว่่าขั้้นพิกัดข้อความของเซิร์ฟเวอร์จะถกแบ่งออกเป็นข้อความหลายข้้อ</td></tr>
+<tr><td><code>channel</code></td><td>ช่องอืน่ ๆ ของชุมชนท่ีเว็บฮุคอยู่ โดยชื่่อ (<code>ops-alerts</code> หรือ <code>#ops-alerts</code>) หรือ <code>@username</code> สำหรบั ข้อความส่วนตัวจากผู้ครอบครองเว็บฮุค ถกปัดถ่าเม่ือเว็บฮุคถกล็อกไว้กบั ช่องของตัวเอง</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code>, <code>icon_emoji</code></td><td>ชื่่อและรูปท่ีจะแสดง เม่ือเซิร์ฟเวอร์อนุญาติให้อัปเดต</td></tr>
+<tr><td><code>attachments</code></td><td>ไฟล์แนบของข้อความ ท่ีถกแสดงในรู่ปของการ์ด (ข้่าล่่าง)</td></tr>
+<tr><td><code>props</code></td><td>คุณสมบัตติ์เพิ่่มท่ีถกเก็บไว้กบั ข้อความ สำหรบั แอปท่ีอ่านข้้อมูลเหล่าน้ี</td></tr>
+<tr><td><code>type</code></td><td>ประเภทข้อความพเิ ศษ เชน่ <code>custom_poll</code> สำหรบั แอปท่ีจะแสดงข้้อมูลน้ี ประเภทท่ีตองด้วย <code>system_</code> จะถกปัดถ่า</td></tr>
+<tr><td><code>root_id</code></td><td>ID ของข้อความแรกในเธรด เพ่ือตอบกลับในเธรดนั้ น</td></tr>
+<tr><td><code>priority</code></td><td>ความสำคญั ของข้อความ เชน่ <code>{"priority": "urgent"}</code></td></tr>
+<tr><td><code>silent</code></td><td><code>true</code> ส่งข้อความโดยไม่มี push notifications</td></tr>
+</tbody>
+</table>
+<p>ข้อความท่ีแสดงภายใตช้ ื่่อท่ีถกเปล่ียนไปจะมตี ัวเอยี ง <b>BOT</b> อยูด่ ้านข้าง เพ่ือให้อายิ่ แยกออกได้กบั บัญชีจริง ข้อความจากเว็บฮุคจะไม่ทริกเกอร์เว็บฮุคออกเลย</p>
+
+<h2 id="identity">ชื่่อและไอคอน</h2>
+<p>เว็บฮุคจะโพสต์ในนามของบุคคลที่สร้าง เว้นแต่เซิร์ฟเวอร์จะอนุญาตให้แทนที่ ค่าการตั้งค่าสองรายการใน <b>คอนโซลระบบ › ออินทิเกรชัน › การจัดการออินทิเกรชัน</b> ซึ่งปิดใช้งานอยู่เป็นค่าเริ่มต้น สามารถเปลี่ยนแปลงพฤติกรรมนี้ได้:</p>
+<ul>
+<li><b>เปิดใช้งานการอินทิเกรตเพื่อแทนที่ชื่อผู้ใช้</b> (<code>ServiceSettings.EnablePostUsernameOverride</code>): จะแสดง <b>ชื่อผู้ใช้</b> ของเว็บฮุค หรือ <code>username</code> จากคำขอแทน หากไม่มีทั้งสองอย่าง ชื่อจะแสดงเป็น <code>webhook</code></li>
+<li><b>เปิดใช้งานให้อินทิเกรชันทับไอคอนรูปโปรไฟล์</b> (<code>ServiceSettings.EnablePostIconOverride</code>): จะแสดง <b>รูปภาพโปรไฟล์</b> ของเว็บฮุค หรือ <code>icon_url</code> หรือ <code>icon_emoji</code> จากคำขอ</li>
+</ul>
+<p>ค่าน์ อกจากคำขอร้ องจะชนะค่าท่ีเก็บไว้กบั เว็บฮุค</p>
+
+<h2 id="attachments">ไฟล์แนบ</h2>
+<p>ไฟล์แนบเพิ่ มเนื้ อหาท่ีมีโครงสร้างไว้ข้่าล่่างข้ อความ ท่ีตามรูปแบบ attachment ของข้ อความ Slack:</p>
+<pre><code>{
+  "text": "Build failed on `main`",
+  "attachments": [{
+    "fallback": "main #1902 failed",
+    "color": "#d24b4e",
+    "author_name": "GitHub Actions",
+    "author_icon": "https://chat.example.com/static/ci.png",
+    "title": "main #1902 failed",
+    "title_link": "https://ci.example.com/runs/1902",
+    "text": "Commit `0f4d8e2` by Jonas Weber",
+    "fields": [
+      {"title": "Branch", "value": "zephyr-3.7", "short": true},
+      {"title": "Duration", "value": "3m 40s", "short": true}
+    ],
+    "footer": "Lumen CI",
+    "ts": 1760000000
+  }]
+}</code></pre>
+<table>
+<thead><tr><th>ฟิลด์</th><th>ความหมาย</th></tr></thead>
+<tbody>
+<tr><td><code>fallback</code></td><td>ข้ อความธรรมดา สำหรบั ท่ีท่ีไม่สามารถแสดงการ์ดได้ เชน่ การแจ้ งเตื อน</td></tr>
+<tr><td><code>color</code></td><td>แถบส่ี: ส่ี hex หรือ <code>good</code>, <code>warning</code>, <code>danger</code></td></tr>
+<tr><td><code>pretext</code></td><td>ข้ อความข้ ้าบนการ์ด</td></tr>
+<tr><td><code>author_name</code>, <code>author_link</code>, <code>author_icon</code></td><td>บรรทัดหัวข้ อขนาดเลก็</td></tr>
+<tr><td><code>title</code>, <code>title_link</code></td><td>ชื่ อข้ อของการ์ด อาจเป็ นลิ้ นก์ได้</td></tr>
+<tr><td><code>text</code></td><td>เนื้ อหาของการ์ด ใน Markdown</td></tr>
+<tr><td><code>fields</code></td><td>รายชื่ อของ <code>{"title", "value", "short"}</code>; ฟิลด์ <code>short</code> จะอยูด่ ้านข้ างกนั</td></tr>
+<tr><td><code>image_url</code>, <code>thumb_url</code></td><td>ภาพขนาดใหญ่ ข้ ้าล่ ่าง หรือภาพขนาดเลก็ ด้า นข้ าง</td></tr>
+<tr><td><code>footer</code>, <code>footer_icon</code>, <code>ts</code></td><td>บรรทัดท้ายข้ อและเวลา (Unix seconds)</td></tr>
+<tr><td><code>actions</code></td><td>ป่ มและเมนู: ดู <a href="{{root}}docs/developers/bots.html#interactive">Interactive messages</a></td></tr>
+</tbody>
+</table>
+
+<h2 id="cards">การ์ด: ส่ วนประกอบและกราฟ</h2>
+<p>Antimatter เพิ่มฟิลด์สองอย่างในไฟล์แนบ ซึ่งอินเทอร์เฟซเริ่มต้นจะแสดง:</p>
+<ul>
+<li><code>stages</code>: ขั้นตอนของ pipeline ในรูปแบบ pill สูงสุด 20 ขั้น แต่ละขั้นเป็น <code>{"name", "status"}</code> โดยมีสถานะเป็น <code>passed</code>, <code>failed</code>, <code>running</code>, <code>pending</code>, <code>skipped</code> หรือ <code>canceled</code>.</li>
+<li><code>chart</code>: กราฟเส้นขนาดเล็กแสดงค่าล่าสุด <code>{"values": [2 to 200 numbers], "threshold": number, "label": "…"}</code> เส้นเกณฑ์จะถูกระบุเป็นเส้นประ เพื่อแสดงขีดจำกัดของคำเตือน</li>
+</ul>
+<pre><code>{
+  "attachments": [{
+    "color": "danger",
+    "title": "main #1902 failed",
+    "stages": [
+      {"name": "build", "status": "failed"},
+      {"name": "unit", "status": "skipped"},
+      {"name": "publish", "status": "skipped"}
+    ]
+  }, {
+    "color": "warning",
+    "title": "API latency above 400 ms",
+    "chart": {"values": [210, 230, 260, 390, 450, 470], "threshold": 400, "label": "p95 latency, ms"}
+  }]
+}</code></pre>
+<p>อินเทอร์เฟซคลาสสิกและไคลเอนต์อื่นๆ จะเพิกเฉยต่อฟิลด์สองนี้ ดังนั้นควรใส่ข้อมูลสำคัญใน <code>text</code> หรือ <code>fields</code> ด้วย</p>
+
+<h2 id="outgoing">สร้างเว็บฮุคขาออก</h2>
+<p>เว็บฮุคทิศทางออกจะเฝ้าดู <b>สาธารณะ</b> ของชุมชน เมื่อคำแรกของข้อความตรงกับคำกระตุ้นใดคำหนึ่งของเว็บฮุค Antimatter จะส่งข้อความไปยัง URL ของคุณ</p>
+<ol>
+<li>ใน <b>ออินทิเกรชัน</b> เลือก <b>เว็บฮุคทิศทางออก</b> จากนั้นเลือก <b>เพิ่มเว็บฮุคแบบ Outgoing</b></li>
+<li>กรอก <b>ชื่อ</b> และ <b>คำอธิบาย</b></li>
+<li>เลือก <b>ประเภทเนื้อหา</b> ของคำขอ: <code>application/x-www-form-urlencoded</code> หรือ <code>application/json</code></li>
+<li>เลือก <b>ช่อง</b> กรอก <b>คำกระตุ้น (1 คำต่อ 1 บรรทัด)</b> หรือทำทั้งสองอย่าง หากเลือกช่องแต่ไม่มีคำกระตุ้น ทุกข้อความในช่องนั้นจะถูกส่ง หากเลือกทั้งสองอย่าง ข้อความต้องตรงกับทั้งสองเงื่อนไข</li>
+<li>ภายใต้ <b>กระตุ้้นเมื่อ</b> เลือก <b>คำแรกตรงกับคำกระตุ้้นอย่างแม่นยำ</b> หรือ <b>คำแรกขึ้้นต้นด้วยคำกระตุ้้น</b>.</li>
+<li>กรอก <b>URLs สำหรับ Callback (หนึ่่ง URL ต่อหนึ่่งบรรทัด)</b> แต่ละ URL จะได้รับข้้อความท่ีตรงกัับเงื่่อนไขทังหมด.</li>
+<li>ตั้่ง <b>ชื่่อผ้้ใช้</b> และ <b>รู่ปภาพโปรไฟล์</b> ท่ีใช้สำหร้ับข้้อความตอบกล้ับ (ไม่บังคับ).</li>
+<li>เลือก <b>บันทึึก</b> แล้้วคัดลอกโทเคนท่ีแสดงขึ้้นมา เซอร์วิสของคุณจะใช้โทเคนน้ีเพื่่อตรวจสอบว่่าข้้อความข้้อขอมาจากเซิร์ฟเวอร์ของคุณ.</li>
+</ol>
+<p>ผ่าน API: <code>POST /api/v4/hooks/outgoing</code> พร้อม <code>{"team_id", "channel_id", "trigger_words", "trigger_when", "callback_urls", "content_type", "display_name"}</code> (<code>trigger_when</code>: 0 สำหรับตรงกันเป๊ะ, 1 สำหรับ "starts with")</p>
+<div class="callout">หากเซอร์วิสของคุณอย่ืนในเนทเวอร์คส่ว่นต้ว ผ้้ด่แลระบบต้อองอนุญาติให้อ้ินทราสท่ีอย่ืนใน <b>อนุญาติการเช่ือมต่อนภายในท่ีไม่ไว้วางใจถิง</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>) เซิร์ฟเวอร์จะไม่เช่ือมต้อองกัับอ้ินทราสส่ว่นต้วถ้่าไม่ได้อนุญาติ.</div>
+
+<h2 id="outgoing-request">คำขอขาออก</h2>
+<p>Antimatter ส่ง POST พร้อมฟิลด์เหล่านี้ เป็น JSON หรือ form-encoded ขึ้นอยู่กับ content type:</p>
+<pre><code>{
+  "token": "6kd1ofo5ojr5zgu5ipfipybgnc",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "channel_id": "…",
+  "channel_name": "ops-alerts",
+  "timestamp": 1760010000000,
+  "user_id": "…",
+  "user_name": "priya",
+  "post_id": "…",
+  "text": "deploy api 2.4.0",
+  "trigger_word": "deploy",
+  "file_ids": ""
+}</code></pre>
+<p>เทียบ <code>token</code> กัับโทเคนของเว็บฮุคก่่อนท่ีจะทำสิ่่งอื่่น ในข้้อความท่ีเอนโค้ดแบบฟอร์ม <code>timestamp</code> จะอย่ืนในหน่วยเซค้อนด์ไม่ใช่มิลลเซค้อนด์ เซิร์ฟเวอร์จะรอกคำตอบจากคุณได้นานเท่านั้้นตาม <b>Timeout สำหร้ับข้้อขอ Integration</b> (ค่าต้้นต้้น 30 เซค้อนด์, <code>ServiceSettings.OutgoingIntegrationRequestsTimeout</code>).</p>
+
+<h2 id="outgoing-response">ตอบกลับเว็บฮุคขาออก</h2>
+<p>เพื่อโพสต์คำตอบ ให้ตอบกลับด้วย JSON หากต้องการโพสต์อะไรเลย ให้ตอบกลับด้วย body ที่ว่างเปล่า</p>
+<pre><code>{
+  "text": "Deploying **api 2.4.0** to staging…",
+  "response_type": "comment",
+  "username": "deploy-bot",
+  "icon_url": "https://chat.example.com/static/deploy.png"
+}</code></pre>
+<ul>
+<li><code>text</code> และ <code>attachments</code>: คำตอบ หากไม่มีทั้งสองอย่าง จะไม่มีการโพสต์ใดๆ</li>
+<li><code>response_type</code>: <code>comment</code> จะโพสต์คำตอบในเธรดของข้อความที่กระตุ้น; ในกรณีอื่นจะโพสต์ในช่อง</li>
+<li><code>username</code>, <code>icon_url</code>: แสดงเมื่อเซิร์ฟเวอร์อนุญาตให้แทนที่ค่า; ในกรณีอื่นจะใช้ค่าของเว็บฮุคเอง</li>
+<li><code>props</code>, <code>type</code>, <code>priority</code>: เหมือนกับเว็บฮุคขาเข้า</li>
+</ul>
+<p>คำตอบจะถูกโพสต์ในนามของผู้สร้างเว็บฮุค ภายใต้ชื่อที่แทนที่ (ถ้ามี) สำหรับเนื้อหาที่ยาวกว่าคำตอบสั้นๆ ให้ตอบกลับทันทีและโพสต์ทีหลังด้วยเว็บฮุคขาเข้าหรือ API</p>
+
+<h2 id="troubleshooting">เมื่อเว็บฮุคไม่ทำงาน</h2>
+<ul>
+<li><b>501 จาก URL ของเว็บฮุค</b>: เว็บฮุคขาเข้าถูกปิดใช้งานบนเซิร์ฟเวอร์</li>
+<li><b>400 "Failed to decode the payload…"</b>: JSON ไม่ถูกต้อง หรือฟิลด์ฟอร์มไม่ได้ตั้งชื่อว่า <code>payload</code> <b>"No text specified."</b> หมายความว่าคำขอไม่มีทั้ง <code>text</code> และ <code>attachments</code></li>
+<li><b>403</b>: เว็บฮุคถูกล็อกไว้กับช่องอื่น หรือผู้ครอบครองไม่สามารถอ่านช่องนั้นได้อีกต่อไป</li>
+<li><b>เว็บฮุคขาออกไม่ทำงานเลย</b>: ช่องเป็นช่องส่วนตัว คำกระตุ้นไม่ใช่คำแรก หรือข้อความมาจากเว็บฮุค</li>
+<li><b>Logs</b>: เมื่่อเปิิด <b>เปิิด Webhook Debugging</b> (<code>LogSettings.EnableWebhookDebugging</code>) และตั้่งระดบั้ล๊อกท่ี <code>DEBUG</code> เซิร์ฟเวอร์จะบันทึึก payload ของข้้อขอท่ีเข้้ามาท่ีไม่สำเร็จ การโทรออกท่ีไม่สำเร็จจะถูึกบันทึึกในล๊อกในชื่่อ <code>Outgoing Webhook POST failed</code>.</li>
+</ul>

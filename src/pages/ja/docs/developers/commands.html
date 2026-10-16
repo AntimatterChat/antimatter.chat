@@ -1,0 +1,122 @@
+title: スラッシュコマンド
+description: Antimatterのカスタムスラッシュコマンド:作成方法、サービスが受信するリクエスト、レスポンスの形式、エフェメラルおよびチャンネル内での応答、遅延応答、オートコンプリート。
+guide: developers
+order: 4
+nav: スラッシュコマンド
+lead: カスタムスラッシュコマンドを使用すると、メッセージ入力欄に/somethingと入力してサービスを呼び出すことができます。AntimatterはコマンドをURLに送信し、応答をそのユーザー本人のみに表示するか、チャンネル全体に表示するかを選択できます。
+source: 24dbc9730e62
+---
+<h2 id="how">スラッシュコマンドの動作</h2>
+<ol>
+<li>ユーザーが<code>/weather Paris</code>と入力して送信します。テキストは投稿されません。</li>
+<li>Antimatterは、コマンドのURLにHTTPリクエストを送信します。リクエストには、入力したユーザー、場所、トリガー文字列の後のテキストが含まれます。</li>
+<li>サービスは、リクエストのタイムアウト(デフォルトは30秒)以内にメッセージで応答します。</li>
+<li>Antimatterは応答を表示します。そのユーザーのみに表示(エフェメラル)するか、チャンネル内で全員に表示するかです。</li>
+</ol>
+<p>コマンドはコミュニティに属し、トリガーワードはコミュニティ内で一意である必要があります。<code>/join</code>、<code>/msg</code>、<code>/away</code>などの組み込みコマンドは置き換えることはできません。アプリ(プラグイン)もコマンドを登録できます。<a href="{{root}}docs/developers/apps.html#server">サーバー部分</a>を参照してください。</p>
+
+<h2 id="create">コマンドの作成</h2>
+<p>カスタムスラッシュコマンドはデフォルトで有効になっています（<b>システムコンソール › 統合機能 › 統合機能管理</b>内の<b>カスタムスラッシュコマンドを有効にする</b>、<code>ServiceSettings.EnableCommands</code>）。コミュニティ管理者とシステム管理者はデフォルトでこれを作成できます。</p>
+<ol>
+<li>右上のアバターを開き、<b>統合機能 › スラッシュコマンド</b>、次に<b>スラッシュコマンドを追加する</b>を選択します。</li>
+<li><b>タイトル</b>と<b>説明</b>(統合ページに表示されます)を入力します。</li>
+<li><b>コマンドトリガーワード</b>を入力します。スラッシュとスペースは含めず、例えば<code>weather</code>など。</li>
+<li><b>リクエストURL</b>を入力し、<b>リクエストメソッド</b>を選択します:<b>POST</b>(デフォルト)または<b>GET</b>。</li>
+<li>必要に応じて、<b>返信ユーザー名</b>と<b>応答アイコン</b>を設定します。これらは、サーバーが統合機能による名前とアイコンの上書きを許可している場合にのみ使用されます（<a href="{{root}}docs/developers/webhooks.html#identity">名前とアイコン</a>を参照）。</li>
+<li><b>自動補完</b>にチェックを入れると、ユーザーが<code>/</code>を入力した際にコマンドがリストに表示されます。<b>自動補完のヒント</b>（<code>[city]</code>などの引数）と<b>自動補完の説明</b>を指定できます。</li>
+<li><b>保存する</b>を選択し、表示されたトークンをコピーします。このトークンは、サービスがリクエストが自分のサーバーからのものであることを確認するために使用されます。</li>
+</ol>
+<p>API を使用する場合: <code>POST /api/v4/commands</code> に <code>{"team_id", "trigger", "url", "method": "P", "display_name", "description", "auto_complete": true, "auto_complete_hint", "auto_complete_desc", "username", "icon_url"}</code> を送信します。method は POST の場合は <code>P</code>、GET の場合は <code>G</code> です。<code>PUT /api/v4/commands/{command_id}/regen_token</code> で新しいトークンを発行できます。</p>
+
+<h2 id="request">サービスが受信するリクエスト</h2>
+<p>POST コマンドはフォームエンコードされたボディ (<code>application/x-www-form-urlencoded</code>) を送信し、GET コマンドは同じフィールドをクエリ文字列に含めて送信します。トークンは <code>Authorization: Token &lt;token&gt;</code> ヘッダーにも含まれます。</p>
+<table>
+<thead><tr><th>フィールド</th><th>値</th></tr></thead>
+<tbody>
+<tr><td><code>token</code></td><td>コマンドのトークン。すべてのリクエストで確認してください。</td></tr>
+<tr><td><code>command</code></td><td>スラッシュを含むトリガー。例: <code>/weather</code>。</td></tr>
+<tr><td><code>text</code></td><td>トリガー以降のすべて。例: <code>Paris</code>。</td></tr>
+<tr><td><code>user_id</code>, <code>user_name</code></td><td>実行したユーザー。</td></tr>
+<tr><td><code>channel_id</code>, <code>channel_name</code></td><td>実行された場所。</td></tr>
+<tr><td><code>team_id</code>, <code>team_domain</code></td><td>ワークスペースの ID と URL 名。</td></tr>
+<tr><td><code>root_id</code></td><td>スレッドの返信欄で実行された場合のスレッド。</td></tr>
+<tr><td><code>trigger_id</code></td><td>応答でダイアログを開くことを可能にします (<a href="{{root}}docs/developers/bots.html#dialogs">ダイアログ</a> を参照)。有効期間は短時間のみです。</td></tr>
+<tr><td><code>response_url</code></td><td>後でさらに応答を投稿するための URL (<a href="#delayed">遅延応答</a> を参照)。</td></tr>
+<tr><td><code>user_mentions</code>, <code>user_mentions_ids</code>, <code>channel_mentions</code>, <code>channel_mentions_ids</code></td><td>テキスト内でメンションされたユーザーと公開チャンネル (該当する場合)。</td></tr>
+</tbody>
+</table>
+<div class="callout">カスタムコマンドを実行するには、サーバーの<b>サイトURL</b>が設定されている必要があります。Antimatterはこれに基づいて<code>response_url</code>を構築します。</div>
+
+<h2 id="response">応答</h2>
+<p>JSON (<code>Content-Type: application/json</code>) で <code>200</code> を返します:</p>
+<pre><code>{
+  "response_type": "in_channel",
+  "text": "Paris: 18 °C, light rain",
+  "attachments": []
+}</code></pre>
+<table>
+<thead><tr><th>フィールド</th><th>意味</th></tr></thead>
+<tbody>
+<tr><td><code>response_type</code></td><td><code>ephemeral</code> (デフォルト): コマンドを実行したユーザーのみ応答を確認でき、リロード後は保持されません。<code>in_channel</code>: 応答がチャンネルに投稿されます。</td></tr>
+<tr><td><code>text</code>, <code>attachments</code></td><td>メッセージ。Webhook と同様に、Markdown テキストと <a href="{{root}}docs/developers/webhooks.html#attachments">添付ファイル</a>、ボタン、メニューを含みます。</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code></td><td>オーバーライドが許可されている場合に表示する名前と画像。コマンド自身の設定が優先されます。</td></tr>
+<tr><td><code>channel_id</code></td><td>応答を別のチャンネルに投稿します。そのユーザーはメンバーである必要があります。</td></tr>
+<tr><td><code>goto_location</code></td><td>コマンド実行後に開く URL。</td></tr>
+<tr><td><code>props</code>, <code>type</code></td><td>Webhook と同様に、追加プロパティとカスタム投稿タイプ。</td></tr>
+<tr><td><code>extra_responses</code></td><td>最初の応答後に投稿される、同じフィールドを持つ追加の応答。</td></tr>
+<tr><td><code>skip_slack_parsing</code></td><td><code>true</code> にすると、Slack 形式のリンクやメンションの変換を行わず、テキストをそのまま保持します。</td></tr>
+</tbody>
+</table>
+<p>JSON 以外の応答は、ボディをテキストとしてエフェメラルメッセージとして表示されます。<code>204 No Content</code> は何も表示しません。200–299 以外のステータスコードの場合、ユーザーにエラーが表示されます。</p>
+
+<h2 id="example">サービスの例</h2>
+<p>標準ライブラリのみを使用した Python の最小限のコマンドサービス:</p>
+<pre><code>import hmac
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
+
+TOKEN = "the token shown when you saved the command"
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        form = {key: values[0] for key, values in parse_qs(body).items()}
+        if not hmac.compare_digest(form.get("token", ""), TOKEN):
+            self.send_response(401)
+            self.end_headers()
+            return
+        answer = {
+            "response_type": "ephemeral",
+            "text": f"Hello @{form['user_name']}, you asked for: {form.get('text', '')}",
+        }
+        data = json.dumps(answer).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(data)
+
+HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()</code></pre>
+<p>サービスがプライベートネットワークアドレスで実行される場合、システム管理者が<b>信頼されていない内部接続を許可する</b>（<code>ServiceSettings.AllowedUntrustedInternalConnections</code>）でそれを許可する必要があります。</p>
+
+<h2 id="delayed">遅延応答</h2>
+<p>タイムアウトを超える時間がかかる作業については、まず即座に応答します（例：一時的な「処理中です…」）。その後、実際の応答を <code>response_url</code> に POST します。応答と同じ JSON を受け取り、コマンドから 30 分以内に最大 5 回まで機能します。</p>
+<pre><code>curl -X POST "$RESPONSE_URL" -H 'Content-Type: application/json' \
+  -d '{"response_type": "in_channel", "text": "Report ready: https://reports.example.com/42"}'</code></pre>
+
+<h2 id="run">API を使用してコマンドを実行する</h2>
+<p>スクリプトやボットは、入力したかのように、組み込みまたはカスタムのいずれのコマンドでも実行できます。</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/commands/execute \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "command": "/weather Paris"}'</code></pre>
+<p><code>GET /api/v4/teams/{team_id}/commands/autocomplete</code> は、コミュニティ内でユーザーがオートコンプリートできるコマンドをリスト表示します。</p>
+
+<h2 id="autocomplete">オートコンプリート</h2>
+<p>統合ページで作成されたコマンドは、トリガー、ヒント、説明とともにオートコンプリートされます。アプリによって登録されたコマンドは、<code>AutocompleteData</code> を使用してサブコマンドと引数を詳細に記述できます。<code>model.NewAutocompleteData(trigger, hint, helpText)</code> から開始します。</p>
+<ul>
+<li><code>AddCommand(sub)</code> はサブコマンドを追加します。サブコマンド自体は <code>AutocompleteData</code> です。</li>
+<li><code>AddTextArgument(helpText, hint, pattern)</code> はフリーテキストを追加します。</li>
+<li><code>AddStaticListArgument(helpText, required, items)</code> は、<code>AutocompleteListItem{Item, Hint, HelpText}</code> の固定リストを提供します。</li>
+<li><code>AddDynamicListArgument(helpText, url, required)</code> は、ユーザーが入力するにつれてアプリに候補を要求します。URL はアプリのルートで、例えば <code>/plugins/com.example.weather/cities</code> のようになります。ユーザー、チャンネル、コミュニティを受け取り、<code>{"Item", "Hint", "HelpText"}</code> の JSON リストを返します。</li>
+</ul>
+<p><code>Named…</code> 系の変種（<code>AddNamedTextArgument</code> など）は <code>--name value</code> フラグを追加します。これらの候補は、両方の Web インターフェースに表示されます。</p>

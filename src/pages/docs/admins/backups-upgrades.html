@@ -1,0 +1,104 @@
+title: Backups and upgrades
+description: Back up and restore an Antimatter server (database, file storage, configuration), upgrade it safely, move a Mattermost server to Antimatter, and export or import data.
+guide: admins
+order: 10
+nav: Backups and upgrades
+lead: What to back up, how to restore it on a new host, how to upgrade, and how to move a Mattermost server or a single community to Antimatter.
+---
+<h2 id="what">What to back up</h2>
+<table>
+<thead><tr><th>What</th><th>With the site's compose file</th><th>With a release archive</th></tr></thead>
+<tbody>
+<tr><td>The database: messages, users, communities, channels and, with the site's compose file, the configuration</td><td>volume <code>antimatter_postgres</code>, through <code>pg_dump</code></td><td>your PostgreSQL database</td></tr>
+<tr><td>Uploaded files, images, and installed apps</td><td>volume <code>antimatter_files</code> (the S3 storage)</td><td><code>FileSettings.Directory</code>, <code>./data/</code> by default</td></tr>
+<tr><td>The configuration file</td><td>(in the database)</td><td><code>config/config.json</code></td></tr>
+<tr><td>GIFs and stickers</td><td>volume <code>antimatter_gifs</code></td><td>the GIF service's data directory</td></tr>
+<tr><td>Secrets</td><td><code>.env</code> (and <code>compose.override.yaml</code>)</td><td>your environment file</td></tr>
+</tbody>
+</table>
+<p>The database and the files belong together: back them up at the same time, and keep copies off the server. Volume names start with the compose project name, <code>antimatter</code> (<code>docker volume ls</code> lists them).</p>
+
+<h2 id="backup">Back up</h2>
+<p>From the directory of <code>compose.yaml</code>. Stopping Antimatter first gives a fully consistent copy; a backup taken while it runs is usually fine, but files uploaded during the backup may be missing from it.</p>
+<pre><code>stamp=$(date +%Y%m%d-%H%M%S)
+mkdir -p backups
+docker compose stop antimatter
+# Database
+docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
+    &gt; "backups/antimatter-db-$stamp.dump"
+# File storage and GIF service
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
+        alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
+done
+docker compose start antimatter
+# Secrets
+cp .env "backups/env-$stamp"</code></pre>
+<p>Run it from cron for daily backups, and copy the <code>backups/</code> directory to another machine. Keep the copies of <code>.env</code> as safe as the server: they hold its passwords.</p>
+<p>To copy the uploaded files object by object instead (for example to another S3 storage), use the AWS command-line tool of the <code>bucket</code> service:</p>
+<pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
+    "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
+<p>With a release archive, back up the database with <code>pg_dump -Fc</code>, and the <code>data/</code> and <code>config/</code> directories with your usual tools.</p>
+
+<h2 id="restore">Restore on a new host</h2>
+<p>Put <code>compose.yaml</code>, the saved <code>.env</code> and the backups in a new directory, then:</p>
+<pre><code>stamp=20261016-030000          # the backup to restore
+docker compose create           # creates the volumes, starts nothing
+docker compose up -d postgres
+docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
+    &lt; "backups/antimatter-db-$stamp.dump"
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
+        alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
+done
+docker compose up -d</code></pre>
+<p>Use the same <code>.env</code>: the storage and the database must keep the passwords they had. If the new host has another address, update <code>SITE_URL</code> (and <code>DOMAIN</code>).</p>
+<p>Test your backups by restoring them on another machine from time to time.</p>
+
+<h2 id="upgrade">Upgrade</h2>
+<ol>
+<li>Take a backup.</li>
+<li>Change the image tag in <code>.env</code> (<code>ANTIMATTER_IMAGE</code>), if you pin one, as recommended.</li>
+<li>Pull and restart:
+<pre><code>docker compose pull
+docker compose up -d
+docker compose logs -f antimatter</code></pre></li>
+</ol>
+<p>On start, the server upgrades the database schema (follow it in the log; a large server can take several minutes) and installs the newer versions of the bundled apps from the image. With a release archive: stop the server, replace everything except <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> and <code>client/plugins/</code> with the new archive's content, and start it again.</p>
+<div class="callout warn">Upgrades only go forward. Once a newer server has upgraded the database, an older version can't use it: to go back, restore the backup taken before the upgrade. The same applies to moving from <code>antimatter-next</code> back to <code>antimatter</code>.</div>
+<h3>Versions</h3>
+<p>Antimatter's server reports the version of the Mattermost line it is based on (currently 12.0.0). The images are rebuilt from the <code>main</code> branches: <code>antimatter-next</code> every night (tags <code>nightly-&lt;YYYYMMDD&gt;</code>), and both images on each change (tags <code>sha-&lt;commit&gt;</code>). Pin one of these tags, upgrade on purpose, and keep the previous tag noted so you know which backup goes with it.</p>
+<h3>PostgreSQL major versions</h3>
+<p>The compose file uses <code>postgres:17-alpine</code>. Antimatter needs PostgreSQL 15 or newer. A new major version of PostgreSQL can't read the previous one's data directory: to move to one, dump the database, start the new version on a new volume and restore the dump into it.</p>
+
+<h2 id="mattermost">Moving from Mattermost</h2>
+<p>Antimatter uses Mattermost's database schema and adds its own tables, so it can take over a Mattermost server's PostgreSQL database and files. Try it on a copy first:</p>
+<ol>
+<li>Back up the Mattermost database, its file storage (<code>data/</code> or S3 bucket) and <code>config.json</code>, then stop Mattermost.</li>
+<li>Restore the database into Antimatter's PostgreSQL, or point Antimatter at a copy of it (<code>AM_SQLSETTINGS_DATASOURCE</code>).</li>
+<li>Copy the files into Antimatter's storage, keeping their paths: to the <code>antimatter</code> bucket with an S3 tool, or to <code>data/</code> with a release archive.</li>
+<li>Reuse your settings: copy <code>config.json</code>, or move it into the database with <code>amctl --local config migrate</code> (see <a href="{{root}}docs/admins/configuration.html">Configuration</a>). Your <code>MM_</code> environment variables keep working; rename them to <code>AM_</code> when convenient.</li>
+<li>Start Antimatter and follow the log while it upgrades the database. Then check <b>System Console › Plugins › Plugin Management</b>. Antimatter installs its own builds of Calls, Playbooks, Kanban (Boards), Agents and the integrations when they are newer than the installed version. If Mattermost had a newer version of one of them, remove that app and restart Antimatter, so that its own build is installed.</li>
+<li>Set up push notifications again, with your own push proxy: Antimatter never sends notifications to Mattermost's push services, test or hosted, which only deliver to Mattermost's own apps. Until you change <b>Push Notification Server</b>, the server sends no push notifications (see <a href="{{root}}docs/admins/email-push.html#push">Push notifications</a>).</li>
+</ol>
+<p>Antimatter contacts no service run by Mattermost, Inc. (see <a href="{{root}}docs/admins/security.html#outbound">Connections to outside services</a>), even when your configuration still names one:</p>
+<ul>
+<li>a push notification server at Mattermost is kept in the settings but never used;</li>
+<li>Mattermost's addresses for the app marketplace (<b>Marketplace URL</b>) and for product notices are emptied;</li>
+<li>the Calls app uses Cloudflare's public STUN server instead of Mattermost's, without changing the saved setting (see <a href="{{root}}docs/admins/calls.html#network">Calls</a>);</li>
+<li>the security update check and crash reporting are gone, and so are their System Console settings (<b>Enable Security Alerts</b>, <b>Enable Diagnostics and Error Reporting</b>) and the <b>Notices</b> page.</li>
+</ul>
+<p>The local mode socket is now <code>/var/tmp/antimatter_local.socket</code>; <code>amctl</code> also tries the old <code>/var/tmp/mattermost_local.socket</code>. Mattermost only supports PostgreSQL in its recent versions, and so does Antimatter: move a MySQL database to PostgreSQL first. Going back to Mattermost after Antimatter has upgraded the database means restoring your Mattermost backup.</p>
+
+<h2 id="export-import">Export and import data</h2>
+<p>The bulk export format moves data between servers: the whole server, some communities, or some channels, with attachments, profile pictures and custom emoji if you want them.</p>
+<pre><code># on the source server
+amctl export create --team-name design --include-profile-pictures
+amctl export list
+amctl export download &lt;export file&gt; design.zip
+# on the destination server
+amctl import upload design.zip
+amctl import list available
+amctl import process &lt;uploaded file&gt; --imported-users active</code></pre>
+<p>Watch the jobs with <code>amctl export job list</code> and <code>amctl import job list</code>. For a community or channel export, <code>--imported-users</code> is required: <code>active</code> when the people move to this server, <code>inactive</code> when importing into a server where they already have accounts, so accounts created from uncertain matches stay off until an administrator checks them. <code>--destination-team-name</code> imports into an existing community. Exports and imports are kept on the server's storage (<code>ExportSettings.Directory</code>, <code>ImportSettings.Directory</code>) for 30 days by default.</p>
+<p>On the server itself, <code>antimatter export bulk</code> and <code>antimatter import bulk --apply</code> do the same from files, without the API.</p>

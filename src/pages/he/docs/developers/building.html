@@ -1,0 +1,102 @@
+title: בנייה מקוד המקור
+description: איך לבנות את Antimatter מקוד המקור: שרת Go, ממשקי Fusion והממשק הקלאסי, שרת פיתוח, בדיקות, ארכיוני שחרור, תמונת Docker, ואפליקציות הדסקטופ והנייד.
+guide: developers
+order: 7
+nav: בנייה מקוד המקור
+lead: עמוד זה מסביר כיצד לבנות ולהריץ את Antimatter מקוד המקור, כדי לעבוד עליו או ליצור בנייה עצמאית. הוא מכסה את השרת ואת ממשקי האתר, המצויים במאגר אחד, ואחר כך את תמונת Docker ואת האפליקציות.
+source: dfdf67f34f6e
+---
+<h2 id="requirements">מה צריך</h2>
+<ul>
+<li><b>Go</b>, בגרסה המצוינת ב-<code>server/go.mod</code> (1.26.7 נכון למועד כתיבה).</li>
+<li><b>Node.js ו-npm</b>, בגרסאות המצוינות ב-<code>.nvmrc</code> וב-<code>webapp/package.json</code> (Node 24.11.1 עם npm 11.6.2). באמצעות <a href="https://mise.jdx.dev">mise</a>, קובץ <code>mise.toml</code> במאגר מתקין את גרסת Node הנכונה.</li>
+<li><b>Docker</b> עם Compose: סביבת הפיתוח מריצה את PostgreSQL ואת כמה שירותים נוספים בתוך קונטיינרים.</li>
+<li><b>make</b>, <b>git</b>, ומחשב עם מערכת הפעלה Linux או macOS.</li>
+<li><b>זיכרון</b>: בניית ממשקי האתר היא החלק הכבד. מומלץ לתכנן 16 GB של RAM; ראו <a href="#memory">בנייה וזיכרון</a>.</li>
+</ul>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter.git
+cd antimatter</code></pre>
+<p>המאגר מכיל את השרת ב-<code>server/</code>, את ממשקי האתר ב-<code>webapp/</code> (Fusion ב-<code>webapp/fusion</code>, הקלאסי ב-<code>webapp/channels</code>, חבילות משותפות ב-<code>webapp/platform</code>), ובדיקות end-to-end ב-<code>e2e-tests/</code>.</p>
+
+<h2 id="dev-server">הרצת שרת פיתוח</h2>
+<pre><code>cd server
+make run</code></pre>
+<p><code>make run</code> מריץ את קונטיינרי הפיתוח (PostgreSQL, Redis, כלי לכידת דוא"ל וכלי ניטור), מקשר את בניית אפליקציית האתר למקומה, מריץ את השרת ברקע באמצעות <code>go run</code>, ומריץ את מנהל השינויים (watcher) של אפליקציית האתר, שבונה מחדש את הממשק הקלאסי בעת עריכה. פתחו את <code>http://localhost:8065</code> וצרו חשבון: החשבון הראשון יהפוך למנהל המערכת.</p>
+<table>
+<thead><tr><th>פקודה (ב-<code>server/</code>)</th><th>מה היא עושה</th></tr></thead>
+<tbody>
+<tr><td><code>make run-server</code>, <code>make run-client</code></td><td>הרצת השרת בלבד, או מנהל השינויים של אפליקציית האתר בלבד.</td></tr>
+<tr><td><code>make restart-server</code></td><td>הפעלה מחדש של השרת לאחר שינוי קוד Go.</td></tr>
+<tr><td><code>make stop</code></td><td>עצירת השרת, מנהל השינויים והקונטיינרים.</td></tr>
+<tr><td><code>make debug-server</code></td><td>הרצת השרת תחת מחליף Delve.</td></tr>
+<tr><td><code>make run-cli ARGS="-version"</code></td><td>הרצת פקודת שרת.</td></tr>
+<tr><td><code>make config-reset</code></td><td>איפוס <code>config/config.json</code> לערכי ברירת המחדל.</td></tr>
+<tr><td><code>make clean</code>, <code>make nuke</code></td><td>מחיקת קבצי בנייה; <code>nuke</code> מחקה גם את נתוני הפיתוח.</td></tr>
+</tbody>
+</table>
+<p>מסד הנתונים לפיתוח הוא <code>postgres://mmuser:mostest_password@localhost/mattermost_test</code>, מקור הנתונים ברירת המחדל של השרת. יש לבחור אילו קונטיינרים יופעלו באמצעות <code>ENABLED_DOCKER_SERVICES</code>, בקובץ <code>server/config.override.mk</code> או בסביבת ההרצה (ראו <code>server/config.mk</code>).</p>
+
+<h2 id="webapp">ממשקי האתר</h2>
+<p>ב-<code>webapp/</code>:</p>
+<pre><code>npm install      # also builds the shared packages
+npm run build    # the classic interface, then Fusion</code></pre>
+<p>הבנייה נשמרת ב־<code>webapp/channels/dist</code> (קלאסי) וב־<code>webapp/fusion/dist</code> (Fusion). הפקודה <code>make client</code> ב־<code>server/</code> מקשרת אותם כ־<code>server/client</code> ו־<code>server/client-fusion</code>, ומשמש אותם השרת: הקלאסי תחת <code>/static/</code>, ו־Fusion תחת <code>/static/fusion/</code>.</p>
+<ul>
+<li><code>npm run run</code> (או <code>make run</code> ב־<code>webapp/</code>) עוקב ומבצע בנייה מחדש של הממשק הקלאסי. הוספת <code>WATCH_FUSION=true</code> תבצע גם בנייה מחדש של Fusion.</li>
+<li><code>npm run dev-server</code> (<code>make dev</code>) מפעיל במקום זאת את שרת ההתפתחות של webpack: קלאסי על פורט 9005, ו־Fusion על פורט 9006.</li>
+<li>כדי לצפות בממשק אחד או בשני בדפדפן, הוסיפו <code>?webui=fusion</code> או <code>?webui=classic</code> לכתובת של כל עמוד.</li>
+</ul>
+
+<h2 id="tests">בדיקות ובדיקות תקינות</h2>
+<table>
+<thead><tr><th>פקודה</th><th>מיקום</th><th>מה היא עושה</th></tr></thead>
+<tbody>
+<tr><td><code>make test-server</code></td><td><code>server/</code></td><td>סט הבדיקות של השרת, מול מכלי ההתפתחות. זה לוקח זמן רב.</td></tr>
+<tr><td><code>make test-server-quick</code></td><td><code>server/</code></td><td>רק הבדיקות הקצרות.</td></tr>
+<tr><td><code>go test ./channels/app/... -run TestName</code></td><td><code>server/</code></td><td>חבילה אחת או בדיקה אחת, עם המכלים רצים (<code>make start-docker</code>).</td></tr>
+<tr><td><code>make check-style</code></td><td><code>server/</code></td><td>go vet, golangci-lint ו־Go checks אחרים.</td></tr>
+<tr><td><code>make test</code></td><td><code>webapp/</code></td><td>בדיקות יחידה של אפליקציית ה־web (Jest), בכל חבילה.</td></tr>
+<tr><td><code>npm run test -- &lt;pattern&gt;</code></td><td><code>webapp/fusion</code></td><td>חלק מבדיקות Fusion.</td></tr>
+<tr><td><code>make check-style</code>, <code>make check-types</code></td><td><code>webapp/</code></td><td>ESLint ו־TypeScript.</td></tr>
+<tr><td><code>make i18n-extract</code></td><td><code>server/</code> ו־<code>webapp/</code></td><td>מעדכן את קבצי המחרוזות באנגלית לאחר הוספה או שינוי מחרוזות (ראו <a href="{{root}}docs/developers/contributing.html#translations">תרגומים</a>).</td></tr>
+</tbody>
+</table>
+<p>הריצו <code>make modules-tidy</code> במקום <code>go mod tidy</code> ב־<code>server/</code>.</p>
+
+<h2 id="release">ארכיוני שחרור</h2>
+<pre><code>cd webapp &amp;&amp; npm run build &amp;&amp; cd ..
+cd server
+make build-linux       # the antimatter and amctl binaries
+make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
+<p><code>make build</code> בונה את ממשקי ה־web ואת הקבצים הליניוקסיים בבת אחת. הארכיון מכיל את <code>bin/antimatter</code>, <code>bin/amctl</code>, <code>config/config.json</code> ברירת מחדל, שני ממשקי ה־web, התבניות, הגופנים והתרגומים. פלטפורמות אחרות: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>. הארכיונים אינם כוללים את האפליקציות המצורפות; תמונת ה־Docker כן.</p>
+
+<h2 id="docker">תמונת ה־Docker</h2>
+<p>מאגר ה־<a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> בונה את התמונות המפורסמות, השרת עם האפליקציות שלו, לחלוטין בתוך Docker:</p>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter-docker.git
+cd antimatter-docker
+scripts/build-all.sh                     # from the main branches on GitHub
+SOURCES=local scripts/build-all.sh       # from your checkouts next to this folder
+VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatter app</code></pre>
+<p>נדרש Docker עם buildx, Python 3, git ו־gpg, כ־16 GB זיכרון RAM ו־30 GB דיסק. התוצאה נטענת כ־<code>ghcr.io/antimatterchat/antimatter:dev</code>; נסו זאת עם <code>ANTIMATTER_IMAGE=ghcr.io/antimatterchat/antimatter:dev docker compose -f compose.local.yml up -d</code>. <code>plugins.json</code> מפרט את האפליקציות והגרסאות שנבנו, ו־README של המאגר מסביר את הווריאנטים.</p>
+<div class="callout warn"><code>build-all.sh</code> חותם את האפליקציות המצורפות עם מפתח החתימה של Antimatter, ובניית התמונה דוחה אפליקציות ללא חתימה. ללא המפתח הפרטי, שיש רק למחזיקים, הרצו את השלבים הראשונים בלבד: <code>scripts/fetch-sources.sh</code>, <code>scripts/build-plugins.sh</code> (חבילות האפליקציות ב-<code>out/plugins/</code>) ו-<code>scripts/build-server.sh</code> (ארכיוני השרת ב-<code>out/server/</code>).</div>
+
+<h2 id="memory">בנייה וזיכרון</h2>
+<p>ממשקי הווב הם בניית webpack גדולה, וחוסר בזיכרון הוא כשל הבנייה הנפוץ ביותר.</p>
+<ul>
+<li><code>npm run build</code> בונה את הממשק הקלאסי ואז את Fusion, לא יחד, כדי להפחית את השיא. אל תריצו אותם במקביל בעצמכם.</li>
+<li>הממעיך (minifier) מריץ עובד אחד לכל מעבד. במכונה עם הרבה ליבות וזיכרון מוגבל, הגבילו את המעבדים שרואה הבנייה: <code>taskset -c 0-5 npm run build</code>.</li>
+<li>אם Node מתעורר בזיכרון (heap), העלו את הגבול: <code>NODE_OPTIONS=--max-old-space-size=6144</code>. בניית Docker משתמשת בערך זה (<code>BUILD_NODE_OPTIONS</code> ב-<code>build.env</code>).</li>
+<li>הימנעו מריצת סוּיט הבדיקות המלא של השרת, בניית ווב ובניית Docker בו-זמנית במכונה קטנה.</li>
+</ul>
+
+<h2 id="apps">האפליקציות</h2>
+<p>לכל אפליקציה (פלאגין) יש מאגר ו-Makefile משלה; <code>make dist</code> בונה את החבילה שלה. ראו <a href="{{root}}docs/developers/apps.html#build">בנייה, התקנה וניפוי תקלות</a>.</p>
+<h3>אפליקציית שולחן עבודה</h3>
+<p>ה<a href="https://github.com/AntimatterChat/desktop-app">אפליקציית שולחן העבודה</a> היא אפליקציית Electron. עם Node.js 24 או גבוה יותר:</p>
+<pre><code>npm install --allow-git=all
+npm run build          # development build, into dist/
+npm start              # run it
+npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
+<p>הגדרות בזמן הבנייה, כגון שרתים להגדרה מראש, נמצאות ב-<code>src/common/config/buildConfig.ts</code>.</p>
+<h3>אפליקציית מובייל</h3>
+<p>ה<a href="https://github.com/AntimatterChat/mobile-app">אפליקציית המובייל</a> היא אפליקציית React Native; קובץ ה-README שלה מפרט את הפקודות (<code>npm run ios</code>, <code>npm run android</code>). כדי לבנות עותק משלכם, תצטרכו גם מפתחות חתימה משלכם, פרויקט Firebase להתראות באנדרואיד, מפתח APNs ל-iOS, ו-<a href="https://github.com/AntimatterChat/push-proxy">push proxy</a> שמחזיק את האישורים האלה.</p>

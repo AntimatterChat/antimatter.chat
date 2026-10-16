@@ -1,0 +1,120 @@
+title: அமைப்புகள்
+description: Antimatter-இன் அமைப்புகள் எப்படி வேலை செய்கின்றன: தரவுத்தளத்தில் அல்லது config.json-இல் உள்ள அமைப்புகள், AM_ சூழல் மாறிகள், System Console, amctl கட்டளை-வரி கருவி, மற்றும் பதிவுகளை (logs) எங்கே காண்பது.
+guide: admins
+order: 3
+nav: அமைப்புகள்
+lead: Antimatter தனது அமைப்புகளை எங்கே வைக்கிறது, அவற்றை மாற்றும் மூன்று வழிகள் (System Console, சூழல் மாறிகள், amctl), மற்றும் பதிவுகள் எங்கே செல்கின்றன.
+source: e2d6546121d3
+---
+<h2 id="where">அமைப்புகள் எங்கே இருக்கின்றன</h2>
+<p>ஒவ்வொரு சர்வர் அமைப்பும் ஒரு பிரிவு (section) மற்றும் ஒரு விசை (key) ஆகியவற்றால் ஆன பெயரைக் கொண்டுள்ளது, எடுத்துக்காட்டாக <code>ServiceSettings.SiteURL</code> அல்லது <code>EmailSettings.SMTPServer</code>. இவை இணைந்து ஒரே ஒரு அமைப்பை உருவாக்குகின்றன, இது இரண்டு இடங்களில் ஒன்றில் சேமிக்கப்படுகிறது:</p>
+<ul>
+<li><b>தரவுத்தளத்தில்.</b> தளத்தின் compose கோப்பு <code>AM_CONFIG</code>-ஐ PostgreSQL இணைப்பு URL-ஆக அமைக்கிறது, எனவே அமைப்பு தரவுத்தளத்தில் ஒரு வரி (row) ஆக இருக்கிறது மற்றும் கண்டெய்னர் (container) டிஸ்கில் எதுவும் வைக்காது. ஒரே தரவுத்தளத்தைப் பகிர்ந்து கொள்ளும் பல சர்வர்கள் தங்கள் அமைப்புகளையும் பகிர்ந்து கொள்கின்றன.</li>
+<li><b>ஒரு கோப்பில்.</b> <code>AM_CONFIG</code> இல்லாமல், சர்வர் தனது <code>bin/</code> அடைவுக்கு (directory) அருகிலுள்ள <code>config/config.json</code> கோப்பைப் படிக்கிறது (Docker இமேஜில் <code>/antimatter/config/config.json</code>). antimatter-docker-இன் வெளியீட்டு ஆர்கைவ் (release archive) மற்றும் உற்பத்தி compose கோப்புகள் இந்த வகையில் செயல்படுகின்றன. இந்த கோப்பு சர்வரின் பயனரால் மட்டுமே படிக்கப்படக்கூடியதாக இருக்க வேண்டும்: அதில் கடவுச்சொற்கள் மற்றும் விசைகள் (keys) உள்ளன.</li>
+</ul>
+<p><code>AM_CONFIG</code> (அல்லது <code>antimatter</code> கட்டளையின் <code>--config</code> ஃளாக்) ஒரு கோப்புப் பாதை அல்லது <code>postgres://</code> URL-ஐ ஏற்கிறது. நீங்கள் விட்டுவிடும் அமைப்புகள் அவற்றின் இயல்பு மதிப்பை (default value) எடுக்கின்றன.</p>
+<p>ஒரு கோப்பிலிருந்து ஒரு இருக்கும் அமைப்பை தரவுத்தளத்திற்கு நகர்த்த, சர்வரில் இதை இயக்கவும், பின்னர் <code>AM_CONFIG</code>-ஐ அதே URL-ஆக அமைத்து சர்வரை தொடங்கவும்:</p>
+<pre><code>amctl --local config migrate /opt/antimatter/config/config.json \
+    "postgres://antimatter:PASSWORD@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10"</code></pre>
+
+<h2 id="environment">சூழல் மாறிகள்</h2>
+<p>எந்த அமைப்பையும் ஒரு சூழல் மாறியாக (environment variable) வழங்கலாம். சூழல் மாறிகள் சேமிக்கப்பட்ட அமைப்பை விட முன்னுரிமை பெறுகின்றன, இது பரவல் (deployment) உடன் தொடர்புடையவற்றிற்கு நல்ல பொருத்தமாக இருக்கிறது: தரவுத்தளம், தள URL, கோப்பு சேமிப்பு, போர்ட்கள்.</p>
+<h3>பெயரிடும் விதி</h3>
+<p><code>AM_</code> என எழுதவும், பின்னர் பிரிவு, பின்னர் விசை, பெரிய எழுத்துக்களில் (capital letters) மற்றும் அடிக்கோடுகள் (underscores) மூலம் பிரிக்கவும். ஒரு பிரிவு அல்லது விசை பெயரின் உள்ளே உள்ள சொற்கள் பிரிக்கப்படாது:</p>
+<table>
+<thead><tr><th>அமைப்பு</th><th>மாறி</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.SiteURL</code></td><td><code>AM_SERVICESETTINGS_SITEURL</code></td></tr>
+<tr><td><code>SqlSettings.DataSource</code></td><td><code>AM_SQLSETTINGS_DATASOURCE</code></td></tr>
+<tr><td><code>EmailSettings.SMTPServer</code></td><td><code>AM_EMAILSETTINGS_SMTPSERVER</code></td></tr>
+<tr><td><code>PrivacySettings.EnableUserBlocking</code></td><td><code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li>உண்மை (true) மற்றும் பொய் (false) அமைப்புகள் <code>true</code> அல்லது <code>false</code> ஐ எடுக்கின்றன; எண்கள் சுத்த எண்களாக இருக்கின்றன.</li>
+<li>பட்டியல் (list) அமைப்புகள் அவற்றின் மதிப்புகளை இடைவெளிகளால் (spaces) பிரித்து எடுக்கின்றன, எடுத்துக்காட்டாக <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>.</li>
+<li>பொருட்களாக (objects) உள்ள அமைப்புகள் JSON-ஐ எடுக்கின்றன. செயல்களுக்கு (apps) மட்டுமே உள்ள அத்தகைய மாறி <code>AM_PLUGINSETTINGS_PLUGINS</code>, மற்றும் இது <em>ஒவ்வொரு</em> செயலின் அமைப்புகளையும் ஒரே நேரத்தில் மாற்றுகிறது: செயல் அமைப்புகளை System Console-இல் அல்லது <code>amctl</code> மூலம் அமைக்கவும் (கீழே பார்க்கவும்).</li>
+<li>பழைய Mattermost அமைப்புகள் <code>MM_</code> முன்னொட்டைப் பயன்படுத்துகின்றன, எடுத்துக்காட்டாக <code>MM_SQLSETTINGS_DATASOURCE</code>. இது இன்னும் ஒரு பழைய விருப்பப் பெயராகச் செயல்படுகிறது. இரண்டும் அமைக்கப்பட்டால், <code>AM_</code> மாறி முன்னுரிமை பெறுகிறது.</li>
+</ul>
+<p>ஒரு மாறியால் வழங்கப்பட்ட அமைப்பு அமைப்புக் கனசோலில் (System Console) பூட்டப்பட்டிருக்கும்; “இந்த அமைப்பு ஒரு சூழல் மாறியால் அமைக்கப்பட்டது. அமைப்புக் கனசோலில் இதை மாற்ற முடியாது.” என்ற குறிப்புடன். இது சேமிக்கப்பட்ட அமைப்பில் எழுதப்படுவதில்லை; மாரியை நீக்கினால், சேமிக்கப்பட்ட மதிப்பு மீண்டும் பொருந்தும்.</p>
+<h3>Docker Compose உடன்</h3>
+<p><code>antimatter</code> சேவையின் <code>environment:</code> கீழ் மாறிகளைச் சேர்த்து, அல்லது <code>compose.yaml</code> அருகில் உள்ள <code>compose.override.yaml</code> கோப்பில் சேர்த்து (Compose இதை தானாகப் படிக்கும், பதிவிறக்கப்பட்ட கோப்பின் புதுப்பிப்புகளிலும் இது நிலைத்திருக்கும்):</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_LOGSETTINGS_CONSOLELEVEL: INFO</code></pre>
+<p>மாற்றங்களைப் பயன்படுத்த <code>docker compose up -d</code> ஐ இயக்கு; இது கண்டைனரை மீண்டும் உருவாக்கும்.</p>
+<h3>ஆப்ஸ்கள் படிக்கும் மாறிகள்</h3>
+<p>சில ஆப்ஸ்கள் தங்கள் சொந்த மாறிகளைப் படிக்கின்றன, <code>antimatter</code> சேவையில் அமைக்கப்பட்டவை: Calls ஆப் <code>AM_CALLS_*</code> ஐப் படிக்கும் (<a href="{{root}}docs/admins/calls.html">அழைப்புகள் மற்றும் குரல்</a> காண்க), GIFs ஆப் <code>AM_GIFS_SERVICE_URL</code>, <code>AM_GIFS_API_KEY</code> மற்றும் <code>AM_GIFS_UPLOAD_KEY</code> ஐப் படிக்கும் (<a href="{{root}}docs/admins/apps.html">இணைக்கப்பட்ட ஆப்ஸ்கள்</a> காண்க).</p>
+
+<h2 id="console">அமைப்புக் கனசோல்</h2>
+<p>அமைப்பு கன்சோல் என்பது வெப் அமைப்பின் நிர்வாகப் பகுதியாகும்; அது அமைப்பு நிர்வாகிகளுக்காகவே அமைக்கப்பட்டுள்ளது. இதைத் திறக்க, உங்கள் சுயவரவுப் படத்தைக் கிளிக் செய்து <b>அமைப்பு கன்சோல்</b> என்பதைத் தேர்ந்தெடுக்கவும், அல்லது <code>https://chat.example.com/admin_console</code> என்ற முகவரிக்குச் செல்லவும். இதன் பக்கவாட்டுப் பட்டையில் உள்ள <b>அமைப்புகளைத் தேடு</b> பெட்டி, அனைத்துப் பக்கங்களையும் தேடும்.</p>
+<figure><img src="{{root}}assets/img/shots/admin.webp" alt="The System Console, with its sidebar of sections on the left and the SAML 2.0 settings page on the right."><figcaption>அமைப்புக் கனசோல். பக்கவாட்டுப் பட்டை பக்கங்களை அறிக்கைகள், பயனர் மேலாண்மை, சூழல் போன்ற பிரிவுகளாகக் குழுவிக்கிறது.</figcaption></figure>
+<p>இதன் பிரிவுகள்:</p>
+<ul>
+<li><b>அறிக்கைகள்</b>: புள்ளிவிவரங்கள் மற்றும் சர்வர் பதிவுகள்.</li>
+<li><b>பயனர்ப் நிர்வாகம்</b>: பயனர்கள், குழுக்கள், சமூகங்கள் (குழுக்கள் என்ற பெயரில் பட்டியலிடப்படுகின்றன), சேனல்கள், அனுமதிகள் மற்றும் நிர்வாகப் பொறுப்புகளைப் பகிர்வது.</li>
+<li><b>அமைப்பு அத்தரிப்புகள்</b>: தனிப்பயன் சுயவரவு அத்தரிகளும், அத்தரிப்பு அடிப்படையிலான அணுகலும்.</li>
+<li><b>சூழல்</b>: வலை சர்வர், தரவுத்தளம், கோப்பு சேமிப்பு, படப் புகைப்படம், SMTP, தள்ளல் அறிவிப்புகள், விகிதக் கட்டுப்பாடு, பதிவு, அமர்வு நீளங்கள், செயல்திறன் கண்காணிப்பு.</li>
+<li><b>தள அமைப்பு</b>: பிராண்டிங், பயனர்கள் மற்றும் குழுக்கள், அறிவிப்புகள், பதிவுகள், கோப்புப் பகிர்வு மற்றும் மற்ற சர்வர்-அகல செயல்பாடுகள்.</li>
+<li><b>அங்கீகாரம்</b>: பதிவு, மின்னஞ்சல் மற்றும் கடவுச்சொல் உள்நுழைவு, MFA, AD/LDAP, SAML 2.0, OAuth 2.0, OpenID Connect மற்றும் விருந்தினர் அணுகல்.</li>
+<li><b>பிளக்-இன்கள்</b>: ஆப் மேலாண்மை மற்றும் ஒவ்வொரு நிறுவப்பட்ட ஆப்பின் அமைப்புகளும்.</li>
+<li><b>இணைப்புகள்</b>: வெப்கூக்ஸ், ஸ்லாஷ் கட்டளைகள், பாட் கணக்குகள், GIFs, உரையை குரலாக மாற்றுதல், CORS.</li>
+<li><b>சட்டப்படி செயல்பாடு</b>: தரவு வைப்பு, சட்டப்படி ஏற்றுமதி மற்றும் கண்காணிப்பு, ஆடிட் பதிவுகள், தனிப்பயன் சேவை விதிமுறைகள்.</li>
+<li><b>சோதனை</b>: மாற்றப்படக்கூடிய அம்சங்கள்.</li>
+</ul>
+<p>இந்த வழிகாட்டியில், ஒரு அமைப்பு அதன் அமைப்பு கன்சோலில் உள்ள பாதை, பின்னர் அதன் பெயர், பின்னர் அதன் அமைப்பு விசை என்ற வரிசையில் எழுதப்படுகிறது. எடுத்துக்காட்டாக, <b>அமைப்பு கன்சோல் › தள அமைப்பு › பயனர்கள் மற்றும் குழுக்கள் › புறக்கணிப்பு, தடை மற்றும் செய்தி கோரிக்கைகளை இயக்கு</b> (<code>PrivacySettings.EnableUserBlocking</code>).</p>
+<p>பெரும்பாலான மாற்றங்கள், நீங்கள் <b>சேமி</b> என்பதைக் கிளிக் செய்தவுடன் உடனடியாகப் பொருந்தும். சில (கேட்கும் முகவரி, சில தரவுத்தளம் மற்றும் கேஷ் அமைப்புகள்) மீண்டும் இயக்கம் தேவை, மேலும் அந்தப் பக்கம் அதைக் குறிப்பிடுகிறது.</p>
+
+<h2 id="amctl">amctl கட்டளை வரி கருவி</h2>
+<p><code>amctl</code> பயனர்கள், சமூகங்கள், சேனல்கள், செயலிகள், அமைப்புகள், பணிகள் மற்றும் பலவற்றை கட்டளை வரி மூலம் சர்வரை நிர்வகிக்கிறது. இது சர்வரிடம் இரண்டு வழிகளில் ஒன்றில் தொடர்பு கொள்கிறது.</p>
+<h3>உள்ளூர் முறை, சர்வரில்</h3>
+<p>உள்ளூர் முறை <code>amctl</code> ஐ Unix சாகெட் மூலம் சர்வரிடம் உள்நுழைவது இல்லாமல் தொடர்பு கொள்ள அனுமதிக்கிறது. இது Docker இமேஜில் இயக்கப்பட்டுள்ளது. ஒரு ஆர்கைவ் மூலம் நிறுவப்பட்ட சர்வரில், <b>ServiceSettings.EnableLocalMode</b> (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>) மூலம் இதை இயக்கவும். சாகெட் இயல்பாக <code>/var/tmp/antimatter_local.socket</code> ஆகும் (<code>ServiceSettings.LocalModeSocketLocation</code>).</p>
+<pre><code># with Docker Compose
+docker compose exec antimatter amctl --local system status
+# with a release archive
+sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code></pre>
+<div class="callout warn">சாகெட்டைப் பயன்படுத்தக்கூடியவர்களும், ஹோஸ்ட்டில் <code>docker compose exec</code> ஐ இயக்கக்கூடியவர்களும் முழுமையான அமைப்பு நிர்வாகி உரிமைகளைப் பெறுவார்கள்.</div>
+<h3>தொலைபேசி, கணக்குடன்</h3>
+<p>எந்த மெஷினிலிருந்தும், அமைப்பு நிர்வாகி கணக்கைப் (அல்லது தனிப்பட்ட அணுகல் டோக்கனை) பயன்படுத்தி உள்நுழைந்து, அந்த சர்வருக்கு எதிராக கட்டளைகளை இயக்கவும்:</p>
+<pre><code>amctl auth login https://chat.example.com --name prod --username admin
+amctl system status</code></pre>
+<h3>அமைப்பு கட்டளைகள்</h3>
+<table>
+<thead><tr><th>கட்டளை</th><th>இது என்ன செய்கிறது</th></tr></thead>
+<tbody>
+<tr><td><code>amctl config get ServiceSettings.SiteURL</code></td><td>ஒரு அமைப்பை அச்சிடுகிறது.</td></tr>
+<tr><td><code>amctl config set TeamSettings.EnableOpenServer false</code></td><td>ஒரு அமைப்பை மாற்றுகிறது. பட்டியல் அமைப்புகள் பல மதிப்புகளை ஏற்கின்றன.</td></tr>
+<tr><td><code>amctl config patch settings.json</code></td><td>அமைப்புகளின் JSON கோப்பை அமைப்புகளில் இணைக்கிறது.</td></tr>
+<tr><td><code>amctl config show</code></td><td>முழு அமைப்பையும் JSON ஆக அச்சிடுகிறது.</td></tr>
+<tr><td><code>amctl config edit</code></td><td>உங்கள் எடிட்டரில் (<code>$EDITOR</code>) அமைப்புகளைத் திறக்கிறது.</td></tr>
+<tr><td><code>amctl config reset</code></td><td>அமைப்புகளை அவற்றின் இயல்புநிலைக்கு மீட்டமைக்கிறது.</td></tr>
+<tr><td><code>amctl config reload</code></td><td>சர்வருக்கு வெளியே செய்யப்பட்ட மாற்றத்திற்குப் பிறகு, சேமிக்கப்பட்ட இடத்திலிருந்து அமைப்புகளை மறுபுதுப்பிக்கிறது.</td></tr>
+</tbody>
+</table>
+<p>செயலி அமைப்புகள் <code>PluginSettings.Plugins.&lt;app id&gt;</code> கீழ் உள்ளன, விசைகள் சிறிய எழுத்துக்களில். எடுத்துக்காட்டாக, Docker ஹோஸ்ட்டிலிருந்து GIFs செயலியின் சேவை URL மற்றும் விசையை அமைக்க:</p>
+<pre><code>docker compose exec -T antimatter amctl --local config patch /dev/stdin &lt;&lt;'EOF'
+{"PluginSettings": {"Plugins": {"com.antimatterchat.gifs": {
+  "serviceurl": "http://gifs:8080/v2",
+  "apikey": "the GIFS_API_KEY of your .env"
+}}}}
+EOF</code></pre>
+<p>மற்ற பயனுள்ள கட்டளைகள்: <code>amctl user create</code>, <code>amctl user deactivate</code>, <code>amctl team create</code>, <code>amctl plugin list</code>, <code>amctl plugin enable</code>, <code>amctl system supportpacket</code> மற்றும் <code>amctl logs</code>. ஒவ்வொரு கட்டளையின் விருப்பங்களுக்கும் <code>amctl help &lt;command&gt;</code> ஐ இயக்கவும்.</p>
+
+<h2 id="logs">பதிவுகள்</h2>
+<p>சேவையகம் தனது பதிவுகளை இரண்டு இடங்களில் எழுதுகிறது; ஒவ்வொன்றும் தனித்தனி நிலை (<code>DEBUG</code>, <code>INFO</code>, <code>WARN</code> அல்லது <code>ERROR</code>) கொண்டது. இவை <b>அமைப்பு கன்சோல் › சூழல் › பதிவு</b> இல் அமைக்கப்படுகின்றன:</p>
+<table>
+<thead><tr><th>இலக்கு</th><th>அமைப்புகள்</th><th>இயல்புநிலை அமைப்புகள்</th></tr></thead>
+<tbody>
+<tr><td>கன்சோல் (standard output)</td><td><b>பதிவுகளை கன்சோலுக்கு வெளியிடவும்</b> (<code>LogSettings.EnableConsole</code>), <b>கன்சோல் பதிவு நிலை</b> (<code>LogSettings.ConsoleLevel</code>), <b>கன்சோல் பதிவுகளை JSON ஆக வெளியிடவும்</b> (<code>LogSettings.ConsoleJson</code>)</td><td>இயக்கப்பட்டது, <code>DEBUG</code>, JSON</td></tr>
+<tr><td>ஒரு கோப்பு, <code>antimatter.log</code></td><td><b>பதிவுகளை கோப்பில் வெளியிடு</b> (<code>LogSettings.EnableFile</code>), <b>கோப்பு பதிவு நிலை</b> (<code>LogSettings.FileLevel</code>), <b>கோப்பு பதிவு இடம்</b> (<code>LogSettings.FileLocation</code>)</td><td>இயக்கப்பட்டது, <code>INFO</code>, <code>bin/</code> இன் அருகில் உள்ள <code>logs/</code> கோப்புறை</td></tr>
+</tbody>
+</table>
+<p>100 MB அளவுக்கு லாக் கோப்புகள் சுழற்றப்படுகின்றன (rotated) மற்றும் பழையவை சுருக்கப்படுகின்றன (compressed).</p>
+<p>இதழின் compose கோப்பு கோப்பு லாக்கிங்கை (file logging) அணைக்கிறது (<code>AM_LOGSETTINGS_ENABLEFILE=false</code>), எனவே லாக்கள் கன்டெய்னரின் ஆட்டபட்டில் மட்டுமே இருக்கும்:</p>
+<pre><code>docker compose logs -f antimatter
+docker compose logs --since 1h antimatter | grep -i error</code></pre>
+<p>கன்சோல் நிலையின் இயல்புநிலை <code>DEBUG</code>, இது விரிவானது. பிஸியான சர்வரில், <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code> என அமைக்கவும். systemd கீழ் release archive உடன், கன்சோல் ஆட்டபட் ஜர்னலுக்கு (<code>journalctl -u antimatter</code>) செல்கிறது, கோப்பு <code>/opt/antimatter/logs/antimatter.log</code> இல் இருக்கிறது.</p>
+<p>கோப்பு பதிவு இயக்கப்பட்டுள்ளபோது, அமைப்பு நிர்வாகிகள் <b>அமைப்பு கன்சோல் › அறிக்கைகள் › சேவையகப் பதிவுகள்</b> இல் அல்லது <code>amctl logs</code> மூலம் சமீபத்திய பதிவு வரிசைகளைப் படிக்க முடியும்.</p>

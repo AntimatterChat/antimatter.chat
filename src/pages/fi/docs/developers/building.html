@@ -1,0 +1,102 @@
+title: Kääntäminen lähdekoodista
+description: Näin käännät Antimatterin lähdekoodista: Go-palvelin, Fusion- ja klassinen verkkokäyttöliittymä, kehityspalvelin, testit, julkaisuarkistot, Docker-kuvake sekä työpöytä- ja mobiilisovellukset.
+guide: developers
+order: 7
+nav: Kääntäminen lähdekoodista
+lead: Tämä sivu kertoo, miten Antimatter käännetään ja ajetaan lähdekoodista, joko sen kehitystä varten tai omien käännösten luomiseksi. Sivulla käsitellään palvelin ja verkkokäyttöliittymät, jotka sijaitsevat samassa varastossa, sekä Docker-kuvake ja sovellukset.
+source: dfdf67f34f6e
+---
+<h2 id="requirements">Mitä tarvitset</h2>
+<ul>
+<li><b>Siirry</b> versioon, joka on määritetty tiedostossa <code>server/go.mod</code> (kirjoitushetkellä 1.26.7).</li>
+<li><b>Node.js ja npm</b>, versiot, jotka on määritelty tiedostoissa <code>.nvmrc</code> ja <code>webapp/package.json</code> (Node 24.11.1 ja npm 11.6.2). <a href="https://mise.jdx.dev">mise</a>-työkalun avulla varaston <code>mise.toml</code>-tiedosto asenta oikean Node-version.</li>
+<li><b>Docker</b> Compose-työkalulla: kehitysympäristössä PostgreSQL ja muutamat muut palvelut ajetaan konteinereissa.</li>
+<li><b>make</b>, <b>git</b> sekä Linux- tai macOS-kone.</li>
+<li><b>Muisti</b>: verkkokäyttöliittymien kääntäminen on raskain vaihe. Varaa 16 Gt RAM-muistia; katso osio <a href="#memory">Käännökset ja muisti</a>.</li>
+</ul>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter.git
+cd antimatter</code></pre>
+<p>Varastossa palvelin sijaitsee hakemistossa <code>server/</code>, verkkokäyttöliittymät hakemistossa <code>webapp/</code> (Fusion hakemistossa <code>webapp/fusion</code>, klassinen hakemistossa <code>webapp/channels</code> ja yhteiset paketit hakemistossa <code>webapp/platform</code>) sekä päästä päähän -testit hakemistossa <code>e2e-tests/</code>.</p>
+
+<h2 id="dev-server">Kehityspalvelimen käynnistys</h2>
+<pre><code>cd server
+make run</code></pre>
+<p><code>make run</code> käynnistää kehityskontainerit (PostgreSQL, Redis, sähköpostinsäätäjän ja valvontatyökalut), asettaa verkkosovelluksen käännökset paikoilleen, käynnistää palvelimen taustalle komennolla <code>go run</code> ja käynnistää verkkosovelluksen seurantatyökalun, joka kääntää klassisen käyttöliittymän uudelleen, kun sitä muokataan. Avaa osoite <code>http://localhost:8065</code> ja luo tili: ensimmäinen tili on järjestelmän ylläpitäjä.</p>
+<table>
+<thead><tr><th>Komento (hakemistossa <code>server/</code>)</th><th>Toiminto</th></tr></thead>
+<tbody>
+<tr><td><code>make run-server</code>, <code>make run-client</code></td><td>Käynnistä vain palvelin tai vain verkkosovelluksen seurantatyökalu.</td></tr>
+<tr><td><code>make restart-server</code></td><td>Käynnitä palvelin uudelleen Go-koodin muuttamisen jälkeen.</td></tr>
+<tr><td><code>make stop</code></td><td>Pysäytä palvelin, seurantatyökalu ja kontainerit.</td></tr>
+<tr><td><code>make debug-server</code></td><td>Aja palvelin Delve-vianetsintäohjelmalla.</td></tr>
+<tr><td><code>make run-cli ARGS="-version"</code></td><td>Aja palvelinkomento.</td></tr>
+<tr><td><code>make config-reset</code></td><td>Palauta <code>config/config.json</code> oletusasetuksiin.</td></tr>
+<tr><td><code>make clean</code>, <code>make nuke</code></td><td>Poista käännöstiedostot; <code>nuke</code> poistaa myös kehitysdatan.</td></tr>
+</tbody>
+</table>
+<p>Kehitystietokanta on <code>postgres://mmuser:mostest_password@localhost/mattermost_test</code>, joka on palvelimen oletusdatasäiliö. Valitse, mitkä kontainerit käynnistetään, muuttujalla <code>ENABLED_DOCKER_SERVICES</code> tiedostossa <code>server/config.override.mk</code> tai ympäristömuuttujana (katso <code>server/config.mk</code>).</p>
+
+<h2 id="webapp">Verkkokäyttöliittymät</h2>
+<p>Hakemistossa <code>webapp/</code>:</p>
+<pre><code>npm install      # also builds the shared packages
+npm run build    # the classic interface, then Fusion</code></pre>
+<p>Käännökset sijoittuvat hakemistoihin <code>webapp/channels/dist</code> (klassinen) ja <code>webapp/fusion/dist</code> (Fusion). <code>make client</code> -komento hakemistossa <code>server/</code> linkkaa ne poluille <code>server/client</code> ja <code>server/client-fusion</code>, josta palvelin palvelee niitä: klassinen rajapinta polulla <code>/static/</code> ja Fusion polulla <code>/static/fusion/</code>.</p>
+<ul>
+<li><code>npm run run</code> (tai <code>make run</code> hakemistossa <code>webapp/</code>) seuraa muutoksia ja kääntää klassisen rajapinnan uudelleen. Lisää <code>WATCH_FUSION=true</code> -muuttuja, jotta myös Fusion käännetään uudelleen.</li>
+<li><code>npm run dev-server</code> (<code>make dev</code>) ajaa webpackin kehityspalvelimen: klassinen rajapinta portissa 9005 ja Fusion portissa 9006.</li>
+<li>Näet selaimessa toisen tai toisen rajapinnan lisäämällä osoitteen loppuun <code>?webui=fusion</code> tai <code>?webui=classic</code>.</li>
+</ul>
+
+<h2 id="tests">Testit ja tarkistukset</h2>
+<table>
+<thead><tr><th>Komento</th><th>Missä</th><th>Toiminto</th></tr></thead>
+<tbody>
+<tr><td><code>make test-server</code></td><td><code>server/</code></td><td>Palvelimen testisarja, joka ajetaan kehityskontteja vasten. Se kestää kauan.</td></tr>
+<tr><td><code>make test-server-quick</code></td><td><code>server/</code></td><td>Vain lyhyet testit.</td></tr>
+<tr><td><code>go test ./channels/app/... -run TestName</code></td><td><code>server/</code></td><td>Yksi paketti tai testi, kun kontit ovat käynnissä (<code>make start-docker</code>).</td></tr>
+<tr><td><code>make check-style</code></td><td><code>server/</code></td><td>go vet, golangci-lint ja muut Go-tarkistukset.</td></tr>
+<tr><td><code>make test</code></td><td><code>webapp/</code></td><td>Web-sovelluksen yksikkötestit (Jest) kaikissa pakketeissa.</td></tr>
+<tr><td><code>npm run test -- &lt;pattern&gt;</code></td><td><code>webapp/fusion</code></td><td>Osa Fusionin testeistä.</td></tr>
+<tr><td><code>make check-style</code>, <code>make check-types</code></td><td><code>webapp/</code></td><td>ESLint ja TypeScript.</td></tr>
+<tr><td><code>make i18n-extract</code></td><td><code>server/</code> ja <code>webapp/</code></td><td>Päivittää englanninkieliset merkkijonotiedostot, kun lisäät tai muutat merkkijonoja (ks. <a href="{{root}}docs/developers/contributing.html#translations">Käännökset</a>).</td></tr>
+</tbody>
+</table>
+<p>Käytä <code>make modules-tidy</code> -komentoa hakemistossa <code>server/</code> sen sijaan, että ajaisit <code>go mod tidy</code>.</p>
+
+<h2 id="release">Julkaisuarkistot</h2>
+<pre><code>cd webapp &amp;&amp; npm run build &amp;&amp; cd ..
+cd server
+make build-linux       # the antimatter and amctl binaries
+make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
+<p><code>make build</code> -komento kääntää web-rajapinnat ja Linux-binäärit yhdessä. Arkisto sisältää tiedostot <code>bin/antimatter</code>, <code>bin/amctl</code>, oletusasetukset <code>config/config.json</code>, molemmat web-rajapinnat, mallit, fontit ja käännökset. Muut alustat: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>. Arkistot eivät sisällä liitettyjä sovelluksia, mutta Docker-kuvio sisältää ne.</p>
+
+<h2 id="docker">Docker-kuvio</h2>
+<p><a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a>-varastossa luodaan julkaistavat kiot, palvelin ja sen sovellukset, kokonaan Dockerin sisällä:</p>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter-docker.git
+cd antimatter-docker
+scripts/build-all.sh                     # from the main branches on GitHub
+SOURCES=local scripts/build-all.sh       # from your checkouts next to this folder
+VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatter app</code></pre>
+<p>Tarvitaan Docker buildx-työkalulla, Python 3, git ja gpg, noin 16 Gt RAM-muistia ja 30 Gt levystiivistä. Tulos ladataan nimellä <code>ghcr.io/antimatterchat/antimatter:dev</code>; kokeile sitä komennolla <code>ANTIMATTER_IMAGE=ghcr.io/antimatterchat/antimatter:dev docker compose -f compose.local.yml up -d</code>. Tiedostossa <code>plugins.json</code> luetellaan sovellukset ja käännetyt versiot, ja varaston README-tiedosto selittää eri vaihtoehdot.</p>
+<div class="callout warn"><code>build-all.sh</code> allekirjoittaa mukana toimitetut sovellukset Antimatterin allekirjoitustavalla, ja kuvan rakennus hylkää allekirjoittamattomat sovellukset. Ilman tätä yksityistä avainta, josta vain ylläpitäjillä on kopio, aja ensimmäiset vaiheet erikseen: <code>scripts/fetch-sources.sh</code>, <code>scripts/build-plugins.sh</code> (sovelluspaketit hakemistossa <code>out/plugins/</code>) ja <code>scripts/build-server.sh</code> (palvelimen arkistot hakemistossa <code>out/server/</code>).</div>
+
+<h2 id="memory">Rakennus ja muisti</h2>
+<p>Verkkokeskkusien käyttöliittymät ovat suuria webpack-rakennuksia, ja muistin loppuminen on yleisin rakennusvirhe.</p>
+<ul>
+<li><code>npm run build</code> rakentaa klassisen käyttöliittymän ja Fusionin peräkkäin, ei samanaikaisesti, jotta huippukäyttö pysyy matalana. Älä aja niitä itse samanaikaisesti.</li>
+<li>Pienentäjä käynnistää yhden työntekijän perä prosessori. Jos koneella on paljon ytimiä, mutta vähän muistia, rajaa rakennuksen näkemät prosessorit: <code>taskset -c 0-5 npm run build</code>.</li>
+<li>Jos Node loppuu heap-muistista, nosta sen raja: <code>NODE_OPTIONS=--max-old-space-size=6144</code>. Docker-rakennus käyttää tätä arvoa (<code>BUILD_NODE_OPTIONS</code> -muuttuja <code>build.env</code>-tiedostossa).</li>
+<li>Vältä palvelimen koko testisuiten, verkkorakennuksen ja Docker-rakennuksen ajamista samanaikaisesti pienellä koneella.</li>
+</ul>
+
+<h2 id="apps">Sovellukset</h2>
+<p>Jokaisella sovelluksella (liitännäisellä) on oma varastonsa ja Makefile-ohjelmisto; <code>make dist</code> rakentaa sen paketin. Katso <a href="{{root}}docs/developers/apps.html#build">Rakennus, asennus ja vianetsintä</a>.</p>
+<h3>Työpöytäsovellus</h3>
+<p><a href="https://github.com/AntimatterChat/desktop-app">Työpöytäsovellus</a> on Electron-sovellus. Node.js 24 tai uudempi vaaditaan:</p>
+<pre><code>npm install --allow-git=all
+npm run build          # development build, into dist/
+npm start              # run it
+npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
+<p>Rakennusaikaiset asetukset, kuten ennakkoon määriteltävät palvelimet, ovat tiedostossa <code>src/common/config/buildConfig.ts</code>.</p>
+<h3>Mobiilisovellus</h3>
+<p><a href="https://github.com/AntimatterChat/mobile-app">Mobiilisovellus</a> on React Native -sovellus; sen README-tiedostossa luetellaan komennot (<code>npm run ios</code>, <code>npm run android</code>). Oman kopiasi rakentamiseen tarvitset myös omat allekirjoitustavasi, Firebase-projektin Android-ilmoituksia varten, APNs-avaimen iOS:lle ja <a href="https://github.com/AntimatterChat/push-proxy">push-välityspalvelimen</a>, joka säilyttää nämä tunnus tiedot.</p>

@@ -1,0 +1,113 @@
+title: Innlogging og kontoer
+description: Kontroller hvem som kan opprette en konto i Antimatter og hvordan folk logger seg inn: e-post og passord, passordregler, multifaktorautentisering, OpenID Connect, GitLab, Google, Entra ID, SAML 2.0, AD/LDAP og gjestekontoer.
+guide: admins
+order: 9
+nav: Innlogging og kontoer
+lead: Bestem hvem som kan opprette en konto og hvordan folk logger seg inn. Alle innloggingsmetoder i Antimatter fungerer uten lisens, inkludert enkel innlogging (single sign-on) og kataloger.
+source: b4466d5ccfe1
+---
+<h2 id="signup">Hvem kan opprette en konto</h2>
+<p>Sjekk <b>Systemkonsoll › Autentisering › Registrering</b> rett etter installasjonen. Med standardinnstillingene kan alle med en invitasjonslenke til et samfunn opprette en konto, men ingen kan registrere seg uten en.</p>
+<table>
+<thead><tr><th>Innstilling</th><th>Nøkkel</th><th>Standard</th><th>Hva det gjør</th></tr></thead>
+<tbody>
+<tr><td><b>Aktiver opprettelse av kontoer</b></td><td><code>TeamSettings.EnableUserCreation</code></td><td>på</td><td>Av, ingen kan opprette en konto med noen metode; bare administratorer kan (Systemkonsoll eller <code>amctl user create</code>).</td></tr>
+<tr><td><b>Aktiver åpen server</b></td><td><code>TeamSettings.EnableOpenServer</code></td><td>av</td><td>På, alle som når serveren kan registrere seg med en e-postadresse, uten invitasjon. Bruk dette bare for offentlige samfunn.</td></tr>
+<tr><td><b>Beskrånk nye system- og teammedlemmer til spesifiserte e-postdomener</b></td><td><code>TeamSettings.RestrictCreationToDomains</code></td><td>tom</td><td>Komma-separerte domener, for eksempel <code>example.com, example.org</code>: bare adresser fra disse domener kan opprette en konto.</td></tr>
+<tr><td><b>Aktiver e-postinvitasjoner</b></td><td><code>ServiceSettings.EnableEmailInvitations</code></td><td>av på en ny server</td><td>Gir medlemmer mulighet til å invitere folk via e-post (krever <a href="{{root}}docs/admins/email-push.html">SMTP</a>). <b>Ugyldiggjør ventende e-postinvitasjoner</b> avbryter invitasjonene som ennå ikke er acceptert; de utløper etter 48 timer uansett.</td></tr>
+</tbody>
+</table>
+<p>Samfunnsadministratorer kontrollerer også hvem som blir med i samfunnet deres, med invitasjonslenker og deres egne tillatte domener: se veiledningen <a href="{{root}}docs/communities/index.html">Å drive et samfunn</a>.</p>
+<p>Fra kommandolinjen: <code>amctl user create</code> (legg til <code>--system-admin</code> eller <code>--guest</code>), <code>amctl user invite</code>, <code>amctl user deactivate</code>, <code>amctl roles system-admin &lt;user&gt;</code> for å gjøre noen til systemadministrator, og <code>amctl roles member &lt;user&gt;</code> for å reversere dette.</p>
+
+<h2 id="email-password">E-post og passord</h2>
+<p>I <b>Systemkonsoll › Autentisering › E-post</b>:</p>
+<table>
+<thead><tr><th>Innstilling</th><th>Nøkkel</th><th>Standard</th></tr></thead>
+<tbody>
+<tr><td><b>Aktiver kontooppretting med e-post</b></td><td><code>EmailSettings.EnableSignUpWithEmail</code></td><td>på. Slå det av når alle logger seg inn via enkel innlogging (single sign-on).</td></tr>
+<tr><td><b>Krev e-postverifisering</b></td><td><code>EmailSettings.RequireEmailVerification</code></td><td>av. Slå det på når <a href="{{root}}docs/admins/email-push.html">e-post</a> fungerer: folk bekrefter da adressen sin før de kan logge seg inn.</td></tr>
+<tr><td><b>Aktiver pålogging med e-post</b></td><td><code>EmailSettings.EnableSignInWithEmail</code></td><td>på</td></tr>
+<tr><td><b>Aktiver pålogging med brukernavn</b></td><td><code>EmailSettings.EnableSignInWithUsername</code></td><td>på</td></tr>
+</tbody>
+</table>
+<p>I <b>Systemkonsoll › Autentisering › Passord</b>:</p>
+<table>
+<thead><tr><th>Innstilling</th><th>Nøkkel</th><th>Standard</th></tr></thead>
+<tbody>
+<tr><td><b>Minste passordlengde</b></td><td><code>PasswordSettings.MinimumLength</code></td><td>8 (5 til 72)</td></tr>
+<tr><td><b>Krav til løsenord</b>: små bokstaver, store bokstaver, tall, symbol</td><td><code>PasswordSettings.Lowercase</code>, <code>.Uppercase</code>, <code>.Number</code>, <code>.Symbol</code></td><td>alle av</td></tr>
+<tr><td><b>Maks antall påloggingsforsøk</b></td><td><code>ServiceSettings.MaximumLoginAttempts</code></td><td>10: etter så mange feil forsøk låses kontoen inntil passordet er nullstilt via e-post</td></tr>
+<tr><td><b>Aktiver lenke for glemt passord</b></td><td><code>PasswordSettings.EnableForgotLink</code></td><td>på</td></tr>
+</tbody>
+</table>
+<p>En lengde på 12 tegn eller mer bidrar mer til sikkerheten enn regler for tegn. For å nullstille passordet for noen: <b>Systemkonsoll › Brukeradministrasjon › Brukere</b>, eller <code>amctl user change-password &lt;user&gt; --password &lt;new&gt;</code>.</p>
+
+<h2 id="mfa">Faktorisert autentisering</h2>
+<p>Faktorisert autentisering (MFA) legger til en kode fra en autentiseringsapp i tillegg til passordet. Den gjelder for kontoer som logger seg inn med e-post eller AD/LDAP; ved enkel pålogging (SSO) bruker du MFA fra identitetsleverandøren din. I <b>Systemkonsoll › Autentisering › MFA</b>:</p>
+<ul>
+<li><b>Aktiver multifaktorautentisering</b> (<code>ServiceSettings.EnableMultifactorAuthentication</code>, av): folk kan slå på MFA i sikkerhetsinnstillingene sine.</li>
+<li><b>Håndhev multifaktorautentisering</b> (<code>ServiceSettings.EnforceMultifactorAuthentication</code>, av): alle må sette den opp, enten ved registrering eller ved neste pålogging.</li>
+</ul>
+<p>Hvis noen mister enheten sin: <code>amctl user resetmfa &lt;user&gt;</code>, eller nullstill den fra siden deres i <b>Systemkonsoll › Brukeradministrasjon › Brukere</b>.</p>
+
+<h2 id="sso">Enkel pålogging</h2>
+<p>Antimatter kan la brukere logge seg inn via identitetsleverandøren din. Ved første pålogging opprettes kontoen deres (hvis oppretting av kontoer er tillatt) fra navnet, e-postadressen og brukernavnet leverandøren sender.</p>
+<h3>OpenID Connect, GitLab, Google og Entra ID</h3>
+<p>Gå til <b>Systemkonsoll › Autentisering › OpenID Connect</b>, og velg under <b>Velg tjenesteleverandør</b>: GitLab, Google Apps, Entra ID (Office 365) eller <b>OpenID Connect (Annet)</b> for andre leverandører (Keycloak, Authentik, Zitadel, Okta, Auth0…).</p>
+<ol>
+<li>I leverandøren din, opprett en applikasjon (en «client») av typen web, med denne omdirigerings-URI for nettstedets din URL:
+<table>
+<thead><tr><th>Leverandør</th><th>Omdirigerings-URI</th></tr></thead>
+<tbody>
+<tr><td>OpenID Connect (Annet)</td><td><code>https://chat.example.com/signup/openid/complete</code></td></tr>
+<tr><td>GitLab</td><td><code>https://chat.example.com/signup/gitlab/complete</code></td></tr>
+<tr><td>Google</td><td><code>https://chat.example.com/signup/google/complete</code></td></tr>
+<tr><td>Entra ID</td><td><code>https://chat.example.com/signup/office365/complete</code></td></tr>
+</tbody>
+</table></li>
+<li>I Antimatter, fyll inn <b>Oppdagelsesendepunkt</b> (leverandørens <code>/.well-known/openid-configuration</code>-URL; for GitLab, <b>GitLab-nettsteds-URL</b> i stedet), <b>Klient-ID</b> og <b>Klienthemmelighet</b>. For andre leverandører, også <b>Knapptekst</b> og <b>Knapfarge</b> for påloggingsknappen.</li>
+<li><b>Bruk foretrukket brukernavn</b> (GitLab og andre leverandører) henter Antimatter-brukernavnet fra leverandørens <code>preferred_username</code>-claim.</li>
+<li>Lagre, logg ut, og prøv den nye knappen på påloggingssiden.</li>
+</ol>
+<p>Innstillingene lagres i <code>OpenIdSettings</code>, <code>GitLabSettings</code>, <code>GoogleSettings</code> eller <code>Office365Settings</code> (for eksempel <code>AM_OPENIDSETTINGS_ENABLE</code>, <code>AM_OPENIDSETTINGS_DISCOVERYENDPOINT</code>, <code>AM_OPENIDSETTINGS_ID</code>, <code>AM_OPENIDSETTINGS_SECRET</code>). Den eldre OAuth 2.0-siden vises kun for servere som fortsatt har en OAuth 2.0-konfigurasjon for GitLab, Google eller Entra ID.</p>
+<h3>SAML 2.0</h3>
+<p>I <b>Systemkonsoll › Autentisering › SAML 2.0</b>, slå på <b>Aktiver innlogging med SAML 2.0</b> (<code>SamlSettings.Enable</code>) og fyll inn det identitetsleverandøren din gir deg: <b>Metadata-URL for identitetsleverandør</b>, eller <b>SAML SSO-URL</b>, <b>Utgiver-URL for identitetsleverandør</b> og <b>Offentlig sertifikat for identitetsleverandør</b>. På identitetsleverandørens side:</p>
+<ul>
+<li>Service Provider Login URL (assertion consumer service): <code>https://chat.example.com/login/sso/saml</code>;</li>
+<li>Antimatters metadata, for leverandører som importerer den: <code>https://chat.example.com/api/v4/saml/metadata</code>.</li>
+</ul>
+<p>Kartlegg attributtene leverandøren din sender: minst <b>E-postattributt</b> og <b>Brukernavn-attributt</b>, og valgfritt ID, fornavn, etternavn, kallenavn, stilling, språk, gjest- og administratorattributter. <b>Verifiser signatur</b> og <b>Aktiver kryptering</b> er på som standard (kryptering krever en tjenesteleverandør-nøkkel og sertifikat; bare RSA-nøkler støttes); <b>Signer forespørsel</b> er av. Signaturalgoritmen er som standard RSAwithSHA256.</p>
+<h3>AD/LDAP</h3>
+<p>I <b>Systemkonsoll › Autentisering › AD/LDAP</b>, kobler en trinn-for-trinn-side Antimatter til Active Directory eller en annen LDAP-server: server og port (<code>LdapSettings.LdapServer</code>, <code>LdapSettings.LdapPort</code>, 389 som standard), tilkoblingssikkerhet (ingen, TLS eller STARTTLS), base DN og en bind-konto (<code>BaseDN</code>, <code>BindUsername</code>, <code>BindPassword</code>), filtre for brukere, gjester, administratorer og grupper, og attributter for e-post, brukernavn, ID, navn og bilde. Personene logger deretter inn med sin kataloglogin.</p>
+<p>En synkroniseringsjobb kjører hvert 60. minutt (<code>LdapSettings.SyncIntervalMinutes</code>) for å oppdatere navn og deaktivere personer som er fjernet fra katalogen; kjør den nå med <code>amctl ldap sync</code>. LDAP-grupper kan kobles til team og kanaler i <b>Systemkonsoll › Brukeradministrasjon › Grupper</b>. SAML-kontoer kan også holdes synkronisert med AD/LDAP (<b>Aktiver synkronisering av SAML-kontoer med AD/LDAP</b>).</p>
+<h3>Flytting av eksisterende kontoer</h3>
+<p>For å bytte eksisterende e-postkontoer til éngangsinnsending, flytter <code>amctl user migrate-auth email saml users.json</code> (eller <code>ldap</code>) dem i masse. En bruker kan også endre sin egen innsendingmetode i sikkerhetsinnstillingene når <b>Tillat overføring av autentisering</b> (<code>ServiceSettings.ExperimentalEnableAuthenticationTransfer</code>, i <b>Systemkonsoll › Eksperimentell › Funksjoner</b>) er på.</p>
+
+<h2 id="guests">Gjestekontoer</h2>
+<p>Gjest er personer utenfor organisasjonen din som bare ser kanalene de er invitert til. Slå dem på i <b>Systemkonsoll › Autentisering › Gjestetilgang</b>:</p>
+<table>
+<thead><tr><th>Innstilling</th><th>Nøkkel</th><th>Standard</th></tr></thead>
+<tbody>
+<tr><td><b>Aktiver gjesteaksess</b></td><td><code>GuestAccountsSettings.Enable</code></td><td>av</td></tr>
+<tr><td><b>Tillatene gjestedomener</b></td><td><code>GuestAccountsSettings.RestrictCreationToDomains</code></td><td>tomt: gjester kan ha hvilket som helst e-postdomene</td></tr>
+<tr><td><b>Håndhev multifaktorautentisering</b></td><td><code>GuestAccountsSettings.EnforceMultifactorAuthentication</code></td><td>av; kun tilgjengelig når MFA er slått på og tvunget på for alle</td></tr>
+<tr><td><b>Skjul gjestemerket</b></td><td><code>GuestAccountsSettings.HideTags</code></td><td>av: et «gjest»-merke vises ved siden av navnet deres</td></tr>
+</tbody>
+</table>
+<p>Når det er slått på, inviterer fellesskapsadministratorer gjester til bestemte kanaler. Administratorer kan gjøre et medlem om til gjest med <code>amctl user demote</code>, og en gjest om til medlem med <code>amctl user promote</code>.</p>
+
+<h2 id="sessions">Sesjoner</h2>
+<p>Hvor lenge folk forblir pålogget, settes i <b>Systemkonsoll › Miljø › Sesjonslengder</b>:</p>
+<table>
+<thead><tr><th>Innstilling</th><th>Nøkkel</th><th>Standard på en ny server</th></tr></thead>
+<tbody>
+<tr><td><b>Forleng øktvarighet med aktivitet</b></td><td><code>ServiceSettings.ExtendSessionLengthWithActivity</code></td><td>på: sesjonene fornyes mens folk bruker Antimatter</td></tr>
+<tr><td><b>Varighet for økter for AD/LDAP og e-post (timer)</b></td><td><code>ServiceSettings.SessionLengthWebInHours</code></td><td>720 timer (30 dager)</td></tr>
+<tr><td><b>Sesjonslengde mobil (timer)</b></td><td><code>ServiceSettings.SessionLengthMobileInHours</code></td><td>720 timer</td></tr>
+<tr><td><b>Sesjonslengde SSO (timer)</b></td><td><code>ServiceSettings.SessionLengthSSOInHours</code></td><td>720 timer</td></tr>
+<tr><td><b>Sesjons inaktivitetstid (minutter)</b></td><td><code>ServiceSettings.SessionIdleTimeoutInMinutes</code></td><td>43200 minutter (30 dager); vises bare når sesjonene ikke forlenges med aktivitet</td></tr>
+<tr><td><b>Avslutt sesjoner ved passordendring</b></td><td><code>ServiceSettings.TerminateSessionsOnPasswordChange</code></td><td>på</td></tr>
+</tbody>
+</table>
+<p>For å logge alle ut samtidig, bruk <b>Trekke tilbake alle økter</b> i <b>Systemkonsoll › Brukeradministrasjon › Brukere</b>. For å logge ut én person, åpne siden deres der.</p>

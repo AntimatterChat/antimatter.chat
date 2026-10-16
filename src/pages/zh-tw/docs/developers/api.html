@@ -1,0 +1,164 @@
+title: REST API
+description: Antimatter 的 REST API：基礎 URL、個人存取權杖、工作階段權杖與 OAuth、主要資源、分頁、錯誤、速率限制、WebSocket 事件串流以及用戶端程式庫。
+guide: developers
+order: 2
+nav: REST API
+lead: Antimatter 應用程式執行的所有操作都透過同一個 HTTP API，因此您的腳本也可以做到。本頁說明如何進行驗證、您最常使用的資源、回應與錯誤的格式，以及如何透過 WebSocket 即時追蹤事件。
+source: f4b8c83efdba
+---
+<h2 id="basics">基礎知識</h2>
+<ul>
+<li><b>基礎 URL</b>：<code>https://chat.example.com/api/v4</code>。以下所有端點皆相對於此 URL。</li>
+<li><b>格式</b>：輸入與輸出皆為 JSON，檔案上傳（multipart）除外。請傳送 <code>Content-Type: application/json</code>。</li>
+<li><b>ID</b>：每個物件都有一個 26 個字元的 <code>id</code>。時間為 Unix 紀元以來的毫秒數（<code>create_at</code>、<code>update_at</code>、<code>delete_at</code>；0 表示「未刪除」）。</li>
+<li><b>社群即團隊</b>：API 將其稱為 <code>teams</code>，並包含 <code>team_id</code>。</li>
+<li><b>您自己</b>：凡是路徑接受 <code>user_id</code> 的地方，<code>me</code> 代表已登入的使用者，例如 <code>GET /users/me</code>。</li>
+</ul>
+<p>完整的端點清單位於伺服器程式碼中：路由宣告於 <code>server/channels/api4/*.go</code>，型別定義於 <code>server/public/model</code>。儲存庫中 <code>api/v4/source</code> 資料夾內的 OpenAPI 描述涵蓋的是從 Mattermost 繼承的端點，而非 Antimatter 新增的部分。</p>
+
+<h2 id="auth">驗證</h2>
+<p>除了登入和少數公開端點外，每個請求都需要在 <code>Authorization</code> 標頭中提供權杖：</p>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" https://chat.example.com/api/v4/users/me</code></pre>
+<p>該標頭接受三種權杖：個人存取權杖、工作階段權杖和 OAuth 存取權杖。也接受 <code>Authorization: Token …</code> 格式。查詢字串中的權杖（<code>?access_token=</code>）僅接受 OAuth 存取權杖。</p>
+
+<h3>個人存取權杖（建議用於腳本）</h3>
+<p>個人存取權杖代表您本人，除非您設定過期日期，否則不會過期，且隨時可以撤銷。個人存取權杖預設為關閉：</p>
+<ol>
+<li>系統管理員在<b>系統控制台 › 整合 › 整合管理</b>中啟用<b>啟用個人存取 Token</b>（<code>ServiceSettings.EnableUserAccessTokens</code>、<code>AM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS</code>）。</li>
+<li>對於每位可能建立令牌的使用者，系統管理員需開啟<b>系統控制台 › 使用者管理 › 使用者</b>，在該使用者的選單中選擇<b>管理角色</b>，並勾選<b>允許此帳戶產生個人存取令牌</b>。系統管理員隨時都可以建立令牌。</li>
+<li>使用者開啟右上角的頭像，然後選擇<b>個人檔案與設定 › 安全性</b>。在<b>個人存取 Token</b>下方，說明該 Token 的用途並選擇<b>建立新 Token</b>。Token 只會顯示一次：請複製它。</li>
+</ol>
+<p>透過 API：<code>POST /users/{user_id}/tokens</code>，並附上 <code>{"description": "backup script", "expires_at": 0}</code>（<code>expires_at</code> 以毫秒為單位；0 表示永不過期）。回應中的 <code>token</code> 欄位即為密鑰；其 <code>id</code> 可用於撤銷令牌（<code>POST /users/tokens/revoke</code>，附上 <code>{"token_id": "…"}</code>）。從命令列執行：<code>amctl token generate &lt;user&gt; &lt;description&gt;</code>。</p>
+<p>系統管理員可以在同一個系統控制台頁面，使用<b>個人存取權杖最長有效期（天）</b>來限制 Token 的有效期。</p>
+
+<h3>工作階段令牌</h3>
+<p>使用密碼登入時，會在 <code>Token</code> 回應標頭中回傳一個工作階段令牌，這與應用程式使用的工作階段類型相同：</p>
+<pre><code>curl -i -X POST https://chat.example.com/api/v4/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login_id": "maya", "password": "…"}'</code></pre>
+<p>對於啟用了多因素驗證的帳戶，請加上 <code>"token": "123456"</code>。工作階段會依照伺服器的工作階段設定過期，且登入端點有速率限制（每秒 5 個請求）。<code>POST /users/logout</code> 可結束工作階段。</p>
+<div class="callout">瀏覽器使用 Cookie 進行身份驗證。透過 Cookie 進行身份驗證的請求，除了 GET 請求外，還必須傳送 <code>X-CSRF-Token</code> 標頭；而 <code>Authorization</code> 標頭中的令牌則不需要 CSRF 標頭。</div>
+
+<h3>OAuth 2.0 應用程式</h3>
+<p>若要讓使用者使用其 Antimatter 帳戶登入您的應用程式，請註冊一個 OAuth 2.0 應用程式。此時 Antimatter 將作為 OAuth 提供者：</p>
+<ol>
+<li>必須開啟<b>啟用 OAuth 2.0 服務提供者</b>（<b>系統控制台 › 整合 › 整合管理</b>，<code>ServiceSettings.EnableOAuthServiceProvider</code>，預設為開啟）。</li>
+<li>具有管理 OAuth 應用程式權限的人員（預設為系統管理員）需點擊頭像，然後選擇<b>整合 › OAuth 2.0 應用程式</b>，並加上應用程式及其回呼 URL。他們將獲得一個客戶端 ID 和一個客戶端密鑰。</li>
+<li>您的應用程式會將使用者導向至 <code>https://chat.example.com/oauth/authorize</code>，並附上 <code>response_type=code</code>、<code>client_id</code>、<code>redirect_uri</code> 和 <code>state</code>。支援使用 <code>code_challenge_method=S256</code> 的 PKCE。</li>
+<li>接著，透過 <code>POST https://chat.example.com/oauth/access_token</code> 交換授權碼（先使用 <code>grant_type=authorization_code</code>，之後使用 <code>refresh_token</code> 進行更新），並呼叫 API 時附上 <code>Authorization: Bearer &lt;access token&gt;</code>。</li>
+</ol>
+<p>使用者可以在 <b>個人檔案與設定 › 安全性 › 已授權的應用程式</b> 中查看他們已授權的應用程式。</p>
+
+<h2 id="resources">主要資源</h2>
+<table>
+<thead><tr><th>項目</th><th>端點</th></tr></thead>
+<tbody>
+<tr><td>您與其他使用者</td><td><code>GET /users/me</code>、<code>GET /users/{user_id}</code>、<code>GET /users/username/{username}</code>、<code>POST /users/ids</code>（ID 清單）、<code>POST /users/search</code>、<code>GET /users?in_team=…&amp;in_channel=…</code></td></tr>
+<tr><td>社群</td><td><code>GET /users/me/teams</code>, <code>GET /teams/{team_id}</code>, <code>GET /teams/name/{name}</code>, <code>PUT /teams/{team_id}/patch</code>, <code>GET /teams/{team_id}/members</code>, <code>POST /teams/{team_id}/members</code></td></tr>
+<tr><td>頻道</td><td><code>GET /users/me/teams/{team_id}/channels</code>、<code>GET /teams/name/{team}/channels/name/{channel}</code>、<code>POST /channels</code>、<code>POST /channels/direct</code>（兩個使用者 ID）、<code>POST /channels/group</code>、<code>POST /channels/{channel_id}/members</code></td></tr>
+<tr><td>訊息（貼文）</td><td><code>POST /posts</code>, <code>GET /posts/{post_id}</code>, <code>PUT /posts/{post_id}/patch</code>, <code>DELETE /posts/{post_id}</code>, <code>GET /channels/{channel_id}/posts</code>, <code>GET /posts/{post_id}/thread</code>, <code>POST /teams/{team_id}/posts/search</code></td></tr>
+<tr><td>反應</td><td><code>POST /reactions</code>，參數為 <code>{"user_id", "post_id", "emoji_name"}</code>；<code>DELETE /users/{user_id}/posts/{post_id}/reactions/{emoji_name}</code></td></tr>
+<tr><td>檔案</td><td><code>POST /files</code>（多部分上傳：包含 <code>channel_id</code> 和 <code>files</code>），然後將回傳的 ID 放入貼文的 <code>file_ids</code> 中；<code>GET /files/{file_id}</code></td></tr>
+<tr><td>偏好設定</td><td><code>GET /users/me/preferences</code>, <code>PUT /users/me/preferences</code></td></tr>
+<tr><td>整合</td><td><code>/hooks/incoming</code>、<code>/hooks/outgoing</code>、<code>/commands</code>、<code>/bots</code>、<code>/oauth/apps</code>（請參閱後續頁面）</td></tr>
+<tr><td>伺服器</td><td><code>GET /system/ping</code>（健康狀態檢查，無需令牌）、<code>GET /config/client?format=old</code>（客戶端看到的設定）</td></tr>
+</tbody>
+</table>
+
+<h3>發佈訊息</h3>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "message": "Backup finished: **42 GB** in 3 min"}'</code></pre>
+<p>訊息使用 Markdown 格式。若要回覆討論串，請加上 <code>"root_id"</code>（討論串的第一則貼文）；若要附上檔案，請加上 <code>"file_ids"</code>；若要附加其他額外資訊，請加上 <code>"props"</code>（請參閱 <a href="{{root}}docs/developers/webhooks.html#attachments">附件</a>）。</p>
+
+<h3>查找頻道 ID</h3>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" \
+  https://chat.example.com/api/v4/teams/name/lumen-labs/channels/name/ops-alerts</code></pre>
+<p>名稱即為頻道連結中的內容：<code>/lumen-labs/channels/ops-alerts</code>。</p>
+
+<h2 id="pagination">分頁</h2>
+<p>清單端點接受 <code>page</code>（從 0 開始）和 <code>per_page</code>（預設為 60，最多 200）。持續請求下一頁，直到回傳的頁面長度小於 <code>per_page</code> 為止。</p>
+<p>頻道的訊息（<code>GET /channels/{channel_id}/posts</code>）也接受 <code>since</code>（時間：該時間之後所有變更過的內容），或 <code>before</code> 與 <code>after</code>（訊息 ID）。回傳結果為訊息列表：<code>{"order": [IDs, newest first], "posts": {ID: post}, "next_post_id", "prev_post_id"}</code>。</p>
+
+<h2 id="errors">錯誤</h2>
+<p>錯誤使用標準的 HTTP 狀態碼（400 輸入錯誤、401 未登入、403 無權限、404 找不到、501 功能已停用）以及 JSON 回應主體：</p>
+<pre><code>{
+  "id": "api.context.permissions.app_error",
+  "message": "You do not have the appropriate permissions.",
+  "detailed_error": "",
+  "request_id": "jz8zm5nunpbt8f3gpqsz5dq6so",
+  "status_code": 403
+}</code></pre>
+<p>在程式碼中使用 <code>id</code>：<code>message</code> 會依使用者語言進行翻譯。除非伺服器執行於開發者模式（<code>ServiceSettings.EnableDeveloper</code>），否則 <code>detailed_error</code> 為空。請向伺服器管理員引用 <code>request_id</code>：它記錄在日誌中。</p>
+
+<h2 id="rate-limits">速率限制</h2>
+<p>速率限制預設為停用。當系統管理員將其開啟（<b>系統控制台 › 環境 › 速率限制</b>）時，每個客戶端預設每秒可發送 10 個請求，並允許 100 的突發量，依 IP 位址或使用者計算。回應包含 <code>X-RateLimit-Limit</code>、<code>X-RateLimit-Remaining</code> 與 <code>X-RateLimit-Reset</code>；超過限制時，伺服器會回應 <code>429</code>，並附上以秒為單位的 <code>Retry-After</code> 標頭。某些端點（例如登入）無論設定為何，都有獨立的限制。</p>
+<p>請撰寫在收到 429 時等待並重試的腳本，並避免輪詢：改用追蹤 WebSocket。</p>
+
+<h2 id="websocket">WebSocket 事件串流</h2>
+<p>連線至 <code>wss://chat.example.com/api/v4/websocket</code>。認證方式可透過連線請求中的 <code>Authorization: Bearer</code> 標頭，或將以下內容作為第一則訊息發送：</p>
+<pre><code>{"seq": 1, "action": "authentication_challenge", "data": {"token": "…"}}</code></pre>
+<p>伺服器會先發送 <code>hello</code> 事件，接著發送您有權查看的所有事件：</p>
+<pre><code>{
+  "event": "posted",
+  "data": {"channel_id": "…", "channel_type": "O", "post": "{\"id\":\"…\",\"message\":\"Hello\",…}"},
+  "broadcast": {"channel_id": "…", "team_id": "", "user_id": "", "omit_users": null},
+  "seq": 4
+}</code></pre>
+<p>請注意 <code>data.post</code> 是作為 JSON 字串儲存的訊息。常見事件包括：<code>posted</code>、<code>post_edited</code>、<code>post_deleted</code>、<code>reaction_added</code>、<code>reaction_removed</code>、<code>typing</code>、<code>status_change</code>、<code>user_added</code>、<code>direct_added</code>。應用程式會發送自己的事件，命名格式為 <code>custom_&lt;app id&gt;_&lt;event&gt;</code>。</p>
+<p>您也可以發送動作，每個動作都帶有遞增的 <code>seq</code>：<code>user_typing</code> 搭配 <code>{"channel_id", "parent_id"}</code>，或 <code>get_statuses</code>。當連線中斷時請重新連線，並使用 <code>since</code> 取得遺漏的內容（請參閱 <a href="#pagination">分頁</a>）。</p>
+<p>Antimatter 新增了以下事件：<code>community_attributes_updated</code>、<code>member_timeouts_updated</code>、<code>post_put_on_top</code>、<code>post_removed_from_top</code>、<code>server_categories_updated</code>、<code>channel_overrides_updated</code> 以及 <code>category_overrides_updated</code>。</p>
+
+<h2 id="clients">用戶端程式庫</h2>
+<ul>
+<li><b>前往</b>：<code>server/public/model</code>中的<code>model.Client4</code>（匯入<code>github.com/mattermost/mattermost/server/public/model</code>）。使用<code>model.NewAPIv4Client(url)</code>，然後執行<code>client.SetToken(token)</code>；<code>model.NewWebSocketClient4(wsURL, token)</code>可追蹤事件。Antimatter 的副本新增了用於其自身端點的方法，例如<code>UpdateMessageRequest</code>、<code>PutPostOnTop</code>和<code>ExportChannel</code>。</li>
+<li><b>TypeScript</b>：<code>webapp/platform/client</code> 中的 <code>@mattermost/client</code> 的 <code>Client4</code> 類別，其型別位於 <code>webapp/platform/types</code>。Antimatter 儲存庫中的副本包含 Antimatter 的端點；Mattermost 在 npm 上發布的套件則不包含。</li>
+</ul>
+<pre><code>package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/mattermost/mattermost/server/public/model"
+)
+
+func main() {
+	client := model.NewAPIv4Client("https://chat.example.com")
+	client.SetToken("…")
+	post, _, err := client.CreatePost(context.Background(), &amp;model.Post{
+		ChannelId: "…",
+		Message:   "Hello from Go",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("posted", post.Id)
+}</code></pre>
+
+<h2 id="antimatter">Antimatter 對 API 的新增內容</h2>
+<p>這些端點和欄位在 Mattermost 伺服器上並不存在。它們都需要一個工作階段。</p>
+<table>
+<thead><tr><th>端點</th><th>功能說明</th></tr></thead>
+<tbody>
+<tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> 相同路徑<br><code>PATCH</code>、<code>DELETE …/fields/{field_id}</code></td><td>社群屬性：社群管理員為成員定義的個人檔案欄位（最多 20 個）。成員可以讀取這些欄位；社群管理員可以建立和修改它們。</td></tr>
+<tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> 相同路徑<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>成員的屬性值，格式為 <code>{field_id: value}</code>。成員可以設定自己的值（管理員管理的欄位除外）；管理員可以設定任何人的值。搜尋接受 <code>{"user_ids": [...]}</code>（最多 200 個）。</td></tr>
+<tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>逾時：<code>{"until": time, "reason": "…"}</code>會阻止使用者在該時間之前（最多 28 天）在社群中發文、反應或上傳；<code>"until": 0</code>則會解除限制。管理檢視會顯示他們加入的時間以及近期的發文量。</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>將訊息釘選在頻道頂端（最多 10 則）。<code>{"duration": ms}</code>，最長 30 天；0 表示保留至移除為止。需要具備在該頻道發佈訊息的權限。</td></tr>
+<tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>對您自己的訊息請求採取動作：<code>{"action": "accept"}</code>、<code>"dismiss"</code>，或 <code>"request"</code> 以將對話重新放回請求清單中。會回傳您的頻道成員。</td></tr>
+<tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>角色或人員在頻道中可執行的動作，以及哪些角色可檢視受角色限制的頻道。</td></tr>
+<tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>社群共用的頻道分類，以及套用於該分類中每個頻道的覆寫設定。</td></tr>
+<tr><td><code>GET /groups/{group_id}/team_role</code><br><code>PUT …/team_role/permissions</code></td><td>社群角色所授予的權限。</td></tr>
+<tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>在文字上測試社群的自動連結規則。</td></tr>
+<tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>將頻道的訊息下載為 CSV 檔案（最多 50,000 則），供可讀取該頻道的人員使用。</td></tr>
+<tr><td><code>GET /posts/{post_id}/speech</code></td><td>當設定文字轉語音時，以音訊形式朗讀的訊息。</td></tr>
+</tbody>
+</table>
+<h3>新增欄位</h3>
+<ul>
+<li><b>社群</b>（<code>Team</code>，以及 <code>PUT /teams/{team_id}/patch</code>）：<code>all_channels_membership</code>（所有人均可加入其有權檢視的每個頻道，類似 Discord）、<code>default_channel_id</code>（新成員的初始頻道；留空則為 Town Square）、<code>hide_role_colors</code>、<code>require_team_badges</code>、<code>onboarding</code> 以及 <code>autolinks</code>（兩者皆為 JSON 字串）。</li>
+<li><b>內嵌回覆</b>：包含 <code>"props": {"reply_to": "&lt;post id&gt;"}</code> 的貼文會引用同一頻道中的該則訊息。加入 <code>"reply_to_mention": false</code> 可避免通知該訊息的作者。伺服器會以被引用訊息的簡短描述填入 <code>metadata.reply_to</code>。</li>
+<li><b>劇透</b>：<code>"props": {"spoiler": true}</code> 會隱藏貼文的文字與檔案，直到讀者選擇顯示為止。</li>
+<li><b>忽略與封鎖</b>屬於個人偏好設定：分類為 <code>user_block</code>，名稱以對方的 ID 命名，值為 <code>ignore</code> 或 <code>block</code>。私人訊息是否作為請求等待，取決於您頻道成員的 <code>notify_props.dm_request</code>（<code>pending</code>、<code>accepted</code> 或 <code>dismissed</code>）。</li>
+<li><b>訊息附件</b>可包含 <code>stages</code> 與 <code>chart</code>：請參閱 <a href="{{root}}docs/developers/webhooks.html#cards">卡片</a>。</li>
+</ul>

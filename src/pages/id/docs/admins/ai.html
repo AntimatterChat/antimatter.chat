@@ -1,0 +1,104 @@
+title: AI
+description: Hubungkan fitur AI Antimatter ke model yang Anda pilih, termasuk server yang Anda jalankan sendiri: agen AI, transkripsi suara untuk panggilan, baca keras, terjemahan otomatis, data yang dikirim ke mana, dan cara menonaktifkan setiap fitur.
+guide: admins
+order: 8
+nav: AI
+lead: Fitur AI Antimatter menggunakan model yang Anda pilih: penyedia cloud, atau server di jaringan Anda sendiri. Tidak ada data yang dikirim ke mana pun sampai Anda mengonfigurasi model. Halaman ini membahas setiap fitur, data yang dikirim, dan cara menonaktifkannya.
+source: b6dfe1d5e313
+---
+<h2 id="overview">Fitur-fitur AI</h2>
+<table>
+<thead><tr><th>Fitur</th><th>Dikonfigurasi di</th><th>Jenis model</th><th>Aktif secara bawaan</th></tr></thead>
+<tbody>
+<tr><td>Agen AI: obrolan dengan bot, ringkasan utas dan kanal, bantuan di komposer</td><td>Aplikasi Agen</td><td>Layanan model bahasa besar (LLM) apa pun</td><td>Aplikasinya aktif, tetapi tidak melakukan apa-apa sampai Anda menambahkan layanan</td></tr>
+<tr><td>Transkrip panggilan dan teks langsung</td><td>Aplikasi Panggilan</td><td>Transkripsi suara, kompatibel dengan OpenAI</td><td>tidak</td></tr>
+<tr><td>Baca keras</td><td>Server</td><td>Teks ke suara, kompatibel dengan OpenAI</td><td>tidak</td></tr>
+<tr><td>Terjemahan otomatis kanal</td><td>Server</td><td>LibreTranslate, LLM kompatibel OpenAI, atau layanan Agen</td><td>tidak</td></tr>
+</tbody>
+</table>
+<p>"Kompatibel OpenAI" berarti server yang menawarkan API HTTP yang sama dengan OpenAI. Sebagian besar server model yang dapat Anda jalankan sendiri melakukannya (misalnya Ollama, vLLM, server llama.cpp, atau server Whisper dan teks ke suara), begitu pula banyak penyedia cloud. Tidak diperlukan lisensi untuk fitur-fitur ini.</p>
+
+<h2 id="agents">Agen AI</h2>
+<p>Aplikasi Agen (id <code>mattermost-ai</code>) aktif secara bawaan. Pengaturannya terdiri dari dua langkah: tambahkan <b>layanan</b> (koneksi ke penyedia model), lalu buat <b>agen</b> (bot yang menggunakan layanan tersebut).</p>
+<figure><img src="{{root}}assets/img/shots/ai.webp" alt="The Agents panel on the right of a channel: a user asked about an incident and the agent answered with a summary of the related threads."><figcaption>Agen yang menjawab di panel Agen.</figcaption></figure>
+<h3>1. Tambahkan layanan</h3>
+<p>Buka <b>Konsol Sistem › Plugin › Agen</b> dan, di bawah <b>Layanan AI</b>, klik <b>Tambahkan Layanan AI</b>. Pilih <b>Jenis Layanan</b>:</p>
+<ul>
+<li><b>Kompatibel OpenAI</b>: untuk server model yang Anda jalankan sendiri, atau penyedia apa pun dengan API bergaya OpenAI. Isi <b>URL API</b> (misalnya <code>http://ollama:11434/v1</code> atau <code>http://vllm.internal:8000/v1</code>), dan <b>Kunci API</b> hanya jika server membutuhkannya. Jika server hanya mendukung API Completions Chat, matikan <b>Gunakan API Respons</b>.</li>
+<li><b>OpenAI</b>, <b>Anthropic</b>, <b>Google Gemini</b>, <b>Google Vertex AI</b>, <b>AWS Bedrock</b>, <b>Azure</b>, <b>Cohere</b>, <b>Mistral</b>: penyedia yang dihosting. Masing-masing membutuhkan <b>Kunci API</b> (Bedrock: wilayah AWS dan kredensial atau peran IAM; Vertex AI: proyek, wilayah, dan akun layanan; Azure: juga URL API).</li>
+</ul>
+<p>Lalu, atur <b>Default model</b> (sebuah daftar jika penyedia dapat melaporkan modelnya, atau ketik nama modelnya), dan, jika penyedia tidak melaporkannya, atur <b>Input token limit</b> dan <b>Output token limit</b>. <b>Fallback Service</b> dapat mengambil alih jika layanan ini gagal. Simpan.</p>
+<p>Server membuat permintaan ini sendiri, jadi server harus dapat mengakses API: server model dalam proyek compose yang sama, di jaringan Anda, atau di Internet. Permintaan keluar menghormati variabel <code>HTTP_PROXY</code> dan <code>HTTPS_PROXY</code>.</p>
+<h3>2. Buat agen</h3>
+<p>Agen dibuat di halaman <b>Agen</b> aplikasi web: buka dari menu produk, atau dengan <b>Kelola</b> di pemilih agen pada panel Agen. Alamatnya adalah <code>https://chat.example.com/plug/mattermost-ai/agents</code>. Setiap agen memiliki <b>Nama Tampilan</b>, <b>Nama Pengguna Agen</b> (cara orang menyebutnya), <b>Layanan</b>, dan secara opsional model, <b>Instruksi Kustom</b>, serta sakelar untuk <b>Aktifkan Visi</b> (gambar) dan <b>Aktifkan Alat</b>. Tab <b>Akses</b> membatasi kanal mana yang dapat digunakan dan pengguna mana yang dapat menggunakannya. Di bawah <b>Fungsi AI</b> di Konsol Sistem, <b>Bot bawaan</b> memilih agen yang digunakan ketika tidak ada yang dipilih, misalnya untuk ringkasan panggilan.</p>
+<div class="callout">Secara bawaan, setiap pengguna dapat membuat agen mereka sendiri, dengan layanan yang Anda konfigurasikan. Untuk membatasi ini hanya untuk administrator, hapus izin <b>Kelola Agen AI Sendiri</b> dari peran anggota di <b>Konsol Sistem › Manajemen Pengguna › Izin</b>.</div>
+<h3>Fitur opsional dari aplikasi Agents</h3>
+<ul>
+<li><b>Embedding search</b> (eksperimental, nonaktif): pencarian semantik atas pesan. Membutuhkan PostgreSQL dengan ekstensi pgvector dan model embedding (OpenAI atau kompatibel dengan OpenAI). Mengirim <em>setiap</em> pesan ke model embedding, termasuk kanal privat dan pesan langsung.</li>
+<li><b>Web search</b> (nonaktif): memungkinkan agen mencari di web melalui Google, Brave, atau server SearXNG yang Anda jalankan.</li>
+<li><b>Native tools</b>: dengan penyedia yang menawarkannya, agen dapat menggunakan pencarian web milik penyedia (aktif secara default untuk agen baru, jika didukung), pengambilan web, dan eksekusi kode. Ini berjalan di sisi penyedia. Matikan per agen.</li>
+<li><b>Model Context Protocol (MCP)</b>: hubungkan agen ke server MCP yang Anda percaya, untuk alat tambahan.</li>
+<li><b>Debug</b>: <b>Trace Output</b> (nonaktif, log server atau endpoint OpenTelemetry) dan <b>Enable Token Usage Logging</b>, yang menulis jumlah token ke <code>logs/agents/token_usage.log</code>.</li>
+</ul>
+
+<h2 id="speech-to-text">Speech-to-text: transkrip dan teks langsung panggilan</h2>
+<p>Panggilan dapat ditranskripsi, dengan teks langsung, oleh server speech-to-text yang menyediakan endpoint <code>/v1/audio/transcriptions</code> yang kompatibel dengan OpenAI. Konfigurasinya ada di <a href="{{root}}docs/admins/calls.html#transcription">Panggilan dan suara</a>. Jika <b>Ringkaskan transkripsi</b> diaktifkan, agen default juga akan memposting ringkasan dari setiap transkripsi.</p>
+
+<h2 id="text-to-speech">Text-to-speech: bacakan</h2>
+<p>Dengan teks ke suara aktif, setiap menu pesan memiliki <b>Baca dengan suara</b>: server mengirim teks pesan ke API teks ke suara dan memutar audionya. Pengaturan, di <b>Konsol Sistem › Integrasi › Teks ke Suara</b>:</p>
+<table>
+<thead><tr><th>Pengaturan</th><th>Kunci dan variabel</th><th>Isi apa</th></tr></thead>
+<tbody>
+<tr><td><b>Baca pesan dengan lantang</b></td><td><code>TextToSpeechSettings.Enable</code>, <code>AM_TEXTTOSPEECHSETTINGS_ENABLE</code></td><td><code>true</code> (nonaktif secara default)</td></tr>
+<tr><td><b>URL dasar API</b></td><td><code>TextToSpeechSettings.URL</code>, <code>AM_TEXTTOSPEECHSETTINGS_URL</code></td><td>URL dasar hingga dan termasuk <code>/v1</code>, misalnya <code>http://tts.internal:8000/v1</code>. Server akan memanggil endpoint <code>/audio/speech</code> miliknya.</td></tr>
+<tr><td><b>Model</b></td><td><code>TextToSpeechSettings.Model</code>, <code>AM_TEXTTOSPEECHSETTINGS_MODEL</code></td><td>Model sesuai nama yang digunakan oleh API, misalnya <code>tts-1</code>. Wajib diisi.</td></tr>
+<tr><td><b>Suara</b></td><td><code>TextToSpeechSettings.Voice</code>, <code>AM_TEXTTOSPEECHSETTINGS_VOICE</code></td><td>Salah satu suara dari model tersebut, atau kosong untuk menggunakan default.</td></tr>
+<tr><td><b>Kunci API</b></td><td><code>TextToSpeechSettings.APIKey</code>, <code>AM_TEXTTOSPEECHSETTINGS_APIKEY</code></td><td>Dikirim sebagai bearer token. Kosong jika API tidak membutuhkannya.</td></tr>
+</tbody>
+</table>
+<p>Sebelum dikirim, server akan menghapus blok kode, tautan, kode emoji, dan format, serta mempertahankan maksimal 4000 karakter. Server meminta audio MP3 dan menyimpan 64 hasil terakhir di memori, sehingga pesan yang dibacakan dua kali hanya dikirim sekali.</p>
+
+<h2 id="translation">Terjemahan otomatis</h2>
+<p>Terjemahan otomatis menampilkan pesan dari sebuah kanal dalam bahasa masing-masing pembaca. Konfigurasinya ada di <b>Konsol Sistem › Konfigurasi Situs › Lokalisasi</b>, di bawah <b>Terjemahan otomatis</b>:</p>
+<table>
+<thead><tr><th>Pengaturan</th><th>Kunci</th><th>Bawaan</th></tr></thead>
+<tbody>
+<tr><td>Aktifkan</td><td><code>AutoTranslationSettings.Enable</code></td><td>nonaktif</td></tr>
+<tr><td><b>Penyedia terjemahan</b></td><td><code>AutoTranslationSettings.Provider</code></td><td><code>libretranslate</code>, <code>openai</code> (ditampilkan sebagai "OpenAI-compatible API") atau <code>agents</code> (layanan dari aplikasi Agents)</td></tr>
+<tr><td><b>Bahasa yang diizinkan</b></td><td><code>AutoTranslationSettings.TargetLanguages</code></td><td><code>en</code>: bahasa yang dapat menjadi target terjemahan pesan</td></tr>
+<tr><td><b>Batas waktu terjemahan (ms)</b></td><td><code>AutoTranslationSettings.TimeoutMs</code></td><td>5000</td></tr>
+<tr><td><b>Batasi terjemahan otomatis pada pesan langsung dan pesan grup</b></td><td><code>AutoTranslationSettings.RestrictDMAndGM</code></td><td>nonaktif</td></tr>
+</tbody>
+</table>
+<p>Setiap penyedia memiliki field-nya masing-masing:</p>
+<ul>
+<li><b>LibreTranslate</b>: <b>Endpoint API LibreTranslate</b> dan <b>API Key LibreTranslate</b> (<code>AutoTranslationSettings.LibreTranslate.URL</code>, <code>.APIKey</code>). Server LibreTranslate dapat dijalankan di jaringan Anda sendiri.</li>
+<li><b>API kompatibel OpenAI</b>: <b>URL dasar API</b> (hingga dan termasuk <code>/v1</code>; server menggunakan endpoint chat completions-nya), <b>Model</b> dan <b>Kunci API</b> (<code>AutoTranslationSettings.OpenAI.URL</code>, <code>.Model</code>, <code>.APIKey</code>). Model terjemahan kecil yang dijalankan secara lokal bekerja dengan baik.</li>
+<li><b>Agen</b>: <b>Layanan AI</b>, salah satu layanan yang dikonfigurasikan di aplikasi Agen.</li>
+</ul>
+<p>Setelah diaktifkan, admin kanal mengaktifkan terjemahan untuk sebuah kanal di pengaturannya (<b>Terjemahan Otomatis</b>), dan setiap anggota dapat memilih untuk tidak ikut dari menu kanal (<b>Terjemahkan pesan</b>). Dalam pesan langsung dan grup, anggota mana pun dapat mengaktifkannya; dengan pembatasan aktif, terjemahan tidak tersedia di sana. Pesan yang diterjemahkan menampilkan "Diterjemahkan dari …" dengan tautan ke aslinya.</p>
+<p>Kode, tautan, sebutan, dan emoji diganti dengan penanda sementara sebelum teks dikirim, lalu dikembalikan setelahnya.</p>
+
+<h2 id="data">Data apa yang dikirim ke mana</h2>
+<table>
+<thead><tr><th>Fitur</th><th>Yang dikirim</th><th>Ke</th></tr></thead>
+<tbody>
+<tr><td>Agen</td><td>Permintaan, pesan dari utas atau kanal yang menjadi subjeknya, instruksi agen, hasil alat, gambar saat vision diaktifkan, serta nama, nama pengguna, jabatan, dan bahasa pengguna yang bertanya</td><td>API layanan</td></tr>
+<tr><td>Pencarian embedding</td><td>Setiap pesan (kecuali pesan bot dan sistem)</td><td>API embedding</td></tr>
+<tr><td>Alat bawaan dan pencarian web</td><td>Kueri pencarian, halaman untuk diambil, kode</td><td>Penyedia, atau mesin pencari yang Anda pilih</td></tr>
+<tr><td>Transkripsi panggilan</td><td>Suara semua orang yang berbicara selama fitur ini diaktifkan</td><td>API speech-to-text</td></tr>
+<tr><td>Baca keras</td><td>Teks pesan yang dibacakan</td><td>API text-to-speech</td></tr>
+<tr><td>Terjemahan</td><td>Teks pesan di kanal yang diterjemahkan</td><td>LibreTranslate, API LLM, atau layanan Agents</td></tr>
+</tbody>
+</table>
+<p>Untuk menyimpan semuanya di jaringan Anda, arahkan setiap fitur ke server yang Anda jalankan sendiri. Jika menggunakan penyedia cloud, periksa ketentuan retensi datanya, dan informasikan ke pengguna Anda fitur mana yang mengirim pesan mereka keluar.</p>
+
+<h2 id="turn-off">Mematikan AI</h2>
+<p>Tidak ada satu saklar tunggal: setiap fitur memiliki saklarnya sendiri.</p>
+<ul>
+<li><b>Agen</b>: nonaktifkan aplikasi Agen di <b>Konsol Sistem › Plugin › Manajemen Plugin</b>. Ini juga menghapus ringkasan panggilan dan penyedia terjemahan Agen.</li>
+<li><b>Transkripsi dan teks langsung</b>: <code>AM_CALLS_ENABLE_TRANSCRIPTIONS=false</code> dan <code>AM_CALLS_ENABLE_LIVE_CAPTIONS=false</code> (nilai bawaan).</li>
+<li><b>Baca dengan suara</b>: <b>Baca pesan dengan lantang</b> nonaktif (<code>AM_TEXTTOSPEECHSETTINGS_ENABLE=false</code>, bawaan).</li>
+<li><b>Terjemahan</b>: matikan auto-translation (<code>AM_AUTOTRANSLATIONSETTINGS_ENABLE=false</code>, nilai bawaan).</li>
+</ul>
+<p>Menonaktifkan aplikasi Agents tidak mematikan tiga fitur lainnya: mereka memanggil API mereka sendiri secara langsung.</p>

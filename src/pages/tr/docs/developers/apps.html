@@ -1,0 +1,313 @@
+title: Uygulama yazma (eklentiler)
+description: Antimatter uygulaması (eklenti) nasıl yazılır: paket düzeni ve plugin.json, sunucu kancaları ve API'si, web uygulaması kayıt defteri, Fusion arayüzünün desteklenmesi, ayarlar, anahtar-değer deposu, çeviriler, paketleme ve kurulum.
+guide: developers
+order: 6
+nav: Uygulama yazma
+lead: Uygulamalar, Antimatter'e içeriden özellik ekler: sunucuya kanca (hook) ile bağlanan Go dilinde bir sunucu kısmı ve menüler, paneller, ileti türleri ve sayfalar ekleyen React dilinde bir web uygulaması kısmı. Bu sayfa, uygulamaların nasıl düzenlendiğini, örnek olarak paketlenmiş Anket (Polls) uygulamasını kullanarak ve Antimatter'in Fusion arayüzünde nelerin değiştiğini gösterir.
+source: d9c132cac759
+---
+<h2 id="overview">Bir uygulamanın çalışma şekli</h2>
+<ul>
+<li><b>Sunucu kısmı</b> bir Go programıdır. Sunucu, bunu ayrı bir süreç olarak başlatır ve RPC üzerinden iletişim kurar: uygulamanın <b>kancalarını</b> (bir iletinin gönderilmek üzere olması, bir komutun çalıştırılması…) çağırır ve uygulama, sunucunun <b>eklenti API'sini</b> (bir iletinin oluşturulması, bir kullanıcının okunması, veri depolanması…) çağırır. Ayrıca <code>/plugins/&lt;app id&gt;/</code> altında HTTP yolları da sunabilir.</li>
+<li><b>Web uygulaması kısmı</b>, web uygulamasıyla birlikte tarayıcıya yüklenen bir JavaScript paketidir. <b>registrant</b> (kayıt defteri) ile React bileşenleri ve geri çağırma işlevleri (callback) kaydeder: bir menüdeki düğme, bir panel, bir ileti türünü çizme yöntemi.</li>
+<li>Herhangi bir kısım isteğe bağlıdır. Bir uygulama, <code>.tar.gz</code> paketi olarak kurulur ve sistem yöneticileri onu etkinleştirir, devre dışı bırakır ve yapılandırır.</li>
+</ul>
+<div class="callout warn">Sunucu kısmı, sunucunun verilerine tam erişimle çalışır. Bir uygulamayı, sunucuya dağıttığınız kod gibi ele alın.</div>
+<p>Antimatter, Mattermost için yazılmış uygulamaları ve tersi, bir uygulama yalnızca her ikisinin de sahip olduğu kancaları kullandığı sürece çalıştırır. <a href="#antimatter-hooks">Yalnızca Antimatter'in sahip olduğu kancalar</a> bölümüne bakın.</p>
+
+<h2 id="layout">Paket düzeni</h2>
+<p>Ayrı bir başlangıç şablonu yoktur: <a href="https://github.com/AntimatterChat/antimatter-plugin-polls">antimatter-plugin-polls</a> veya <a href="https://github.com/AntimatterChat/antimatter-plugin-todo">antimatter-plugin-todo</a> gibi küçük bir paketlenmiş uygulamadan başlayın ve kimliğini (ID) ve kodunu değiştirin. Polls şu şekilde düzenlenmiştir:</p>
+<pre><code>antimatter-plugin-polls/
+├── plugin.json            the manifest
+├── Makefile               build, test, bundle, deploy
+├── build/                 the manifest and pluginctl helper tools (Go), setup.mk
+├── assets/icon.svg        files shipped with the bundle
+├── go.mod
+├── server/
+│   ├── main.go            plugin.ClientMain(&amp;Plugin{})
+│   ├── plugin.go          the Plugin type, OnActivate, ServeHTTP
+│   ├── manifest.go        generated from plugin.json
+│   ├── api.go, command.go, hooks.go, store.go …
+│   └── dist/              compiled binaries, one per platform
+└── webapp/
+    ├── package.json, webpack.config.js, tsconfig.json
+    ├── i18n/              en.json and one file per language
+    ├── src/index.tsx      registers the app with the web app
+    ├── src/manifest.ts    generated from plugin.json
+    ├── src/translations.ts
+    └── dist/main.js       the bundle</code></pre>
+<p>İsteğe bağlı: <code>/plugins/&lt;app id&gt;/public/</code> adresinde olduğu gibi sunulan bir <code>public/</code> klasörü.</p>
+
+<h2 id="manifest">plugin.json</h2>
+<pre><code>{
+  "id": "com.example.weather",
+  "name": "Weather",
+  "description": "Forecasts in the chat.",
+  "homepage_url": "https://github.com/example/weather",
+  "support_url": "https://github.com/example/weather/issues",
+  "icon_path": "assets/icon.svg",
+  "version": "1.0.0",
+  "min_server_version": "12.0.0",
+  "server": {
+    "executables": {
+      "linux-amd64": "server/dist/plugin-linux-amd64",
+      "linux-arm64": "server/dist/plugin-linux-arm64",
+      "darwin-amd64": "server/dist/plugin-darwin-amd64",
+      "darwin-arm64": "server/dist/plugin-darwin-arm64",
+      "windows-amd64": "server/dist/plugin-windows-amd64.exe"
+    }
+  },
+  "webapp": {"bundle_path": "webapp/dist/main.js"},
+  "settings_schema": {"settings": []}
+}</code></pre>
+<ul>
+<li><code>id</code>: benzersiz ve kalıcı; genellikle tersine çevrilmiş bir alan adı kullanılır. Yolları, depolanan ayarları ve WebSocket olaylarını adlandırır.</li>
+<li><code>version</code>: anlamsal sürüm (semantic version). Paketlenmiş uygulamalar bunu <code>plugin.json</code> dosyasından hariç tutar; sürüm bilgilerini en son <code>v*</code> git etiketinden alır.</li>
+<li><code>min_server_version</code>: Antimatter <code>12.0.0</code> sürümünü bildirir.</li>
+<li><code>settings_schema</code>: Sistem Konsolu'ndaki uygulamanın ayarlar sayfası (bkz. <a href="#settings">Ayarlar</a>).</li>
+</ul>
+<p><code>make apply</code>, manifest dosyasını <code>server/manifest.go</code> ve <code>webapp/src/manifest.ts</code> dosyalarına kopyalar; <code>make manifest-check</code> ise doğrular.</p>
+
+<h2 id="server">Sunucu bölümü</h2>
+<p>Sunucu bölümü, Mattermost uygulamalarıyla aynı Go modülünü, <code>github.com/mattermost/mattermost/server/public</code> modülünü, Go modül vekili (proxy) üzerinden alır. <code>main</code> fonksiyonu yalnızca uygulamayı başlatır:</p>
+<pre><code>package main
+
+import "github.com/mattermost/mattermost/server/public/plugin"
+
+func main() {
+	plugin.ClientMain(&amp;Plugin{})
+}</code></pre>
+<p><code>Plugin</code> tipi, <code>plugin.MattermostPlugin</code> tipini gömerek <code>p.API</code> erişimi sağlar ve ihtiyaç duyduğu kancaları (hooks) uygular:</p>
+<pre><code>type Plugin struct {
+	plugin.MattermostPlugin
+	router *mux.Router
+}
+
+func (p *Plugin) OnActivate() error {
+	p.router = p.newRouter()
+	return p.API.RegisterCommand(&amp;model.Command{
+		Trigger:          "weather",
+		AutoComplete:     true,
+		AutoCompleteDesc: "Show the forecast",
+		AutoCompleteHint: "[city]",
+	})
+}
+
+func (p *Plugin) ExecuteCommand(c *plugin.Context, args *model.CommandArgs) (*model.CommandResponse, *model.AppError) {
+	city := strings.TrimSpace(strings.TrimPrefix(args.Command, "/weather"))
+	return &amp;model.CommandResponse{
+		ResponseType: model.CommandResponseTypeEphemeral,
+		Text:         "Forecast for " + city + ": sunny",
+	}, nil
+}
+
+func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Request) {
+	p.router.ServeHTTP(w, r)
+}</code></pre>
+<h3>Yaygın kancalar</h3>
+<table>
+<thead><tr><th>Kanca</th><th>Çalışma zamanı</th></tr></thead>
+<tbody>
+<tr><td><code>OnActivate</code>, <code>OnDeactivate</code></td><td>Uygulama etkinleştirildiğinde veya devre dışı bırakıldığında, ayrıca sunucu başlatıldığında ve durdurulduğunda. Komutları ve botları <code>OnActivate</code> içinde kaydedin.</td></tr>
+<tr><td><code>OnConfigurationChange</code></td><td>Ayarları değiştiğinde; bunları <code>p.API.LoadPluginConfiguration(&amp;cfg)</code> ile yükleyin.</td></tr>
+<tr><td><code>ServeHTTP</code></td><td><code>/plugins/&lt;app id&gt;/…</code> adresine yapılan istekler. İstek bir oturum açmış kullanıcıdan geliyorsa sunucu <code>Mattermost-User-Id</code> başlığını ayarlar; bu başlık olmayan istekleri, herkese açık amaçlı olmadıkça reddedin.</td></tr>
+<tr><td><code>ExecuteCommand</code></td><td>Uygulamanın kaydettiği bir komut çalıştırıldığında.</td></tr>
+<tr><td><code>MessageWillBePosted</code>, <code>MessageWillBeUpdated</code></td><td>Bir ileti kaydedilmeden önce: değiştirilmiş bir iletiyi veya reddetme nedenini döndürün.</td></tr>
+<tr><td><code>MessageHasBeenPosted</code>, <code>MessageHasBeenUpdated</code>, <code>MessageHasBeenDeleted</code></td><td>Sonradan, yan etkiler için.</td></tr>
+<tr><td><code>ReactionHasBeenAdded</code>, <code>ReactionHasBeenRemoved</code></td><td>Tepkiler.</td></tr>
+<tr><td><code>UserHasJoinedChannel</code>, <code>UserHasLeftChannel</code>, <code>UserHasJoinedTeam</code>, <code>UserHasLeftTeam</code>, <code>ChannelHasBeenCreated</code></td><td>Üyelik ve kanal değişiklikleri. Bir takım, bir topluluktur.</td></tr>
+<tr><td><code>FileWillBeUploaded</code></td><td>Bir dosya saklanmadan önce: değiştirin veya reddedin.</td></tr>
+<tr><td><code>OnPluginClusterEvent</code></td><td>Kümenin (cluster) başka bir sunucusundaki aynı uygulamadan gelen bir ileti.</td></tr>
+</tbody>
+</table>
+<p>Tam liste, tam imzalarla birlikte, <code>server/public/plugin/hooks.go</code> dosyasında; API ise <code>server/public/plugin/api.go</code> dosyasındadır. <code>pluginapi</code> paketi (<code>server/public/pluginapi</code>), API'yi daha kullanışlı yardımcılarla sarar.</p>
+<h3>Yararlı API çağrıları</h3>
+<ul>
+<li><code>CreatePost</code>, <code>UpdatePost</code>, <code>SendEphemeralPost</code>: uygulamanın botu veya bir kullanıcı adına ileti gönderin.</li>
+<li><code>EnsureBotUser(&amp;model.Bot{Username, DisplayName})</code>: uygulamanın botunu bir kez oluşturun ve kimliğini (ID) alın.</li>
+<li><code>PublishWebSocketEvent("poll_updated", payload, &amp;model.WebsocketBroadcast{ChannelId: id})</code>: web uygulamasına bir olay gönderin. Olay, <code>custom_&lt;app id&gt;_poll_updated</code> olarak ulaşır.</li>
+<li><code>OpenInteractiveDialog</code>: bir <a href="{{root}}docs/developers/bots.html#dialogs">dialog</a> açın.</li>
+<li><code>LogInfo</code>, <code>LogError</code> ve benzerleri: sunucu günlüğüne, uygulamanın kimliğiyle (ID) etiketlenmiş olarak yazın.</li>
+<li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: bir kullanıcı adına işlem yapmadan önce, kimin ne yapabileceğini kontrol edin.</li>
+</ul>
+<p>Bir uygulama, kümenin her sunucusunda çalışır. Durumu yalnızca bellekte değil, anahtar-değer deposunda veya veritabanında saklayın.</p>
+
+<h2 id="kv">Veri saklama</h2>
+<p>Her uygulamanın, sunucunun veritabanında kendi anahtar-değer deposu vardır:</p>
+<ul>
+<li><code>KVSet(key, value)</code>, <code>KVGet(key)</code>, <code>KVDelete(key)</code>: değerler bayt olarak, genellikle JSON biçimindedir. Anahtarlar en fazla 150 karakter olabilir.</li>
+<li><code>KVSetWithExpiry(key, value, seconds)</code>: değer bu süre dolunca silinir.</li>
+<li><code>KVCompareAndSet(key, old, new)</code> ve <code>Atomic</code> ile <code>KVSetWithOptions</code>: birden fazla istek veya sunucu aynı anahtarı yazarken güvenli güncellemeler sağlar. Anket, her oyu bu şekilde kaydeder ve çakışma durumunda yeniden dener.</li>
+<li><code>KVList(page, perPage)</code>: anahtarlar, sayfa sayfa listelenir.</li>
+</ul>
+
+<h2 id="webapp">Web uygulaması bölümü</h2>
+<p>Yığın (bundle), <code>window.registerPlugin</code> ile bir sınıf kaydeder. <code>initialize</code> metodu kayıt defterini (registry) ve Redux deposunu alır:</p>
+<pre><code>import manifest from './manifest';
+
+class Plugin {
+    initialize(registry, store) {
+        registry.registerTranslations((locale) =&gt; translationsFor(locale));
+        registry.registerPostTypeComponent('custom_poll', PollPost);
+        registry.registerWebSocketEventHandler(`custom_${manifest.id}_poll_updated`, (msg) =&gt; {
+            store.dispatch(pollUpdated(JSON.parse(msg.data.poll)));
+        });
+        registry.registerReconnectHandler(() =&gt; store.dispatch(reloadPolls()));
+    }
+}
+
+window.registerPlugin(manifest.id, new Plugin());</code></pre>
+<ul>
+<li><b>Paylaşılan kütüphaneler.</b> Web uygulaması React, ReactDOM, Redux, React Redux ve React Intl sağlar: bunları kendi kopyalarınızı yığmak (bundle) yerine webpack <code>externals</code> olarak listeleyin (<code>React</code>, <code>ReactDOM</code>, <code>Redux</code>, <code>ReactRedux</code>, <code>ReactIntl</code>). Anket'in <code>webpack.config.js</code> dosyasına bakın.</li>
+<li><b>Sunucu bölümünüzü çağırma.</b> <code>${window.basename}/plugins/&lt;app id&gt;/…</code> adresini, <code>Client4.getOptions()</code> (kaynağı <code>mattermost-redux/client</code>) ile gelen seçenekleri kullanarak getirin (fetch): bu seçenekler, sunucunun tarayıcıdan gelen isteği kabul etmesi için gereken başlıkları taşır.</li>
+<li><b>Kendi durumunuz.</b> <code>registerReducer</code> bir reducer ekler; bu, <code>state['plugins-&lt;app id&gt;']</code> altında saklanır.</li>
+<li><b>Tipler.</b> Antimatter'in ek kayıt defteri (registry) yöntemleri, Mattermost'un yayımladığı tiplerde yer almaz: Anket, kullandığı kayıt defterini <code>webapp/src/types/host.ts</code> dosyasında tanımlar.</li>
+</ul>
+<p>Kayıt defterinin (registry) yöntemleri ve parametreleri, <code>webapp/fusion/src/plugins/registry.ts</code> (Fusion) ve <code>webapp/channels/src/plugins/registry.ts</code> (klasik) dosyalarındaki kodda belgelenmiştir.</p>
+
+<h2 id="fusion">Fusion arayüzünü destekleme</h2>
+<p>Antimatter'in iki web arayüzü vardır: varsayılan olan Fusion ve klasik arayüz. İkisi de aynı uygulama yığınlarını (bundle) yükler ve aynı kayıt defterine (registry) sahiptir, ancak Fusion birçok öğeyi kendisi çizer ve eklenti bileşenlerini kendi yöntemine göre yerleştirir. Uygulamanızı her iki arayüzde de test edin.</p>
+<h3>Arayüzü algılama</h3>
+<p>Herhangi bir uygulama yüklenmeden önce, her iki arayüz de <code>window.antimatterWebUI</code> değerini <code>'fusion'</code> veya <code>'classic'</code> olarak ayarlar ve aynı değeri sayfanın kök öğesinde <code>data-am-web-ui</code> olarak belirler. Mattermost'ta bu değerlerden hiçbiri ayarlanmaz.</p>
+<pre><code>export function isFusionUI(): boolean {
+    return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
+}</code></pre>
+<p>Yerleşik uygulamalar, arayüzü farklı şekilde çizmek için bunu kullanır. Anketler, anket kartlarını ve oluşturma penceresini Fusion'un stiline göre çizer ve Fusion'da <code>/poll</code> için kendi penceresini açar. Aramalar ve Ses kanalları, Fusion'un kendi arama arayüzüyle değiştirdiği kenar çubuğu ve bildirim bileşenlerini hariç tutar. Ajanlar uygulaması, yapay zekâ eylemlerini, üzerine gelinen araç çubuğu yerine ileti menüsünün bir alt menüsüne yerleştirir. Fusion'un kendi CSS sınıfları (<code>am-</code> önekiyle) ve pencere katmanı (<code>am-layer</code> öğesi), bu uygulamaların arayüzle uyumlu olmasını sağlayan unsurlardır; bunlar belgelenmiş ve kararlı bir API değildir.</p>
+<h3>Fusion'un eklenti bileşenlerini gösterdiği yerler</h3>
+<table>
+<thead><tr><th>Kayıt yöntemi</th><th>Fusion'da göründüğü yer</th></tr></thead>
+<tbody>
+<tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>Uygulama rayı, sağ kenarda avatarınız ile <b>Antimatter hakkında</b> düğmesi arasındaki simge sütunu. Kanal başlığı düğmeleri de oraya gider, kanal başlığına değil. Sistem yöneticisi <b>Uygulamalar çubuğu kullanılmasın</b> (<code>ExperimentalSettings.DisableAppBar</code>, varsayılan olarak kapalı) seçeneğini açtığında gizlenir.</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>Sağ panel. Kullanıcılar kenarını sürükleyerek boyutunu değiştirebilir. Uygulama aynı zamanda bir ürünse, panel <b>Tam sayfa olarak aç</b> seçeneğini sunar.</td></tr>
+<tr><td><code>registerChannelHeaderIcon</code></td><td>Kanal başlığındaki arama düğmesinin ardından gelen simgeler; telefonlarda başlığın <b>Diğer</b> menüsünde.</td></tr>
+<tr><td><code>registerCallButtonAction</code></td><td>Kanal başlığındaki arama düğmesi; birden fazla sağlayıcı <b>Arama yapmanın diğer yolları</b> menüsünü paylaşır.</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>İletinin <b>Diğer işlemler</b> (⋯) menüsü, <b>İleti işlemleri</b> alt menüsünde; ayrıca konu panelinin <b>Konu işlemleri</b> menüsünde, <b>Diğer işlemler</b> altında.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Aynı menülerin, uygulamanın adı ve simgesiyle kendi alt menüsü.</td></tr>
+<tr><td><code>registerPostActionComponent</code></td><td>İletinin üzerine gelinen araç çubuğu, ⋯ düğmesinden önce.</td></tr>
+<tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>İletinin kendisi: gövdesi, metninin altında, zamanının ardından ve bağlantı önizlemelerinin yerinde.</td></tr>
+<tr><td><code>registerChannelHeaderMenuAction</code></td><td>Kanalın <b>Kanal ayarları</b> menüsü (kenar çubuğundaki bir kanalda ⋯ veya sağ tık), fiş simgeli öğeler olarak.</td></tr>
+<tr><td><code>registerMainMenuAction</code></td><td>Topluluk menüsü (kanal listesinin üstündeki topluluğun adı), <b>Diğer işlemler</b> altında, uygulamaya göre gruplandırılmış.</td></tr>
+<tr><td><code>registerSidebarBrowseOrAddChannelMenuAction</code></td><td>Topluluk menüsü, <b>Kanal oluştur</b> ve <b>Kategori oluştur</b> ardından.</td></tr>
+<tr><td><code>registerFileUploadMethod</code></td><td>Yazma alanının <b>+</b> menüsü (<b>İletiye ekle</b>), <b>Dosya yükle</b> öğesinin ardından.</td></tr>
+<tr><td><code>registerPostEditorActionComponent</code></td><td>Yazma alanının biçimlendirme çubuğu, biçimlendirme gösterildiğinde.</td></tr>
+<tr><td><code>registerAIActionMenuItemComponent</code></td><td>Yazma alanının <b>Yapay zekâ</b> menüsü.</td></tr>
+<tr><td><code>registerFileDropdownMenuAction</code>, <code>registerFilePreviewComponent</code></td><td>Bir dosyanın seçenek menüsü ve dosya önizlemesi.</td></tr>
+<tr><td><code>registerUserSettings</code></td><td><b>Profil ve ayarlar</b>, <b>Uygulama ekleri</b> başlığı altında her uygulama için bir sekme.</td></tr>
+<tr><td><code>registerChannelSettingsTab</code></td><td>Kanal ayarları penceresi, <b>Uygulamalar</b> başlığı altında.</td></tr>
+<tr><td><code>registerPopoverUserAttributesComponent</code>, <code>registerPopoverUserActionsComponent</code></td><td>Bir adın veya profil fotoğrafının üzerine tıklandığında görünen profil kartı.</td></tr>
+<tr><td><code>registerLeftSidebarHeaderComponent</code>, <code>registerSidebarChannelLinkLabelComponent</code>, <code>registerChannelIconOverride</code>, <code>registerBottomTeamSidebarComponent</code></td><td>Bir topluluğun kanal listesinin üst kısmı, bir kanalın adının yanında, kanal simgesinin yanında ve sol taraftaki topluluk rayının alt kısmı.</td></tr>
+<tr><td><code>registerChannelIntro</code>, <code>registerChannelIntroButtonAction</code>, <code>registerChannelToastComponent</code>, <code>registerNewMessagesSeparatorActionComponent</code>, <code>registerChannelComposerBannerComponent</code>, <code>registerComposerPlaceholder</code></td><td>Bir kanalın geçmişinin başlangıcı, ileti listesinin üst kısmı, okunmamış satırı, yazma alanının üstü ve yazma alanının yer tutucusu.</td></tr>
+<tr><td><code>registerChannelTypeOption</code></td><td><b>Kanal oluştur</b> iletişim kutusunun kanal türleri.</td></tr>
+<tr><td><code>registerSearchComponents</code></td><td>Kanal başlığının arama kutusu: boş olduğunda uygulama kapsamları görünür.</td></tr>
+<tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>Antimatter hakkında</b> (uygulama rayının alt kısmı), <b>Yardım</b> altında.</td></tr>
+<tr><td><code>registerProduct</code></td><td>Ürünün URL'sinde tam sayfa olarak, <b>Antimatter hakkında</b> içindeki <b>Ürünler</b> altında listelenir. Ürün sayfaları klasik sayfa çerçevesini korur.</td></tr>
+<tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code> gibi kancalar</td><td>Klasik arayüzdeki gibi çalışır.</td></tr>
+<tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>Her iki arayüzde de klasik olan Sistem Konsolu.</td></tr>
+</tbody>
+</table>
+<h3>Fusion'un göstermediği veya çalıştırmadığı öğeler</h3>
+<ul>
+<li><code>registerPostDropdownMenuComponent</code> (ilet menüsündeki bir bileşen), <code>registerPostCardTypeComponent</code> (sağdaki paneldeki bir gönderinin kartı) ve <code>registerProductSwitcherMenuItem</code>, Fusion'un ana görünümlerinde gösterilmez. İlki yerine <code>registerPostDropdownMenuAction</code> kullanın.</li>
+<li><code>registerMessageWillBeUpdatedHook</code>, Fusion'da bir iletinin düzenlendiğinde çalışmaz. Düzenlemeleri sunucuda <code>MessageWillBeUpdated</code> kancasıyla kontrol edin.</li>
+<li><code>registerActionAfterChannelCreation</code> yalnızca klasik kanal oluşturma iletişim kutusundan çalışır; Fusion bunu <b>Kanal oluştur</b> iletişim kutusundaki <b>Diğer seçenekler…</b> öğesinden açar.</li>
+<li>Uygulama çubuğu bileşenleri, <code>supportedProductIds</code> değerleri ne olursa olsun gösterilir.</li>
+<li><code>registerNeedsTeamRoute</code> ve <code>registerCustomRoute</code> kaynaklı rotalar, ürünler gibi klasik sayfa çerçevesini korur.</li>
+</ul>
+
+<h2 id="antimatter-hooks">Yalnızca Antimatter'da bulunan kancalar</h2>
+<p>Bu kayıt yöntemleri Mattermost'ta mevcut değildir. Uygulamanın orada da çalışabilmesi için bir yöntemi çağırmadan önce mevcut olup olmadığını kontrol edin:</p>
+<pre><code>if (typeof registry.registerComposerMenuItem === 'function') {
+    registry.registerComposerMenuItem({
+        text: 'Create a poll',
+        icon: &lt;i className='icon icon-chart-bar'/&gt;,
+        fusionIcon: 'poll',
+        action: ({channelId, rootId}) =&gt; openPollCreation(channelId, rootId),
+    });
+} else {
+    registry.registerChannelHeaderButtonAction(icon, (channel) =&gt; openPollCreation(channel.id), 'Create a poll', 'Create a poll');
+}</code></pre>
+<table>
+<thead><tr><th>Yöntem</th><th>Ne ekler</th></tr></thead>
+<tbody>
+<tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>Her iki arayüzde de ilet kutusunun <b>+</b> menüsünde bir öğe. <code>action</code>, <code>{channelId, rootId}</code> alır.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Mesaj kutusunun emoji seçicisindeki bir sekme, örneğin GIF'ler veya çıkartmalar. Fusion'da <code>order</code> değeri 10'dan düşük olan sekmeler Emoji sekmesinden önce gelir. Bileşen <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> ve <code>isFusion</code> değerlerini alır.</td></tr>
+<tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>Kanal başlığı ile iletiler arasında, <code>matcher(state, channel)</code> tarafından seçilen kanallar için bir panel. Ses kanallarının yaptığı gibi iletileri ve yazma alanını gizleyebilir (<code>setMessagesVisible</code>).</td></tr>
+<tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>Kenar çubuğundaki bir kanalın altındaki satır, örneğin arama içindeki kişiler. <code>channel</code> değerini alır.</td></tr>
+<tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Yalnızca Fusion: <b>Bütünleştirmeler</b> sayfalarındaki bir giriş, özel emojilerin yanında. GIF uygulaması özel GIF'lerini ve çıkartmalarını oraya ekler.</td></tr>
+</tbody>
+</table>
+<p><code>fusionIcon</code>, Fusion'un simge setindeki bir simgeyi belirtir (örneğin <code>poll</code>, <code>sticker</code>, <code>calendar</code> veya <code>image</code>; bkz. <code>webapp/fusion/src/fusion/components/icon</code>). Fusion, <code>icon</code> yerine bunu gösterir, böylece öğe diğerleriyle uyumlu olur.</p>
+
+<h2 id="settings">Ayarlar</h2>
+<p><code>plugin.json</code> içindeki <code>settings_schema</code>, uygulamanın <b>Sistem Konsolu › Uygulama ekleri</b> sayfasını açıklar:</p>
+<pre><code>"settings_schema": {
+  "header": "Forecasts come from the weather service below.",
+  "settings": [
+    {"key": "ServiceURL", "display_name": "Service URL", "type": "text", "default": "https://api.example.com"},
+    {"key": "Units", "display_name": "Units", "type": "dropdown", "default": "metric",
+     "options": [{"display_name": "Celsius", "value": "metric"}, {"display_name": "Fahrenheit", "value": "imperial"}]},
+    {"key": "EnableAlerts", "display_name": "Severe weather alerts", "type": "bool", "default": false,
+     "help_text": "Post alerts in the channels that follow a city."}
+  ]
+}</code></pre>
+<p>Ayar türleri: <code>bool</code>, <code>text</code>, <code>longtext</code>, <code>number</code>, <code>dropdown</code>, <code>radio</code>, <code>generated</code> (rastgele bir gizli anahtar), <code>username</code> ve <code>custom</code> (web uygulaması bölümünün <code>registerAdminConsoleCustomSetting</code> ile kaydettiği bir bileşen tarafından çizilir). Ayarlar <code>sections</code> içinde gruplandırılabilir.</p>
+<p>Sunucu bölümü, alanları anahtarlarla eşleşen bir yapıya (struct) okur:</p>
+<pre><code>type configuration struct {
+	ServiceURL   string
+	Units        string
+	EnableAlerts bool
+}
+
+func (p *Plugin) OnConfigurationChange() error {
+	var cfg configuration
+	if err := p.API.LoadPluginConfiguration(&amp;cfg); err != nil {
+		return err
+	}
+	p.setConfiguration(&amp;cfg)
+	return nil
+}</code></pre>
+<p>Yöneticiler, bunları yapılandırmada, <code>PluginSettings.Plugins.&lt;app id&gt;</code> altında, küçük harfli anahtarlarla da ayarlayabilir (bkz. <a href="{{root}}docs/admins/configuration.html#amctl">yönetici kılavuzu</a>).</p>
+
+<h2 id="translations">Çeviriler</h2>
+<p>Antimatter 37 dile çevrilmiştir ve paketlenen uygulamalar da öyle. Web uygulaması bölümü bunu şu şekilde yapar:</p>
+<ol>
+<li>Tüm dizeleri React Intl ile, bir kimlik (ID) ve İngilizce metniyle yazın: <code>&lt;FormattedMessage id='polls.create' defaultMessage='Create a poll'/&gt;</code> veya <code>defineMessages</code>. Kimliklerin başına uygulamanızın adını ekleyin.</li>
+<li>İngilizce dizeleri <code>webapp/i18n/en.json</code> dosyasına çıkarın (paketlenen uygulamalar <code>formatjs extract</code> kullanır).</li>
+<li>Yanına, aynı kimliklere sahip her dil için bir dosya ekleyin: <code>fr.json</code>, <code>de.json</code>, <code>pt-BR.json</code>, <code>zh-CN.json</code>…</li>
+<li>Bunları web uygulamasına verin; kullanıcıdan dilini ister:
+<pre><code>import fr from '../i18n/fr.json';
+import ptBR from '../i18n/pt-BR.json';
+
+const catalogs = {fr, 'pt-BR': ptBR};
+
+export function translationsFor(locale) {
+    return catalogs[locale] || catalogs[locale.split('-')[0]] || {};
+}
+
+registry.registerTranslations(translationsFor);</code></pre></li>
+</ol>
+<p>Eksik bir dize, İngilizce <code>defaultMessage</code> değerine geri düşer. Sunucu tarafının gönderdiği dizeler için (komut yanıtları, bot iletileri) <code>pluginapi/i18n</code> paketi, paketle birlikte gelen çeviri dosyalarını (örneğin <code>assets/i18n</code>) yükler ve her kullanıcı için kendi dilinde bir yerelleştirici sağlar.</p>
+
+<h2 id="build">Derleme, kurulum ve hata ayıklama</h2>
+<p>Go ve Node.js (uygulamanın <code>.nvmrc</code> dosyasındaki sürüm) gerekir. Uygulamanın klasöründe:</p>
+<table>
+<thead><tr><th>Komut</th><th>Ne işe yarar</th></tr></thead>
+<tbody>
+<tr><td><code>make dist</code></td><td>Sunucu tarafını her platform için ve web uygulaması tarafını derler, paketi <code>dist/&lt;app id&gt;-&lt;version&gt;.tar.gz</code> konumuna yazar.</td></tr>
+<tr><td><code>make test</code></td><td>Go ve JavaScript testlerini çalıştırır.</td></tr>
+<tr><td><code>make check-style</code></td><td>Kodu denetler (golangci-lint, ESLint) ve TypeScript türlerini kontrol eder.</td></tr>
+<tr><td><code>make deploy</code></td><td>Derler, ardından paketi sunucuya kurar ve etkinleştirir.</td></tr>
+<tr><td><code>make watch</code>, <code>make deploy-from-watch</code></td><td>İlk komut her kaydedişte web uygulaması tarafını yeniden derler; ikinci komut derlediği içeriği paketler ve sunucuya kurar.</td></tr>
+<tr><td><code>make enable</code>, <code>make disable</code>, <code>make reset</code></td><td>Uygulamayı sunucuda etkinleştirir, devre dışı bırakır veya yeniden başlatır.</td></tr>
+<tr><td><code>make logs</code>, <code>make logs-watch</code></td><td>Sunucu günlüğündeki uygulamanın satırlarını gösterir.</td></tr>
+<tr><td><code>make attach</code></td><td>Çalışan sunucu tarafına Delve hata ayıklayıcısını bağlar (önce <code>AM_DEBUG=1</code> ile derleyin).</td></tr>
+</tbody>
+</table>
+<p><code>make deploy</code> ve diğer sunucu komutları, bir yerel mod soketi bulduklarında onu kullanır (<code>/var/tmp/antimatter_local.socket</code> veya <code>AM_LOCALSOCKETPATH</code>): bunları yerel mod açıkken sunucunun makinesinde çalıştırın. Aksi halde <code>MM_SERVICESETTINGS_SITEURL</code> ile belirtilen sunucuya <code>AM_ADMIN_TOKEN</code> veya <code>AM_ADMIN_USERNAME</code> ve <code>AM_ADMIN_PASSWORD</code> ile giriş yaparlar. Derleme araçları henüz site URL'si için bir <code>AM_</code> adını okumaz.</p>
+<h3>Bir paketi elle kurun</h3>
+<ul>
+<li>Bir sistem yöneticisi, <code>AM_PLUGINSETTINGS_ENABLEUPLOADS=true</code> ayarıyla yüklemelere izin verir (varsayılan olarak kapalıdır; Sistem Konsolu'nda bir anahtarı yoktur).</li>
+<li>Ardından <b>Sistem Konsolu › Uygulama ekleri › Uygulama eki yönetimi › Uygulama eki yükle</b> veya <code>amctl plugin add weather.tar.gz</code> ardından <code>amctl plugin enable com.example.weather</code>.</li>
+<li>Sunucuda <b>Uygulama eki imzası istensin</b> seçeneği açıksa, yalnızca güvendiği bir anahtarla imzalanmış paketleri kabul eder; bkz. <a href="{{root}}docs/admins/apps.html#other-apps">Diğer uygulamaların yüklenmesi</a>.</li>
+</ul>
+<div class="callout">Geliştirme sunucusunda hızlı tekrarlar için sunucuda <code>AM_SERVICESETTINGS_ENABLEDEVELOPER=true</code> ayarını yapın: hatalar bu durumda ayrıntılarını taşır. Paketlenmiş uygulamaların Makefile'ları, kabuğunuzda <code>MM_SERVICESETTINGS_ENABLEDEVELOPER</code> ayarlıysa sunucu tarafını yalnızca sizin platformunuz için derler.</div>

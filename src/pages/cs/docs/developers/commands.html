@@ -1,0 +1,122 @@
+title: Příkazy s lomítkem
+description: Vlastní příkazy s lomítkem v Antimatter: jejich vytváření, požadavek, který váš servis přijme, formát odpovědi, dočasné a kanálové odpovědi, odložené odpovědi a automatické doplnění.
+guide: developers
+order: 4
+nav: Příkazy s lomítkem
+lead: Vlastní příkaz s lomítkem umožňuje uživatelům napsat /něco do pole pro zprávy, aby zavolali váš servis. Antimatter pošle příkaz na vaši URL a zobrazí vaši odpověď, buď pouze dané osobě, nebo celému kanálu.
+source: 24dbc9730e62
+---
+<h2 id="how">Jak příkaz s lomítkem funguje</h2>
+<ol>
+<li>Někdo napíše <code>/weather Paris</code> a odešle to. Text se nezveřejní.</li>
+<li>Antimatter pošle HTTP požadavek na URL příkazu, včetně toho, kdo ho zadal, kde a jaký text následoval po spouštěcím slově.</li>
+<li>Váš servis odpoví zprávou v rámci časového limitu požadavku (výchozí je 30 sekund).</li>
+<li>Antimatter zobrazí odpověď: pouze dané osobě (dočasně) nebo v kanálu pro všechny.</li>
+</ol>
+<p>Příkazy patří ke komunitě a spouštěcí slovo je v jejím rámci unikátní. Vestavěné příkazy, jako jsou <code>/join</code>, <code>/msg</code> nebo <code>/away</code>, nelze nahradit. Aplikace (pluginy) si také mohou registrovat příkazy; viz <a href="{{root}}docs/developers/apps.html#server">Serverová část</a>.</p>
+
+<h2 id="create">Vytvoření příkazu</h2>
+<p>Vlastní příkazy s lomítkem jsou ve výchozím nastavení zapnuté (<b>Povolit vlastní příkazy s lomítkem</b> v <b>Systémová konzole › Integrace › Správa integrací</b>, <code>ServiceSettings.EnableCommands</code>). Administrátoři komunit a systémoví administrátoři je ve výchozím nastavení mohou vytvářet.</p>
+<ol>
+<li>Otevřete svůj avatar v pravém horním rohu, poté <b>Integrace › Příkazy s lomítkem</b> a následně <b>Přidat příkaz s lomítkem</b>.</li>
+<li>Vyplňte <b>Název</b> a <b>Popis</b> (zobrazí se na stránkách integrací).</li>
+<li>Zadejte <b>Spouštěcí slovo příkazu</b> bez lomítka a bez mezer, například <code>weather</code>.</li>
+<li>Zadejte <b>URL požadavku</b> a zvolte <b>Metodu požadavku</b>: <b>POST</b> (výchozí) nebo <b>GET</b>.</li>
+<li>Volitelně nastavte <b>Uživatelské jméno odpovědi</b> a <b>Ikona odpovědi</b>. Použijí se pouze tehdy, pokud server umožňuje integracím přepsat názvy a ikony (viz <a href="{{root}}docs/developers/webhooks.html#identity">Název a ikona</a>).</li>
+<li>Zaškrtněte <b>Automatické doplnění</b>, aby se příkaz zobrazil v seznamu, když lidé zadají <code>/</code>, spolu s <b>Nápovědou pro doplňování</b> (jeho argumenty, např. <code>[city]</code>) a <b>Popisem pro doplňování</b>.</li>
+<li>Zvolte <b>Uložit</b> a zkopírujte zobrazený token. Váš servis ho použije k ověření, že požadavky pocházejí z vašeho serveru.</li>
+</ol>
+<p>Přes API: <code>POST /api/v4/commands</code> s tělem <code>{"team_id", "trigger", "url", "method": "P", "display_name", "description", "auto_complete": true, "auto_complete_hint", "auto_complete_desc", "username", "icon_url"}</code>. Hodnota <code>P</code> označuje metodu POST, <code>G</code> metodu GET. <code>PUT /api/v4/commands/{command_id}/regen_token</code> vydá nový token.</p>
+
+<h2 id="request">Požadavek, který váš servis přijme</h2>
+<p>Příkaz POST odešle tělo v formátu formuláře (<code>application/x-www-form-urlencoded</code>); příkaz GET odešle stejná pole v dotazovém řetězci. Token je také v hlavičce <code>Authorization: Token &lt;token&gt;</code>.</p>
+<table>
+<thead><tr><th>Pole</th><th>Hodnota</th></tr></thead>
+<tbody>
+<tr><td><code>token</code></td><td>Token příkazu. Ověřte ho u každého požadavku.</td></tr>
+<tr><td><code>command</code></td><td>Spouštěč s lomítkem, například <code>/weather</code>.</td></tr>
+<tr><td><code>text</code></td><td>Vše, co následuje za spouštěčem, například <code>Paris</code>.</td></tr>
+<tr><td><code>user_id</code>, <code>user_name</code></td><td>Kdo příkaz spustil.</td></tr>
+<tr><td><code>channel_id</code>, <code>channel_name</code></td><td>Kde byl příkaz spuštěn.</td></tr>
+<tr><td><code>team_id</code>, <code>team_domain</code></td><td>ID a URL název komunity.</td></tr>
+<tr><td><code>root_id</code></td><td>Vlákno, pokud byl příkaz spuštěn v políčku pro odpovědi ve vláknu.</td></tr>
+<tr><td><code>trigger_id</code></td><td>Umožňuje vaší odpovědi otevřít dialog (viz <a href="{{root}}docs/developers/bots.html#dialogs">Dialogy</a>). Platí pouze po krátkou dobu.</td></tr>
+<tr><td><code>response_url</code></td><td>URL pro pozdější odeslání dalších odpovědí (viz <a href="#delayed">Zpožděné odpovědi</a>).</td></tr>
+<tr><td><code>user_mentions</code>, <code>user_mentions_ids</code>, <code>channel_mentions</code>, <code>channel_mentions_ids</code></td><td>Osoby a veřejné kanály zmíněné v textu, pokud jsou nějaké.</td></tr>
+</tbody>
+</table>
+<div class="callout">Pro spuštění vlastních příkazů musí být nastavena <b>Adresa webu (URL)</b> serveru: Antimatter z ní sestavuje <code>response_url</code>.</div>
+
+<h2 id="response">Odpověď</h2>
+<p>Odpovězte kódem <code>200</code> s JSON (<code>Content-Type: application/json</code>):</p>
+<pre><code>{
+  "response_type": "in_channel",
+  "text": "Paris: 18 °C, light rain",
+  "attachments": []
+}</code></pre>
+<table>
+<thead><tr><th>Pole</th><th>Význam</th></tr></thead>
+<tbody>
+<tr><td><code>response_type</code></td><td><code>ephemeral</code> (výchozí): odpověď vidí pouze osoba, která příkaz spustila, a po obnovení stránky se nezachová. <code>in_channel</code>: odpověď je zveřejněna v kanálu.</td></tr>
+<tr><td><code>text</code>, <code>attachments</code></td><td>Zpráva, stejně jako u webhooků: text v Markdownu a <a href="{{root}}docs/developers/webhooks.html#attachments">přílohy</a>, včetně tlačítek a nabídek.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code></td><td>Jméno a obrázek k zobrazení, pokud jsou povoleny přepsání. Nastavení samotného příkazu mají přednost před těmito hodnotami.</td></tr>
+<tr><td><code>channel_id</code></td><td>Zveřejněte odpověď v jiném kanálu, jehož členem musí být daná osoba.</td></tr>
+<tr><td><code>goto_location</code></td><td>URL, která se otevře po spuštění příkazu.</td></tr>
+<tr><td><code>props</code>, <code>type</code></td><td>Další vlastnosti a vlastní typ příspěvku, stejně jako u webhooků.</td></tr>
+<tr><td><code>extra_responses</code></td><td>Další odpovědi, každá se stejnými poli, zveřejněné po první.</td></tr>
+<tr><td><code>skip_slack_parsing</code></td><td><code>true</code> ponechá text beze změny, bez převodu odkazů a zmínek ve stylu Slacku.</td></tr>
+</tbody>
+</table>
+<p>Odpověď, která není v JSON, se zobrazí jako dočasná zpráva s jejím tělem jako textem. <code>204 No Content</code> nezobrazí nic. Jakýkoli stavový kód mimo rozsah 200–299 zobrazí uživateli chybu.</p>
+
+<h2 id="example">Příklad servisu</h2>
+<p>Minimální servis pro příkazy v Pythonu, pouze se standardní knihovnou:</p>
+<pre><code>import hmac
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
+
+TOKEN = "the token shown when you saved the command"
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        form = {key: values[0] for key, values in parse_qs(body).items()}
+        if not hmac.compare_digest(form.get("token", ""), TOKEN):
+            self.send_response(401)
+            self.end_headers()
+            return
+        answer = {
+            "response_type": "ephemeral",
+            "text": f"Hello @{form['user_name']}, you asked for: {form.get('text', '')}",
+        }
+        data = json.dumps(answer).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(data)
+
+HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()</code></pre>
+<p>Pokud služba běží na adrese soukromé sítě, musí ji systémový administrátor povolit v <b>Povolit nespolehlivé interní připojení k</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>).</p>
+
+<h2 id="delayed">Zpožděné odpovědi</h2>
+<p>Pro práci, která trvá déle než časový limit, odpovězte okamžitě (například dočasnou zprávou „Zpracovávám…“), a poté pošlete skutečnou odpověď na <code>response_url</code>. Přijímá stejný JSON jako odpověď a funguje až 5krát do 30 minut od příkazu.</p>
+<pre><code>curl -X POST "$RESPONSE_URL" -H 'Content-Type: application/json' \
+  -d '{"response_type": "in_channel", "text": "Report ready: https://reports.example.com/42"}'</code></pre>
+
+<h2 id="run">Spusťte příkaz přes API</h2>
+<p>Skripty a boti mohou spustit libovolný příkaz, vestavěný nebo vlastní, jako by ho sami napsali:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/commands/execute \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "command": "/weather Paris"}'</code></pre>
+<p><code>GET /api/v4/teams/{team_id}/commands/autocomplete</code> vypisuje příkazy, které lidé mohou dokončovat v komunitě.</p>
+
+<h2 id="autocomplete">Dokončování</h2>
+<p>Příkazy vytvořené na stránkách integrací se dokončují podle spouštěče, nápovědy a popisu. Příkazy registrované aplikacemi mohou pomocí <code>AutocompleteData</code> podrobně popsat své podpříkazy a argumenty, od <code>model.NewAutocompleteData(trigger, hint, helpText)</code>:</p>
+<ul>
+<li><code>AddCommand(sub)</code> přidá podpříkaz, který je sám o sobě <code>AutocompleteData</code>.</li>
+<li><code>AddTextArgument(helpText, hint, pattern)</code> přidá volný text.</li>
+<li><code>AddStaticListArgument(helpText, required, items)</code> nabízí pevný seznam <code>AutocompleteListItem{Item, Hint, HelpText}</code>.</li>
+<li><code>AddDynamicListArgument(helpText, url, required)</code> se vaší aplikace ptá na návrhy, jak lidé píší. URL je route vaší aplikace, například <code>/plugins/com.example.weather/cities</code>. Přijímá uživatele, kanál a komunitu a vrací JSON seznam <code>{"Item", "Hint", "HelpText"}</code>.</li>
+</ul>
+<p>Varianty <code>Named…</code> (<code>AddNamedTextArgument</code> a další) přidávají přepínače <code>--name value</code>. Oba webové rozhraní zobrazují tyto návrhy.</p>

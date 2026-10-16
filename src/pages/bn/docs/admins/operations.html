@@ -1,0 +1,85 @@
+title: অপারেশনস
+description: Antimatter-এর দৈনন্দিন ব্যবস্থাপনা: হেলথ চেক, মেট্রিকস এবং মনিটরিং, মেট্রিকস অ্যাপ, সাপোর্ট প্যাকেট, সার্চ এবং স্কেলিং, হাই অ্যাভেইলেবিলিটি, ডেটা রিটেনশন, কমপ্লায়েন্স এক্সপোর্ট এবং অডিট লগ, এবং সাধারণ সমস্যার সমাধান।
+guide: admins
+order: 11
+nav: অপারেশনস
+lead: সার্ভারের দিকে নজর রাখুন, এতে আরও বেশি মানুষকে সামলে নিতে সক্ষম করুন, ডেটা কতদিন রাখা হবে তা ঠিক করুন, এবং অ্যাডমিনদের সবচেয়ে বেশি যে সমস্যার সম্মুখীন হতে হয় তা সমাধান করুন।
+source: 32577b38c3db
+---
+<h2 id="health">হেলথ চেক</h2>
+<ul>
+<li><code>amctl --local system status</code> (কন্টেইনারে: <code>docker compose exec antimatter amctl --local system status</code>)। Docker ইমেজের হেলথ চেক প্রতি ৩০ সেকেন্ডে একবার এটি চালায়, তাই <code>docker compose ps</code> <code>healthy</code> বা <code>unhealthy</code> দেখাবে।</li>
+<li><code>GET /api/v4/system/ping</code> সাইন-ইন ছাড়াই উত্তর দেয়, যা বাইরের মনিটর বা লোড ব্যালান্সারের জন্য ব্যবহার করা যায়: <code>curl -fsS https://chat.example.com/api/v4/system/ping</code>।</li>
+<li><code>antimatter db ping</code> পরীক্ষা করে যে কনফিগার করা সেটিংস অনুযায়ী ডেটাবেসে পৌঁছানো সম্ভব কিনা।</li>
+<li><b>সিস্টেম কনসোল › রিপোর্টিং › সিস্টেম পরিসংখ্যান</b> ব্যবহারকারী, পোস্ট এবং সেশনের সংখ্যা দেখায়, এবং <b>ওয়ার্কস্পেস অপটিমাইজেশন</b> সেগুলোর কনফিগারেশন সমস্যাগুলো তালিকাভুক্ত করে যা পরীক্ষা করা উচিত।</li>
+</ul>
+
+<h2 id="metrics">মেট্রিকস</h2>
+<p>সার্ভার Prometheus মেট্রিক্স প্রকাশ করতে পারে: রিকোয়েস্ট রেট এবং সময়কাল, ওয়েবসকট কানেকশন, ডাটাবেস এবং ক্যাশ ব্যবহার, জব, প্লগইন হুক এবং আরও অনেক কিছু। এগুলি চালু করুন <b>সিস্টেম কনসোল › এনভাইরনমেন্ট › পারফরম্যান্স মনিটরিং</b>-এ:</p>
+<table>
+<thead><tr><th>সেটিং</th><th>কী এবং ভেরিয়েবল</th><th>ডিফল্ট</th></tr></thead>
+<tbody>
+<tr><td><b>পারফরম্যান্স মনিটরিং সক্রিয় করুন</b></td><td><code>MetricsSettings.Enable</code>, <code>AM_METRICSSETTINGS_ENABLE</code></td><td>বন্ধ</td></tr>
+<tr><td><b>লিসেন ঠিকানা</b></td><td><code>MetricsSettings.ListenAddress</code>, <code>AM_METRICSSETTINGS_LISTENADDRESS</code></td><td><code>:8067</code></td></tr>
+<tr><td><b>ক্লায়েন্ট পারফরম্যান্স মনিটরিং সক্রিয় করুন</b></td><td><code>MetricsSettings.EnableClientMetrics</code></td><td>চালু: ব্রাউজার এবং অ্যাপস তাদের নিজস্ব সময়কাল রিপোর্ট করে</td></tr>
+</tbody>
+</table>
+<p>Prometheus এরপর <code>http://&lt;server&gt;:8067/metrics</code> থেকে মেট্রিকস সংগ্রহ করে। প্রতিটি মেট্রিক Mattermost নামে (<code>mattermost_…</code>) এবং Antimatter নামে (<code>antimatter_…</code>) প্রকাশিত হয়, তাই বিদ্যমান Mattermost ড্যাশবোর্ডগুলো কাজ করতে থাকে। অ্যাপস তাদের নিজস্ব মেট্রিকস প্রকাশ করে, যেমন Agents অ্যাপ <code>/plugins/mattermost-ai/metrics</code>-এ।</p>
+<p>মেট্রিকস পোর্টে সাইন-ইনের প্রয়োজন নেই: এটি একটি প্রাইভেট নেটওয়ার্কে রাখুন। সাইটের compose ফাইল এটি প্রকাশ করে না; হোস্ট থেকে এটি সংগ্রহ করতে <code>antimatter</code> সার্ভিসের <code>ports</code>-এ <code>"127.0.0.1:8067:8067"</code> যোগ করুন।</p>
+<h3>মেট্রিকস অ্যাপ</h3>
+<p>Prometheus সার্ভার ছাড়া, Metrics অ্যাপ (ডিফল্টভাবে বন্ধ, দেখুন <a href="{{root}}docs/admins/apps.html">Bundled apps</a>) একই মেট্রিক্সগুলি Antimatter-এর ভেতরে একটি ছোট টাইম-সিরিজ ডাটাবেসে সংগ্রহ করে: প্রতি ৬০ সেকেন্ডে, ১৫ দিনের জন্য সংরক্ষিত। এটি শুরু হলে মেট্রিক্স এন্ডপয়েন্ট চালু করে। এর <b>সিস্টেম কনসোল › প্লাগইনসমূহ</b>-এর পেজে ডাটাবেসের আকার দেখা যায় এবং ডেটার ডাম্প ডাউনলোড করা যায়, আপনার নিজস্ব বিশ্লেষণের জন্য বা একটি বাগ রিপোর্টে যুক্ত করার জন্য; সর্বশেষ দিনের তথ্য সাপোর্ট প্যাকেটেও যুক্ত হয়।</p>
+
+<h2 id="support-packet">সাপোর্ট প্যাকেট</h2>
+<p>সাপোর্ট প্যাকেট হলো একটি zip ফাইল যা সমস্যা নির্ণয়ের জন্য যা প্রয়োজন তা ধারণ করে: ভার্সন, পরিসংখ্যান, গোপন তথ্য বাদ দেওয়া কনফিগারেশন, অ্যাপ এবং জবের তালিকা, ডাটাবেস স্কিমা, সাম্প্রতিক লগ এবং পারফরম্যান্স প্রোফাইল। <code>amctl system supportpacket</code> দিয়ে একটি তৈরি করুন, অথবা সিস্টেম কনসোলের সাইডবারের উপরের মেনু থেকে (<b>কমার্সিয়াল সাপোর্ট</b>, যা তারপর আপনি যা অন্তর্ভুক্ত করতে চান তা বেছে নিতে দেয়)। শেয়ার করার আগে এটি পড়ে নিন: এতে কোনো ম্যাসেজ নেই, তবে এতে কমিউনিটি, ব্যবহারকারী এবং সেটিংসের নাম রয়েছে।</p>
+
+<h2 id="scaling">পারফরম্যান্স এবং স্কেলিং</h2>
+<p>২টি CPU কোর এবং ৪ GB মেমরির একটি সার্ভার কয়েকশো মানুষকে পরিষেবা দিতে পারে। নতুন সার্ভার যোগ করার আগে, নিম্নলিখিত বিষয়গুলো দেখুন:</p>
+<ul>
+<li><b>ডাটাবেস।</b> PostgreSQL বেশিরভাগ কাজ করে: এতে দ্রুত স্টোরেজ এবং মেমরি দিন। রিড রিপ্লিকা রিড লোড নিতে পারে (<code>SqlSettings.DataSourceReplicas</code>, একটি কানেকশন URL-এর তালিকা)।</li>
+<li><b>সার্চ</b>। ডিফল্টভাবে ডাটাবেসে ম্যাসেজ সার্চ করা হয়। বড় সার্ভারগুলোর জন্য Elasticsearch বা OpenSearch সার্চ এবং ইনডেক্সিং সামলে নিতে পারে: <b>সিস্টেম কনসোল › এনভাইরনমেন্ট › Elasticsearch</b> (<code>ElasticsearchSettings</code>: <b>ব্যাকএন্ড টাইপ</b> Elasticsearch বা OpenSearch, <b>সার্ভার কানেকশন ঠিকানা</b>, ক্রেডেনশিয়াল, তারপর ইনডেক্সিং চালু করুন, ইনডেক্স তৈরি করুন, এবং সার্চ চালু করুন)।</li>
+<li><b>কলসমূহ</b>। কল মিডিয়া সবচেয়ে ভারী লোড। এগুলি একটি rtcd সার্ভারে সরান: দেখুন <a href="{{root}}docs/admins/calls.html#rtcd">Calls and voice</a>।</li>
+<li><b>খোলা ফাইল।</b> প্রতিটি সংযুক্ত ব্যক্তি একটি websocket খোলা রাখে। antimatter-docker-এর প্রোডাকশন compose ফাইল সীমাটি 49152-এ বাড়িয়ে দেয় (<code>ulimits: nofile</code>); systemd-এর সাথেও একই কাজ করুন (<code>LimitNOFILE</code>)।</li>
+<li><b>লগ।</b> <code>LogSettings.ConsoleLevel</code> কে <code>INFO</code> বা <code>WARN</code>-এ নামান: ব্যস্ত সার্ভারে <code>DEBUG</code> অনেক লগ করে।</li>
+</ul>
+<h3>হাই অ্যাভেইলেবিলিটি</h3>
+<p>একটি লোড ব্যালান্সারের পেছনে একাধিক Antimatter সার্ভার লাইসেন্স ছাড়াই ক্লাস্টার হিসেবে চলতে পারে। তাদের একই PostgreSQL ডেটাবেস, একই S3 ফাইল স্টোরেজ এবং ডেটাবেসে থাকা কনফিগারেশন (<code>AM_CONFIG</code>) শেয়ার করতে হবে। <b>সিস্টেম কনসোল › এনভাইরনমেন্ট › হাই অ্যাভেইলবিলিটি</b> (<code>ClusterSettings</code>) গিয়ে <b>High Availability মোড সক্রিয় করুন</b> (<code>ClusterSettings.Enable</code>) চালু করুন, প্রতিটি নোডকে একই <b>ক্লাস্টারের নাম</b> (<code>ClusterSettings.ClusterName</code>) দিন, এবং নোডগুলোর একে অপরের সাথে গসিপ পোর্ট <b>8074</b> TCP এবং UDP (<code>ClusterSettings.GossipPort</code>)-এ যোগাযোগ করার ব্যবস্থা করুন। নোডগুলো ডেটাবেসের মাধ্যমে একে অপরকে খুঁজে পায়। লোড ব্যালান্সারকে ওয়েবসকেট পাস করতে হবে। ক্লাস্টারে কলের জন্য rtcd ব্যবহার করুন।</p>
+
+<h2 id="retention">ডাটা রিটেনশন</h2>
+<p>ডিফল্টভাবে Antimatter প্রতিটি মেসেজ এবং ফাইল চিরকাল সংরক্ষণ রাখে। পুরনোগুলো স্বয়ংক্রিয়ভাবে মুছে ফেলতে, <b>সিস্টেম কনসোল › কমপ্লায়েন্স › ডেটা রিটেনশন পলিসিসমূহ</b>-এ যান:</p>
+<ul>
+<li><b>গ্লোবাল রিটেনশন নীতি</b> পুরো সার্ভারের জন্য <b>চ্যানেল ও ডাইরেক্ট মেসেজ রিটেনশন</b> এবং <b>ফাইল রিটেনশন</b> নির্ধারণ করে: <b>চিরকাল সংরক্ষণ করুন</b>, অথবা ঘণ্টা, দিন বা বছরের সংখ্যা (<code>DataRetentionSettings.EnableMessageDeletion</code>, <code>MessageRetentionHours</code>, <code>EnableFileDeletion</code>, <code>FileRetentionHours</code>)।</li>
+<li><b>কাস্টম রিটেনশন নীতিসমূহ</b> নির্দিষ্ট কমিউনিটি এবং চ্যানেলের জন্য আলাদা সময়কাল নির্ধারণ করে।</li>
+<li>ডিলিট জবটি প্রতিদিন আপনার নির্বাচিত সময়ে চলে (<code>DataRetentionSettings.DeletionJobStartTime</code>, ডিফল্ট <code>02:00</code> UTC)। <b>এখনই ডিলিট জব চালান</b> দিয়ে তা সাথে সাথে চালাতে পারেন, আর <b>নীতি লগ</b>-এ প্রতিটি রানে কী কী মুছে ফেলা হয়েছে তা তালিকাভুক্ত থাকে।</li>
+</ul>
+<div class="callout warn">মুছে ফেলা মাসেজ এবং ফাইল ডাটাবেস এবং ফাইল স্টোরেজ থেকে চিরতরে হারিয়ে যায়। কোনো পলিসি চালু করার আগে সময়কালগুলো যাচাই করুন, এবং মনে রাখুন যে আপনার ব্যাকআপগুলো মেয়াদ শেষ না হওয়া পর্যন্ত মুছে ফেলা ডাটা ধরে রাখে।</div>
+
+<h2 id="compliance">কমপ্লায়েন্স এক্সপোর্ট এবং অডিট লগ</h2>
+<ul>
+<li><b>সিস্টেম কনসোল › কমপ্লায়েন্স › কমপ্লায়েন্স এক্সপোর্ট</b> প্রতিদিন সকল মেসেজ এবং ফাইল এক্সপোর্ট করে (<b>কমপ্লায়েন্স এক্সপোর্ট সক্রিয় করুন</b>, <code>MessageExportSettings.EnableExport</code>, ডিফল্ট অবস্থায় বন্ধ; <b>কমপ্লায়েন্স এক্সপোর্ট সময়</b>, ডিফল্ট <code>01:00</code>) এমন একটি ফরম্যাটে যা আর্কাইভিং সিস্টেম পড়তে পারে: CSV, Actiance XML, বা Global Relay (একটি zip ফাইল, অথবা SMTP-এর মাধ্যমে পাঠানো EML)। <code>amctl compliance-export</code> কমান্ড লাইন থেকে এক্সপোর্ট চালিয়ে ডাউনলোড করে।</li>
+<li><b>কমপ্লায়েন্স মনিটরিং</b> (<code>ComplianceSettings</code>) একটি ডিরেক্টরিতে দৈনিক রিপোর্ট লেখে। এটি একটি পুরনো মেকানিজম; Compliance Export ব্যবহার করা উত্তম।</li>
+<li><b>অডিট লগিং</b> (বেটা, <code>ExperimentalAuditSettings</code>) প্রশাসনিক এবং নিরাপত্তা-সম্পর্কিত ঘটনা (সাইন-ইন, পারমিশন এবং সেটিংস পরিবর্তন) একটি আলাদা ফাইলে রেকর্ড করে।</li>
+<li><b>কাস্টম Terms of Service</b> Antimatter ব্যবহারের আগে এবং আপনি শর্তাবলি পরিবর্তন করার পরেও সবাইকে আপনার শর্তাবলি স্বীকার করতে চাইতে থাকে।</li>
+</ul>
+
+<h2 id="troubleshooting">সাধারণ সমস্যা</h2>
+<h3>"সার্ভারে সংযোগ স্থাপন করা যাচ্ছে না", বা রিলোড করার পরে মাত্র ম্যাসেজ দেখা যায়</h3>
+<p>WebSocket-এর সংযোগ স্থাপন হচ্ছে না। চেক করুন যে রিভার্স প্রক্সি <code>Upgrade</code> এবং <code>Connection</code> হেডার পাস করছে (দেখুন <a href="{{root}}docs/admins/https.html#nginx">nginx-এর উদাহরণ</a>), এবং ব্রাউজারে দেখা ঠিকানাটির সাথে সাইটের URL-এর সম্পূর্ণ মিল আছে, <code>https</code> সহ।</p>
+<h3>"413 Request Entity Too Large" এর সাথে আপলোড ব্যর্থ হয়</h3>
+<p>প্রক্সি সাইজটি প্রত্যাখ্যান করছে। <b>System Console › Environment › File Storage</b>-এ <b>সর্বোচ্চ ফাইল সাইজ</b> (<code>FileSettings.MaxFileSize</code>, ডিফল্ট 100 MB)-এর কমপক্ষে সমান হওয়া পর্যন্ত nginx-এর <code>client_max_body_size</code> লিমিট বাড়ান।</p>
+<h3>লোকজন কল শুরু করতে পারে না, বা যোগ দিলেও কিছু শুনতে পায় না</h3>
+<p>যদি শুধুমাত্র অ্যাডমিনরা কল শুরু করতে পারেন, তবে Calls-এর <b>Test mode</b> বন্ধ করুন। যদি লোকজন যোগ দিলেও কিছু শুনতে না পায়, তবে মিডিয়া পোর্ট ব্লকড বা সার্ভার ভুল ঠিকানা ঘোষণা করছে: 8443 UDP এবং TCP খুলুন, এবং NAT-এর পেছনে <b>ICE Host Override</b> সেট করুন। যেসব নেটওয়ার্ক দুটোই ব্লক করে, তাদের জন্য TURN সার্ভার প্রয়োজন। দেখুন <a href="{{root}}docs/admins/calls.html">Calls and voice</a>।</p>
+<h3>GIF পিকার খালি</h3>
+<p><b>System Console › Plugins › GIFs</b>-এ <b>GIF service URL</b> (সাইটের compose ফাইলে <code>http://gifs:8080/v2</code>) এবং <b>API কী</b> (<code>.env</code>-এর <code>GIFS_API_KEY</code>) চেক করুন, এবং নিশ্চিত হোন যে <code>gifs</code> সার্ভিসটি চলছে: <code>docker compose ps gifs</code>।</p>
+<h3>কোনো ইমেইল আসছে না</h3>
+<p><b>System Console › Environment › SMTP</b>-এ <b>কানেকশন টেস্ট</b> ব্যবহার করুন, <b>নোটিফিকেশন ফ্রম ঠিকানা</b> এখনো <code>test@example.com</code> না সেটা চেক করুন, এবং লগে <code>smtp</code> বা <code>mail</code> সার্চ করুন।</p>
+<h3>একটি অ্যাপ "Failed to start" দেখায়</h3>
+<p>লগে তার id খুঁজুন (<code>docker compose logs antimatter | grep &lt;app id&gt;</code>)। Plugin Management-এ এটি ডিসেবল করে আবার এনেবল করুন, যাতে রিস্টার্ট হয়।</p>
+<h3>সার্ভার শুরু হয় না</h3>
+<p>তার লগের শেষ অংশ পড়ুন। সবচেয়ে সাধারণ কারণ হলো ডাটাবেসে সংযোগ করা যাচ্ছে না (<code>antimatter db ping</code> দিয়ে <code>AM_SQLSETTINGS_DATASOURCE</code> চেক করুন), ডাটাবেস মাইগ্রেশন ব্যর্থ হয়েছে (আপগ্রেডের আগে নেওয়া ব্যাকআপ রিস্টোর করুন এবং এররটি রিপোর্ট করুন), অথবা লিসেন পোর্টটি অন্য কোথাও ব্যবহৃত হচ্ছে।</p>
+<h3>অ্যাডমিনিস্ট্রেটর অ্যাকাউন্ট থেকে লকআউট</h3>
+<p>সার্ভার থেকে লোকাল মোডে কোনো পাসওয়ার্ডের প্রয়োজন নেই:</p>
+<pre><code>docker compose exec antimatter amctl --local user change-password admin --password 'a-new-password'
+docker compose exec antimatter amctl --local user resetmfa admin
+docker compose exec antimatter amctl --local roles system-admin admin</code></pre>
+<h3>বাগ রিপোর্ট করা</h3>
+<p><a href="https://github.com/AntimatterChat/community/issues/new/choose">Antimatter community repository</a>-তে একটি ইস্যু খুলুন, যেখানে ভার্সন, ইনস্টল করার পদ্ধতি, আপনি যা করেছেন এবং সংশ্লিষ্ট লগ লাইনগুলো উল্লেখ করুন। নিরাপত্তা সংক্রান্ত সমস্যাগুলো প্রাইভেটলি রিপোর্ট করুন, যেমন <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">security policy</a>-তে বর্ণিত আছে।</p>

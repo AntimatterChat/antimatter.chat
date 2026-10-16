@@ -1,0 +1,85 @@
+title: İşletme
+description: Antimatter'ı günlük olarak yönetin: sağlık denetimleri, metrikler ve izleme, Metrics uygulaması, destek paketleri, arama ve ölçekleme, yüksek erişilebilirlik, veri saklama, uyumluluk dışa aktarımları ve denetim günlükleri, yaygın sorunların giderilmesi.
+guide: admins
+order: 11
+nav: İşletme
+lead: Sunucuyu gözlemleyin, daha fazla kişiye hizmet verecek şekilde ölçeklendirin, verilerin ne kadar süre saklanacağına karar verin ve yöneticilerin en sık karşılaştığı sorunları giderin.
+source: 32577b38c3db
+---
+<h2 id="health">Sağlık denetimleri</h2>
+<ul>
+<li><code>amctl --local system status</code> (konteyner içinde: <code>docker compose exec antimatter amctl --local system status</code>). Docker imajının sağlık denetimi bunu her 30 saniyede bir çalıştırır, bu nedenle <code>docker compose ps</code> komutu <code>healthy</code> (sağlıklı) veya <code>unhealthy</code> (sağlıksız) durumunu gösterir.</li>
+<li><code>GET /api/v4/system/ping</code> oturum açmadan yanıt verir; harici bir izleme aracı veya yük dengeleyici için kullanılır: <code>curl -fsS https://chat.example.com/api/v4/system/ping</code>.</li>
+<li><code>antimatter db ping</code> komutu, yapılandırılmış ayarlarla veritabanının erişilebilir olduğunu denetler.</li>
+<li><b>Sistem Konsolu › Raporlama › Sistem istatistikleri</b> kullanıcı, gönderi ve oturum sayılarını gösterir; <b>Çalışma alanı iyileştirmesi</b> ise incelenmesi gereken yapılandırma sorunlarını listeler.</li>
+</ul>
+
+<h2 id="metrics">Metrikler</h2>
+<p>Sunucu, Prometheus metrikleri yayımlayabilir: istek oranları ve süreleri, websocket bağlantıları, veritabanı ve önbellek kullanımı, işler, uygulama eklentisi kancaları ve daha fazlası. Bunları <b>Sistem Konsolu › Ortam › Başarım izleme</b> bölümünden etkinleştirin:</p>
+<table>
+<thead><tr><th>Ayar</th><th>Anahtar ve değişken</th><th>Varsayılan</th></tr></thead>
+<tbody>
+<tr><td><b>Başarım izlemesi kullanılsın</b></td><td><code>MetricsSettings.Enable</code>, <code>AM_METRICSSETTINGS_ENABLE</code></td><td>kapalı</td></tr>
+<tr><td><b>Dinlenecek adres</b></td><td><code>MetricsSettings.ListenAddress</code>, <code>AM_METRICSSETTINGS_LISTENADDRESS</code></td><td><code>:8067</code></td></tr>
+<tr><td><b>İstemci başarımı izlemesi kullanılsın</b></td><td><code>MetricsSettings.EnableClientMetrics</code></td><td>açık: tarayıcılar ve uygulamalar kendi zamanlamalarını raporlar</td></tr>
+</tbody>
+</table>
+<p>Prometheus ardından <code>http://&lt;server&gt;:8067/metrics</code> adresinden metrikleri toplar. Her metrik, Mattermost adıyla (<code>mattermost_…</code>) ve Antimatter adıyla (<code>antimatter_…</code>) yayımlanır; böylece mevcut Mattermost panoları çalışmaya devam eder. Uygulamalar kendi metriklerini yayımlar, örneğin Agents uygulaması <code>/plugins/mattermost-ai/metrics</code> adresinde.</p>
+<p>Metrikler portu için oturum açma gerekmez: bu portu özel bir ağda tutun. Sitein compose dosyası bu portu dışa açmaz; ana makineden toplama yapmak için <code>antimatter</code> hizmetinin <code>ports</code> bölümüne <code>"127.0.0.1:8067:8067"</code> ekleyin.</p>
+<h3>Metrics uygulaması</h3>
+<p>Prometheus sunucusu yoksa, Metrics uygulaması (varsayılan olarak kapalı, bkz. <a href="{{root}}docs/admins/apps.html">Yerleşik uygulamalar</a>) aynı metrikleri Antimatter içindeki küçük bir zaman serisi veritabanına toplar: 60 saniyede bir, 15 gün boyunca. Uygulama başlatıldığında metrik uç noktasını etkinleştirir. <b>Sistem Konsolu › Uygulama ekleri</b> bölümündeki sayfası, veritabanının boyutunu gösterir ve verileri kendi analizleriniz için veya bir hata raporuna eklemek üzere indirmenize olanak tanır; son günün verileri ayrıca destek paketlerine de eklenir.</p>
+
+<h2 id="support-packet">Destek paketi</h2>
+<p>Destek paketi, bir sorunu teşhis etmek için gerekenleri içeren bir zip dosyasıdır: sürümler, istatistikler, gizli bilgileri çıkarılmış yapılandırma, uygulama ve iş listesi, veritabanı şeması, son zamanlardaki günlük ve başarım profilleri. Birini <code>amctl system supportpacket</code> komutuyla veya Sistem Konsolu'nda kenar çubuğunun üstündeki menüden (<b>Kurumsal destek</b>, ardından dahil edilecekleri seçebilirsiniz) oluşturun. Paylaşmadan önce mutlaka okuyun: mesajları içermez, ancak topluluk, kullanıcı ve ayar adlarını içerir.</p>
+
+<h2 id="scaling">Performans ve ölçeklenebilirlik</h2>
+<p>2 CPU çekirdeği ve 4 GB belleğe sahip tek bir sunucu, birkaç yüz kişiye hizmet verebilir. Sunucu eklemeye başlamadan önce şunlara bakın:</p>
+<ul>
+<li><b>Veritabanı.</b> PostgreSQL işin çoğunu yapar: ona hızlı depolama ve bellek verin. Okuma kopyaları (read replicas) okuma yükünü alabilir (<code>SqlSettings.DataSourceReplicas</code>, bağlantı URL'leri listesi).</li>
+<li><b>Ara</b> İletiler varsayılan olarak veritabanında aranır. Büyük sunucular için Elasticsearch veya OpenSearch, arama ve dizinleme işlevlerini devralabilir: <b>Sistem Konsolu › Ortam › Elasticsearch</b> (<code>ElasticsearchSettings</code>: <b>Arka uç türü</b> Elasticsearch veya OpenSearch, <b>Sunucu bağlantı adresi</b>, kimlik bilgileri, ardından dizinlemeyi etkinleştirin, dizini oluşturun ve aramayı etkinleştirin).</li>
+<li><b>Çağrılar</b> Çağrı medyası en ağır yüktür. Bunları bir rtcd sunucusuna taşıyın: bkz. <a href="{{root}}docs/admins/calls.html#rtcd">Çağrılar ve ses</a>.</li>
+<li><b>Açık dosyalar.</b> Her bağlı kişi bir websocket açık tutar. antimatter-docker'ın üretim compose dosyası bu sınırı 49152'ye yükseltir (<code>ulimits: nofile</code>); systemd ile de aynı işlemi yapın (<code>LimitNOFILE</code>).</li>
+<li><b>Günlükler.</b> <code>LogSettings.ConsoleLevel</code> değerini <code>INFO</code> veya <code>WARN</code> olarak düşürün: <code>DEBUG</code> yoğun bir sunucuda çok fazla günlük yazar.</li>
+</ul>
+<h3>Yüksek kullanılabilirlik</h3>
+<p>Birden fazla Antimatter sunucusu, bir yük dengeleyicinin arkasında küme olarak, lisans gerektirmeden çalışabilir. Bunların aynı PostgreSQL veritabanını, aynı S3 dosya depolamasını ve veritabanındaki yapılandırmayı (<code>AM_CONFIG</code>) paylaşması gerekir. <b>Sistem Konsolu › Ortam › Yüksek erişilebilirlik</b> (<code>ClusterSettings</code>) bölümünde <b>Yüksek erişilebilirlik kipi kullanılsın</b> (<code>ClusterSettings.Enable</code>) seçeneğini etkinleştirin, her düğüm için aynı <b>Küme adı</b> (<code>ClusterSettings.ClusterName</code>) verin ve düğümlerin birbirine gıdık portundan, <b>8074</b> TCP ve UDP (<code>ClusterSettings.GossipPort</code>) üzerinden erişebilmesini sağlayın. Düğümler birbirini veritabanı üzerinden bulur. Yük dengeleyici websocket trafiğini iletmelidir. Küme içindeki aramalar için rtcd kullanın.</p>
+
+<h2 id="retention">Veri saklama</h2>
+<p>Varsayılan olarak Antimatter tüm iletileri ve dosyaları sonsuza dek tutar. Eski olanları otomatik olarak silmek için <b>Sistem Konsolu › Uyumluluk › Verileri tutma ilkeleri</b> bölümüne gidin:</p>
+<ul>
+<li><b>Genel verileri tutma ilkesi</b>, tüm sunucu için <b>Kanal ve doğrudan ileti tutma</b> ile <b>Dosya tutma</b> sürelerini belirler: <b>Sonsuza dek tutulsun</b> veya saat, gün veya yıl cinsinden bir süre (<code>DataRetentionSettings.EnableMessageDeletion</code>, <code>MessageRetentionHours</code>, <code>EnableFileDeletion</code>, <code>FileRetentionHours</code>).</li>
+<li><b>Özel veri tutma ilkeleri</b>, seçilen topluluklar ve kanallar için farklı bir süre belirler.</li>
+<li>Silme görevi, seçtiğiniz saatte her gün çalışır (varsayılan olarak <code>DataRetentionSettings.DeletionJobStartTime</code>, <code>02:00</code> UTC). <b>Silme görevini yürüt</b> seçeneği görevi anında çalıştırır, <b>İlke günlüğü</b> ise her çalıştırmada nelerin silindiğini listeler.</li>
+</ul>
+<div class="callout warn">Silinen iletiler ve dosyalar, veritabanından ve dosya depolamasından kalıcı olarak kaybolur. Bir politikayı etkinleştirmeden önce süreleri kontrol edin ve yedekleriniz, bu veriler sona erene kadar silinen verileri hala barındırdığını unutmayın.</div>
+
+<h2 id="compliance">Uygunluk dışa aktarımı ve denetim günlükleri</h2>
+<ul>
+<li><b>Sistem Konsolu › Uyumluluk › Uyumluluk dışa aktarma</b>, her gün tüm iletileri ve dosyaları, arşivleme sistemlerinin okuyabildiği biçimlerden biriyle (CSV, Actiance XML veya Global Relay; bir zip dosyası ya da SMTP üzerinden gönderilen EML) dışa aktarır (<b>Uyumluluk dışa aktarma kullanılsın</b>, <code>MessageExportSettings.EnableExport</code>, varsayılan olarak kapalı; <b>Uyumluluk dışa aktarma zamanı</b>, varsayılan olarak <code>01:00</code>). <code>amctl compliance-export</code> komutu, dışa aktarmaları komut satırından çalıştırıp indirir.</li>
+<li><b>Uyumluluk izleme</b> (<code>ComplianceSettings</code>), günlük raporları bir dizine yazar. Bu, daha eski bir mekanizmadır; Uyumluluk dışa aktarma tercih edilmelidir.</li>
+<li><b>Denetim günlüğü</b> (beta, <code>ExperimentalAuditSettings</code>), yönetimsel ve güvenlik olaylarını (oturum açma, izin ve ayar değişiklikleri) kendi dosyasına kaydeder.</li>
+<li><b>Özel hizmet koşulları</b>, herkesin Antimatter'i kullanmadan önce ve koşulları değiştirdikten sonra hizmet koşullarınızı kabul etmesini ister.</li>
+</ul>
+
+<h2 id="troubleshooting">Sık karşılaşılan sorunlar</h2>
+<h3>"Sunucuya bağlanılamıyor" veya iletiler yalnızca yeniden yükleme sonrasında görünür</h3>
+<p>WebSocket bağlantısı kurulamıyor. Ters vekilin <code>Upgrade</code> ve <code>Connection</code> başlıklarını ilettiğinden (<a href="{{root}}docs/admins/https.html#nginx">nginx örneğine</a> bakın) ve site URL'inin tarayıcıdaki adresle, <code>https</code> dahil, birebir eşleştiğinden emin olun.</p>
+<h3>Yükleme "413 Request Entity Too Large" hatasıyla başarısız oluyor</h3>
+<p>Vekil sunucu boyutu reddediyor. Sınırını, <b>Sistem Konsolu › Ortam › Dosya depolama alanı</b> içindeki <b>En büyük dosya boyutu</b> değerine (<code>FileSettings.MaxFileSize</code>, varsayılan olarak 100 MB) en az bu değer olacak şekilde yükseltin (nginx <code>client_max_body_size</code>).</p>
+<h3>Kişiler aramaları başlatamıyor veya katılıyor ama hiçbir şey duymuyor</h3>
+<p>Yalnızca yöneticiler aramaları başlatabiliyorsa, Aramaların <b>Test modu</b>nu kapatın. Kişiler katılıyor ama hiçbir şey duymuyorsa, medya portu engellenmiş veya sunucu yanlış adresi duyuruyor olabilir: 8443 UDP ve TCP portlarını açın ve NAT arkasında <b>ICE Host Override</b> ayarlayın. Her ikisini de engelleyen ağlardaki kişilere TURN sunucusu gerekir. <a href="{{root}}docs/admins/calls.html">Aramalar ve ses</a> bölümüne bakın.</p>
+<h3>GIF seçici boş</h3>
+<p><b>Sistem Konsolu › Uygulama ekleri › GIF görselleri</b> içinde <b>GIF hizmet URL'si</b> değerini (site'nin compose dosyasıyla <code>http://gifs:8080/v2</code>) ve <b>API anahtarı</b> değerini (<code>.env</code> içindeki <code>GIFS_API_KEY</code>) kontrol edin ve <code>gifs</code> hizmetinin çalıştığını doğrulayın: <code>docker compose ps gifs</code>.</p>
+<h3>E-postalar gelmiyor</h3>
+<p><b>Sistem Konsolu › Ortam › SMTP</b> içinde <b>Bağlantıyı sına</b> seçeneğini kullanın, <b>Bildirim kimden adresi</b> değerinin hâlâ <code>test@example.com</code> olmadığını kontrol edin ve günlükte <code>smtp</code> veya <code>mail</code> için arama yapın.</p>
+<h3>Bir uygulama "Başlatılamadı" gösteriyor</h3>
+<p>Uygulamanın kimliğini günlükte arayın (<code>docker compose logs antimatter | grep &lt;app id&gt;</code>). Yeniden başlatmak için Eklenti Yönetimi'nde devre dışı bırakıp tekrar etkinleştirin.</p>
+<h3>Sunucu başlatılamıyor</h3>
+<p>Günlüğün sonunu okuyun. En sık karşılaşılan nedenler: veritabanına ulaşılamaması (<code>antimatter db ping</code> ile <code>AM_SQLSETTINGS_DATASOURCE</code> değerini kontrol edin), bir veritabanı geçişinin başarısız olması (yükseltme öncesi alınan yedeği geri yükleyin ve hatayı bildirin) veya dinleme portunun dolu olmasıdır.</p>
+<h3>Yönetici hesabına erişim engellendi</h3>
+<p>Sunucudan, yerel mod şifre gerektirmez:</p>
+<pre><code>docker compose exec antimatter amctl --local user change-password admin --password 'a-new-password'
+docker compose exec antimatter amctl --local user resetmfa admin
+docker compose exec antimatter amctl --local roles system-admin admin</code></pre>
+<h3>Hata bildirme</h3>
+<p><a href="https://github.com/AntimatterChat/community/issues/new/choose">Antimatter topluluk deposunda</a> bir sorun açın; sürümü, nasıl kurduğunuzu, ne yaptığınızı ve ilgili günlük satırlarını belirtin. Güvenlik sorunlarını gizlice bildirin; <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">güvenlik politikası</a> bunu açıklar.</p>

@@ -1,0 +1,170 @@
+title: Webhooks
+description: Příchozí a odchozí webhooks v Antimatter: jejich vytváření, náplně a odpovědi, přílohy a karty zpráv, přepisování jména a ikony, včetně příkladů.
+guide: developers
+order: 3
+nav: Webhooks
+lead: Příchozí webhook umožňuje jinému systému odesílat zprávy do kanálu tím, že pošle JSON na tajné URL. Odchozí webhook dělá opak: pošle zprávy začínající spouštěcím slovem na vaše URL a zveřejní to, co mu odpovíte.
+source: ecd698619944
+---
+<h2 id="where">Kde spravovat webhooks</h2>
+<p>Otevřete svůj avatar v pravém horním rohu a poté <b>Integrace</b>. Stránky integrací aktuální komunity obsahují <b>Příchozí webhooks</b> a <b>Odchozí webhooks</b>. Každý webhook patří do jedné komunity.</p>
+<p>Ve výchozím nastavení mohou webhooks vytvářet administrátoři komunity a systémoví administrátoři. Systémový administrátor může toto oprávnění udělit i jiným rolím v nastaveních oprávnění Systémové konzole. Systémový administrátor může také v <b>Systémová konzole › Integrace › Správa integrací</b> vypnout každý typ: <b>Povolit příchozí webhooks</b> i <b>Povolit odchozí webhooks</b> jsou ve výchozím nastavení zapnuté.</p>
+<figure><img src="{{root}}assets/img/shots/integrations.webp" alt="A channel with messages from a CI bot and from GitHub, shown as cards with fields, pipeline stages and a button"><figcaption>Zprávy integrací vykreslené jako karty: pole, fáze potrubí a tlačítko pro akci.</figcaption></figure>
+
+<h2 id="incoming">Vytvoření příchozího webhooku</h2>
+<ol>
+<li>V <b>Integrace</b> vyberte <b>Příchozí webhooks</b> a poté <b>Přidat příchozí webhook</b>.</li>
+<li>Vyplňte <b>Název</b> a <b>Popis</b>: zobrazí se pouze na stránkách integrací.</li>
+<li>Vyberte <b>Kanál</b>, do kterého se zprávy odesílají ve výchozím nastavení. U soukromého kanálu musíte být jeho členem.</li>
+<li>Zaškrtněte <b>Zamknout na tento kanál</b>, pokud by odesílatelé neměli mít možnost publikovat jinde.</li>
+<li>Volitelně nastavte <b>Uživatelské jméno</b> a URL <b>Profilového obrázku</b> pro jeho zprávy (viz <a href="#identity">Jméno a ikona</a>).</li>
+<li>Vyberte <b>Uložit</b>. Zkopírujte zobrazené URL: <code>https://chat.example.com/hooks/&lt;key&gt;</code>.</li>
+</ol>
+<div class="callout warn">URL je jediným tajemstvím: kdokoli, kdo ji má, může publikovat v kanálu. Nechávejte ji mimo veřejná úložiště a pokud se ztratí, webhook smažte.</div>
+<p>Přes API: <code>POST /api/v4/hooks/incoming</code> s <code>{"channel_id", "display_name", "description", "username", "icon_url", "channel_locked"}</code>; <code>id</code> v odpovědi je klíč. Z příkazového řádku: <code>amctl webhook create-incoming --channel &lt;channel id&gt; --user &lt;user&gt; --display-name "CI"</code>.</p>
+
+<h2 id="incoming-send">Odeslání zprávy do příchozího webhooku</h2>
+<pre><code>curl -X POST https://chat.example.com/hooks/xgh5ycrx1jf7mbs9w8z4c8e7ho \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Deploy of **api 2.4.0** finished :white_check_mark:"}'</code></pre>
+<p>Server odpoví <code>200</code> s tělem <code>ok</code>. Přijímá také <code>application/x-www-form-urlencoded</code> s JSONem v poli <code>payload</code>, stejně jako webhooks Slacku, takže nástroje vytvořené pro Slack obvykle fungují bez změn.</p>
+<table>
+<thead><tr><th>Pole</th><th>Význam</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>Zpráva v Markdownu. Povinné, pokud nejsou <code>attachments</code>. Text delší než povolená délka zprávy na serveru se rozdělí do více zpráv.</td></tr>
+<tr><td><code>channel</code></td><td>Jiný kanál komunity webhooku, podle jména (<code>ops-alerts</code> nebo <code>#ops-alerts</code>), nebo <code>@username</code> pro přímou zprávu od vlastníka webhooku. Odmítnuto, pokud je webhook uzamčen na svůj kanál.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code>, <code>icon_emoji</code></td><td>Jméno a obrázek, které se zobrazí, pokud to server umožňuje.</td></tr>
+<tr><td><code>attachments</code></td><td>Přílohy zprávy, vykreslené jako karty (viz níže).</td></tr>
+<tr><td><code>props</code></td><td>Další vlastnosti uložené na zprávu, které čtou aplikace.</td></tr>
+<tr><td><code>type</code></td><td>Vlastní typ zprávy, např. <code>custom_poll</code>, pro aplikaci, která ho vykreslí. Typy začínající na <code>system_</code> jsou odmítnuty.</td></tr>
+<tr><td><code>root_id</code></td><td>ID první zprávy vlákna, do kterého se má odpovědět.</td></tr>
+<tr><td><code>priority</code></td><td>Priorita zprávy, např. <code>{"priority": "urgent"}</code>.</td></tr>
+<tr><td><code>silent</code></td><td><code>true</code> odešle zprávu bez push oznámení.</td></tr>
+</tbody>
+</table>
+<p>Zprávy zobrazené pod přepsaným jménem nesou vedle něj štítek <b>BOT</b>, aby je lidé mohli rozlišit od skutečných účtů. Zprávy webhooků nikdy nevyvolávají odchozí webhooks.</p>
+
+<h2 id="identity">Jméno a ikona</h2>
+<p>Webhook publikuje jako osoba, která ho vytvořila, pokud to server neumožňuje jinak. Dvě nastavení v <b>Systémová konzole › Integrace › Správa integrací</b>, obě výchozí vypnutá, to mění:</p>
+<ul>
+<li><b>Povolit integracím přepis uživatelských jmen</b> (<code>ServiceSettings.EnablePostUsernameOverride</code>): místo jména se zobrazí <b>Uživatelské jméno</b> webhooku nebo <code>username</code> z požadavku; pokud ani jedno není, je jméno <code>webhook</code>.</li>
+<li><b>Povolit integracím přepisovat ikony profilových obrázků</b> (<code>ServiceSettings.EnablePostIconOverride</code>): zobrazí se <b>Profilový obrázek</b> webhooku, nebo <code>icon_url</code> nebo <code>icon_emoji</code> z požadavku.</li>
+</ul>
+<p>Hodnota z požadavku má přednost před hodnotou uloženou na webhooku.</p>
+
+<h2 id="attachments">Přílohy</h2>
+<p>Přílohy přidávají strukturovaný obsah pod text. Sledují formát příloh zpráv Slack:</p>
+<pre><code>{
+  "text": "Build failed on `main`",
+  "attachments": [{
+    "fallback": "main #1902 failed",
+    "color": "#d24b4e",
+    "author_name": "GitHub Actions",
+    "author_icon": "https://chat.example.com/static/ci.png",
+    "title": "main #1902 failed",
+    "title_link": "https://ci.example.com/runs/1902",
+    "text": "Commit `0f4d8e2` by Jonas Weber",
+    "fields": [
+      {"title": "Branch", "value": "zephyr-3.7", "short": true},
+      {"title": "Duration", "value": "3m 40s", "short": true}
+    ],
+    "footer": "Lumen CI",
+    "ts": 1760000000
+  }]
+}</code></pre>
+<table>
+<thead><tr><th>Pole</th><th>Význam</th></tr></thead>
+<tbody>
+<tr><td><code>fallback</code></td><td>Čistý text pro místa, kde se karta nezobrazí, např. v oznámeních.</td></tr>
+<tr><td><code>color</code></td><td>Bareva: šestnácková barva, nebo <code>good</code>, <code>warning</code>, <code>danger</code>.</td></tr>
+<tr><td><code>pretext</code></td><td>Text nad kartou.</td></tr>
+<tr><td><code>author_name</code>, <code>author_link</code>, <code>author_icon</code></td><td>Malá záhlaví.</td></tr>
+<tr><td><code>title</code>, <code>title_link</code></td><td>Název karty, volitelně odkaz.</td></tr>
+<tr><td><code>text</code></td><td>Tělo karty, v Markdownu.</td></tr>
+<tr><td><code>fields</code></td><td>Seznam <code>{"title", "value", "short"}</code>; pole <code>short</code> se zobrazí vedle sebe.</td></tr>
+<tr><td><code>image_url</code>, <code>thumb_url</code></td><td>Velký obrázek dole, nebo malý po boku.</td></tr>
+<tr><td><code>footer</code>, <code>footer_icon</code>, <code>ts</code></td><td>Patička a čas (Unixové sekundy).</td></tr>
+<tr><td><code>actions</code></td><td>Tlačítka a nabídky: viz <a href="{{root}}docs/developers/bots.html#interactive">Interaktivní zprávy</a>.</td></tr>
+</tbody>
+</table>
+
+<h2 id="cards">Karty: fáze a grafy</h2>
+<p>Antimatter přidává k přílohám dvě pole, která zobrazuje výchozí rozhraní:</p>
+<ul>
+<li><code>stages</code>: kroky potrubí ve formě štítků, nejvýše 20. Každý má tvar <code>{"name", "status"}</code>, kde stav je <code>passed</code>, <code>failed</code>, <code>running</code>, <code>pending</code>, <code>skipped</code> nebo <code>canceled</code>.</li>
+<li><code>chart</code>: malý čárový graf nedávných hodnot, <code>{"values": [2 to 200 numbers], "threshold": number, "label": "…"}</code>. Práh je vykreslen jako přerušovaná čára, představující limit upozornění.</li>
+</ul>
+<pre><code>{
+  "attachments": [{
+    "color": "danger",
+    "title": "main #1902 failed",
+    "stages": [
+      {"name": "build", "status": "failed"},
+      {"name": "unit", "status": "skipped"},
+      {"name": "publish", "status": "skipped"}
+    ]
+  }, {
+    "color": "warning",
+    "title": "API latency above 400 ms",
+    "chart": {"values": [210, 230, 260, 390, 450, 470], "threshold": 400, "label": "p95 latency, ms"}
+  }]
+}</code></pre>
+<p>Klasické rozhraní a ostatní klienty tato dvě pole ignorují, proto vložte podstatné informace i do <code>text</code> nebo <code>fields</code>.</p>
+
+<h2 id="outgoing">Vytvoření odchozího webhooku</h2>
+<p>Odchozí webhook sleduje <b>Veřejný</b> kanály komunity. Když se první slovo zprávy shoduje s jedním z jeho spouštěcích slov, Antimatter pošle zprávu na vaši URL.</p>
+<ol>
+<li>V <b>Integrace</b> zvolte <b>Odchozí webhooks</b> a poté <b>Přidat odchozí webhook</b>.</li>
+<li>Vyplňte <b>Název</b> a <b>Popis</b>.</li>
+<li>Zvolte <b>Typ obsahu</b> požadavku: <code>application/x-www-form-urlencoded</code> nebo <code>application/json</code>.</li>
+<li>Vyberte <b>Kanál</b>, zadejte <b>Spouštěcí slova (jedno na řádek)</b> nebo obojí. S kanálem a bez spouštěcích slov se pošle každá zpráva z tohoto kanálu. S oběma musí zpráva odpovídat oběma podmínkám.</li>
+<li>V sekci <b>Spustit, když</b> zvolte <b>První slovo přesně odpovídá spouštěcímu slovu</b> nebo <b>První slovo začíná na spouštěcí slovo</b>.</li>
+<li>Zadejte <b>Callback URL (jedna na řádek)</b>. Každá URL obdrží každou odpovídající zprávu.</li>
+<li>Volitelně nastavte <b>Uživatelské jméno</b> a <b>Profilový obrázek</b> používané pro odpovědi.</li>
+<li>Zvolte <b>Uložit</b> a zkopírujte zobrazený token. Vaše služba ho použije k ověření, že požadavky pocházejí z vašeho serveru.</li>
+</ol>
+<p>Přes API: <code>POST /api/v4/hooks/outgoing</code> s <code>{"team_id", "channel_id", "trigger_words", "trigger_when", "callback_urls", "content_type", "display_name"}</code> (<code>trigger_when</code>: 0 pro přesné shodování, 1 pro "začíná na").</p>
+<div class="callout">Pokud je vaše služba v soukromé síti, musí administrátor systému povolit její adresu v <b>Povolit nespolehlivé interní připojení k</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>). Server jinak soukromé adresy nezavolá.</div>
+
+<h2 id="outgoing-request">Odchozí požadavek</h2>
+<p>Antimatter odešle POST s těmito poli, jako JSON nebo form-encoded podle typu obsahu:</p>
+<pre><code>{
+  "token": "6kd1ofo5ojr5zgu5ipfipybgnc",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "channel_id": "…",
+  "channel_name": "ops-alerts",
+  "timestamp": 1760010000000,
+  "user_id": "…",
+  "user_name": "priya",
+  "post_id": "…",
+  "text": "deploy api 2.4.0",
+  "trigger_word": "deploy",
+  "file_ids": ""
+}</code></pre>
+<p>Před jakýmkoli dalším krokem porovnejte <code>token</code> s tokenem webhooku. Ve verzi kódované jako formulář je <code>timestamp</code> v sekundách, ne v milisekundách. Server na vaši odpověď počítá tak dlouho, jak to dovoluje <b>Časový limit požadavků integrací</b> (výchozí hodnota je 30 sekund, <code>ServiceSettings.OutgoingIntegrationRequestsTimeout</code>).</p>
+
+<h2 id="outgoing-response">Odpověď na odchozí webhook</h2>
+<p>Chcete-li odpovědět, pošlete JSON. Chcete-li neposlat nic, pošlete prázdné tělo.</p>
+<pre><code>{
+  "text": "Deploying **api 2.4.0** to staging…",
+  "response_type": "comment",
+  "username": "deploy-bot",
+  "icon_url": "https://chat.example.com/static/deploy.png"
+}</code></pre>
+<ul>
+<li><code>text</code> a <code>attachments</code>: obsah odpovědi. Pokud chybí oba, nic se nepublikuje.</li>
+<li><code>response_type</code>: <code>comment</code> publikuje odpověď do vlákna spouštěcí zprávy; jinak se publikuje do kanálu.</li>
+<li><code>username</code>, <code>icon_url</code>: zobrazí se, pokud to server dovoluje; jinak se použijí vlastní hodnoty webhooku.</li>
+<li><code>props</code>, <code>type</code>, <code>priority</code>: stejně jako u příchozích webhooků.</li>
+</ul>
+<p>Odpověď se publikuje jako autor webhooku, případně pod přepsaným jménem. Pro delší odpovědi odpovídejte okamžitě a publikujte je později pomocí příchozího webhooku nebo API.</p>
+
+<h2 id="troubleshooting">Když webhook nefunguje</h2>
+<ul>
+<li><b>501 z URL webhooku</b>: příchozí webhooks jsou na serveru vypnuté.</li>
+<li><b>400 "Failed to decode the payload…"</b>: JSON je neplatný, nebo pole formuláře se jmenuje jinak než <code>payload</code>. <b>"No text specified."</b> znamená, že požadavek neobsahuje ani <code>text</code>, ani <code>attachments</code>.</li>
+<li><b>403</b>: webhook je uzamčen pro jiný kanál, nebo jeho vlastník už nemůže kanál číst.</li>
+<li><b>Odchozí webhook se nikdy nespustí</b>: kanál je soukromý, spouštěcí slovo není první, nebo zpráva pochází z webhooku.</li>
+<li><b>Logy</b>: s povoleným <b>Povolit ladění webhooků</b> (<code>LogSettings.EnableWebhookDebugging</code>) a úrovní logování <code>DEBUG</code> server loguje obsah neúspěšných příchozích požadavků. Neúspěšné odchozí volání se loguje jako <code>Outgoing Webhook POST failed</code>.</li>
+</ul>

@@ -1,0 +1,164 @@
+title: REST API
+description: AntimatterのREST API：ベースURL、パーソナルアクセストークン、セッショントークン、OAuth、主要リソース、ページネーション、エラー、レート制限、WebSocketイベントストリーム、クライアントライブラリ。
+guide: developers
+order: 2
+nav: REST API
+lead: Antimatterアプリが実行するすべての処理は同じHTTP APIを経由するため、スクリプトでも同じことができます。このページでは、認証方法、よく使用するリソース、レスポンスとエラーの形式、WebSocket経由でイベントをリアルタイムに追跡する方法について説明します。
+source: f4b8c83efdba
+---
+<h2 id="basics">基本</h2>
+<ul>
+<li><b>ベースURL</b>: <code>https://chat.example.com/api/v4</code>。以下のすべてのエンドポイントはこれに対する相対パスです。</li>
+<li><b>形式</b>: JSONの送受信（ファイルアップロードはmultipart形式）。<code>Content-Type: application/json</code> を送信してください。</li>
+<li><b>ID</b>: すべてのオブジェクトには26文字の <code>id</code> があります。時刻はUnix epochからのミリ秒単位で表されます（<code>create_at</code>、<code>update_at</code>、<code>delete_at</code>；0は「削除されていない」ことを意味します）。</li>
+<li><b>コミュニティはチームです</b>: APIでは <code>teams</code> と呼ばれ、<code>team_id</code> を持ちます。</li>
+<li><b>あなた自身</b>: パスに <code>user_id</code> を受け取る場所では、<code>me</code> はログイン中のユーザーを指します。例: <code>GET /users/me</code>。</li>
+</ul>
+<p>エンドポイントの完全なリストはサーバーのコードにあります。ルートは <code>server/channels/api4/*.go</code> で宣言され、型は <code>server/public/model</code> にあります。リポジトリの <code>api/v4/source</code> フォルダーにあるOpenAPI説明は、Mattermostから継承されたエンドポイントのみをカバーしており、Antimatterの追加機能は含まれていません。</p>
+
+<h2 id="auth">認証</h2>
+<p>サインインと一部の公開エンドポイントを除くすべてのリクエストには、<code>Authorization</code> ヘッダーにトークンが必要です：</p>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" https://chat.example.com/api/v4/users/me</code></pre>
+<p>ここで受け入れられるトークンは3種類あります：パーソナルアクセストークン、セッショントークン、OAuthアクセストークン。<code>Authorization: Token …</code> も受け入れられます。クエリ文字列（<code>?access_token=</code>）でのトークンは、OAuthアクセストークンのみ受け入れられます。</p>
+
+<h3>パーソナルアクセストークン（スクリプトに推奨）</h3>
+<p>パーソナルアクセストークンはあなたとして動作し、有効期限を設定しない限り期限切れになりません。いつでも失効させることができます。パーソナルアクセストークンはデフォルトで無効です：</p>
+<ol>
+<li>システム管理者は、<b>システムコンソール › 統合機能 › 統合機能管理</b> で <b>パーソナルアクセストークンを有効にする</b> をオンにします (<code>ServiceSettings.EnableUserAccessTokens</code>, <code>AM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS</code>)。</li>
+<li>トークンを生成できる各ユーザーについて、システム管理者は <b>システムコンソール › ユーザー管理 › ユーザー</b> を開き、対象ユーザーのメニューから <b>ロールの管理</b> を選択し、<b>このアカウントがパーソナルアクセストークンを生成できるようにする</b> にチェックします。システム管理者は常にトークンを生成できます。</li>
+<li>ユーザーは右上のアバターを開き、<b>プロフィール &amp; 設定 › セキュリティー</b> に移動します。<b>パーソナルアクセストークン</b> の下で、トークンの用途を説明し、<b>トークンを生成する</b> を選択します。トークンは一度のみ表示されるため、コピーしてください。</li>
+</ol>
+<p>API を使用する場合: <code>POST /users/{user_id}/tokens</code> に <code>{"description": "backup script", "expires_at": 0}</code> を送信します (<code>expires_at</code> はミリ秒単位で、0 は期限なしを意味します)。レスポンスの <code>token</code> フィールドがシークレットです。その <code>id</code> を使用してトークンを失効させることができます (<code>POST /users/tokens/revoke</code> に <code>{"token_id": "…"}</code> を送信)。コマンドラインから: <code>amctl token generate &lt;user&gt; &lt;description&gt;</code>。</p>
+<p>システム管理者は、同じシステムコンソールページ上の <b>個人アクセストークンの最大有効期間 (日)</b> を使用して、トークンの有効期間に上限を設けることができます。</p>
+
+<h3>セッショントークン</h3>
+<p>パスワードでサインインすると、<code>Token</code> レスポンスヘッダーにセッショントークンが返されます。これはアプリケーションが使用するのと同じ種類のセッションです:</p>
+<pre><code>curl -i -X POST https://chat.example.com/api/v4/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login_id": "maya", "password": "…"}'</code></pre>
+<p>多要素認証が有効なアカウントの場合、<code>"token": "123456"</code> を追加します。セッションの有効期限はサーバーのセッション設定に従い、ログインエンドポイントはレート制限 (1秒あたり5リクエスト) が適用されます。<code>POST /users/logout</code> でセッションを終了できます。</p>
+<div class="callout">ブラウザはCookieを使用して認証します。Cookieによる認証のリクエストは、GET以外のリクエストに対して <code>X-CSRF-Token</code> ヘッダーも送信する必要があります。<code>Authorization</code> ヘッダーにトークンを含む場合は、CSRFヘッダーは不要です。</div>
+
+<h3>OAuth 2.0 アプリケーション</h3>
+<p>ユーザーが Antimatter アカウントを使用してあなたのアプリケーションにサインインできるようにするには、OAuth 2.0 アプリケーションを登録します。Antimatter は OAuth プロバイダーとして機能します:</p>
+<ol>
+<li><b>OAuth 2.0サービスプロバイダーを有効にする</b> がオンになっている必要があります (<b>システムコンソール › 統合機能 › 統合機能管理</b>, <code>ServiceSettings.EnableOAuthServiceProvider</code>, デフォルトでオン)。</li>
+<li>OAuth アプリの管理権限を持つユーザー (デフォルトではシステム管理者) は、アバターを開き、<b>統合機能 › OAuth 2.0 アプリ</b> に移動して、コールバックURLを指定してアプリを追加します。これにより、クライアントIDとクライアントシークレットが取得できます。</li>
+<li>アプリケーションは、<code>https://chat.example.com/oauth/authorize</code> に <code>response_type=code</code>、<code>client_id</code>、<code>redirect_uri</code>、<code>state</code> を付けてユーザーをリダイレクトします。<code>code_challenge_method=S256</code> を使用した PKCE がサポートされています。</li>
+<li><code>POST https://chat.example.com/oauth/access_token</code> でコードを交換します（<code>grant_type=authorization_code</code>、更新には <code>refresh_token</code> を使用）。API の呼び出しには <code>Authorization: Bearer &lt;access token&gt;</code> を使用します。</li>
+</ol>
+<p>ユーザーは、<b>プロフィール &amp; 設定 › セキュリティー › 承認したアプリ</b> で、自分が承認したアプリを確認できます。</p>
+
+<h2 id="resources">主なリソース</h2>
+<table>
+<thead><tr><th>対象</th><th>エンドポイント</th></tr></thead>
+<tbody>
+<tr><td>自分と他のユーザー</td><td><code>GET /users/me</code>、<code>GET /users/{user_id}</code>、<code>GET /users/username/{username}</code>、<code>POST /users/ids</code>（ID のリスト）、<code>POST /users/search</code>、<code>GET /users?in_team=…&amp;in_channel=…</code></td></tr>
+<tr><td>コミュニティ</td><td><code>GET /users/me/teams</code>, <code>GET /teams/{team_id}</code>, <code>GET /teams/name/{name}</code>, <code>PUT /teams/{team_id}/patch</code>, <code>GET /teams/{team_id}/members</code>, <code>POST /teams/{team_id}/members</code></td></tr>
+<tr><td>チャンネル</td><td><code>GET /users/me/teams/{team_id}/channels</code>、<code>GET /teams/name/{team}/channels/name/{channel}</code>、<code>POST /channels</code>、<code>POST /channels/direct</code>（2 つのユーザー ID）、<code>POST /channels/group</code>、<code>POST /channels/{channel_id}/members</code></td></tr>
+<tr><td>メッセージ（投稿）</td><td><code>POST /posts</code>, <code>GET /posts/{post_id}</code>, <code>PUT /posts/{post_id}/patch</code>, <code>DELETE /posts/{post_id}</code>, <code>GET /channels/{channel_id}/posts</code>, <code>GET /posts/{post_id}/thread</code>, <code>POST /teams/{team_id}/posts/search</code></td></tr>
+<tr><td>リアクション</td><td><code>POST /reactions</code> に <code>{"user_id", "post_id", "emoji_name"}</code> を指定、<code>DELETE /users/{user_id}/posts/{post_id}/reactions/{emoji_name}</code></td></tr>
+<tr><td>ファイル</td><td><code>POST /files</code>（multipart: <code>channel_id</code> と <code>files</code>）、返された ID を投稿の <code>file_ids</code> に設定します。<code>GET /files/{file_id}</code></td></tr>
+<tr><td>環境設定</td><td><code>GET /users/me/preferences</code>, <code>PUT /users/me/preferences</code></td></tr>
+<tr><td>統合</td><td><code>/hooks/incoming</code>、<code>/hooks/outgoing</code>、<code>/commands</code>、<code>/bots</code>、<code>/oauth/apps</code>（次のページを参照）</td></tr>
+<tr><td>サーバー</td><td><code>GET /system/ping</code>（ヘルスチェック、トークン不要）、<code>GET /config/client?format=old</code>（クライアントが参照する設定）</td></tr>
+</tbody>
+</table>
+
+<h3>メッセージの投稿</h3>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "message": "Backup finished: **42 GB** in 3 min"}'</code></pre>
+<p>メッセージは Markdown です。スレッドに返信するには <code>"root_id"</code>（スレッドの最初の投稿）、ファイルには <code>"file_ids"</code>、添付ファイルやその他の追加情報には <code>"props"</code> を指定します（<a href="{{root}}docs/developers/webhooks.html#attachments">添付ファイル</a>を参照）。</p>
+
+<h3>チャンネル ID の特定</h3>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" \
+  https://chat.example.com/api/v4/teams/name/lumen-labs/channels/name/ops-alerts</code></pre>
+<p>名前はチャンネルのリンクに示されているものです：<code>/lumen-labs/channels/ops-alerts</code>。</p>
+
+<h2 id="pagination">ページネーション</h2>
+<p>リスト系エンドポイントは <code>page</code>（0 から）と <code>per_page</code>（デフォルト 60、最大 200）を受け取ります。<code>per_page</code> より少ない件数が返ってくるまで、次のページを要求し続けます。</p>
+<p>チャンネルのメッセージ（<code>GET /channels/{channel_id}/posts</code>）も、<code>since</code>（時間：それ以降に変更されたものすべて）または <code>before</code> と <code>after</code>（投稿 ID）を受け取ります。返却されるのは投稿リストで、<code>{"order": [IDs, newest first], "posts": {ID: post}, "next_post_id", "prev_post_id"}</code> という形式です。</p>
+
+<h2 id="errors">エラー</h2>
+<p>エラーは一般的な HTTP ステータスコード（400 不正な入力、401 未ログイン、403 許可されていません、404 見つかりません、501 機能が無効）と JSON ボディを使用します：</p>
+<pre><code>{
+  "id": "api.context.permissions.app_error",
+  "message": "You do not have the appropriate permissions.",
+  "detailed_error": "",
+  "request_id": "jz8zm5nunpbt8f3gpqsz5dq6so",
+  "status_code": 403
+}</code></pre>
+<p>コードでは <code>id</code> を使用してください：<code>message</code> はユーザーの言語に翻訳されます。<code>detailed_error</code> はサーバーが開発者モード（<code>ServiceSettings.EnableDeveloper</code>）で実行されていない限り空です。<code>request_id</code> をサーバーの管理者に引用してください：ログにあります。</p>
+
+<h2 id="rate-limits">レート制限</h2>
+<p>投稿頻度制限はデフォルトでオフです。システム管理者がこれをオンにすると (<b>システムコンソール › 環境 › 投稿頻度制限</b>)、デフォルトでは各クライアントに対して1秒あたり10リクエスト、バースト100リクエストが許可され、IPアドレスまたはユーザー単位でカウントされます。レスポンスには <code>X-RateLimit-Limit</code>、<code>X-RateLimit-Remaining</code>、<code>X-RateLimit-Reset</code> が含まれます。制限を超えると、サーバーは <code>429</code> を返し、<code>Retry-After</code> ヘッダーに秒数を指定します。ログインなどの一部のエンドポイントは、設定に関わらず独自の制限があります。</p>
+<p>429 を受信した際に待機して再試行するスクリプトを作成し、ポーリングを避けてください。代わりに WebSocket を追跡してください。</p>
+
+<h2 id="websocket">WebSocket イベントストリーム</h2>
+<p><code>wss://chat.example.com/api/v4/websocket</code> に接続します。認証は、接続リクエストに <code>Authorization: Bearer</code> ヘッダーを付けるか、最初のメッセージとして以下を送信することで行います：</p>
+<pre><code>{"seq": 1, "action": "authentication_challenge", "data": {"token": "…"}}</code></pre>
+<p>サーバーは <code>hello</code> イベントを送信し、その後、閲覧が許可されているすべてのイベントを送信します：</p>
+<pre><code>{
+  "event": "posted",
+  "data": {"channel_id": "…", "channel_type": "O", "post": "{\"id\":\"…\",\"message\":\"Hello\",…}"},
+  "broadcast": {"channel_id": "…", "team_id": "", "user_id": "", "omit_users": null},
+  "seq": 4
+}</code></pre>
+<p><code>data.post</code> は JSON 文字列としての投稿であることに注意してください。一般的なイベント：<code>posted</code>、<code>post_edited</code>、<code>post_deleted</code>、<code>reaction_added</code>、<code>reaction_removed</code>、<code>typing</code>、<code>status_change</code>、<code>user_added</code>、<code>direct_added</code>。アプリは <code>custom_&lt;app id&gt;_&lt;event&gt;</code> という名前の独自のイベントを送信します。</p>
+<p>アクションも送信できます。各アクションには増加する <code>seq</code> が付与されます：<code>user_typing</code> は <code>{"channel_id", "parent_id"}</code> を、または <code>get_statuses</code> を送信します。接続が切断された場合は再接続し、<code>since</code> を使用して取りこぼしたものを取得してください（<a href="#pagination">ページネーション</a>を参照）。</p>
+<p>Antimatterはこれらのイベントを追加します: <code>community_attributes_updated</code>、<code>member_timeouts_updated</code>、<code>post_put_on_top</code>、<code>post_removed_from_top</code>、<code>server_categories_updated</code>、<code>channel_overrides_updated</code>、<code>category_overrides_updated</code>。</p>
+
+<h2 id="clients">クライアントライブラリ</h2>
+<ul>
+<li><b>開始</b>: <code>server/public/model</code> 内の <code>model.Client4</code> (インポート: <code>github.com/mattermost/mattermost/server/public/model</code>)。 <code>model.NewAPIv4Client(url)</code> を呼び出し、次に <code>client.SetToken(token)</code> を実行します。 <code>model.NewWebSocketClient4(wsURL, token)</code> を使用するとイベントを追跡できます。Antimatterのコピーには、<code>UpdateMessageRequest</code>、<code>PutPostOnTop</code>、<code>ExportChannel</code> など、独自のエンドポイント用のメソッドが追加されています。</li>
+<li><b>TypeScript</b>: <code>webapp/platform/client</code>内の<code>@mattermost/client</code>の<code>Client4</code>クラスで、型は<code>webapp/platform/types</code>にあります。 AntimatterのリポジトリにあるコピーにはAntimatterのエンドポイントが含まれていますが、Mattermostがnpmに公開しているパッケージには含まれていません。</li>
+</ul>
+<pre><code>package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/mattermost/mattermost/server/public/model"
+)
+
+func main() {
+	client := model.NewAPIv4Client("https://chat.example.com")
+	client.SetToken("…")
+	post, _, err := client.CreatePost(context.Background(), &amp;model.Post{
+		ChannelId: "…",
+		Message:   "Hello from Go",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("posted", post.Id)
+}</code></pre>
+
+<h2 id="antimatter">AntimatterがAPIに追加するもの</h2>
+<p>これらのエンドポイントとフィールドはMattermostサーバーには存在しません。 すべてセッションが必要です。</p>
+<table>
+<thead><tr><th>エンドポイント</th><th>機能</th></tr></thead>
+<tbody>
+<tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> 同じパス<br><code>PATCH</code>、<code>DELETE …/fields/{field_id}</code></td><td>コミュニティ属性: コミュニティの管理者がメンバー用に定義するプロフィールフィールド(最大20個)。 メンバーはこれらを読み取ることができます。コミュニティの管理者が作成・変更します。</td></tr>
+<tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> 同じパス<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>メンバーの属性値は<code>{field_id: value}</code>として保持されます。 メンバーは自分の値を設定できます(管理者管理の項目を除く)。管理者は誰でも設定できます。 検索には<code>{"user_ids": [...]}</code>(最大200件)を使用します。</td></tr>
+<tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>タイムアウト: <code>{"until": time, "reason": "…"}</code>は、その時点まで(最大28日間)コミュニティでの投稿、リアクション、アップロードを禁止します。 <code>"until": 0</code>で解除します。 モデレーションビューでは、参加日時と最近の投稿量を確認できます。</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>チャンネルの上部に固定されたメッセージ(最大10件)。 <code>{"duration": ms}</code>、最大30日間。 0の場合は削除されるまで保持されます。 チャンネルへの投稿権限が必要です。</td></tr>
+<tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>自分のメッセージリクエストに対して操作します: <code>{"action": "accept"}</code>、<code>"dismiss"</code>、または<code>"request"</code>で会話をリクエストリストに戻します。 自分のチャンネルメンバー情報を返します。</td></tr>
+<tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>チャンネル内でロールまたはユーザーが実行できる操作、およびロール制限付きチャンネルを表示できるロール。</td></tr>
+<tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>コミュニティの共有チャンネルカテゴリ、およびそのカテゴリ内のすべてのチャンネルに適用されるオーバーライド。</td></tr>
+<tr><td><code>GET /groups/{group_id}/team_role</code><br><code>PUT …/team_role/permissions</code></td><td>コミュニティロールが付与する権限。</td></tr>
+<tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>テキストに対してコミュニティのオートリンクルールを試す。</td></tr>
+<tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>チャンネルのメッセージをCSVとしてダウンロード（最大50,000件）。チャンネルの読み取り権限を持つユーザー向け。</td></tr>
+<tr><td><code>GET /posts/{post_id}/speech</code></td><td>テキスト読み上げが設定されている場合、メッセージを音声として読み上げる。</td></tr>
+</tbody>
+</table>
+<h3>新しいフィールド</h3>
+<ul>
+<li><b>コミュニティ</b>（<code>Team</code>、および <code>PUT /teams/{team_id}/patch</code>）：<code>all_channels_membership</code>（Discordと同様に、表示可能なすべてのチャンネルに全員が参加）、<code>default_channel_id</code>（新規参加者が最初に表示される場所。空の場合はTown Square）、<code>hide_role_colors</code>、<code>require_team_badges</code>、<code>onboarding</code> および <code>autolinks</code>（いずれもJSON文字列）。</li>
+<li><b>インライン返信</b>：<code>"props": {"reply_to": "&lt;post id&gt;"}</code> を持つ投稿は、同じチャンネル内のそのメッセージを引用します。<code>"reply_to_mention": false</code> を追加すると、投稿者に通知しません。サーバーは <code>metadata.reply_to</code> に、引用されたメッセージの短い説明を設定します。</li>
+<li><b>ネタバレ</b>：<code>"props": {"spoiler": true}</code> を設定すると、投稿のテキストとファイルが、閲覧者が表示を選択するまで非表示になります。</li>
+<li><b>無視とブロック</b>は設定項目です。カテゴリは <code>user_block</code> で、他の人のIDを名前に使用し、値は <code>ignore</code> または <code>block</code> です。ダイレクトメッセージがリクエストとして待機するかどうかは、あなたのチャンネルメンバーの <code>notify_props.dm_request</code>（<code>pending</code>、<code>accepted</code> または <code>dismissed</code>）で管理されます。</li>
+<li><b>メッセージ添付</b>は <code>stages</code> と <code>chart</code> を保持できます：<a href="{{root}}docs/developers/webhooks.html#cards">カード</a>を参照してください。</li>
+</ul>

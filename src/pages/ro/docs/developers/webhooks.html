@@ -1,0 +1,170 @@
+title: Webhooks
+description: Webhooks de primire și de trimitere în Antimatter: crearea lor, sarcinile și răspunsurile, atașamentele și cardurile de mesaj, suprascrierea numelui și a pictogramei, cu exemple.
+guide: developers
+order: 3
+nav: Webhooks
+lead: Un webhook de primire permite unui alt sistem să posteze într-un canal prin trimiterea unui JSON către o URL secretă. Un webhook de trimitere face inversul: trimite către URL-ul dvs. mesajele care încep cu un cuvânt de declanșare și postează răspunsul pe care îl oferiți.
+source: ecd698619944
+---
+<h2 id="where">Unde gestionați webhooks</h2>
+<p>Deschideți avatarul din colțul din dreapta sus, apoi <b>Integrări</b>. Paginile de integrări ale comunității curente listează <b>Webhooks de intrare</b> și <b>Webhook de ieșire</b>. Fiecare webhook aparține unei singure comunități.</p>
+<p>By default, community admins and system admins can create webhooks. A system admin can give the right to other roles in the permission settings of the System Console. A system admin can also turn each kind off in <b>System Console › Integrations › Integration Management</b>: <b>Enable Incoming Webhooks</b> and <b>Enable Outgoing Webhooks</b> are both on by default.</p>
+<figure><img src="{{root}}assets/img/shots/integrations.webp" alt="A channel with messages from a CI bot and from GitHub, shown as cards with fields, pipeline stages and a button"><figcaption>Mesaje de integrare desenate ca carduri: câmpuri, etape de pipeline și un buton de acțiune.</figcaption></figure>
+
+<h2 id="incoming">Crearea unui webhook de primire</h2>
+<ol>
+<li>În <b>Integrări</b>, selectați <b>Webhooks de intrare</b>, apoi <b>Adăugați Webhook de intrare</b>.</li>
+<li>Completați un <b>Titlu</b> și o <b>Descriere</b>: acestea apar doar pe paginile de integrări.</li>
+<li>Alegeți <b>Channel</b> către care se trimit mesajele în mod implicit. Pentru un canal privat, trebuie să fiți membru al acestuia.</li>
+<li>Bifați <b>Blocați acest canal</b> dacă trimițătorii nu trebuie să poată posta în altă parte.</li>
+<li>Opțional, setați un <b>Utilizator</b> și o adresă URL pentru <b>Poză de profil</b> pentru mesajele sale (a se vedea <a href="#identity">Nume și pictogramă</a>).</li>
+<li>Selectați <b>Salvează</b>. Copiați adresa URL afișată: <code>https://chat.example.com/hooks/&lt;key&gt;</code>.</li>
+</ol>
+<div class="callout warn">URL-ul este singurul secret: oricine îl deține poate posta în canal. Păstrați-l departe de depozitele publice și ștergeți webhook-ul dacă este scurs.</div>
+<p>Cu API: <code>POST /api/v4/hooks/incoming</code> cu <code>{"channel_id", "display_name", "description", "username", "icon_url", "channel_locked"}</code>; <code>id</code> din răspuns este cheia. Din linia de comandă: <code>amctl webhook create-incoming --channel &lt;channel id&gt; --user &lt;user&gt; --display-name "CI"</code>.</p>
+
+<h2 id="incoming-send">Trimiterea unui mesaj către un webhook de primire</h2>
+<pre><code>curl -X POST https://chat.example.com/hooks/xgh5ycrx1jf7mbs9w8z4c8e7ho \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Deploy of **api 2.4.0** finished :white_check_mark:"}'</code></pre>
+<p>Serverul răspunde cu <code>200</code> și corpul <code>ok</code>. Acceptă și <code>application/x-www-form-urlencoded</code> cu JSON într-un câmp <code>payload</code>, așa cum fac webhooks-urile Slack, astfel încât instrumentele create pentru Slack funcționează de obicei neschimbate.</p>
+<table>
+<thead><tr><th>Câmp</th><th>Semnificație</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>Mesajul, în format Markdown. Obligatoriu, cu excepția cazului în care există <code>attachments</code>. Un text mai lung decât limita de mesaj a serverului este împărțit în mai multe mesaje.</td></tr>
+<tr><td><code>channel</code></td><td>Alt canal din comunitatea webhook-ului, după nume (<code>ops-alerts</code> sau <code>#ops-alerts</code>), sau <code>@username</code> pentru un mesaj direct de la proprietarul webhook-ului. Este refuzat dacă webhook-ul este blocat pe canalul său.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code>, <code>icon_emoji</code></td><td>Numele și imaginea de profil de afișat, dacă serverul permite suprascrierea.</td></tr>
+<tr><td><code>attachments</code></td><td>Atașamentele mesajului, afișate sub formă de carduri (mai jos).</td></tr>
+<tr><td><code>props</code></td><td>Proprietăți suplimentare stocate pe mesaj, pentru aplicațiile care le citesc.</td></tr>
+<tr><td><code>type</code></td><td>Un tip de mesaj personalizat, de exemplu <code>custom_poll</code>, pentru o aplicație care îl afișează. Tipurile care încep cu <code>system_</code> sunt refuzate.</td></tr>
+<tr><td><code>root_id</code></td><td>ID-ul primului mesaj dintr-un fir de discuție, pentru a răspunde în acel fir.</td></tr>
+<tr><td><code>priority</code></td><td>Prioritatea mesajului, de exemplu <code>{"priority": "urgent"}</code>.</td></tr>
+<tr><td><code>silent</code></td><td><code>true</code> trimite mesajul fără notificări push.</td></tr>
+</tbody>
+</table>
+<p>Mesajele afișate sub un nume suprascris au o etichetă <b>BOT</b> lângă nume, astfel încât utilizatorii să le poată deosebi de conturile reale. Mesajele de webhook nu declanșează niciodată webhooks de ieșire.</p>
+
+<h2 id="identity">Nume și pictogramă</h2>
+<p>Un webhook postează în numele persoanei care l-a creat, cu excepția cazului în care serverul permite suprascrieri. Două setări din <b>Consola de sistem › Integrări › Managementul integrării</b>, ambele dezactivate în mod implicit, modifică acest lucru:</p>
+<ul>
+<li><b>Activați integrațiile pentru a suprascrie numele de utilizator</b> (<code>ServiceSettings.EnablePostUsernameOverride</code>): este afișat <b>Utilizator</b> al webhook-ului sau <code>username</code> din cerere; în absența oricărui element, numele este <code>webhook</code>.</li>
+<li><b>Activați integrațiile pentru a înlocui pictogramele de imagini de profil</b> (<code>ServiceSettings.EnablePostIconOverride</code>): este afișată <b>Poza de profil</b> a webhook-ului, sau <code>icon_url</code> sau <code>icon_emoji</code> din cerere.</li>
+</ul>
+<p>O valoare din cerere are prioritate față de cea salvată pe webhook.</p>
+
+<h2 id="attachments">Atașamente</h2>
+<p>Atașamentele adaugă conținut structurat sub text. Ele urmează formatul de atașament de mesaj de la Slack:</p>
+<pre><code>{
+  "text": "Build failed on `main`",
+  "attachments": [{
+    "fallback": "main #1902 failed",
+    "color": "#d24b4e",
+    "author_name": "GitHub Actions",
+    "author_icon": "https://chat.example.com/static/ci.png",
+    "title": "main #1902 failed",
+    "title_link": "https://ci.example.com/runs/1902",
+    "text": "Commit `0f4d8e2` by Jonas Weber",
+    "fields": [
+      {"title": "Branch", "value": "zephyr-3.7", "short": true},
+      {"title": "Duration", "value": "3m 40s", "short": true}
+    ],
+    "footer": "Lumen CI",
+    "ts": 1760000000
+  }]
+}</code></pre>
+<table>
+<thead><tr><th>Câmp</th><th>Semnificație</th></tr></thead>
+<tbody>
+<tr><td><code>fallback</code></td><td>Text simplu pentru locurile care nu pot afișa cardul, cum ar fi notificările.</td></tr>
+<tr><td><code>color</code></td><td>Bara de culoare: o culoare hexazecimală, sau <code>good</code>, <code>warning</code>, <code>danger</code>.</td></tr>
+<tr><td><code>pretext</code></td><td>Text deasupra cardului.</td></tr>
+<tr><td><code>author_name</code>, <code>author_link</code>, <code>author_icon</code></td><td>O linie de antet mică.</td></tr>
+<tr><td><code>title</code>, <code>title_link</code></td><td>Titlul cardului, opțional un link.</td></tr>
+<tr><td><code>text</code></td><td>Corpul cardului, în format Markdown.</td></tr>
+<tr><td><code>fields</code></td><td>O listă de <code>{"title", "value", "short"}</code>; câmpurile <code>short</code> sunt așezate unul lângă altul.</td></tr>
+<tr><td><code>image_url</code>, <code>thumb_url</code></td><td>O imagine mare de jos, sau una mică lateral.</td></tr>
+<tr><td><code>footer</code>, <code>footer_icon</code>, <code>ts</code></td><td>O linie de subsol și un moment în timp (secunde Unix).</td></tr>
+<tr><td><code>actions</code></td><td>Butoane și meniuri: vezi <a href="{{root}}docs/developers/bots.html#interactive">Mesaje interactive</a>.</td></tr>
+</tbody>
+</table>
+
+<h2 id="cards">Carduri: etape și grafice</h2>
+<p>Antimatter adaugă două câmpuri la atașamente, afișate de interfața implicită:</p>
+<ul>
+<li><code>stages</code>: pașii unui pipeline, afișate ca pastile, până la 20. Fiecare este <code>{"name", "status"}</code>, cu un status de <code>passed</code>, <code>failed</code>, <code>running</code>, <code>pending</code>, <code>skipped</code> sau <code>canceled</code>.</li>
+<li><code>chart</code>: un grafic liniar mic al valorilor recente, <code>{"values": [2 to 200 numbers], "threshold": number, "label": "…"}</code>. Pragul este desenat ca o linie întreruptă, pentru limita unei alerte.</li>
+</ul>
+<pre><code>{
+  "attachments": [{
+    "color": "danger",
+    "title": "main #1902 failed",
+    "stages": [
+      {"name": "build", "status": "failed"},
+      {"name": "unit", "status": "skipped"},
+      {"name": "publish", "status": "skipped"}
+    ]
+  }, {
+    "color": "warning",
+    "title": "API latency above 400 ms",
+    "chart": {"values": [210, 230, 260, 390, 450, 470], "threshold": 400, "label": "p95 latency, ms"}
+  }]
+}</code></pre>
+<p>Interfața clasică și alți clienți ignoră aceste două câmpuri, așa că puneți esențialul și în <code>text</code> sau <code>fields</code>.</p>
+
+<h2 id="outgoing">Creați un webhook de ieșire</h2>
+<p>Un webhook de ieșire monitorizează canalele <b>public</b> ale unei comunități. Când primul cuvânt dintr-un mesaj corespunde uneia dintre cuvintele de declanșare, Antimatter trimite mesajul către URL-ul dvs.</p>
+<ol>
+<li>În <b>Integrări</b>, selectați <b>Webhook de ieșire</b>, apoi <b>Adăugați Webhook de ieșire</b>.</li>
+<li>Completați <b>Titlul</b> și <b>Descrierea</b>.</li>
+<li>Selectați <b>Tip-conținut</b> al cererii: <code>application/x-www-form-urlencoded</code> sau <code>application/json</code>.</li>
+<li>Alegeți un <b>Canal</b>, introduceți <b>Cuvinte de declanșare (câte una pe linie)</b>, sau ambele. Cu un canal și fără cuvinte de declanșare, fiecare mesaj din acel canal este trimis. Cu ambele, mesajul trebuie să se potrivească cu ambele.</li>
+<li>Sub <b>Declanșează cînd</b>, selectați <b>Primul cuvânt se potrivește exact cu un cuvânt de declanșare</b> sau <b>Primul cuvânt începe cu un cuvânt de declanșare</b>.</li>
+<li>Introduceți <b>Adrese URL cu inversare (câte unul pe linie)</b>. Fiecare adresă URL primește fiecare mesaj care se potrivește.</li>
+<li>Opțional, setați <b>Utilizatorul</b> și <b>Poza de profil</b> utilizate pentru răspunsuri.</li>
+<li>Alegeți <b>Salvează</b> și copiați tokenul afișat. Serviciul dumneavoastră îl folosește pentru a verifica dacă cererile provin de la serverul dumneavoastră.</li>
+</ol>
+<p>Cu API: <code>POST /api/v4/hooks/outgoing</code> cu <code>{"team_id", "channel_id", "trigger_words", "trigger_when", "callback_urls", "content_type", "display_name"}</code> (<code>trigger_when</code>: 0 pentru potrivire exactă, 1 pentru "începe cu").</p>
+<div class="callout">Dacă serviciul dumneavoastră se află pe o rețea privată, un administrator de sistem trebuie să permită adresa acestuia în <b>Permiteți conexiunile interne de neîncrederi la</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>). În caz contrar, serverul nu apelează adrese private.</div>
+
+<h2 id="outgoing-request">Cererea de ieșire</h2>
+<p>Antimatter trimite un POST cu aceste câmpuri, ca JSON sau form-encoded, în funcție de tipul de conținut:</p>
+<pre><code>{
+  "token": "6kd1ofo5ojr5zgu5ipfipybgnc",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "channel_id": "…",
+  "channel_name": "ops-alerts",
+  "timestamp": 1760010000000,
+  "user_id": "…",
+  "user_name": "priya",
+  "post_id": "…",
+  "text": "deploy api 2.4.0",
+  "trigger_word": "deploy",
+  "file_ids": ""
+}</code></pre>
+<p>Comparați <code>token</code> cu tokenul webhook-ului înainte de a face orice. În versiunea form-encoded, <code>timestamp</code> este în secunde, nu în milisecunde. Serverul așteaptă răspunsul dumneavoastră atât timp cât permite <b>Timp de așteptare pentru cererile de integrare</b> (30 de secunde implicit, <code>ServiceSettings.OutgoingIntegrationRequestsTimeout</code>).</p>
+
+<h2 id="outgoing-response">Răspundeți la un webhook de ieșire</h2>
+<p>Pentru a trimite un răspuns, răspundeți cu JSON. Pentru a nu trimite nimic, răspundeți cu un corp gol.</p>
+<pre><code>{
+  "text": "Deploying **api 2.4.0** to staging…",
+  "response_type": "comment",
+  "username": "deploy-bot",
+  "icon_url": "https://chat.example.com/static/deploy.png"
+}</code></pre>
+<ul>
+<li><code>text</code> și <code>attachments</code>: răspunsul. Fără niciunul dintre ele, nu se publică nimic.</li>
+<li><code>response_type</code>: <code>comment</code> publică răspunsul în firul de discuție al mesajului care a declanșat webhook-ul; în caz contrar, acesta este publicat în canal.</li>
+<li><code>username</code>, <code>icon_url</code>: afișate când serverul permite suprascrieri; în caz contrar, se folosesc valorile proprii ale webhook-ului.</li>
+<li><code>props</code>, <code>type</code>, <code>priority</code>: la fel ca pentru webhook-urile de intrare.</li>
+</ul>
+<p>Răspunsul este publicat de către creatorul webhook-ului, sub numele suprascris, dacă există. Pentru orice răspuns mai lung decât unul scurt, răspundeți imediat și publicați ulterior cu un webhook de intrare sau cu API-ul.</p>
+
+<h2 id="troubleshooting">Când un webhook nu funcționează</h2>
+<ul>
+<li><b>501 de la URL-ul hook-ului</b>: webhook-urile de intrare sunt dezactivate pe server.</li>
+<li><b>400 "Failed to decode the payload…"</b>: JSON-ul este invalid, sau câmpul de formular nu se numește <code>payload</code>. <b>"No text specified."</b> înseamnă că cererea nu are nici <code>text</code>, nici <code>attachments</code>.</li>
+<li><b>403</b>: webhook-ul este blocat pe un alt canal, sau proprietarul acestuia nu mai poate citi canalul.</li>
+<li><b>Un webhook de ieșire nu se declanșează niciodată</b>: canalul este privat, declanșatorul nu este primul cuvânt, sau mesajul a venit de la un webhook.</li>
+<li><b>Jurnale</b>: cu <b>Activați depanarea Webhook</b> activat (<code>LogSettings.EnableWebhookDebugging</code>) și nivelul de jurnalizare setat pe <code>DEBUG</code>, serverul înregistrează în jurnal încărcăturile cererilor primite eșuate. Apelurile externe eșuate sunt înregistrate ca <code>Outgoing Webhook POST failed</code>.</li>
+</ul>

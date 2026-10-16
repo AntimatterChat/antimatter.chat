@@ -1,0 +1,105 @@
+title: Zálohy a aktualizace
+description: Zálohujte a obnovte server Antimatter (databázi, úložiště souborů, konfiguraci), bezpečně ho aktualizujte, převeďte server Mattermost do Antimatter a exportujte nebo importujte data.
+guide: admins
+order: 10
+nav: Zálohy a aktualizace
+lead: Co zálohovat, jak to obnovit na novém hostiteli, jak aktualizovat a jak převést server Mattermost nebo jednotlivou komunitu do Antimatter.
+source: b0797af8b6e7
+---
+<h2 id="what">Co zálohovat</h2>
+<table>
+<thead><tr><th>Co</th><th>S compose souborem webu</th><th>S archívem vydání</th></tr></thead>
+<tbody>
+<tr><td>Databáze: zprávy, uživatelé, komunity, kanály a, s compose souborem webu, konfigurace</td><td>svazek <code>antimatter_postgres</code>, pomocí <code>pg_dump</code></td><td>vaše databáze PostgreSQL</td></tr>
+<tr><td>Nahraté soubory, obrázky a nainstalované aplikace</td><td>svazek <code>antimatter_files</code> (úložiště S3)</td><td><code>FileSettings.Directory</code>, výchozí je <code>./data/</code></td></tr>
+<tr><td>Konfigurační soubor</td><td>(v databázi)</td><td><code>config/config.json</code></td></tr>
+<tr><td>Gify a samolepky</td><td>svazek <code>antimatter_gifs</code></td><td>adatový adresář služby GIF</td></tr>
+<tr><td>Hesla</td><td><code>.env</code> (a <code>compose.override.yaml</code>)</td><td>váš soubor prostředí</td></tr>
+</tbody>
+</table>
+<p>Databáze a soubory spolu souvisí: zálohujte je ve stejný čas a uchovávejte kopie mimo server. Názvy svazků začínají názvem compose projektu, <code>antimatter</code> (vypíše je <code>docker volume ls</code>).</p>
+
+<h2 id="backup">Zálohování</h2>
+<p>Z adresáře souboru <code>compose.yaml</code>. Předem zastavení Antimatter zajistí plně konzistentní kopii; záloha pořízená za běhu je obvykle v pořádku, ale soubory nahraté během zálohování v ní mohou chybět.</p>
+<pre><code>stamp=$(date +%Y%m%d-%H%M%S)
+mkdir -p backups
+docker compose stop antimatter
+# Database
+docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
+    &gt; "backups/antimatter-db-$stamp.dump"
+# File storage and GIF service
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
+        alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
+done
+docker compose start antimatter
+# Secrets
+cp .env "backups/env-$stamp"</code></pre>
+<p>Spouštějte to z cronu pro denní zálohy a kopírujte adresář <code>backups/</code> na jiný stroj. Kopie souboru <code>.env</code> uchovávejte stejně bezpečně jako server: obsahují jeho hesla.</p>
+<p>Pokud chcete nahraté soubory kopírovat objekt po objektu (například do jiného úložiště S3), použijte nástroj příkazového řádku AWS služby <code>bucket</code>:</p>
+<pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
+    "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
+<p>S archívem vydání zálohujte databázi pomocí <code>pg_dump -Fc</code> a adresáře <code>data/</code> a <code>config/</code> pomocí svých obvyklých nástrojů.</p>
+
+<h2 id="restore">Obnovení na novém hostiteli</h2>
+<p>Umístěte <code>compose.yaml</code>, uložený <code>.env</code> a zálohy do nového adresáře, pak:</p>
+<pre><code>stamp=20261016-030000          # the backup to restore
+docker compose create           # creates the volumes, starts nothing
+docker compose up -d postgres
+docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
+    &lt; "backups/antimatter-db-$stamp.dump"
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
+        alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
+done
+docker compose up -d</code></pre>
+<p>Použijte stejný <code>.env</code>: úložiště i databáze musí si zachovat svá hesla. Pokud má nový hostitel jinou adresu, aktualizujte <code>SITE_URL</code> (a <code>DOMAIN</code>).</p>
+<p>Zálohy otestujte občas tím, že je obnovíte na jiném stroji.</p>
+
+<h2 id="upgrade">Aktualizace</h2>
+<ol>
+<li>Pořiďte zálohu.</li>
+<li>Změňte štítek obrazu v <code>.env</code> (<code>ANTIMATTER_IMAGE</code>), pokud ho fixujete, jak je doporučeno.</li>
+<li>Stáhněte a restartujte:
+<pre><code>docker compose pull
+docker compose up -d
+docker compose logs -f antimatter</code></pre></li>
+</ol>
+<p>Po spuštění server aktualizuje schéma databáze (postup sledujte v logu; u velkého serveru to může trvat několik minut) a nainstaluje novější verze aplikací zabudovaných do obrazu. Při použití archivu vydání: zastavte server, nahraďte všechno kromě <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> a <code>client/plugins/</code> obsahem nového archivu a server znovu spusťte.</p>
+<div class="callout warn">Aktualizace probíhají pouze do před. Jakmile novější server databázi aktualizuje, starší verze ji už nemůže použít: pokud se chcete vrátit, obnovte zálohu pořízenou před aktualizací. To samé platí pro návrat z <code>antimatter-next</code> zpět na <code>antimatter</code>.</div>
+<h3>Verze</h3>
+<p>Server Antimatter hlásí verzi řady Mattermost, na které je založen (aktuálně 12.0.0). Obrazy se přebudovávají z větví <code>main</code>: <code>antimatter-next</code> každou noc (štítky <code>nightly-&lt;YYYYMMDD&gt;</code>) a oba obrazy při každé změně (štítky <code>sha-&lt;commit&gt;</code>). Upevněte jeden z těchto štítků, aktualizujte cíleně a pište si, který je předchozí, abyste věděli, která záloha k němu patří.</p>
+<h3>Hlavní verze PostgreSQL</h3>
+<p>Soubor compose používá <code>postgres:17-alpine</code>. Antimatter vyžaduje PostgreSQL 15 nebo novější. Nová hlavní verze PostgreSQL nedokáže přečíst datový adresář předchozí verze: pokud se chcete přejít na novou, vyexportujte databázi, spusťte novou verzi na novém svazku a do ní export obnovte.</p>
+
+<h2 id="mattermost">Přechod z Mattermost</h2>
+<p>Antimatter používá schéma databáze Mattermost a přidává vlastní tabulky, takže může převzít databázi PostgreSQL a soubory serveru Mattermost. Nejprve to vyzkoušejte na kopii:</p>
+<ol>
+<li>Zálohujte databázi Mattermost, jeho úložiště souborů (<code>data/</code> nebo S3 bucket) a <code>config.json</code>, poté Mattermost zastavte.</li>
+<li>Obnovte databázi do PostgreSQL pro Antimatter, nebo Antimatter nasměrujte na její kopii (<code>AM_SQLSETTINGS_DATASOURCE</code>).</li>
+<li>Zkopírujte soubory do úložiště Antimatter, přičemž zachovejte jejich cesty: do bucketu <code>antimatter</code> pomocí nástroje pro S3, nebo do <code>data/</code> pomocí archivu vydání.</li>
+<li>Znovu použijte svá nastavení: zkopírujte <code>config.json</code>, nebo ho přeneste do databáze pomocí <code>amctl --local config migrate</code> (viz <a href="{{root}}docs/admins/configuration.html">Nastavení</a>). Vaše proměnné prostředí <code>MM_</code> nadále fungují; přejmenujte je na <code>AM_</code>, jak vám to vyhovuje.</li>
+<li>Spusťte Antimatter a sledujte protokol, zatímco aktualizuje databázi. Poté zkontrolujte <b>Systémová konzole › Pluginy › Správa pluginů</b>. Antimatter nainstaluje vlastní verze aplikací Hovory, Playbooky, Kanban (Nástěnky), Agenti a integrací, pokud jsou novější než nainstalovaná verze. Pokud Mattermost měl novější verzi některé z nich, odstraňte tuto aplikaci a restartujte Antimatter, aby se nainstalovala jeho vlastní verze.</li>
+<li>Nakonfigurujte si vlastní proxy pro push oznámení. Antimatter nikdy neposílá oznámení do push služeb Mattermost, ať už testovacích, nebo hostovaných, protože ty doručují pouze do vlastních aplikací Mattermost. Dokud nezměníte <b>Server push oznámení</b>, server neposílá žádná push oznámení (viz <a href="{{root}}docs/admins/email-push.html#push">Push oznámení</a>).</li>
+</ol>
+<p>Antimatter nekomunikuje s žádnou službou provozovanou společností Mattermost, Inc. (viz <a href="{{root}}docs/admins/security.html#outbound">Připojení k externím službám</a>), i když se v konfiguraci stále nachází odkaz na některou z nich:</p>
+<ul>
+<li>server push notifikací od Mattermost zůstává v nastaveních, ale nikdy se nepoužívá;</li>
+<li>adresy Mattermost pro tržiště aplikací (<b>URL tržiště</b>) a pro produktová oznámení jsou vyprázdněny;</li>
+<li>aplikace Hovory používá veřejný STUN server Cloudflare místo toho od Mattermost, aniž by se měnilo uložené nastavení (viz <a href="{{root}}docs/admins/calls.html#network">Hovory</a>);</li>
+<li>kontrola bezpečnostních aktualizací a hlášení chyb byly odstraněny, stejně jako jejich nastavení v Systémové konzoli (<b>Povolit bezpečnostní upozornění</b>, <b>Povolit diagnostiku a hlášení chyb</b>) a stránka <b>Oznámení</b>.</li>
+</ul>
+<p>Místní socket je nyní <code>/var/tmp/antimatter_local.socket</code>; <code>amctl</code> také zkouší starý <code>/var/tmp/mattermost_local.socket</code>. Mattermost v nedávných verzích podporuje pouze PostgreSQL, a to samé platí pro Antimatter: databázi MySQL je třeba nejprve přenést do PostgreSQL. Vratit se k Mattermostu poté, co Antimatter aktualizoval databázi, znamená obnovit zálohu Mattermost.</p>
+
+<h2 id="export-import">Export a import dat</h2>
+<p>Formát hromadného exportu slouží k přenosu dat mezi servery: celý server, některé komunity nebo některé kanály, včetně příloh, profilových fotografií a vlastních emoji, pokud je požadujete.</p>
+<pre><code># on the source server
+amctl export create --team-name design --include-profile-pictures
+amctl export list
+amctl export download &lt;export file&gt; design.zip
+# on the destination server
+amctl import upload design.zip
+amctl import list available
+amctl import process &lt;uploaded file&gt; --imported-users active</code></pre>
+<p>Postup exportu a importu sledujte pomocí příkazů <code>amctl export job list</code> a <code>amctl import job list</code>. Pro export komunity nebo kanálu je požadován parametr <code>--imported-users</code>: hodnota <code>active</code> se používá, když se lidé přesouvají na tento server, hodnota <code>inactive</code> se používá při importu do serveru, kde už mají účty, aby účty vytvořené z nejistých shod zůstaly neaktivní, dokud je administrátor neověří. Parametr <code>--destination-team-name</code> umožňuje import do existující komunity. Exporty a importy se na úložišti serveru (<code>ExportSettings.Directory</code>, <code>ImportSettings.Directory</code>) uchovávají výchozí po dobu 30 dnů.</p>
+<p>Přímo na serveru příkazy <code>antimatter export bulk</code> a <code>antimatter import bulk --apply</code> provádějí stejnou operaci z souborů, aniž by využívaly API.</p>

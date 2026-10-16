@@ -1,0 +1,313 @@
+title: نوشتن اپلیکیشن‌ها (افزونه‌ها)
+description: نحوه نوشتن یک اپلیکیشن Antimatter (افزونه): چیدمان باندل و plugin.json، هوک‌ها و API سرور، رجیستری اپلیکیشن وب، پشتیبانی از رابط Fusion، تنظیمات، مخزن کلید-مقدار، ترجمه‌ها، بسته‌بندی و نصب.
+guide: developers
+order: 6
+nav: نوشتن اپلیکیشن‌ها
+lead: اپلیکیشن‌ها قابلیت‌هایی را از درون به Antimatter اضافه می‌کنند: یک بخش سرور به زبان Go که به سرور متصل می‌شود و یک بخش اپلیکیشن وب به زبان React که منوها، پنل‌ها، انواع پیام و صفحات را اضافه می‌کند. این صفحه چیدمان یک اپلیکیشن را با استفاده از اپلیکیشن Polls که همراه با Antimatter ارائه می‌شود به عنوان مثال نشان می‌دهد و توضیح می‌دهد که چه تغییراتی در رابط Fusion آنتی‌ماتر رخ می‌دهد.
+source: d9c132cac759
+---
+<h2 id="overview">نحوه عملکرد یک اپلیکیشن</h2>
+<ul>
+<li><b>بخش سرور</b> یک برنامه Go است. سرور آن را به عنوان یک فرآیند جداگانه راه‌اندازی می‌کند و از طریق RPC با آن صحبت می‌کند: هوک‌های <b>اپلیکیشن</b> را فراخوانی می‌کند (یک پیام در حال ارسال است، یک دستور اجرا شده است…) و اپلیکیشن <b>API افزونه</b> سرور را فراخوانی می‌کند (ایجاد یک پست، خواندن یک کاربر، ذخیره داده…). همچنین می‌تواند مسیرهای HTTP را زیر <code>/plugins/&lt;app id&gt;/</code> ارائه دهد.</li>
+<li><b>بخش اپلیکیشن وب</b> یک باندل جاوااسکریپت است که همراه با اپلیکیشن وب در مرورگر بارگذاری می‌شود. این بخش اجزای React و کال‌بک‌ها را با <b>رجیستری</b> ثبت می‌کند: یک دکمه در منو، یک پنل، یا روشی برای رسم یک نوع پیام.</li>
+<li>هر یک از این بخش‌ها اختیاری است. یک اپلیکیشن به صورت یک باندل <code>.tar.gz</code> نصب می‌شود و مدیران سیستم آن را فعال، غیرفعال و پیکربندی می‌کنند.</li>
+</ul>
+<div class="callout warn">بخش سرور با دسترسی کامل به داده‌های سرور اجرا می‌شود. یک اپلیکیشن را مانند کدی که روی سرور استقرار می‌دهید در نظر بگیرید.</div>
+<p>Antimatter اپلیکیشن‌هایی که برای Mattermost نوشته شده‌اند را اجرا می‌کند و برعکس، به شرطی که اپلیکیشن فقط از هوک‌هایی استفاده کند که هر دو دارند. به <a href="#antimatter-hooks">هوک‌هایی که فقط Antimatter دارد</a> مراجعه کنید.</p>
+
+<h2 id="layout">چیدمان باندل</h2>
+<p>هیچ قالب شروع جداگانه‌ای وجود ندارد: از یک اپلیکیشن کوچک همراه مانند <a href="https://github.com/AntimatterChat/antimatter-plugin-polls">antimatter-plugin-polls</a> یا <a href="https://github.com/AntimatterChat/antimatter-plugin-todo">antimatter-plugin-todo</a> شروع کنید و شناسه و کد آن را تغییر دهید. Polls به این صورت چیده شده است:</p>
+<pre><code>antimatter-plugin-polls/
+├── plugin.json            the manifest
+├── Makefile               build, test, bundle, deploy
+├── build/                 the manifest and pluginctl helper tools (Go), setup.mk
+├── assets/icon.svg        files shipped with the bundle
+├── go.mod
+├── server/
+│   ├── main.go            plugin.ClientMain(&amp;Plugin{})
+│   ├── plugin.go          the Plugin type, OnActivate, ServeHTTP
+│   ├── manifest.go        generated from plugin.json
+│   ├── api.go, command.go, hooks.go, store.go …
+│   └── dist/              compiled binaries, one per platform
+└── webapp/
+    ├── package.json, webpack.config.js, tsconfig.json
+    ├── i18n/              en.json and one file per language
+    ├── src/index.tsx      registers the app with the web app
+    ├── src/manifest.ts    generated from plugin.json
+    ├── src/translations.ts
+    └── dist/main.js       the bundle</code></pre>
+<p>اختیاری: یک پوشه <code>public/</code> که به صورت خام در <code>/plugins/&lt;app id&gt;/public/</code> ارائه می‌شود.</p>
+
+<h2 id="manifest">plugin.json</h2>
+<pre><code>{
+  "id": "com.example.weather",
+  "name": "Weather",
+  "description": "Forecasts in the chat.",
+  "homepage_url": "https://github.com/example/weather",
+  "support_url": "https://github.com/example/weather/issues",
+  "icon_path": "assets/icon.svg",
+  "version": "1.0.0",
+  "min_server_version": "12.0.0",
+  "server": {
+    "executables": {
+      "linux-amd64": "server/dist/plugin-linux-amd64",
+      "linux-arm64": "server/dist/plugin-linux-arm64",
+      "darwin-amd64": "server/dist/plugin-darwin-amd64",
+      "darwin-arm64": "server/dist/plugin-darwin-arm64",
+      "windows-amd64": "server/dist/plugin-windows-amd64.exe"
+    }
+  },
+  "webapp": {"bundle_path": "webapp/dist/main.js"},
+  "settings_schema": {"settings": []}
+}</code></pre>
+<ul>
+<li><code>id</code>: منحصربه‌فرد و دائمی؛ یک نام دامنه معکوس معمول است. این شناسه مسیرها، تنظیمات ذخیره‌شده و رویدادهای WebSocket را نام‌گذاری می‌کند.</li>
+<li><code>version</code>: نسخه معنایی. اپلیکیشن‌های همراه آن را از <code>plugin.json</code> حذف می‌کنند؛ ابزار ساخت آن را از آخرین تگ git با پیشوند <code>v*</code> می‌گیرد.</li>
+<li><code>min_server_version</code>: Antimatter <code>12.0.0</code> را گزارش می‌دهد.</li>
+<li><code>settings_schema</code>: صفحه تنظیمات برنامه در <a href="#settings">کنسول سیستم</a>.</li>
+</ul>
+<p><code>make apply</code> مانیفست را در <code>server/manifest.go</code> و <code>webapp/src/manifest.ts</code> کپی می‌کند؛ <code>make manifest-check</code> آن را اعتبارسنجی می‌کند.</p>
+
+<h2 id="server">بخش سرور</h2>
+<p>بخش سرور همان ماژول Go را که برنامه‌های Mattermost استفاده می‌کنند، یعنی <code>github.com/mattermost/mattermost/server/public</code>، از پراکسی ماژول‌های Go وارد می‌کند. بخش <code>main</code> آن فقط برنامه را راه‌اندازی می‌کند:</p>
+<pre><code>package main
+
+import "github.com/mattermost/mattermost/server/public/plugin"
+
+func main() {
+	plugin.ClientMain(&amp;Plugin{})
+}</code></pre>
+<p>نوع <code>Plugin</code> نوع <code>plugin.MattermostPlugin</code> را در خود جای می‌دهد که به آن <code>p.API</code> را می‌دهد، و هوک‌های مورد نیازش را پیاده‌سازی می‌کند:</p>
+<pre><code>type Plugin struct {
+	plugin.MattermostPlugin
+	router *mux.Router
+}
+
+func (p *Plugin) OnActivate() error {
+	p.router = p.newRouter()
+	return p.API.RegisterCommand(&amp;model.Command{
+		Trigger:          "weather",
+		AutoComplete:     true,
+		AutoCompleteDesc: "Show the forecast",
+		AutoCompleteHint: "[city]",
+	})
+}
+
+func (p *Plugin) ExecuteCommand(c *plugin.Context, args *model.CommandArgs) (*model.CommandResponse, *model.AppError) {
+	city := strings.TrimSpace(strings.TrimPrefix(args.Command, "/weather"))
+	return &amp;model.CommandResponse{
+		ResponseType: model.CommandResponseTypeEphemeral,
+		Text:         "Forecast for " + city + ": sunny",
+	}, nil
+}
+
+func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Request) {
+	p.router.ServeHTTP(w, r)
+}</code></pre>
+<h3>هوک‌های رایج</h3>
+<table>
+<thead><tr><th>هوک</th><th>زمان اجرا</th></tr></thead>
+<tbody>
+<tr><td><code>OnActivate</code>, <code>OnDeactivate</code></td><td>وقتی برنامه فعال یا غیرفعال می‌شود، و هنگام راه‌اندازی و توقف سرور. دستورات و ربات‌ها را در <code>OnActivate</code> ثبت کنید.</td></tr>
+<tr><td><code>OnConfigurationChange</code></td><td>وقتی تنظیمات آن تغییر می‌کند؛ آن‌ها را با <code>p.API.LoadPluginConfiguration(&amp;cfg)</code> بارگذاری کنید.</td></tr>
+<tr><td><code>ServeHTTP</code></td><td>درخواست‌ها به <code>/plugins/&lt;app id&gt;/…</code>. سرور هدر <code>Mattermost-User-Id</code> را تنظیم می‌کند وقتی درخواست از یک کاربر واردشده می‌آید؛ درخواست‌هایی را که فاقد این هدر هستند رد کنید، مگر اینکه عمومی باشند.</td></tr>
+<tr><td><code>ExecuteCommand</code></td><td>وقتی دستوری که برنامه ثبت کرده اجرا می‌شود.</td></tr>
+<tr><td><code>MessageWillBePosted</code>, <code>MessageWillBeUpdated</code></td><td>قبل از ذخیره یک پیام: یک پست تغییر‌یافته برگردانید، یا دلیلی برای رد آن ارائه دهید.</td></tr>
+<tr><td><code>MessageHasBeenPosted</code>, <code>MessageHasBeenUpdated</code>, <code>MessageHasBeenDeleted</code></td><td>بعد از عمل، برای اثرات جانبی.</td></tr>
+<tr><td><code>ReactionHasBeenAdded</code>, <code>ReactionHasBeenRemoved</code></td><td>واکنش‌ها.</td></tr>
+<tr><td><code>UserHasJoinedChannel</code>, <code>UserHasLeftChannel</code>, <code>UserHasJoinedTeam</code>, <code>UserHasLeftTeam</code>, <code>ChannelHasBeenCreated</code></td><td>تغییرات عضویت و کانال. یک تیم یک جامعه است.</td></tr>
+<tr><td><code>FileWillBeUploaded</code></td><td>قبل از ذخیره یک فایل: آن را تغییر دهید یا رد کنید.</td></tr>
+<tr><td><code>OnPluginClusterEvent</code></td><td>یک پیام از همان برنامه روی سرور دیگر یک خوشه.</td></tr>
+</tbody>
+</table>
+<p>لیست کامل، با امضاهای دقیق، در <code>server/public/plugin/hooks.go</code> است؛ API در <code>server/public/plugin/api.go</code> قرار دارد. بسته <code>pluginapi</code> (<code>server/public/pluginapi</code>) API را در قالب کمکی‌های دوستانه‌تر پیچیده است.</p>
+<h3>فراخوان‌های مفید API</h3>
+<ul>
+<li><code>CreatePost</code>، <code>UpdatePost</code>، <code>SendEphemeralPost</code>: پست‌گذاری به‌عنوان ربات برنامه یا به‌عنوان یک کاربر.</li>
+<li><code>EnsureBotUser(&amp;model.Bot{Username, DisplayName})</code>: ربات برنامه را یک‌بار ایجاد کنید و شناسه آن را دریافت کنید.</li>
+<li><code>PublishWebSocketEvent("poll_updated", payload, &amp;model.WebsocketBroadcast{ChannelId: id})</code>: یک رویداد را به برنامه وب بفرستید. آن به‌صورت <code>custom_&lt;app id&gt;_poll_updated</code> می‌رسد.</li>
+<li><code>OpenInteractiveDialog</code>: یک <a href="{{root}}docs/developers/bots.html#dialogs">گفتگو</a> را باز کنید.</li>
+<li><code>LogInfo</code>، <code>LogError</code> و هم‌خانواده‌هایشان: نوشتن در لاگ سرور، با برچسب‌گذاری با شناسه برنامه.</li>
+<li><code>GetUser</code>، <code>GetChannel</code>، <code>HasPermissionToChannel</code>: بررسی کنید چه کسی اجازه انجام چه کاری را دارد، قبل از عمل به‌جای یک کاربر.</li>
+</ul>
+<p>هر اپلیکیشن روی هر سروری از یک خوشه اجرا می‌شود. وضعیت را در مخزن کلید-مقدار یا پایگاه داده ذخیره کنید، نه فقط در حافظه.</p>
+
+<h2 id="kv">ذخیره‌سازی داده‌ها</h2>
+<p>هر اپلیکیشن مخزن کلید-مقدار اختصاصی خود را در پایگاه داده سرور دارد:</p>
+<ul>
+<li><code>KVSet(key, value)</code>, <code>KVGet(key)</code>, <code>KVDelete(key)</code>: مقادیر بایت هستند و معمولاً JSON. کلیدها حداکثر ۱۵۰ کاراکتر طول دارند.</li>
+<li><code>KVSetWithExpiry(key, value, seconds)</code>: مقدار پس از گذشت این مدت حذف می‌شود.</li>
+<li><code>KVCompareAndSet(key, old, new)</code> و <code>KVSetWithOptions</code> با <code>Atomic</code>: به‌روزرسانی‌های ایمن زمانی که چند درخواست یا سرور روی یک کلید یکسان می‌نویسند. نظرسنجی هر رأی را به این شیوه ذخیره می‌کند و در صورت تعارض تلاش مجدد انجام می‌دهد.</li>
+<li><code>KVList(page, perPage)</code>: کلیدها، صفحه به صفحه.</li>
+</ul>
+
+<h2 id="webapp">بخش وب‌اپلیکیشن</h2>
+<p>باندل یک کلاس را با <code>window.registerPlugin</code> ثبت می‌کند. متد <code>initialize</code> آن، رجیستری و مخزن Redux را دریافت می‌کند:</p>
+<pre><code>import manifest from './manifest';
+
+class Plugin {
+    initialize(registry, store) {
+        registry.registerTranslations((locale) =&gt; translationsFor(locale));
+        registry.registerPostTypeComponent('custom_poll', PollPost);
+        registry.registerWebSocketEventHandler(`custom_${manifest.id}_poll_updated`, (msg) =&gt; {
+            store.dispatch(pollUpdated(JSON.parse(msg.data.poll)));
+        });
+        registry.registerReconnectHandler(() =&gt; store.dispatch(reloadPolls()));
+    }
+}
+
+window.registerPlugin(manifest.id, new Plugin());</code></pre>
+<ul>
+<li><b>کتابخانه‌های مشترک.</b> وب‌اپلیکیشن React، ReactDOM، Redux، React Redux و React Intl را فراهم می‌کند: به جای باندل کردن نسخه‌های خودتان، آن‌ها را به‌عنوان <code>externals</code> در webpack فهرست کنید (<code>React</code>، <code>ReactDOM</code>، <code>Redux</code>، <code>ReactRedux</code>، <code>ReactIntl</code>). به <code>webpack.config.js</code> نظرسنجی نگاه کنید.</li>
+<li><b>فراخوانی بخش سرور.</b> با <code>${window.basename}/plugins/&lt;app id&gt;/…</code> و گزینه‌های <code>Client4.getOptions()</code> (از <code>mattermost-redux/client</code>) درخواست بزنید: این گزینه‌ها هدرهایی را حمل می‌کنند که سرور برای پذیرش درخواست از مرورگر به آن‌ها نیاز دارد.</li>
+<li><b>وضعیت اختصاصی شما.</b> <code>registerReducer</code> یک reducer اضافه می‌کند که زیر <code>state['plugins-&lt;app id&gt;']</code> ذخیره می‌شود.</li>
+<li><b>انواع.</b> متدهای اضافی رجیستری Antimatter در انواع منتشرشده Mattermost موجود نیستند: نظرسنجی رجیستری مورد استفاده خود را در <code>webapp/src/types/host.ts</code> اعلام می‌کند.</li>
+</ul>
+<p>متدهای رجیستری و پارامترهای آن‌ها در کد مستند شده‌اند، در <code>webapp/fusion/src/plugins/registry.ts</code> (Fusion) و <code>webapp/channels/src/plugins/registry.ts</code> (کلاسیک).</p>
+
+<h2 id="fusion">پشتیبانی از رابط Fusion</h2>
+<p>Antimatter دو رابط وب دارد: Fusion، پیش‌فرض، و کلاسیک. هر دو باندل‌های یکسان اپلیکیشن را بارگذاری می‌کنند و رجیستری یکسانی دارند، اما Fusion بسیاری از عناصر را خودش رسم می‌کند و اجزای افزونه‌ها را به شیوه‌ای خاص جای‌گذاری می‌کند. اپلیکیشن خود را در هر دو تست کنید.</p>
+<h3>تشخیص رابط</h3>
+<p>پیش از بارگذاری هر اپلیکیشن، هر دو رابط <code>window.antimatterWebUI</code> را به <code>'fusion'</code> یا <code>'classic'</code> تنظیم می‌کنند و همان مقدار را روی عنصر ریشه صفحه به‌صورت <code>data-am-web-ui</code> قرار می‌دهند. در Mattermost، هیچ‌کدام از این‌ها تنظیم نمی‌شود.</p>
+<pre><code>export function isFusionUI(): boolean {
+    return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
+}</code></pre>
+<p>برنامه‌های همراه از این روش برای رسم متفاوت استفاده می‌کنند. نظرسنجی کارت‌های نظرسنجی و دیالوگ ایجاد آن را با سبک Fusion می‌کشد و دیالوگ اختصاصی خود را برای <code>/poll</code> در Fusion باز می‌کند. مکالمه و کانال‌های صوتی، نوار کناری و اجزای اعلان (toast) را که Fusion با رابط مکالمه خود جایگزین می‌کند، حذف می‌کنند. برنامه Agents اقدامات هوش مصنوعی خود را در یک زیرمنوی منوی پیام قرار می‌دهد به جای نوار ابزار hover. کلاس‌های CSS اختصاصی Fusion (با پیشوند <code>am-</code>) و لایه دیالوگ آن (عنصر <code>am-layer</code>) ابزارهایی هستند که این برنامه‌ها برای هماهنگی با رابط کاربری از آن‌ها استفاده می‌کنند؛ این‌ها یک API مستند و پایدار نیستند.</p>
+<h3>جایی که Fusion اجزای پلاگین را نمایش می‌دهد</h3>
+<table>
+<thead><tr><th>روش ثبت (Registry)</th><th>محل نمایش در Fusion</th></tr></thead>
+<tbody>
+<tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>نوار برنامه‌ها (App rail)، ستون آیکون‌ها در لبه راست، بین آواتار شما و دکمه <b>درباره Antimatter</b>. دکمه‌های هدر کانال نیز در آنجا قرار می‌گیرند، نه در هدر کانال. وقتی یک مدیر سیستم <b>غیرفعال کردن نوار برنامه‌ها</b> (<code>ExperimentalSettings.DisableAppBar</code>، به‌طور پیش‌فرض خاموش) را فعال کند، مخفی می‌شود.</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>پنل سمت راست. کاربران می‌توانند با کشیدن لبه آن، اندازه آن را تغییر دهند. اگر برنامه همچنین یک محصول باشد، پنل گزینه <b>باز کردن به‌صورت تمام‌صفحه</b> را ارائه می‌دهد.</td></tr>
+<tr><td><code>registerChannelHeaderIcon</code></td><td>آیکون‌ها در هدر کانال، پس از دکمه‌های مکالمه؛ در تلفن‌ها، در منوی <b>بیشتر</b> هدر.</td></tr>
+<tr><td><code>registerCallButtonAction</code></td><td>دکمه مکالمه در هدر کانال؛ چندین ارائه‌دهنده یک منوی <b>روش‌های دیگر برای مکالمه</b> را به اشتراک می‌گذارند.</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>منوی <b>اقدامات بیشتر</b> (⋯) پیام، در یک زیرمنوی <b>عملیات پیام</b>؛ همچنین در منوی <b>عملیات رشته</b> پنل رشته، زیر <b>اقدامات بیشتر</b>.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>زیرمنوی اختصاصی خود در همان منوها، با نام و آیکون برنامه.</td></tr>
+<tr><td><code>registerPostActionComponent</code></td><td>نوار ابزار hover پیام، قبل از دکمه ⋯.</td></tr>
+<tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>خود پیام: بدنه آن، زیر متن آن، پس از زمان آن، و به جای پیش‌نمایش لینک‌ها.</td></tr>
+<tr><td><code>registerChannelHeaderMenuAction</code></td><td>منوی <b>گزینه های کانال</b> کانال (⋯ روی یک کانال در نوار کناری، یا کلیک راست)، به عنوان اقلام با آیکون پلاگ.</td></tr>
+<tr><td><code>registerMainMenuAction</code></td><td>منوی جامعه (نام جامعه در بالای فهرست کانال‌ها)، زیر <b>اقدامات بیشتر</b>، گروه‌بندی شده بر اساس برنامه.</td></tr>
+<tr><td><code>registerSidebarBrowseOrAddChannelMenuAction</code></td><td>منوی جامعه، پس از <b>ایجاد کانال</b> و <b>ایجاد دسته</b>.</td></tr>
+<tr><td><code>registerFileUploadMethod</code></td><td>منوی <b>+</b> ویرایشگر (<b>افزودن به پیام</b>)، پس از <b>بارگذاری فایل</b>.</td></tr>
+<tr><td><code>registerPostEditorActionComponent</code></td><td>نوار قالب‌بندی ویرایشگر، زمانی که قالب‌بندی نمایش داده شود.</td></tr>
+<tr><td><code>registerAIActionMenuItemComponent</code></td><td>منوی <b>AI</b> ویرایشگر.</td></tr>
+<tr><td><code>registerFileDropdownMenuAction</code>, <code>registerFilePreviewComponent</code></td><td>منوی گزینه‌های فایل، و پیش‌نمایش فایل.</td></tr>
+<tr><td><code>registerUserSettings</code></td><td><b>مشخصات و تنظیمات</b>، یک تب برای هر برنامه زیر عنوان <b>پلاگین ها</b>.</td></tr>
+<tr><td><code>registerChannelSettingsTab</code></td><td>دیالوگ تنظیمات کانال، زیر عنوان <b>برنامه‌ها</b>.</td></tr>
+<tr><td><code>registerPopoverUserAttributesComponent</code>, <code>registerPopoverUserActionsComponent</code></td><td>کارت مشخصات که هنگام کلیک روی یک نام یا آواتار نمایش داده می‌شود.</td></tr>
+<tr><td><code>registerLeftSidebarHeaderComponent</code>, <code>registerSidebarChannelLinkLabelComponent</code>, <code>registerChannelIconOverride</code>, <code>registerBottomTeamSidebarComponent</code></td><td>بالای فهرست کانال‌های یک جامعه، کنار نام کانال، آیکون کانال و پایین نوار کناری جامعه در سمت چپ.</td></tr>
+<tr><td><code>registerChannelIntro</code>, <code>registerChannelIntroButtonAction</code>, <code>registerChannelToastComponent</code>, <code>registerNewMessagesSeparatorActionComponent</code>, <code>registerChannelComposerBannerComponent</code>, <code>registerComposerPlaceholder</code></td><td>آغاز تاریخچه کانال، بالای فهرست پیام‌ها، خط خوانده‌نشده، بالای کادر نوشتن و جای‌نگهدار کادر نوشتن.</td></tr>
+<tr><td><code>registerChannelTypeOption</code></td><td>انواع کانال در پنجره‌ی <b>ایجاد کانال</b>.</td></tr>
+<tr><td><code>registerSearchComponents</code></td><td>جعبه‌ی جستجو در سربرگ کانال: محدوده‌های برنامه هنگام خالی بودن نمایش داده می‌شوند.</td></tr>
+<tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>درباره Antimatter</b> (پایین نوار برنامه)، زیر <b>کمک</b>.</td></tr>
+<tr><td><code>registerProduct</code></td><td>صفحات کامل در آدرس محصول، فهرست‌شده زیر <b>محصولات</b> در <b>درباره Antimatter</b>. صفحات محصول قاب کلاسیک صفحه را حفظ می‌کنند.</td></tr>
+<tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, هوک‌هایی مانند <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>همان‌طور که در رابط کلاسیک کار می‌کنند.</td></tr>
+<tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>کنسول سیستم، که در هر دو رابط همان کلاسیک است.</td></tr>
+</tbody>
+</table>
+<h3>آنچه Fusion نمایش نمی‌دهد یا اجرا نمی‌کند</h3>
+<ul>
+<li><code>registerPostDropdownMenuComponent</code> (یک مؤلفه در منوی پیام)، <code>registerPostCardTypeComponent</code> (کارت پیام در پنل سمت راست) و <code>registerProductSwitcherMenuItem</code> در نمای اصلی Fusion نمایش داده نمی‌شوند. به‌جای اولی از <code>registerPostDropdownMenuAction</code> استفاده کنید.</li>
+<li><code>registerMessageWillBeUpdatedHook</code> هنگام ویرایش پیام در Fusion اجرا نمی‌شود. به‌جای آن، ویرایش‌ها را روی سرور با هوک <code>MessageWillBeUpdated</code> بررسی کنید.</li>
+<li><code>registerActionAfterChannelCreation</code> فقط از پنجره‌ی ایجاد کانال کلاسیک اجرا می‌شود، که Fusion آن را از <b>گزینه‌های بیشتر…</b> در پنجره‌ی <b>ایجاد کانال</b> خود باز می‌کند.</li>
+<li>مؤلفه‌های نوار برنامه فارغ از <code>supportedProductIds</code> نمایش داده می‌شوند.</li>
+<li>مسیرهای <code>registerNeedsTeamRoute</code> و <code>registerCustomRoute</code> قاب کلاسیک صفحه را حفظ می‌کنند، مانند محصولات.</li>
+</ul>
+
+<h2 id="antimatter-hooks">هوک‌هایی که فقط Antimatter دارد</h2>
+<p>این روش‌های ثبت در Mattermost وجود ندارند. پیش از فراخواندن یک روش، بررسی کنید که وجود دارد تا برنامه در آنجا نیز کار کند:</p>
+<pre><code>if (typeof registry.registerComposerMenuItem === 'function') {
+    registry.registerComposerMenuItem({
+        text: 'Create a poll',
+        icon: &lt;i className='icon icon-chart-bar'/&gt;,
+        fusionIcon: 'poll',
+        action: ({channelId, rootId}) =&gt; openPollCreation(channelId, rootId),
+    });
+} else {
+    registry.registerChannelHeaderButtonAction(icon, (channel) =&gt; openPollCreation(channel.id), 'Create a poll', 'Create a poll');
+}</code></pre>
+<table>
+<thead><tr><th>روش</th><th>آنچه اضافه می‌کند</th></tr></thead>
+<tbody>
+<tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>یک مورد در منوی <b>+</b> کادر پیام، در هر دو رابط. <code>action</code> مقدار <code>{channelId, rootId}</code> را دریافت می‌کند.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>زبانی از انتخابگر ایموجی جعبه پیام، مانند GIF یا استیکر. در Fusion، زبانهایی که مقدار <code>order</code> کمتر از 10 دارند، قبل از زبانه Emoji قرار می‌گیرند. این کامپوننت <code>channelId</code>، <code>rootId</code>، <code>filter</code>، <code>onFilterChange</code>، <code>onSelectDone</code>، <code>insertText</code> و <code>isFusion</code> را دریافت می‌کند.</td></tr>
+<tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>پنلی بین سربرگ کانال و پیام‌ها، برای کانال‌هایی که <code>matcher(state, channel)</code> انتخاب می‌کند. می‌تواند پیام‌ها و ویرایشگر (<code>setMessagesVisible</code>) را پنهان کند، همان‌طور که کانال‌های صوتی انجام می‌دهند.</td></tr>
+<tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>خطی زیر یک کانال در نوار کناری، مانند افرادی که در مکالمه آن حضور دارند. این کامپوننت <code>channel</code> را دریافت می‌کند.</td></tr>
+<tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>فقط Fusion: یک ورودی در صفحات <b>ادغام ها</b>، کنار ایموجی سفارشی. اپلیکیشن GIF استیکرهای سفارشی خود را در آنجا اضافه می‌کند.</td></tr>
+</tbody>
+</table>
+<p><code>fusionIcon</code> نام آیکونی از مجموعه آیکون‌های Fusion را مشخص می‌کند (برای مثال <code>poll</code>، <code>sticker</code>، <code>calendar</code> یا <code>image</code>؛ به <code>webapp/fusion/src/fusion/components/icon</code> مراجعه کنید). Fusion به جای <code>icon</code> آن را نمایش می‌دهد تا با سایر موارد هماهنگ باشد.</p>
+
+<h2 id="settings">تنظیمات</h2>
+<p><code>settings_schema</code> در <code>plugin.json</code> صفحه اپلیکیشن را در <b>کنسول سیستم › پلاگین ها</b> توصیف می‌کند:</p>
+<pre><code>"settings_schema": {
+  "header": "Forecasts come from the weather service below.",
+  "settings": [
+    {"key": "ServiceURL", "display_name": "Service URL", "type": "text", "default": "https://api.example.com"},
+    {"key": "Units", "display_name": "Units", "type": "dropdown", "default": "metric",
+     "options": [{"display_name": "Celsius", "value": "metric"}, {"display_name": "Fahrenheit", "value": "imperial"}]},
+    {"key": "EnableAlerts", "display_name": "Severe weather alerts", "type": "bool", "default": false,
+     "help_text": "Post alerts in the channels that follow a city."}
+  ]
+}</code></pre>
+<p>انواع تنظیمات: <code>bool</code>، <code>text</code>، <code>longtext</code>، <code>number</code>، <code>dropdown</code>، <code>radio</code>، <code>generated</code> (یک راز تصادفی)، <code>username</code> و <code>custom</code> (که توسط کامپوننتی که بخش وب اپلیکیشن با <code>registerAdminConsoleCustomSetting</code> ثبت می‌کند، رسم می‌شود). تنظیمات می‌توانند در <code>sections</code> گروه‌بندی شوند.</p>
+<p>بخش سرور آن‌ها را در ساختاری (struct) می‌خواند که فیلدهای آن با کلیدها مطابقت دارند:</p>
+<pre><code>type configuration struct {
+	ServiceURL   string
+	Units        string
+	EnableAlerts bool
+}
+
+func (p *Plugin) OnConfigurationChange() error {
+	var cfg configuration
+	if err := p.API.LoadPluginConfiguration(&amp;cfg); err != nil {
+		return err
+	}
+	p.setConfiguration(&amp;cfg)
+	return nil
+}</code></pre>
+<p>مدیران همچنین می‌توانند آن‌ها را در پیکربندی، زیر <code>PluginSettings.Plugins.&lt;app id&gt;</code> با کلیدهای کوچک‌نویس تنظیم کنند (به <a href="{{root}}docs/admins/configuration.html#amctl">راهنمای مدیران</a> مراجعه کنید).</p>
+
+<h2 id="translations">ترجمه‌ها</h2>
+<p>Antimatter به 37 زبان ترجمه شده است و اپلیکیشن‌های همراه نیز همین‌طور. بخش وب اپلیکیشن این کار را به این صورت انجام می‌دهد:</p>
+<ol>
+<li>هر رشته را با React Intl بنویسید، با یک ID و متن انگلیسی آن: <code>&lt;FormattedMessage id='polls.create' defaultMessage='Create a poll'/&gt;</code> یا <code>defineMessages</code>. پیشوند IDها را با نام اپلیکیشن خود بگذارید.</li>
+<li>رشته‌های انگلیسی را در <code>webapp/i18n/en.json</code> استخراج کنید (اپلیکیشن‌های همراه از <code>formatjs extract</code> استفاده می‌کنند).</li>
+<li>یک فایل برای هر زبان کنار آن اضافه کنید، با همان IDها: <code>fr.json</code>، <code>de.json</code>، <code>pt-BR.json</code>، <code>zh-CN.json</code>…</li>
+<li>آن‌ها را به برنامه وب بدهید که زبان کاربر را می‌پرسد:
+<pre><code>import fr from '../i18n/fr.json';
+import ptBR from '../i18n/pt-BR.json';
+
+const catalogs = {fr, 'pt-BR': ptBR};
+
+export function translationsFor(locale) {
+    return catalogs[locale] || catalogs[locale.split('-')[0]] || {};
+}
+
+registry.registerTranslations(translationsFor);</code></pre></li>
+</ol>
+<p>اگر رشته‌ای گم شده باشد، به <code>defaultMessage</code> انگلیسی برمی‌گردد. برای رشته‌هایی که بخش سرور می‌فرستد (پاسخ دستورات، پیام‌های ربات)، بسته <code>pluginapi/i18n</code> فایل‌های ترجمه‌ای که در باندل همراه است (مثلاً <code>assets/i18n</code>) را بارگذاری می‌کند و یک محلی‌ساز به زبان هر کاربر ارائه می‌دهد.</p>
+
+<h2 id="build">ساخت، نصب و عیب‌یابی</h2>
+<p>به Go و Node.js (نسخه‌ای که در <code>.nvmrc</code> برنامه آمده) نیاز دارید. در پوشه برنامه:</p>
+<table>
+<thead><tr><th>دستور</th><th>عملکرد</th></tr></thead>
+<tbody>
+<tr><td><code>make dist</code></td><td>بخش سرور را برای همه پلتفرم‌ها و بخش برنامه وب را می‌سازد و باندل را در <code>dist/&lt;app id&gt;-&lt;version&gt;.tar.gz</code> می‌نویسد.</td></tr>
+<tr><td><code>make test</code></td><td>تست‌های Go و JavaScript را اجرا می‌کند.</td></tr>
+<tr><td><code>make check-style</code></td><td>کد را بررسی می‌کند (golangci-lint, ESLint) و تایپ‌های TypeScript را چک می‌کند.</td></tr>
+<tr><td><code>make deploy</code></td><td>می‌سازد، سپس باندل را روی سرور نصب و فعال می‌کند.</td></tr>
+<tr><td><code>make watch</code>, <code>make deploy-from-watch</code></td><td>اولی هر بار که ذخیره می‌کنید، بخش برنامه وب را از نو می‌سازد؛ دومی چیزی که ساخته را باندل کرده و روی سرور نصب می‌کند.</td></tr>
+<tr><td><code>make enable</code>, <code>make disable</code>, <code>make reset</code></td><td>برنامه را روی سرور فعال، غیرفعال یا از نو راه‌اندازی می‌کند.</td></tr>
+<tr><td><code>make logs</code>, <code>make logs-watch</code></td><td>خط‌های مربوط به برنامه را از لاگ سرور نشان می‌دهد.</td></tr>
+<tr><td><code>make attach</code></td><td>دیباگر Delve را به بخش سرور در حال اجرا متصل می‌کند (ابتدا با <code>AM_DEBUG=1</code> بسازید).</td></tr>
+</tbody>
+</table>
+<p><code>make deploy</code> و سایر دستورات سرور وقتی یک سوکت حالت محلی پیدا کنند (<code>/var/tmp/antimatter_local.socket</code> یا <code>AM_LOCALSOCKETPATH</code>) از آن استفاده می‌کنند: آن‌ها را روی دستگاه سرور با حالت محلی روشن اجرا کنید. در غیر این صورت با <code>AM_ADMIN_TOKEN</code> یا <code>AM_ADMIN_USERNAME</code> و <code>AM_ADMIN_PASSWORD</code> به سرور مشخص‌شده در <code>MM_SERVICESETTINGS_SITEURL</code> وارد می‌شوند. ابزارهای ساخت هنوز نام <code>AM_</code> را برای URL سایت نمی‌خوانند.</p>
+<h3>نصب دستی یک باندل</h3>
+<ul>
+<li>یک مدیر سیستم با <code>AM_PLUGINSETTINGS_ENABLEUPLOADS=true</code> بارگذاری را مجاز می‌کند (به‌طور پیش‌فرض خاموش است؛ کلید جداگانه‌ای در کنسول سیستم وجود ندارد).</li>
+<li>سپس <b>کنسول سیستم › پلاگین ها › مدیریت پلاگین › افزونه آپلود</b>، یا <code>amctl plugin add weather.tar.gz</code> و سپس <code>amctl plugin enable com.example.weather</code>.</li>
+<li>اگر روی سرور <b>نیاز به امضای افزونه</b> روشن باشد، فقط باندل‌هایی را می‌پذیرد که با کلیدی امضا شده باشند که به آن اعتماد دارد؛ ببینید <a href="{{root}}docs/admins/apps.html#other-apps">نصب سایر برنامه‌ها</a>.</li>
+</ul>
+<div class="callout">برای تکرار سریع روی یک سرور توسعه‌ای، <code>AM_SERVICESETTINGS_ENABLEDEVELOPER=true</code> را روی سرور تنظیم کنید: در این صورت خطاها جزئیاتشان را همراه دارند. Makefile برنامه‌های همراه فقط وقتی <code>MM_SERVICESETTINGS_ENABLEDEVELOPER</code> در shell شما تنظیم شده باشد، بخش سرور را فقط برای پلتفرم شما می‌سازند.</div>

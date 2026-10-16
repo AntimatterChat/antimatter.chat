@@ -1,0 +1,105 @@
+title: बैकअप और अपग्रेड
+description: Antimatter सर्वर (डेटाबेस, फ़ाइल स्टोरेज, कन्फ़िगरेशन) का बैकअप और रीस्टोर करें, इसे सुरक्षित रूप से अपग्रेड करें, Mattermost सर्वर को Antimatter में स्थानांतरित करें, और डेटा निर्यात या आयात करें।
+guide: admins
+order: 10
+nav: बैकअप और अपग्रेड
+lead: किसका बैकअप लेना है, नए होस्ट पर इसे कैसे रीस्टोर करें, कैसे अपग्रेड करें, और Mattermost सर्वर या एकल कम्युनिटी को Antimatter में कैसे स्थानांतरित करें।
+source: b0797af8b6e7
+---
+<h2 id="what">किसका बैकअप लेना है</h2>
+<table>
+<thead><tr><th>क्या</th><th>साइट के compose फ़ाइल के साथ</th><th>एक रिलीज़ आर्काइव के साथ</th></tr></thead>
+<tbody>
+<tr><td>डेटाबेस: संदेश, उपयोगकर्ता, कम्युनिटी, चैनल और, साइट के compose फ़ाइल के साथ, कन्फ़िगरेशन</td><td>वॉल्यूम <code>antimatter_postgres</code>, <code>pg_dump</code> के माध्यम से</td><td>आपका PostgreSQL डेटाबेस</td></tr>
+<tr><td>अपलोड की गई फ़ाइलें, इमेज और इंस्टॉल किए गए ऐप्स</td><td>वॉल्यूम <code>antimatter_files</code> (S3 स्टोरेज)</td><td><code>FileSettings.Directory</code>, डिफ़ॉल्ट रूप से <code>./data/</code></td></tr>
+<tr><td>कन्फ़िगरेशन फ़ाइल</td><td>(डेटाबेस में)</td><td><code>config/config.json</code></td></tr>
+<tr><td>GIF और स्टिकर</td><td>वॉल्यूम <code>antimatter_gifs</code></td><td>GIF सेवा का डेटा डायरेक्टरी</td></tr>
+<tr><td>सिक्रेट्स</td><td><code>.env</code> (और <code>compose.override.yaml</code>)</td><td>आपकी एनवायरनमेंट फ़ाइल</td></tr>
+</tbody>
+</table>
+<p>डेटाबेस और फ़ाइलें एक साथ हैं: इन्हें एक ही समय पर बैकअप करें, और कॉपियाँ सर्वर से बाहर रखें। वॉल्यूम के नाम compose प्रोजेक्ट नाम, <code>antimatter</code>, से शुरू होते हैं (<code>docker volume ls</code> उन्हें सूचीबद्ध करता है)।</p>
+
+<h2 id="backup">बैकअप</h2>
+<p><code>compose.yaml</code> के डायरेक्टरी से। पहले Antimatter को रोकना एक पूरी तरह से सुसंगत कॉपी देता है; चलते हुए Antimatter से लिया गया बैकअप आमतौर पर ठीक होता है, लेकिन बैकअप के दौरान अपलोड की गई फ़ाइलें उसमें अनुपस्थित हो सकती हैं।</p>
+<pre><code>stamp=$(date +%Y%m%d-%H%M%S)
+mkdir -p backups
+docker compose stop antimatter
+# Database
+docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
+    &gt; "backups/antimatter-db-$stamp.dump"
+# File storage and GIF service
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
+        alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
+done
+docker compose start antimatter
+# Secrets
+cp .env "backups/env-$stamp"</code></pre>
+<p>दैनिक बैकअप के लिए इसे cron से चलाएं, और <code>backups/</code> डायरेक्टरी को किसी अन्य मशीन पर कॉपी करें। <code>.env</code> की कॉपियों को सर्वर के रूप में सुरक्षित रखें: उनमें इसके पासवर्ड हैं।</p>
+<p>अपलोड की गई फ़ाइलों को वस्तु-दर-वस्तु कॉपी करने के लिए (उदाहरण के लिए, किसी अन्य S3 स्टोरेज में), <code>bucket</code> सेवा के AWS कमांड-लाइन टूल का उपयोग करें:</p>
+<pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
+    "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
+<p>एक रिलीज़ आर्काइव के साथ, डेटाबेस का बैकअप <code>pg_dump -Fc</code> से, और <code>data/</code> और <code>config/</code> डायरेक्टरी अपने सामान्य टूल्स से करें।</p>
+
+<h2 id="restore">नए होस्ट पर रीस्टोर</h2>
+<p><code>compose.yaml</code>, सहेजे गए <code>.env</code> और बैकअप को एक नए डायरेक्टरी में रखें, फिर:</p>
+<pre><code>stamp=20261016-030000          # the backup to restore
+docker compose create           # creates the volumes, starts nothing
+docker compose up -d postgres
+docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
+    &lt; "backups/antimatter-db-$stamp.dump"
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
+        alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
+done
+docker compose up -d</code></pre>
+<p>वही <code>.env</code> उपयोग करें: स्टोरेज और डेटाबेस को उनके पासवर्ड रखने चाहिए। यदि नए होस्ट का पता अलग है, तो <code>SITE_URL</code> (और <code>DOMAIN</code>) को अपडेट करें।</p>
+<p>कभी-कभी किसी अन्य मशीन पर रीस्टोर करके अपने बैकअप की जांच करें।</p>
+
+<h2 id="upgrade">अपग्रेड</h2>
+<ol>
+<li>बैकअप लें।</li>
+<li>यदि आप एक पिन करते हैं, जैसा कि अनुशंसित है, तो <code>.env</code> में इमेज टैग (<code>ANTIMATTER_IMAGE</code>) बदलें।</li>
+<li>पुल करें और रीस्टार्ट करें:
+<pre><code>docker compose pull
+docker compose up -d
+docker compose logs -f antimatter</code></pre></li>
+</ol>
+<p>प्रारंभ पर, सर्वर डेटाबेस स्कीमा को अपग्रेड करता है (इसकी प्रगति लॉग में देखें; एक बड़े सर्वर के लिए यह कई मिनट ले सकता है) और इमेज से बंडल्ड ऐप्स के नए संस्करण इंस्टॉल करता है। रिलीज़ आर्काइव के साथ: सर्वर को रोकें, <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> और <code>client/plugins/</code> को छोड़कर बाकी सब कुछ नए आर्काइव की सामग्री से बदलें, और फिर इसे पुनः प्रारंभ करें।</p>
+<div class="callout warn">अपग्रेड केवल आगे की ओर जाते हैं। एक बार जब नया सर्वर डेटाबेस को अपग्रेड कर देता है, तो पुराना संस्करण उसका उपयोग नहीं कर सकता: वापस जाने के लिए, अपग्रेड से पहले लिया गया बैकअप रीस्टोर करें। <code>antimatter-next</code> से <code>antimatter</code> पर वापस जाने के लिए भी यही लागू होता है।</div>
+<h3>संस्करण</h3>
+<p>Antimatter का सर्वर Mattermost लाइन के संस्करण की रिपोर्ट करता है जिस पर यह आधारित है (वर्तमान में 12.0.0)। इमेज <code>main</code> ब्रांचों से पुनर्निर्मित की जाती हैं: <code>antimatter-next</code> हर रात (टैग <code>nightly-&lt;YYYYMMDD&gt;</code>), और दोनों इमेज हर परिवर्तन पर (टैग <code>sha-&lt;commit&gt;</code>)। इनमें से एक टैग पिन करें, जानबूझकर अपग्रेड करें, और पिछला टैग नोट कर रखें ताकि आपको पता हो कि कौन सा बैकअप उससे जुड़ा है।</p>
+<h3>PostgreSQL के मेजर संस्करण</h3>
+<p>कंपोज़ फ़ाइल <code>postgres:17-alpine</code> का उपयोग करती है। Antimatter को PostgreSQL 15 या नया चाहिए। PostgreSQL का एक नया मेजर संस्करण पिछले संस्करण का डेटा डायरेक्टरी नहीं पढ़ सकता: इसमें जाने के लिए, डेटाबेस का डंप करें, नए वॉल्यूम पर नया संस्करण प्रारंभ करें और डंप को उसमें रीस्टोर करें।</p>
+
+<h2 id="mattermost">Mattermost से स्थानांतरण</h2>
+<p>Antimatter, Mattermost के डेटाबेस स्कीमा का उपयोग करता है और अपनी टेबलें जोड़ता है, इसलिए यह Mattermost सर्वर के PostgreSQL डेटाबेस और फ़ाइलों को अपना सकता है। पहले इसे एक कॉपी पर आज़माएं:</p>
+<ol>
+<li>Mattermost डेटाबेस, इसकी फ़ाइल स्टोरेज (<code>data/</code> या S3 बकेट) और <code>config.json</code> का बैकअप लें, फिर Mattermost को रोकें।</li>
+<li>डेटाबेस को Antimatter के PostgreSQL में रीस्टोर करें, या Antimatter को इसकी एक कॉपी की ओर इशारा करें (<code>AM_SQLSETTINGS_DATASOURCE</code>)।</li>
+<li>फ़ाइलों को Antimatter की स्टोरेज में कॉपी करें, उनके पथों को बनाए रखते हुए: S3 टूल के साथ <code>antimatter</code> बकेट में, या रिलीज़ आर्काइव के साथ <code>data/</code> में।</li>
+<li>अपनी सेटिंग्स का पुनः उपयोग करें: <code>config.json</code> को कॉपी करें, या <code>amctl --local config migrate</code> के साथ इसे डेटाबेस में स्थानांतरित करें (देखें <a href="{{root}}docs/admins/configuration.html">कॉन्फ़िगरेशन</a>)। आपकी <code>MM_</code> एनवायरनमेंट वेरिएबल्स काम करती रहती हैं; सुविधाजनक होने पर उन्हें <code>AM_</code> में पुनर्नाम दें।</li>
+<li>Antimatter शुरू करें और डेटाबेस अपग्रेड होने के दौरान लॉग का पालन करें। फिर <b>सिस्टम कंसोल › प्लगइन्स › प्लगइन प्रबंधन</b> जांचें। Antimatter स्वयं Calls, Playbooks, Kanban (Boards), Agents और इंटीग्रेशन के अपने बिल्ड तब इंस्टॉल करता है जब वे इंस्टॉल किए गए वर्जन से नए हों। यदि Mattermost में उनमें से किसी एक का नया वर्जन था, तो उस ऐप को हटा दें और Antimatter को फिर से शुरू करें, ताकि उसका अपना बिल्ड इंस्टॉल हो जाए।</li>
+<li>अपने स्वयं के पुश प्रॉक्सी के साथ पुश नोटिफिकेशन सेटअप करें: Antimatter कभी भी Mattermost के पुश सर्विस (टेस्ट या होस्टेड) को नोटिफिकेशन नहीं भेजता, जो केवल Mattermost के अपने ऐप्स तक पहुंचाते हैं। जब तक आप <b>पुश सूचन सर्वर</b> को नहीं बदलते, सर्वर कोई पुश नोटिफिकेशन नहीं भेजता (देखें <a href="{{root}}docs/admins/email-push.html#push">पुश नोटिफिकेशन</a>)।</li>
+</ol>
+<p>Antimatter Mattermost, Inc. द्वारा संचालित किसी भी सर्विस से संपर्क नहीं करता (देखें <a href="{{root}}docs/admins/security.html#outbound">बाहरी सर्विस से कनेक्शन</a>), भले ही आपकी कॉन्फ़िगरेशन में अभी भी एक का नाम हो:</p>
+<ul>
+<li>Mattermost पर पुश नोटिफिकेशन सर्वर सेटिंग्स में रखा जाता है लेकिन कभी उपयोग नहीं होता;</li>
+<li>Mattermost के ऐप मार्केटप्लेस (<b>मार्केटप्लेस URL</b>) और प्रोडक्ट सूचनाओं के पते खाली कर दिए जाते हैं;</li>
+<li>Calls ऐप Mattermost के बजाय Cloudflare के पब्लिक STUN सर्वर का उपयोग करता है, बिना सेव की गई सेटिंग को बदले (देखें <a href="{{root}}docs/admins/calls.html#network">Calls</a>);</li>
+<li>सिक्योरिटी अपडेट चेक और क्रैश रिपोर्टिंग हट जाती हैं, और उनके सिस्टम कंसोल सेटिंग्स (<b>Enable Security Alerts</b>, <b>Enable Diagnostics and Error Reporting</b>) और <b>सूचन</b> पेज भी।</li>
+</ul>
+<p>लोकल मोड सॉकेट अब <code>/var/tmp/antimatter_local.socket</code> है; <code>amctl</code> पुराने <code>/var/tmp/mattermost_local.socket</code> को भी आज़माता है। Mattermost के हालिया वर्जन केवल PostgreSQL का समर्थन करते हैं, और Antimatter भी: पहले MySQL डेटाबेस को PostgreSQL में स्थानांतरित करें। Antimatter द्वारा डेटाबेस अपग्रेड किए जाने के बाद Mattermost पर वापस जाना इसका मतलब है कि आपका Mattermost बैकअप बहाल करना होगा।</p>
+
+<h2 id="export-import">डेटा निर्यात और आयात करें</h2>
+<p>बल्क एक्सपोर्ट फॉर्मेट सर्वर के बीच डेटा स्थानांतरित करता है: पूरा सर्वर, कुछ कम्युनिटी, या कुछ चैनल, यदि आप चाहें तो अटैचमेंट, प्रोफ़ाइल तस्वीरें और कस्टम इमोजी के साथ।</p>
+<pre><code># on the source server
+amctl export create --team-name design --include-profile-pictures
+amctl export list
+amctl export download &lt;export file&gt; design.zip
+# on the destination server
+amctl import upload design.zip
+amctl import list available
+amctl import process &lt;uploaded file&gt; --imported-users active</code></pre>
+<p><code>amctl export job list</code> और <code>amctl import job list</code> के साथ जॉब्स पर नज़र रखें। कम्युनिटी या चैनल एक्सपोर्ट के लिए, <code>--imported-users</code> आवश्यक है: <code>active</code> तब जब लोग इस सर्वर पर आते हैं, और <code>inactive</code> तब जब ऐसे सर्वर में इम्पोर्ट किया जा रहा हो जहाँ उनके पहले से अकाउंट हैं, ताकि अनिश्चित मेलों से बने अकाउंट एडमिन द्वारा जाँचे जाने तक बंद रहें। <code>--destination-team-name</code> किसी मौजूदा कम्युनिटी में इम्पोर्ट करता है। एक्सपोर्ट और इम्पोर्ट डिफ़ॉल्ट रूप से 30 दिनों के लिए सर्वर के स्टोरेज (<code>ExportSettings.Directory</code>, <code>ImportSettings.Directory</code>) पर रखे जाते हैं।</p>
+<p>सर्वर पर स्वयं, <code>antimatter export bulk</code> और <code>antimatter import bulk --apply</code> फ़ाइलों से यही काम API के बिना करते हैं।</p>

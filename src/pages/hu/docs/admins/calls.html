@@ -1,0 +1,126 @@
+title: Hívások és hang
+description: Az Antimatter hívásainak és hangcsatornáinak beállítása: a médiaport, NAT és STUN, TURN, teszt mód, videó, külső rtcd-szerver, átirat és élő feliratok saját beszédfelismerő modelllel, valamint felvételek.
+guide: admins
+order: 5
+nav: Hívások és hang
+lead: A hívások és hangcsatornák hangot, videót és képernyőmegosztást közvetlenül a szerverre küldenek a saját portjukon. Ez az oldal a hálózati oldalt, a telepítés utáni ellenőrizendő beállításokat, valamint a saját futtatású beszédfelismerő modelllel készült átiratokat tárgyalja.
+source: 16057458346f
+---
+<h2 id="overview">A hívások működése</h2>
+<p>A hívásokat a <b>Hívások</b> alkalmazás (azonosító: <code>com.mattermost.calls</code>) biztosítja, amely alapértelmezés szerint telepítve és engedélyezve van. A hangcsatornák (a <b>Hangcsatornák</b> alkalmazás, <code>antimatter-next</code> image) állandó hívási szobák, amelyek a Hívásokra épülnek: a Hívások engedélyezése szükséges, és ugyanazokat a beállításokat, portokat és szervereket használják.</p>
+<p>A Hívások alkalmazás egy médiaszervert futtat az Antimatteren belül. A webböngészős, asztali és mobil alkalmazások WebRTC-vel kapcsolódnak hozzá:</p>
+<ul>
+<li>a jelzés (signalling) a szokásos webes kapcsolat (HTTPS proxy) keresztül történik;</li>
+<li>a <b>média</b> (hang, videó, képernyőmegosztás) nem: közvetlenül a szerverre megy a hívások portján, alapértelmezés szerint <b>8443 UDP és TCP</b>.</li>
+</ul>
+<p>A beállítások a <b>Rendszerkonzol › Bővítmények › Hívások</b> alatt találhatók. Mindegyik beállítás beállítható az <code>antimatter</code> szolgáltatáson egy <code>AM_CALLS_</code> környezeti változóval is, amely ekkor felülírja a Rendszerkonzol beállításait, és ott zárolja az értéket. A régebbi <code>MM_CALLS_</code> nevek is működnek.</p>
+
+<h2 id="after-install">Ezeket ellenőrizd a telepítés után</h2>
+<ol>
+<li><b>Nyisd meg a hívások portját.</b> Engedd át a 8443/udp és 8443/tcp portokat a szerver és a felhőszolgáltató tűzfalán.</li>
+<li><b>Kapcsold ki a teszt módot.</b> A <b>Teszt mód</b> (<code>DefaultEnabled</code>) alapértelmezés szerint be van kapcsolva: csak a rendszeradminisztrátorok indíthatnak hívásokat csatornákban, így ellenőrizheted, hogy a hívások működnek-e, mielőtt mindenki használja őket. Állítsd <b>Ki</b> állapotba a <b>Rendszerkonzol › Bővítmények › Hívások</b> alatt, vagy állítsd be az <code>AM_CALLS_DEFAULT_ENABLED=true</code> értéket.</li>
+<li><b>Dönts a videó kérdésében.</b> A <b>Videóhívások engedélyezése közvetlen üzenetekben (Kísérleti)</b> (<code>EnableVideo</code>, <code>AM_CALLS_ENABLE_VIDEO</code>) alapértelmezés szerint kikapcsolva van. Amíg kikapcsolva van, senki nem kapcsolhatja be a kameráját, még hangcsatornákban sem. Ha bekapcsolod, a kamerák közvetlen üzenetes hívásokban és hangcsatornákban működnek (kivéve, ha a Hangcsatornák alkalmazás <b>Videó engedélyezése hangcsatornákban</b> beállítása kikapcsolva van).</li>
+<li><b>NAT mögött állítsd be a nyilvános címet</b> (következő szakasz).</li>
+</ol>
+
+<h2 id="network">Portok, NAT és STUN</h2>
+<table>
+<thead><tr><th>Beállítás</th><th>Változó</th><th>Alapérték</th></tr></thead>
+<tbody>
+<tr><td><b>RTC-szerver port (UDP)</b></td><td><code>AM_CALLS_UDP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>RTC-szerver port (TCP)</b></td><td><code>AM_CALLS_TCP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>RTC-szerver cím (UDP)</b>, <b>(TCP)</b></td><td><code>AM_CALLS_UDP_SERVER_ADDRESS</code>, <code>AM_CALLS_TCP_SERVER_ADDRESS</code></td><td>üres: minden cím</td></tr>
+<tr><td><b>ICE host felülírás</b></td><td><code>AM_CALLS_ICE_HOST_OVERRIDE</code></td><td>üres: STUN-nal keresve</td></tr>
+<tr><td><b>ICE host port felülírás</b></td><td><code>AM_CALLS_ICE_HOST_PORT_OVERRIDE</code></td><td>üres: a szerver portja</td></tr>
+<tr><td><b>ICE-szerverek konfigurációi</b></td><td><code>AM_CALLS_ICE_SERVERS_CONFIGS</code></td><td><code>[{"urls":["stun:stun.cloudflare.com:3478"]}]</code></td></tr>
+<tr><td><b>(Kísérleti) IPv6-támogatás engedélyezése</b></td><td>(Rendszerkonzol)</td><td>ki</td></tr>
+</tbody>
+</table>
+<p>A portoknak 80 és 49151 között kell lenniük. A webhely compose-fájljában módosítsa a <code>.env</code> fájlban a <code>CALLS_PORT</code> értékét: ez mindkét változót beállítja, és publikálja a portot, ugyanazzal a számmal a hoston és a konténerben is. A kliensek először UDP-t próbálnak, majd ugyanazon a porton TCP-re váltanak.</p>
+<h3>Az a cím, ahová a kliensek a médiát küldik</h3>
+<p>A szerver minden kliensnek megadja azt a címet, ahová a médiát kell küldeni (ezt nevezi „host jelöltnek”). Alapértelmezés szerint a STUN-szerverrel – egy nyilvános szolgáltatással, amely a kérés forrásának címét és portját adja vissza – keresi meg a nyilvános címét. Az alapértelmezett a Cloudflare nyilvános STUN-szervere, a <code>stun:stun.cloudflare.com:3478</code>. Nem csak a szerver használja: minden, amely csatlakozik egy híváshoz, ugyanígy kérdez rá a saját nyilvános címére. A STUN-szerver csak IP-címeket és portokat lát, soha nem hallja a hívás hangját, nem látja a videót, és nem olvassa az üzeneteket.</p>
+<p>Ha a szerverben még a Mattermost STUN-szervere (<code>stun.global.calls.mattermost.com</code>) van mentve a <b>ICE-szerverek konfigurációi</b> beállításban, például Mattermost-ról való átvándorlás után, akkor a Cloudflare-ét használja. A mentett beállítás nem módosul.</p>
+<p>Állítsa be a címet manuálisan, ha:</p>
+<ul>
+<li>a szerver NAT mögött van, vagy több nyilvános címe is van: állítsa be az <b>ICE host felülírást</b> a nyilvános IP-címre (vagy egy olyan hostnévre, amely erre mutat);</li>
+<li>a NAT egy másik nyilvános portot rendel a 8443-hoz: állítsa be az <b>ICE host port felülírást</b> is erre a nyilvános portra;</li>
+<li>a szervernek nincs internetkapcsolata, vagy nem szeretné, hogy a szerver és a kliensek külső STUN-szervert érnék el: állítsa be az <b>ICE host felülírást</b>, és üresse ki a STUN-listát a <code>AM_CALLS_ICE_SERVERS_CONFIGS=[]</code> beállítással. Ha be van állítva az <b>ICE host felülírás</b>, a szerver már nem kérdez rá a címére STUN-szervernél; az üres lista pedig megakadályozza, hogy a kliensek ilyen szervert keressenek.</li>
+</ul>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ICE_HOST_OVERRIDE: 203.0.113.10
+      AM_CALLS_ICE_SERVERS_CONFIGS: "[]"</code></pre>
+<p>Ha STUN-t szeretne használni harmadik fél bevonása nélkül, futtasson saját STUN-szervert (egy TURN-szerver, például a coturn, szintén válaszol STUN-kérésekre), és ezt adja meg a <b>ICE-szerverek konfigurációi</b> beállításban, ahogy az alábbi TURN-példában is.</p>
+<p>Csak helyi hálózaton használja a szerver LAN-címét. A portok, címek vagy ICE-beállítások módosítása után indítsa újra a szerveret, vagy tiltsa le, majd engedélyezze a Calls-alkalmazást: a médiaszerver az alkalmazás indításakor áll be.</p>
+
+<h2 id="turn">TURN szigorú tűzfalakkal</h2>
+<p>Néhány hálózat mind a UDP-t, mind a nem szabványos TCP-portokra kimenő kapcsolatok is blokkolja. Ezek használóihoz TURN-szerverre van szükség, amely egy elérhető porton (gyakran a 443-as) közvetíti a médiát. Az Antimatter nem tartalmaz ilyen szervert; futtasson egy TURN-szervert, például a coturn-t, és adja hozzá a <b>ICE-szerverek konfigurációi</b> nevű JSON-listához:</p>
+<pre><code>[
+  {"urls": ["stun:turn.example.com:3478"]},
+  {"urls": ["turn:turn.example.com:3478?transport=udp", "turns:turn.example.com:443?transport=tcp"]}
+]</code></pre>
+<ul>
+<li>Ha közös titkot használ (a coturn <code>use-auth-secret</code> beállítása), azonos titkot adjon meg a <b>TURN statikus hitelesítési titok</b> (<code>AM_CALLS_TURN_STATIC_AUTH_SECRET</code>) mezőben is: a szerver ekkor rövid ideig érvényes hitelesítő adatokat ad ki minden kliensnek, amelyek <b>TURN hitelesítő adatok érvényességi ideje (percben)</b> (alapértelmezés szerint 240) ideig érvényesek.</li>
+<li>Ha rögzített hitelesítő adatokat használ, a TURN-bejegyzéshez adja hozzá a <code>"username"</code> és a <code>"credential"</code> mezőket.</li>
+<li>A <b>Szerveroldali TURN</b> (alapértelmezés szerint kikapcsolva) a szerver által kezdeményezett kapcsolatokhoz is a TURN-szervereket használja.</li>
+</ul>
+
+<h2 id="general">Egyéb hívásbeállítások</h2>
+<table>
+<thead><tr><th>Beállítás</th><th>Változó</th><th>Alapérték</th><th>Mire szolgál</th></tr></thead>
+<tbody>
+<tr><td><b>Maximális híváshoz csatlakozók száma</b></td><td><code>AM_CALLS_MAX_CALL_PARTICIPANTS</code></td><td>0 (korlát nélkül)</td><td>Egy hívásban részt vevő személyek maximális száma.</td></tr>
+<tr><td><b>Képernyőmegosztás engedélyezése</b></td><td>(Rendszerkonzol)</td><td>bekapcsolva</td><td>Lehetővé teszi a résztvevők számára, hogy megossák a képernyőjüket.</td></tr>
+<tr><td><b>Hívás csengésének engedélyezése</b></td><td><code>AM_CALLS_ENABLE_RINGING</code></td><td>bekapcsolva</td><td>Amikor egy közvetlen vagy csoportos üzenetben hívás indul, a többi résztvevő készüléke cseng.</td></tr>
+<tr><td><b>Simulcast engedélyezése képernyőmegosztáshoz (Kísérleti)</b></td><td>(Rendszerkonzol)</td><td>ki</td><td>A képernyőmegosztást több minőségben is elküldi.</td></tr>
+<tr><td><b>AV1-kódék engedélyezése képernyőmegosztáshoz (Kísérleti)</b></td><td>(Rendszerkonzol)</td><td>ki</td><td>Ha a simulcast be van kapcsolva, ez a beállítás figyelmen kívül marad.</td></tr>
+</tbody>
+</table>
+<p>A Hangcsatornák alkalmazásnak két beállítása van a <b>Rendszerkonzol › Bővítmények › Hangcsatornák</b> menüben: <b>Automatikus csatlakozás hangcsatorna megnyitása esetén</b> (alapértelmezés szerint bekapcsolva) és <b>Videó engedélyezése hangcsatornákon</b> (alapértelmezés szerint bekapcsolva, de lásd a fenti videót). A közösségi adminisztrátorok a csatorna beállításaiban alakíthatják át egy csatornát hangcsatornává.</p>
+<div class="callout">A hívások teljes lekapcsolásához tiltsa le a Hívások alkalmazást a <b>Rendszerkonzol › Bővítmények › Bővítmény kezelés</b> menüpontban, vagy állítsa be a <code>AM_CALLS_DISABLE=true</code> értéket. Ekkor a hangcsatornák is leállnak.</div>
+
+<h2 id="rtcd">Nagyobb szerverek: külső rtcd</h2>
+<p>Alapértelmezés szerint egy Antimatter-szerver kezeli az összes híváshoz tartozó médiát. Ha sok párhuzamos hívás zajlik, vagy a médiát a csevegőszerverről el szeretnéd távolítani, a Hívások app átadhatja a médiát az <b>rtcd</b> nevű különálló médiaszervernek (a Mattermost nyílt forráskódú <code>rtcd</code> szervere, 0.17-es vagy újabb verzió). Állítsd be az <b>RTCD-szerver URL-címét</b> (<code>AM_CALLS_RTCD_SERVICE_URL</code>), például <code>https://rtcd.example.com</code>: ekkor minden hívás ezen keresztül zajlik, és a kliensek a médiát az rtcd saját portjára küldik, nem az Antimatterére. A hitelesítő adatokat az <code>AM_CALLS_RTCD_CLIENT_ID</code> és az <code>AM_CALLS_RTCD_AUTH_KEY</code> segítségével adhatod meg; ha ezeket nem állítod be, az app önmagát regisztrálja az rtcd-nél. Licenc nem szükséges. A Hívások app figyelmeztetést jelenít meg az adminisztrátorok számára, amely az rtcd használatát javasolja, ha a szerveren gyakran 50-nél több ember vesz egyszerre részt hívásokban.</p>
+
+<h2 id="transcription">Átirat és élő feliratok</h2>
+<p>Az Antimatter beszéd-főszövégi (speech-to-text) modell segítségével, amelyet saját magad futtatsz, átiratot készíthet a hívásokról, és élő feliratokat jeleníthet meg, amíg a beszélők szólnak. Az Antimatter bármilyen szerverrel működik, amely nyújt OpenAI-kompatibilis <code>/v1/audio/transcriptions</code> végpontot, például egy a hálózaton futó Whisper-szerverrel. Nem szükséges hozzá további Antimatter-szolgáltatás.</p>
+<h3>Így működik</h3>
+<ul>
+<li>A hívás házigazdája az <b>Átirat készítése a hívásról</b> gombbal indítja el az átírást a hívás vezérlőin. Az <b>Átírás folyamatban</b> jelvény tájékoztatja a résztvevőket.</li>
+<li>Minden résztvevő appja a saját mikrofonját hallgatja, a beszédet rövid darabokra vágja (legfeljebb 12 másodperces, soha nem némítás közben), és ezeket elküldi az Antimatternek, amely továbbítja őket a beszéd-főszövégi szerveredre.</li>
+<li>Ha az élő feliratok be vannak kapcsolva, minden darab szövege azonnal feliratként jelenik meg a résztvevők előtt.</li>
+<li>Amikor az átiratkészítés leáll, vagy a hívás véget ér, a Hívások bot szövegfájlként és WebVTT-feliratként beküldi az átiratot a hívás üzenetszálába (a hangcsatornákban a csatornába).</li>
+<li>Ha a <b>Átiratok összefoglalása</b> be van kapcsolva, az Ügynökök app alapértelmezett ügynöke is beküld egy összefoglalót a szálba (lásd <a href="{{root}}docs/admins/ai.html">MI</a>).</li>
+</ul>
+<figure><img src="{{root}}assets/img/shots/transcript.webp" alt="A call's thread: the Calls bot has posted the transcript as a text file, and an AI agent has posted a summary below it."><figcaption>A hívás után: az átirat és annak összefoglalója a hívás üzenetszálában.</figcaption></figure>
+<h3>Beállítás</h3>
+<p>Állítsd be ezeket az <code>antimatter</code> szolgáltatáson:</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ENABLE_TRANSCRIPTIONS: "true"
+      AM_CALLS_TRANSCRIBE_API: openai
+      AM_CALLS_TRANSCRIBE_API_OPEN_AIURL: http://stt.internal:8000/v1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL: whisper-1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY: ""
+      AM_CALLS_ENABLE_LIVE_CAPTIONS: "true"
+      AM_CALLS_LIVE_CAPTIONS_LANGUAGE: en</code></pre>
+<table>
+<thead><tr><th>Beállítás</th><th>Változó</th><th>Mit kell beírni</th></tr></thead>
+<tbody>
+<tr><td><b>Hívások átiratának engedélyezése (Beta)</b></td><td><code>AM_CALLS_ENABLE_TRANSCRIPTIONS</code></td><td><code>true</code></td></tr>
+<tr><td><b>Hívás átiratkészítő API</b></td><td><code>AM_CALLS_TRANSCRIBE_API</code></td><td><code>openai</code> (megjelenik „OpenAI-kompatibilis API (munkafolyamat-szolgáltatás nélkül)” néven)</td></tr>
+<tr><td><b>Beszéd-főszövégi API URL-címe</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AIURL</code></td><td>Az API alap URL-címe, a <code>/v1</code>-ig, beleértve azt.</td></tr>
+<tr><td><b>Beszéd-főszövégi modell</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL</code></td><td>A modell neve, ahogy az API ismeri, például <code>whisper-1</code>. Kötelező.</td></tr>
+<tr><td><b>Beszéd-főszövégi API-kulcs</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY</code></td><td>Bearer tokenként küldődik. Hagyd üresen, ha az API nem igényel kulcsot.</td></tr>
+<tr><td><b>Élő feliratok engedélyezése (Beta)</b></td><td><code>AM_CALLS_ENABLE_LIVE_CAPTIONS</code></td><td><code>true</code> a hívás alatti feliratokhoz.</td></tr>
+<tr><td><b>Élő feliratok nyelve</b></td><td><code>AM_CALLS_LIVE_CAPTIONS_LANGUAGE</code></td><td>A beszélt nyelv kétbetűs kódja (alapértelmezés szerint <code>en</code>). Ez az érték a hangszövegfelismerő API-hoz is továbbításra kerül az átiratokhoz, ezért akkor is állítsa be, ha nem használ élő feliratokat.</td></tr>
+<tr><td><b>Átiratok összefoglalása</b></td><td><code>AM_CALLS_SUMMARIZE_TRANSCRIPTIONS</code></td><td><code>true</code> az AI által generált összefoglalóhoz a hívás után.</td></tr>
+</tbody>
+</table>
+<div class="callout">A Rendszerkonzolban az átirat beállításai csak akkor jelennek meg, ha az <b>Enable call recordings</b> (Hívásfelvételek engedélyezése) be van kapcsolva, pedig ez az átiratfajta nem igényel felvételt. A fenti változók beállítása elkerüli ezt a korlátot. Ne kapcsolja be a felvételeket az <code>openai</code> átiratolóval együtt: ekkor a felvétel indításakor a job-service átiratoló indítását próbálná meg, ami hibával járna.</div>
+<p>Az átiratolás bekapcsolása esetén mindenki hangja, aki beszél, a beállított hangszövegfelismerő szerverre kerül, és az átirat ott jelenik meg, ahol a csatorna minden tagja elolvashatja. Tájékoztassa a felhasználókat, és ha a hívások bizalmasak, tartsa a szervert a saját hálózatában.</p>
+
+<h2 id="recordings">Felvételek</h2>
+<p>A hívásfelvételek (valamint a beépített <code>whisper.cpp</code> vagy Azure átiratolók használata) külön konténerekben fut, amelyeket a Mattermost nyílt forráskódú <code>calls-offloader</code> nevű feladatszolgáltatása indít, és amelyet Ön telepít az Antimatter mellé. A beállítások: <b>Enable call recordings</b> (<code>AM_CALLS_ENABLE_RECORDINGS</code>, alapértelmezés szerint ki), <b>Job service URL</b> (<code>AM_CALLS_JOB_SERVICE_URL</code>), <b>Maximum call recording duration</b> (alapértelmezés szerint 60 perc, 15 és 180 perc között) és <b>Call recording quality</b> (alacsony, közepes vagy magas; alapértelmezés szerint közepes). Licenc nem szükséges. Csak átiratokhoz és feliratokhoz a fenti hangszövegfelismerő beállítás egyszerűbb: nem igényel feladatszolgáltatást.</p>

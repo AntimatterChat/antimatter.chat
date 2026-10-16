@@ -1,0 +1,172 @@
+title: Bot và tin nhắn tương tác
+description: Tài khoản bot trong Antimatter: cách tạo, token và quyền, đăng bài dưới danh nghĩa bot, tin nhắn trực tiếp, nút và menu tương tác, và hộp thoại.
+guide: developers
+order: 5
+nav: Bot
+lead: Tài khoản bot là người dùng dành cho chương trình. Nó có tên, ảnh đại diện và token riêng, và hiển thị thẻ BOT cạnh tên. Trang này cũng bao gồm các phần tương tác của tin nhắn: nút, menu và hộp thoại, mà bất kỳ tích hợp nào cũng có thể sử dụng.
+source: 45503666f647
+---
+<h2 id="why">Tại sao cần tài khoản bot</h2>
+<ul>
+<li>Tin nhắn của nó đến từ một danh tính rõ ràng, có thẻ <b>BOT</b>, thay vì từ tài khoản của đồng nghiệp.</li>
+<li>Token của nó tiếp tục hoạt động khi người thiết lập thay đổi vai trò hoặc rời đi (trừ khi máy chủ vô hiệu hóa bot của chủ sở hữu đã bị vô hiệu hóa, xem bên dưới).</li>
+<li>Bot không thể đăng nhập bằng mật khẩu và không bao giờ thấy ứng dụng web.</li>
+</ul>
+<p>Ứng dụng tạo bot của riêng chúng, chẳng hạn như bot Todo hoặc Playbooks, thông qua API plugin (<code>EnsureBotUser</code>).</p>
+
+<h2 id="enable">Bật tài khoản bot</h2>
+<p>Quản trị viên hệ thống bật <b>Bật Tạo tài khoản Bot</b> trong <b>Bảng điều khiển Hệ thống › Tích Hợp › Tài khoản Bot</b> (<code>ServiceSettings.EnableBotAccountCreation</code>, <code>AM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION</code>). Tùy chọn này tắt theo mặc định. Chỉ quản trị viên hệ thống mới có thể tạo bot, trừ khi họ cấp quyền này cho các vai trò khác trong cài đặt phân quyền.</p>
+<p>Trang đó cũng có tùy chọn <b>Tắt account bot khi chủ sở hữu không hoạt động</b> (<code>ServiceSettings.DisableBotsWhenOwnerIsDeactivated</code>, bật theo mặc định), sẽ tắt bot khi tài khoản của chủ sở hữu bị vô hiệu hóa.</p>
+
+<h2 id="create">Tạo bot</h2>
+<ol>
+<li>Nhấp vào ảnh đại diện của bạn ở góc trên bên phải, sau đó chọn <b>Tích Hợp › Tài khoản Bot</b>, rồi chọn <b>Thêm tài khoản Bot</b>.</li>
+<li>Nhập <b>Tên người dùng</b> (chữ thường, số, dấu chấm, dấu gạch ngang và dấu gạch dưới), và tùy chọn <b>Biểu tượng Bot</b>, <b>Tên Hiển Thị</b> và <b>Mô tả</b>.</li>
+<li>Chọn <b>Vai trò</b>: <b>Thành viên</b>, hoặc <b>Quản trị viên hệ thống</b> cho bot quản lý máy chủ. Chỉ cấp cho bot những quyền tối thiểu cần thiết.</li>
+<li>Đánh dấu <b>post: channel</b> để bot có thể đăng bài trong mọi kênh công khai, hoặc <b>post: all</b> để đăng trong mọi kênh, bao gồm kênh riêng tư và tin nhắn trực tiếp, mà không cần là thành viên.</li>
+<li>Đặt thời gian hết hạn cho token mặc định, sau đó chọn <b>Tạo tài khoản Bot</b>.</li>
+<li>Sao chép token truy cập được hiển thị. Nó sẽ không được hiển thị lại.</li>
+</ol>
+<p>Sau này, chọn <b>Tạo Token Mới</b> trên dòng của bot để thêm token, và mỗi token có thể bị vô hiệu hóa hoặc xóa. Token của bot vẫn hoạt động ngay cả khi token truy cập cá nhân bị tắt cho người dùng.</p>
+<p>Với API:</p>
+<pre><code># create the bot (you become its owner)
+curl -X POST https://chat.example.com/api/v4/bots \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username": "deploy-bot", "display_name": "Deploy", "description": "Posts deployments"}'
+
+# give it a token
+curl -X POST https://chat.example.com/api/v4/users/$BOT_USER_ID/tokens \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"description": "deploy pipeline"}'</code></pre>
+<p>Từ dòng lệnh, đăng nhập với tư cách quản trị viên (không ở chế độ cục bộ): <code>amctl bot create deploy-bot --display-name Deploy --with-token --expires-in 90d</code>. Các điểm cuối khác: <code>GET /api/v4/bots</code>, <code>PUT /api/v4/bots/{bot_user_id}</code>, <code>POST /api/v4/bots/{bot_user_id}/disable</code> và <code>/enable</code>, <code>POST /api/v4/bots/{bot_user_id}/assign/{user_id}</code> để thay đổi chủ sở hữu.</p>
+
+<h2 id="membership">Thêm bot vào các cộng đồng và kênh</h2>
+<p>Một bot mới không thuộc cộng đồng nào. Hãy thêm nó như một người dùng, từ quản lý thành viên của cộng đồng hoặc qua API:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/teams/$TEAM_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"team_id": "'$TEAM_ID'", "user_id": "'$BOT_USER_ID'"}'
+
+curl -X POST https://chat.example.com/api/v4/channels/$CHANNEL_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"user_id": "'$BOT_USER_ID'"}'</code></pre>
+<p>Bot có quyền <b>post: channel</b> hoặc <b>post: all</b> có thể đăng bài mà không cần là thành viên, nhưng chỉ nhận sự kiện WebSocket cho các kênh mà nó đang tham gia.</p>
+
+<h2 id="post">Đăng bài với tư cách bot</h2>
+<p>Sử dụng token của bot cho bất kỳ lời gọi API nào; <code>POST /api/v4/posts</code> là phổ biến nhất (xem <a href="{{root}}docs/developers/api.html#resources">Tài nguyên chính</a>). Để gửi tin nhắn trực tiếp cho ai đó, hãy mở kênh tin nhắn trực tiếp trước:</p>
+<pre><code># returns the channel; use its "id" as channel_id
+curl -X POST https://chat.example.com/api/v4/channels/direct \
+  -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' \
+  -d '["'$BOT_USER_ID'", "'$USER_ID'"]'</code></pre>
+<p>Để phản ứng với những gì mọi người nói, hãy theo dõi <a href="{{root}}docs/developers/api.html#websocket">WebSocket</a> bằng token của bot và trả lời các sự kiện <code>posted</code> mà bạn quan tâm. Bỏ qua các tin nhắn của chính bot để tránh lặp vô hạn.</p>
+<p>Tin nhắn chỉ một người có thể xem (tin nhắn tạm thời) được gửi bằng <code>POST /api/v4/posts/ephemeral</code> và <code>{"user_id", "post": {"channel_id", "message"}}</code>. Nó cần quyền <code>create_post_ephemeral</code>, mặc định chỉ quản trị viên hệ thống có. Các tích hợp thường gửi tin nhắn tạm thời như câu trả lời cho lệnh gạch chéo và nút bấm.</p>
+
+<h2 id="interactive">Tin nhắn tương tác: nút và menu</h2>
+<p>Bất kỳ tin nhắn nào có tệp đính kèm đều có thể chứa các hành động: nút, và menu để chọn. Chúng hoạt động trong các tin nhắn được đăng qua API, webhook và câu trả lời cho lệnh gạch chéo. Khi ai đó sử dụng một hành động, Antimatter sẽ gọi URL của tích hợp của bạn.</p>
+<pre><code>{
+  "channel_id": "…",
+  "message": "Deploy **api 2.4.0** to production?",
+  "props": {
+    "attachments": [{
+      "actions": [
+        {
+          "id": "approve",
+          "type": "button",
+          "name": "Approve",
+          "style": "primary",
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "approve"}}
+        },
+        {
+          "id": "env",
+          "type": "select",
+          "name": "Pick an environment",
+          "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}],
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "env"}}
+        }
+      ]
+    }]
+  }
+}</code></pre>
+<ul>
+<li><code>type</code>: <code>button</code> hoặc <code>select</code>.</li>
+<li><code>id</code>: chữ cái, số, dấu gạch ngang và dấu gạch dưới, phải khác nhau cho mỗi hành động của tin nhắn. Nó sẽ được tạo tự động nếu bạn bỏ trống.</li>
+<li><code>style</code> (nút): <code>default</code>, <code>primary</code>, <code>success</code>, <code>good</code>, <code>warning</code>, <code>danger</code>, hoặc một màu hex.</li>
+<li><code>options</code> (menu), hoặc <code>data_source</code>: <code>users</code> hoặc <code>channels</code> để chọn một người hoặc một kênh. <code>default_option</code> chọn trước một giá trị.</li>
+<li><code>integration.url</code>: nơi gửi yêu cầu khi người dùng nhấp. Ứng dụng (plugin) có thể sử dụng route riêng của mình, chẳng hạn <code>/plugins/com.example.deploy/actions</code>. <code>integration.context</code> do bạn định nghĩa: nó được gửi lại kèm theo cú nhấp và client không bao giờ nhìn thấy nó.</li>
+</ul>
+<h3>Yêu cầu mà tích hợp của bạn nhận được</h3>
+<pre><code>{
+  "user_id": "…",
+  "user_name": "priya",
+  "channel_id": "…",
+  "channel_name": "releases",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "post_id": "…",
+  "trigger_id": "…",
+  "type": "button",
+  "context": {"release": "2.4.0", "action": "approve"}
+}</code></pre>
+<p>Đối với menu, <code>type</code> là <code>select</code> và <code>context.selected_option</code> chứa giá trị đã chọn.</p>
+<h3>Câu trả lời của bạn</h3>
+<pre><code>{
+  "update": {"message": "Deploy of **api 2.4.0** approved by @priya", "props": {}},
+  "ephemeral_text": "Done. The deploy starts in a minute."
+}</code></pre>
+<ul>
+<li><code>update</code>: thay thế văn bản và thuộc tính của tin nhắn, ví dụ để xóa các nút sau khi sử dụng (một <code>props</code> trống).</li>
+<li><code>ephemeral_text</code>: tin nhắn chỉ người nhấp mới nhìn thấy.</li>
+<li><code>goto_location</code>: một URL để mở.</li>
+<li>Thân yêu cầu trống sẽ không thay đổi gì.</li>
+</ul>
+<p>Máy chủ sẽ chờ trong thời gian cho phép bởi <b>Thời gian chờ yêu cầu tích hợp</b> (mặc định là 30 giây). Các URL tích hợp trên địa chỉ mạng riêng phải được quản trị viên hệ thống cho phép, giống như với webhook.</p>
+
+<h2 id="dialogs">Hộp thoại</h2>
+<p>Hộp thoại là một biểu mẫu mở trên khung trò chuyện. Bạn chỉ có thể mở nó như một phản hồi đối với hành động mà người dùng vừa thực hiện, một lệnh gạch chéo hoặc một nút, vì nó cần <code>trigger_id</code> của yêu cầu đó. <code>trigger_id</code> có hiệu lực trong suốt thời gian chờ yêu cầu tích hợp.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/actions/dialogs/open \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "trigger_id": "'$TRIGGER_ID'",
+    "url": "https://deploy.example.com/dialog",
+    "dialog": {
+      "callback_id": "new-release",
+      "title": "New release",
+      "introduction_text": "Fill in the release details.",
+      "submit_label": "Create",
+      "notify_on_cancel": false,
+      "state": "anything you want back",
+      "elements": [
+        {"display_name": "Version", "name": "version", "type": "text", "placeholder": "2.4.0"},
+        {"display_name": "Notes", "name": "notes", "type": "textarea", "optional": true},
+        {"display_name": "Environment", "name": "env", "type": "select",
+         "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}]},
+        {"display_name": "Owner", "name": "owner", "type": "select", "data_source": "users"},
+        {"display_name": "Notify the channel", "name": "notify", "type": "bool", "default": "true"}
+      ]
+    }
+  }'</code></pre>
+<table>
+<thead><tr><th>Loại phần tử</th><th>Nội dung hiển thị</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>Trường một dòng. <code>subtype</code>: <code>text</code>, <code>email</code>, <code>number</code>, <code>password</code>, <code>tel</code> hoặc <code>url</code>. <code>min_length</code> và <code>max_length</code> giới hạn độ dài.</td></tr>
+<tr><td><code>textarea</code></td><td>Trường nhiều dòng.</td></tr>
+<tr><td><code>select</code></td><td>Danh sách: <code>options</code>, hoặc <code>data_source</code> là <code>users</code>, <code>channels</code>, hoặc <code>dynamic</code> kèm <code>data_source_url</code>. <code>multiselect</code> cho phép chọn nhiều giá trị.</td></tr>
+<tr><td><code>bool</code></td><td>Hộp kiểm.</td></tr>
+<tr><td><code>radio</code></td><td>Một lựa chọn trong số <code>options</code>.</td></tr>
+<tr><td><code>date</code>, <code>datetime</code></td><td>Một ngày, hoặc ngày và giờ.</td></tr>
+</tbody>
+</table>
+<p>Mọi phần tử đều nhận <code>display_name</code>, <code>name</code>, <code>help_text</code>, <code>placeholder</code>, <code>default</code> và <code>optional</code>.</p>
+<p>Khi người dùng gửi, Antimatter sẽ POST đến <code>url</code> của hộp thoại:</p>
+<pre><code>{
+  "type": "dialog_submission",
+  "callback_id": "new-release",
+  "state": "anything you want back",
+  "user_id": "…",
+  "channel_id": "…",
+  "team_id": "…",
+  "submission": {"version": "2.4.0", "notes": "", "env": "staging", "owner": "…", "notify": true},
+  "cancelled": false
+}</code></pre>
+<p>Trả lời bằng thân trống để đóng hộp thoại, hoặc giữ nó mở và hiển thị lỗi:</p>
+<pre><code>{"errors": {"version": "This version already exists."}}</code></pre>
+<p><code>{"error": "…"}</code> hiển thị thông báo cho toàn bộ biểu mẫu. Với <code>notify_on_cancel</code>, việc đóng hộp thoại sẽ gửi <code>"cancelled": true</code>. Hộp thoại hoạt động theo cách tương tự trong ứng dụng: <code>OpenInteractiveDialog</code> của API plugin nhận cùng một yêu cầu.</p>

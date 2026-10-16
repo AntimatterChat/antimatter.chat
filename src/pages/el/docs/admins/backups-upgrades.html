@@ -1,0 +1,105 @@
+title: Αντιγραφή ασφαλείας και αναβαθμίσεις
+description: Κάντε αντιγραφή ασφαλείας και επαναφορά ενός server Antimatter (βάση δεδομένων, αποθήκευση αρχείων, ρυθμίσεις), αναβαθμίστε τον με ασφάλεια, μεταφέρετε έναν server Mattermost στο Antimatter και εξάγετε ή εισάγετε δεδομένα.
+guide: admins
+order: 10
+nav: Αντιγραφή ασφαλείας και αναβαθμίσεις
+lead: Τι πρέπει να κάνετε αντιγραφή, πώς να το επαναφέρετε σε έναν νέο host, πώς να κάνετε αναβάθμιση και πώς να μεταφέρετε έναν server Mattermost ή μια ενιαία κοινότητα στο Antimatter.
+source: b0797af8b6e7
+---
+<h2 id="what">Τι πρέπει να κάνετε αντιγραφή</h2>
+<table>
+<thead><tr><th>Τι</th><th>Με το compose file του site</th><th>Με ένα αρχείο release</th></tr></thead>
+<tbody>
+<tr><td>Η βάση δεδομένων: μηνύματα, χρήστες, κοινότητες, κανάλια και, με το compose file του site, οι ρυθμίσεις</td><td>volume <code>antimatter_postgres</code>, μέσω <code>pg_dump</code></td><td>η βάση δεδομένων PostgreSQL</td></tr>
+<tr><td>Ανεβασμένα αρχεία, εικόνες και εγκατεστημένες εφαρμογές</td><td>volume <code>antimatter_files</code> (η αποθήκευση S3)</td><td><code>FileSettings.Directory</code>, προεπιλεγμένα <code>./data/</code></td></tr>
+<tr><td>Το αρχείο ρυθμίσεων</td><td>(στη βάση δεδομένων)</td><td><code>config/config.json</code></td></tr>
+<tr><td>GIF και αυτοκόλλητα</td><td>volume <code>antimatter_gifs</code></td><td>ο κατάλογος δεδομένων της υπηρεσίας GIF</td></tr>
+<tr><td>Μυστικά</td><td><code>.env</code> (και <code>compose.override.yaml</code>)</td><td>το αρχείο περιβάλλοντος</td></tr>
+</tbody>
+</table>
+<p>Η βάση δεδομένων και τα αρχεία ανήκουν μαζί: κάντε αντιγραφή τους ταυτόχρονα και διατηρήστε αντίγραφα εκτός από τον server. Τα ονόματα των volumes ξεκινούν με το όνομα του compose project, <code>antimatter</code> (η εντολή <code>docker volume ls</code> τα αναφέρει).</p>
+
+<h2 id="backup">Αντιγραφή ασφαλείας</h2>
+<p>Από τον κατάλογο του <code>compose.yaml</code>. Η διακοπή του Antimatter πριν δίνει μια πλήρως συνεπή αντίγραφο. Μια αντιγραφή που γίνεται ενώ εκτελείται είναι συνήθως σε τάξη, αλλά τα αρχεία που ανεβαίνουν κατά τη διάρκεια της αντιγραφής μπορεί να λείπουν από αυτήν.</p>
+<pre><code>stamp=$(date +%Y%m%d-%H%M%S)
+mkdir -p backups
+docker compose stop antimatter
+# Database
+docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
+    &gt; "backups/antimatter-db-$stamp.dump"
+# File storage and GIF service
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
+        alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
+done
+docker compose start antimatter
+# Secrets
+cp .env "backups/env-$stamp"</code></pre>
+<p>Εκτελέστε το από cron για ημερήσιες αντιγραφές και αντιγράψτε τον κατάλογο <code>backups/</code> σε άλλη μηχανή. Διατηρήστε τα αντίγραφα του <code>.env</code> με την ίδια ασφάλεια με τον server: περιέχουν τους κωδικούς πρόσβασής του.</p>
+<p>Για να αντιγράψετε τα ανεβασμένα αρχεία αντικείμενο προς αντικείμενο (για παράδειγμα σε άλλη αποθήκευση S3), χρησιμοποιήστε το εργαλείο γραμμής εντολών AWS της υπηρεσίας <code>bucket</code>:</p>
+<pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
+    "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
+<p>Με ένα αρχείο release, κάντε αντιγραφή της βάσης δεδομένων με <code>pg_dump -Fc</code> και των καταλόγων <code>data/</code> και <code>config/</code> με τα συνηθισμένα εργαλεία σας.</p>
+
+<h2 id="restore">Επαναφορά σε νέο host</h2>
+<p>Τοποθετήστε το <code>compose.yaml</code>, το αποθηκευμένο <code>.env</code> και τις αντιγραφές σε έναν νέο κατάλογο, και στη συνέχεια:</p>
+<pre><code>stamp=20261016-030000          # the backup to restore
+docker compose create           # creates the volumes, starts nothing
+docker compose up -d postgres
+docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
+    &lt; "backups/antimatter-db-$stamp.dump"
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
+        alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
+done
+docker compose up -d</code></pre>
+<p>Χρησιμοποιήστε το ίδιο <code>.env</code>: η αποθήκευση και η βάση δεδομένων πρέπει να διατηρήσουν τους κωδικούς πρόσβασης που είχαν. Αν ο νέος host έχει διαφορετική διεύθυνση, ενημερώστε το <code>SITE_URL</code> (και το <code>DOMAIN</code>).</p>
+<p>Δοκιμάστε τις αντιγραφές σας επαναφέροντάς τις σε άλλη μηχανή από καιρό σε καιρό.</p>
+
+<h2 id="upgrade">Αναβάθμιση</h2>
+<ol>
+<li>Κάντε αντιγραφή ασφαλείας.</li>
+<li>Αλλάξτε την ετικέτα της εικόνας στο <code>.env</code> (<code>ANTIMATTER_IMAGE</code>), αν την καθορίζετε, όπως συνιστάται.</li>
+<li>Λάβετε και επανεκκινήστε:
+<pre><code>docker compose pull
+docker compose up -d
+docker compose logs -f antimatter</code></pre></li>
+</ol>
+<p>Κατά την εκκίνηση, ο διακομιστής αναβαθμίζει το σχήμα της βάσης δεδομένων (μπορείτε να παρακολουθείτε την πρόοδο στο αρχείο καταγραφής· σε έναν μεγάλο διακομιστή η διαδικασία μπορεί να διαρκέσει αρκετά λεπτά) και εγκαθιστά τις νεότερες εκδόσεις των ενσωματωμένων εφαρμογών από την εικόνα. Αν χρησιμοποιείτε αρχείο έκδοσης: σταματήστε τον διακομιστή, αντικαταστήστε όλα τα αρχεία, εκτός από τα <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> και <code>client/plugins/</code>, με το περιεχόμενο του νέου αρχείου και εκκινήστε τον διακομιστή ξανά.</p>
+<div class="callout warn">Οι αναβαθμίσεις γίνονται μόνο προς τα εμπρός. Μόλις ένας νεότερος διακομιστής αναβαθμίσει τη βάση δεδομένων, μια παλαιότερη έκδοση δεν μπορεί να την χρησιμοποιήσει: για να επιστρέψετε σε παλαιότερη έκδοση, επαναφέρετε το αντίγραφο ασφαλείας που δημιουργήθηκε πριν την αναβάθμιση. Το ίδιο ισχύει και για τη μετάβαση από το <code>antimatter-next</code> πίσω στο <code>antimatter</code>.</div>
+<h3>Εκδόσεις</h3>
+<p>Ο διακομιστής του Antimatter αναφέρει την έκδοση της σειράς Mattermost στην οποία βασίζεται (τρέχουσα 12.0.0). Οι εικόνες ξαναχτίζονται από τα κλάδα <code>main</code>: το <code>antimatter-next</code> κάθε βράδυ (με ετικέτες <code>nightly-&lt;YYYYMMDD&gt;</code>) και και οι δύο εικόνες σε κάθε αλλαγή (με ετικέτες <code>sha-&lt;commit&gt;</code>). Επιλέξτε μία από αυτές τις ετικέτες, αναβαθμίστε συνειδητά και σημειώστε την προηγούμενη ετικέτα, ώστε να γνωρίζετε με ποιο αντίγραφο ασφαλείας αντιστοιχεί.</p>
+<h3>Κύριες εκδόσεις PostgreSQL</h3>
+<p>Το αρχείο compose χρησιμοποιεί <code>postgres:17-alpine</code>. Το Antimatter απαιτεί PostgreSQL 15 ή νεότερη έκδοση. Μια νέα κύρια έκδοση του PostgreSQL δεν μπορεί να διαβάσει τον κατάλογο δεδομένων της προηγούμενης: για να μεταβείτε σε αυτή, δημιουργήστε ένα dump της βάσης, εκκινήστε τη νέα έκδοση σε έναν νέο τόμο (volume) και επαναφέρετε το dump σε αυτή.</p>
+
+<h2 id="mattermost">Μετάβαση από Mattermost</h2>
+<p>Το Antimatter χρησιμοποιεί το σχήμα βάσης δεδομένων του Mattermost και προσθέτει τα δικά του πίνακες, οπότε μπορεί να αναλάβει τη βάση PostgreSQL και τα αρχεία ενός διακομιστή Mattermost. Δοκιμάστε πρώτα σε ένα αντίγραφο:</p>
+<ol>
+<li>Δημιουργήστε αντίγραφα ασφαλείας της βάσης δεδομένων Mattermost, της αποθήκευσης αρχείων (<code>data/</code> ή S3 bucket) και του <code>config.json</code>, και στη συνέχεια σταματήστε το Mattermost.</li>
+<li>Επαναφέρετε τη βάση δεδομένων στη PostgreSQL του Antimatter, ή κατευθύνετε το Antimatter σε ένα αντίγραφο αυτής (<code>AM_SQLSETTINGS_DATASOURCE</code>).</li>
+<li>Αντιγράψτε τα αρχεία στην αποθήκευση του Antimatter, διατηρώντας τις διαδρομές τους: στο bucket <code>antimatter</code> με ένα εργαλείο S3, ή στο <code>data/</code> με ένα αρχείο έκδοσης.</li>
+<li>Επαναχρησιμοποιήστε τις ρυθμίσεις σας: αντιγράψτε το <code>config.json</code>, ή μετακινήστε το στη βάση δεδομένων με <code>amctl --local config migrate</code> (βλ. <a href="{{root}}docs/admins/configuration.html">Ρυθμίσεις</a>). Οι μεταβλητές περιβάλλοντος <code>MM_</code> συνεχίζουν να λειτουργούν· μετονομάστε τις σε <code>AM_</code> όταν σας είναι βολικό.</li>
+<li>Εκκινήστε το Antimatter και παρακολουθήστε το αρχείο καταγραφής (log) κατά τη διάρκεια της αναβάθμισης της βάσης δεδομένων. Στη συνέχεια, ελέγξτε το <b>Κονσόλα συστήματος › Προσθήκες › Διαχείριση Plugins</b>. Το Antimatter εγκαθιστά τις δικές του εκδόσεις των Calls, Playbooks, Kanban (Πίνακες), Agents και των ενσωματώσεων, εφόσον είναι νεότερες από την εγκατεστημένη έκδοση. Αν το Mattermost είχε νεότερη έκδοση κάποιας από αυτές, αφαιρέστε την εφαρμογή και επανεκκινήστε το Antimatter, ώστε να εγκατασταθεί η δική του έκδοση.</li>
+<li>Επαναφέρετε τις push ειδοποιήσεις χρησιμοποιώντας το δικό σας proxy push: το Antimatter δεν στέλνει ποτέ ειδοποιήσεις στις υπηρεσίες push του Mattermost, είτε δοκιμαστικές είτε φιλοξενούμενες, οι οποίες αποστέλλουν ειδοποιήσεις μόνο στις δικές του εφαρμογές. Μέχρι να αλλάξετε το <b>Διακομιστής push ειδοποιήσεων</b>, ο διακομιστής δεν στέλνει push ειδοποιήσεις (βλ. <a href="{{root}}docs/admins/email-push.html#push">Push ειδοποιήσεις</a>).</li>
+</ol>
+<p>Το Antimatter δεν επικοινωνεί με καμία υπηρεσία που εκτελείται από τη Mattermost, Inc. (βλ. <a href="{{root}}docs/admins/security.html#outbound">Συνδέσεις με εξωτερικές υπηρεσίες</a>), ακόμη και αν η ρύθμισή σας αναφέρει ακόμα μία:</p>
+<ul>
+<li>ο διακομιστής push ειδοποιήσεων του Mattermost παραμένει στις ρυθμίσεις, αλλά δεν χρησιμοποιείται ποτέ;</li>
+<li>Οι διευθύνσεις του Mattermost για το marketplace εφαρμογών (<b>Διεύθυνση Marketplace</b>) και για τις ειδοποιήσεις προϊόντος αδειάζονται;</li>
+<li>η εφαρμογή Calls χρησιμοποιεί τον δημόσιο διακομιστή STUN της Cloudflare αντί για αυτόν του Mattermost, χωρίς να αλλάζει η αποθηκευμένη ρύθμιση (βλ. <a href="{{root}}docs/admins/calls.html#network">Calls</a>);</li>
+<li>ο έλεγχος ασφαλείας και η αναφορά σφαλμάτων έχουν αφαιρεθεί, μαζί με τις αντίστοιχες ρυθμίσεις στην Κονσόλα συστήματος (<b>Ενεργοποίηση ειδοποιήσεων ασφαλείας</b>, <b>Ενεργοποίηση διαγνωστικών και αναφορά σφαλμάτων</b>) και τη σελίδα <b>Ειδοποιήσεις</b>.</li>
+</ul>
+<p>Η τοπική socket είναι πλέον <code>/var/tmp/antimatter_local.socket</code>; το <code>amctl</code> δοκιμάζει επίσης την παλιά <code>/var/tmp/mattermost_local.socket</code>. Το Mattermost υποστηρίζει μόνο PostgreSQL στις πρόσφατες εκδόσεις του, και το ίδιο ισχύει και για το Antimatter: μεταφέρετε πρώτα μια βάση MySQL σε PostgreSQL. Η επιστροφή στο Mattermost μετά την αναβάθμιση της βάσης δεδομένων από το Antimatter σημαίνει την αποκατάσταση της αντίστοιχης σας αντίγραφου (backup) του Mattermost.</p>
+
+<h2 id="export-import">Εξαγωγή και εισαγωγή δεδομένων</h2>
+<p>Η μορφή ομαδικής εξαγωγής μεταφέρει δεδομένα μεταξύ διακομιστών: ολόκληρο τον διακομιστή, ορισμένες κοινότητες ή ορισμένα κανάλια, με συνημμένα, εικόνες προφίλ και προσαρμοσμένα emoji, εφόσον τα επιθυμείτε.</p>
+<pre><code># on the source server
+amctl export create --team-name design --include-profile-pictures
+amctl export list
+amctl export download &lt;export file&gt; design.zip
+# on the destination server
+amctl import upload design.zip
+amctl import list available
+amctl import process &lt;uploaded file&gt; --imported-users active</code></pre>
+<p>Παρακολουθήστε τις εργασίες με <code>amctl export job list</code> και <code>amctl import job list</code>. Για την εξαγωγή μιας κοινότητας ή ενός καναλιού, απαιτείται <code>--imported-users</code>: <code>active</code> όταν οι χρήστες μετακινούνται σε αυτόν τον διακομιστή, <code>inactive</code> όταν γίνεται εισαγωγή σε διακομιστή όπου έχουν ήδη λογαριασμούς, ώστε οι λογαριασμοί που δημιουργήθηκαν από αβέβαιες ταιριάσεις να παραμείνουν απενεργοί μέχρι να τα ελέγξει ένας διαχειριστής. Το <code>--destination-team-name</code> εισάγει σε μια υπάρχουσα κοινότητα. Οι εξαγωγές και οι εισαγωγές αποθηκεύονται στον χώρο αποθήκευσης του διακομιστή (<code>ExportSettings.Directory</code>, <code>ImportSettings.Directory</code>) για 30 ημέρες από προεπιλογή.</p>
+<p>Στον ίδιο τον διακομιστή, <code>antimatter export bulk</code> και <code>antimatter import bulk --apply</code> εκτελούν τις ίδιες λειτουργίες από αρχεία, χωρίς χρήση API.</p>

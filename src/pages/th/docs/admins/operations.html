@@ -1,0 +1,85 @@
+title: การดำเนินงาน
+description: ดูแล Antimatter ในการทำงานประจำวัน: การตรวจสอบสถานะ, ตัวชี้วัดและระบบเฝ้าระวัง, แอป Metrics, แพ็กเก็ตสนับสนุน, การค้นหาและการขยายระบบ, ความพร้อมใช้งานสูง, การเก็บรักษาข้อมูล, การส่งออกข้อมูลเพื่อปฏิบัติตามกฎระเบียบและบันทึกการตรวจสอบ (audit logs), และการแก้ไขปัญหาที่พบบ่อย
+guide: admins
+order: 11
+nav: การดำเนินงาน
+lead: เฝ้าระวังเซิร์ฟเวอร์, ทำให้รองรับผู้ใช้ได้มากขึ้น, ตัดสินใจว่าข้อมูลจะถูกเก็บไว้เป็นเวลานานเท่าใด, และแก้ไขปัญหาที่ผู้ดูแลระบบมักพบมากที่สุด
+source: 32577b38c3db
+---
+<h2 id="health">การตรวจสอบสถานะ</h2>
+<ul>
+<li><code>amctl --local system status</code> (ในคอนเทนเนอร์: <code>docker compose exec antimatter amctl --local system status</code>). การตรวจสอบสถานะของ Docker image จะรันคำสั่งนี้ทุก 30 วินาที ดังนั้น <code>docker compose ps</code> จะแสดง <code>healthy</code> หรือ <code>unhealthy</code></li>
+<li><code>GET /api/v4/system/ping</code> ตอบกลับโดยไม่ต้องเข้าสู่ระบบ สำหรับตัวเฝ้าระวังภายนอกหรือ load balancer: <code>curl -fsS https://chat.example.com/api/v4/system/ping</code></li>
+<li><code>antimatter db ping</code> ตรวจสอบว่าฐานข้อมูลสามารถเข้าถึงได้ด้วยการตั้งค่าที่ระบุไว้</li>
+<li><b>คอนโซลระบบ › การรายงาน › สถิติระบบ</b> แสดงจำนวนผู้ใช้ โพสต์ และเซสชัน และ <b>การปรับพื้นที่ทำงานให้ดีขึ้น</b> จะระบุปัญหาการตั้งค่าที่ต้องตรวจสอบ</li>
+</ul>
+
+<h2 id="metrics">ตัวชี้วัด</h2>
+<p>เซิร์ฟเวอร์สามารถเผยแพร่เมตริก Prometheus ได้: อัตราและระยะเวลาของคำขอ การเชื่อมต่อ websocket การใช้ฐานข้อมูลและแคช งาน (jobs) และปลั๊กอินฮุค (plugin hooks) รวมถึงข้อมูลอื่น ๆ เปิดใช้งานได้ที่ <b>คอนโซลระบบ › สภาพแวดล้อม › การตรวจสอบประสิทธิภาพ</b>:</p>
+<table>
+<thead><tr><th>การตั้งค่า</th><th>คีย์และตัวแปร</th><th>ค่าเริ่มต้น</th></tr></thead>
+<tbody>
+<tr><td><b>เปิดใช้งานการตรวจสอบประสิทธิภาพ</b></td><td><code>MetricsSettings.Enable</code>, <code>AM_METRICSSETTINGS_ENABLE</code></td><td>ปิด</td></tr>
+<tr><td><b>ที่อยู่ที่จะฟัง</b></td><td><code>MetricsSettings.ListenAddress</code>, <code>AM_METRICSSETTINGS_LISTENADDRESS</code></td><td><code>:8067</code></td></tr>
+<tr><td><b>เปิดใช้งานการตรวจสอบประสิทธิภาพของไคลเอนต์</b></td><td><code>MetricsSettings.EnableClientMetrics</code></td><td>เปิด: เบราว์เซอร์และแอปจะรายงานเวลาทำงานของตนเอง</td></tr>
+</tbody>
+</table>
+<p>Prometheus จะ scrape จาก <code>http://&lt;server&gt;:8067/metrics</code> แต่ละตัวชี้วัดจะเผยแพร่ภายใต้ชื่อ Mattermost (<code>mattermost_…</code>) และชื่อ Antimatter (<code>antimatter_…</code>) ดังนั้นแดชบอร์ด Mattermost ที่มีอยู่เดิมจะยังคงทำงานได้ แอปจะเผยแพร่ตัวชี้วัดของตนเอง ตัวอย่างเช่น แอป Agents ที่ <code>/plugins/mattermost-ai/metrics</code></p>
+<p>พอร์ตตัวชี้วัดไม่จำเป็นต้องเข้าสู่ระบบ: ควรเก็บไว้ในเครือข่ายส่วนตัว ไฟล์ compose ของเว็บไซต์ไม่ได้เผยแพร่พอร์ตนี้; หากต้องการ scrape จากโฮสต์ ให้เพิ่ม <code>"127.0.0.1:8067:8067"</code> ใน <code>ports</code> ของ service <code>antimatter</code></p>
+<h3>แอป Metrics</h3>
+<p>หากไม่มีเซิร์ฟเวอร์ Prometheus แอป Metrics (ปิดไว้โดยค่าเริ่มต้น ดู <a href="{{root}}docs/admins/apps.html">แอปที่รวมมา</a>) จะรวบรวมเมตริกเดียวกันนี้ลงในฐานข้อมูลอนุกรมเวลาขนาดเล็กภายใน Antimatter: เก็บทุก 60 วินาที และเก็บข้อมูลไว้ 15 วัน แอปนี้จะเปิดใช้งานจุดเชื่อมต่อเมตริก (metrics endpoint) เมื่อเริ่มทำงาน หน้าของแอปใน <b>คอนโซลระบบ › ปลั๊กอิน</b> จะแสดงขนาดของฐานข้อมูล และให้คุณดาวน์โหลดข้อมูล (dumps) เพื่อวิเคราะห์ด้วยตนเองหรือแนบไปกับรายงานข้อบกพร่อง (bug report) ข้อมูลของวันล่าสุดยังถูกเพิ่มลงในแพ็กเก็ตสนับสนุน (support packets) ด้วย</p>
+
+<h2 id="support-packet">Support packet</h2>
+<p>Support packet คือไฟล์ zip ที่รวมสิ่งที่จำเป็นในการวินิจฉัยปัญหา: เวอร์ชัน สถิติ การตั้งค่าโดยลบข้อมูลลับออก รายการแอปและงาน (jobs) โครงสร้างฐานข้อมูล (schema) และโปรไฟล์ของบันทึก (log) และประสิทธิภาพที่เพิ่งเกิดขึ้น สร้างไฟล์นี้ด้วย <code>amctl system supportpacket</code> หรือใน System Console จากเมนูที่ด้านบนของแถบด้านข้าง (<b>Commercial Support</b> ซึ่งจากนั้นจะให้คุณเลือกสิ่งที่ต้องการรวม) อ่านไฟล์นี้ก่อนแชร์: แม้จะไม่ประกอบด้วยข้อความ แต่จะประกอบด้วยชื่อของชุมชน ผู้ใช้ และการตั้งค่า</p>
+
+<h2 id="scaling">ประสิทธิภาพและการขยายขนาด</h2>
+<p>เซิร์ฟเวอร์หนึ่งเครื่องที่มี 2 คอร์ CPU และ 4 GB ของหน่วยความจำ สามารถรองรับผู้ใช้ได้หลายร้อยคน ก่อนเพิ่มเซิร์ฟเวอร์ ให้ดูที่:</p>
+<ul>
+<li><b>ฐานข้อมูล.</b> PostgreSQL ทำหน้าที่ส่วนใหญ่: ให้พื้นที่จัดเก็บข้อมูลและหน่วยความจำที่รวดเร็ว Read replicas สามารถรับภาระการอ่านได้ (<code>SqlSettings.DataSourceReplicas</code> ซึ่งเป็นรายการของ URL การเชื่อมต่อ)</li>
+<li><b>ค้นหา</b> ข้อความจะถูกค้นหาในฐานข้อมูลโดยค่าเริ่มต้น สำหรับเซิร์ฟเวอร์ขนาดใหญ่ Elasticsearch หรือ OpenSearch สามารถรับหน้าที่ค้นหาและสร้างดัชนี (indexing) แทนได้: <b>คอนโซลระบบ › สภาพแวดล้อม › Elasticsearch</b> (<code>ElasticsearchSettings</code>: <b>ประเภทของระบบค้นหา</b> เป็น Elasticsearch หรือ OpenSearch, <b>ที่อยู่การเชื่อมต่อเซิร์ฟเวอร์</b>, ข้อมูลรับรอง (credentials) จากนั้นเปิดใช้งานการสร้างดัชนี สร้างดัชนี และเปิดใช้งานการค้นหา)</li>
+<li><b>การโทร.</b> สื่อ (media) ของการโทรเป็นภาระที่หนักที่สุด ย้ายไปยังเซิร์ฟเวอร์ rtcd: ดู <a href="{{root}}docs/admins/calls.html#rtcd">การโทรและเสียง</a></li>
+<li><b>ไฟล์ที่เปิด.</b> ผู้ใช้แต่ละคนที่เชื่อมต่อจะเปิด websocket ไว้ ไฟล์ compose สำหรับ production ของ antimatter-docker เพิ่มขีดจำกัดเป็น 49152 (<code>ulimits: nofile</code>); ทำเช่นเดียวกันกับ systemd (<code>LimitNOFILE</code>)</li>
+<li><b>บันทึก (Logs).</b> ลด <code>LogSettings.ConsoleLevel</code> ลงเป็น <code>INFO</code> หรือ <code>WARN</code>: <code>DEBUG</code> จะบันทึกข้อมูลจำนวนมากบนเซิร์ฟเวอร์ที่ใช้งานหนัก</li>
+</ul>
+<h3>ความพร้อมใช้งานสูง (High availability)</h3>
+<p>เซิร์ฟเวอร์ Antimatter หลายตัวสามารถทำงานร่วมกันเป็นคลัสเตอร์ (cluster) อยู่เบื้องหลังโหลดบาลานเซอร์ (load balancer) โดยไม่จำเป็นต้องมีใบอนุญาต (licence) เซิร์ฟเวอร์เหล่านี้ต้องใช้ฐานข้อมูล PostgreSQL เดียวกัน ที่เก็บไฟล์ S3 เดียวกัน และการตั้งค่าในฐานข้อมูล (<code>AM_CONFIG</code>) ใน <b>คอนโซลระบบ › สภาพแวดล้อม › ความพร้อมใช้งานสูง</b> (<code>ClusterSettings</code>): เปิด <b>เปิดโหมด High Availability</b> (<code>ClusterSettings.Enable</code>) ตั้ง <b>ชื่อคลัสเตอร์</b> (<code>ClusterSettings.ClusterName</code>) ให้เหมือนกันทุกโหนด และให้โหนดสามารถเข้าถึงกันได้ผ่านพอร์ต gossip <b>8074</b> TCP และ UDP (<code>ClusterSettings.GossipPort</code>) โหนดจะค้นหาซึ่งกันและกันผ่านฐานข้อมูล โหลดบาลานเซอร์ต้องส่งต่อ (pass) websocket สำหรับการโทรในคลัสเตอร์ ให้ใช้ rtcd</p>
+
+<h2 id="retention">การเก็บรักษาข้อมูล</h2>
+<p>โดยค่าเริ่มต้น Antimatter จะเก็บทุกข้อความและไฟล์ไว้ตลอดไป หากต้องการลบข้อมูลเก่าโดยอัตโนมัติ ให้ไปที่ <b>คอนโซลระบบ › การปฏิบัติตามกฎระเบียบ › นโยบายการเก็บรักษาข้อมูล</b>:</p>
+<ul>
+<li><b>นโยบายการเก็บรักษาข้อมูลแบบรวม</b> กำหนด <b>ระยะเวลาการเก็บรักษาข้อมูลในช่องและข้อความส่วนตัว</b> และ <b>ระยะเวลาการเก็บรักษาไฟล์</b> สำหรับเซิร์ฟเวอร์ทังหมด: <b>เก็บถาวร</b> หรือกำหนดเป็นจำนวนชั่โมง วัน หรือปี (<code>DataRetentionSettings.EnableMessageDeletion</code>, <code>MessageRetentionHours</code>, <code>EnableFileDeletion</code>, <code>FileRetentionHours</code>).</li>
+<li><b>นโยบายการเก็บรักษาข้อมูลแบบกำหนดเอง</b> (Custom retention policies) กำหนดระยะเวลาที่แตกต่างกันสำหรับชุมชนและช่องที่เลือก</li>
+<li>งานลบข้อมูลจะรันทุกวันในเวลาที่คุณเลือก (<code>DataRetentionSettings.DeletionJobStartTime</code>, ค่าเริ่มต้นคือ <code>02:00</code> UTC) <b>รันงานลบข้อมูลทันที</b> จะรันงานทันที และ <b>บันทึกนโยบาย</b> จะแสดงรายชื่อบทความที่ถูกลบในแต้ละครัง</li>
+</ul>
+<div class="callout warn">ข้อความและไฟล์ที่ถูกลบจะหายไปอย่างถาวร ทั้งจากฐานข้อมูลและระบบจัดเก็บไฟล์ ตรวจสอบระยะเวลาการเก็บรักษาให้ดีก่อนเปิดใช้งานนโยบาย และอย่าลืมว่าข้อมูลสำรอง (backups) ของคุณยังคงเก็บข้อมูลที่ถูกลบไว้จนกว่าจะหมดอายุ</div>
+
+<h2 id="compliance">การส่งออกข้อมูลเพื่อการปฏิบัติตามกฎระเบียบและบันทึกการตรวจสอบ</h2>
+<ul>
+<li><b>คอนโซลระบบ › การปฏิบัติตามกฎระเบียบ › การส่งออกข้อมูลเพื่อกำกับดูแล</b> จะส่งออกข้อความและไฟล์ทังหมดทุกวัน (<b>เปิดใช้งานการส่งออกเพื่อการปฏิบัติตามกฎระเบียบ</b>, <code>MessageExportSettings.EnableExport</code>, ปิดโดยค่าเริ่มต้น; <b>เวลาการส่งออกข้อมูลการปฏิบัติตามกฎระเบียบ</b>, ค่าเริ่มต้นคือ <code>01:00</code>) ในรูปแบบที่ระบบเก็บถาวรสามารถอ่านได้: CSV, Actiance XML หรือ Global Relay (ไฟล์ zip หรือ EML ที่ส่งผาน SMTP) คำสั่ง <code>amctl compliance-export</code> ใช้สำหรับรันและดาวน์โหลดข้อมูลที่ส่งออกผานบรรทัดคำสั่ง</li>
+<li><b>การเฝ้าระวังการกำกับดูแล</b> (<code>ComplianceSettings</code>) จะบันทึกรายงานประจำวันลงในไดเรกทอรี เป็นกลไกที่เก่ากว่า แนะนำให้อาศัยการส่งออกข้อมูลเพื่อกำกับดูแล</li>
+<li><b>บันทึกการตรวจสอบ</b> (เบต้า, <code>ExperimentalAuditSettings</code>) จะบันทึกรายการเหตุการณ์ด้านบริหารและความปลอดภัย (การลงชื่อเข้าใช้, การเปลียนแปลงสิทธิ์และการตั้ngค่า) ลงในไฟล์ท่ีแยกต่างหาก</li>
+<li><b>ข้อกำหนดในการให้บริการแบบกำหนดเอง</b> จะขอให้สมาชิกทุกคนยอมรับข้อกำหนดของคุณก่อนใช้ Antimatter และจะขอให้ยอมรับอีกครังเมื่อคุณเปลียนแปลงข้อกำหนด</li>
+</ul>
+
+<h2 id="troubleshooting">ปัญหาที่พบบ่อย</h2>
+<h3>“ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้” หรือข้อความปรากฏขึ้นก็ต่อเมื่อรีโหลดหน้า</h3>
+<p>WebSocket ไม่สามารถเชื่อมต่อได้ ตรวจสอบว่า reverse proxy ส่งต่อ header <code>Upgrade</code> และ <code>Connection</code> (ดู<a href="{{root}}docs/admins/https.html#nginx">ตัวอย่าง nginx</a>) และว่า URL ของเว็บไซต์ตรงกับที่อยู่บนเบราว์เซอร์อย่างแม่นยำ รวมถึง <code>https</code></p>
+<h3>การอัปโหลดล้มเหลวพร้อมข้อความ “413 Request Entity Too Large”</h3>
+<p>พร็อกซีจะปฏิเสธขนาดไฟล์ท่ีเกินพิกัด ให้เพิ่่มขีดจำกัดของพร็อกซี (nginx <code>client_max_body_size</code>) ให้สูงถึงอย่างน้อย <b>ขนาดไฟล์สุงสุด</b> ใน <b>คอนโซลระบบ › สภาพแวดล้อม › พื้่นท่ีจัดเก็บไฟล์</b> (<code>FileSettings.MaxFileSize</code>, ค่าเริ่มต้นคือ 100 MB)</p>
+<h3>ผู้ใช้ไม่สามารถเริ่มการโทรได้ หรือเข้าร่วมแล้วแต่ไม่ได้ยินเสียง</h3>
+<p>หากมีเพียงผู้ดูแลระบบเท่านั้นที่สามารถเริ่มการโทรได้ ให้ปิด <b>โหมดทดสอบ</b> ของการโทร หากผู้ใช้เข้าร่วมแล้วแต่ไม่ได้ยินเสียง แสดงว่าพอร์ตสื่อ (media port) ถูกบล็อกหรือเซิร์ฟเวอร์ประกาศที่อยู่ที่ไม่ถูกต้อง: เปิดพอร์ต 8443 UDP และ TCP และตั้งค่า <b>ICE Host Override</b> เบื้องหลัง NAT ผู้ใช้บนเครือข่ายที่บล็อกทั้งสองโปรโตคอลจำเป็นต้องใช้เซิร์ฟเวอร์ TURN ดู<a href="{{root}}docs/admins/calls.html">การโทรและเสียง</a></p>
+<h3>ตัวเลือก GIF ว่างเปล่า</h3>
+<p>ตรวจสอบ <b>URL ของบริการ GIF</b> (<code>http://gifs:8080/v2</code> ใน compose file ของเว็บไซต์) และ <b>API key</b> (ค่า <code>GIFS_API_KEY</code> ในไฟล์ <code>.env</code>) ใน <b>คอนโซลระบบ › ปลั๊กอิน › GIF</b> และตรวจสอบว่าบริการ <code>gifs</code> ทำงานอยู่: <code>docker compose ps gifs</code></p>
+<h3>อีเมลไม่มาถึง</h3>
+<p>ใช้งาน <b>ทดสอบการเชื่่อมต่อ</b> ใน <b>คอนโซลระบบ › สภาพแวดล้อม › SMTP</b> ตรวจสอบว่า <b>ท่ีอยู่่อีเมลผ้้ส่่งการแจ้่งเตือน</b> ไม่ได้นังคงเป็น <code>test@example.com</code> และค้้นหา <code>smtp</code> หรือ <code>mail</code> ในบันทึกรายงาน</p>
+<h3>แอปแสดงข้อความ “Failed to start”</h3>
+<p>ค้นหา id ของแอปในล็อก (<code>docker compose logs antimatter | grep &lt;app id&gt;</code>) ปิดแล้วเปิดแอปอีกครั้งใน Plugin Management เพื่อรีสตาร์ท</p>
+<h3>เซิร์ฟเวอร์ไม่เริ่มทำงาน</h3>
+<p>อ่านส่วนท้ายของล็อก ส่วนใหญ่แล้วฐานข้อมูลไม่สามารถเข้าถึงได้ (ตรวจสอบ <code>AM_SQLSETTINGS_DATASOURCE</code> ด้วย <code>antimatter db ping</code>) การย้ายฐานข้อมูล (migration) ล้มเหลว (กู้คืนสำรองข้อมูลที่ทำไว้ก่อนอัปเกรดและรายงานข้อผิดพลาด) หรือพอร์ตที่รับฟัง (listen port) ถูกใช้งานอยู่</p>
+<h3>ถูกล็อกออกจากบัญชีผู้ดูแลระบบ</h3>
+<p>จากเซิร์ฟเวอร์ โหมดโลคอลไม่จำเป็นต้องใช้รหัสผ่าน:</p>
+<pre><code>docker compose exec antimatter amctl --local user change-password admin --password 'a-new-password'
+docker compose exec antimatter amctl --local user resetmfa admin
+docker compose exec antimatter amctl --local roles system-admin admin</code></pre>
+<h3>การรายงานบั๊ก</h3>
+<p>เปิด issue ใน <a href="https://github.com/AntimatterChat/community/issues/new/choose">Antimatter community repository</a> พร้อมระบุเวอร์ชัน วิธีที่ติดตั้งไว้ สิ่งที่คุณทำ และบรรทัด log ที่เกี่ยวข้อง สำหรับปัญหาความปลอดภัย กรุณารายงานเป็นการส่วนตัว ตามที่ <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">นโยบายความปลอดภัย</a> ระบุไว้</p>

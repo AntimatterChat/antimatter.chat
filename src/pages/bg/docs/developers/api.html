@@ -1,0 +1,164 @@
+title: REST API
+description: REST API на Antimatter: базов URL, лични достъпни токени, сесийни токени и OAuth, основните ресурси, пагинация, грешки, лимити на заявки, WebSocket поток със събития и клиентски библиотеки.
+guide: developers
+order: 2
+nav: REST API
+lead: Всичко, което приложенията на Antimatter извършват, минава през един и същ HTTP API, така че и скриптовете ви могат да го направят. Тази страница обяснява как да се автентифицирате, кои ресурси ще използвате най-често, как изглеждат отговорите и грешките и как да следите събития в реално време през WebSocket.
+source: f4b8c83efdba
+---
+<h2 id="basics">Основни понятия</h2>
+<ul>
+<li><b>Базов URL</b>: <code>https://chat.example.com/api/v4</code>. Всички ендпойнти по-долу са относителни към него.</li>
+<li><b>Формат</b>: JSON влязо и излязо, с изключение на качване на файлове (multipart). Изпращайте <code>Content-Type: application/json</code>.</li>
+<li><b>Идентификатори</b>: всеки обект има 26-символен <code>id</code>. Времето е в милисекунди от Unix epoch (<code>create_at</code>, <code>update_at</code>, <code>delete_at</code>; 0 означава „не е изтрито“).</li>
+<li><b>Общностите са екипи</b>: API-то ги нарича <code>teams</code>, с <code>team_id</code>.</li>
+<li><b>Само вас</b>: навсякъде, където пътят приема <code>user_id</code>, <code>me</code> означава текущия влязъл потребител, както в <code>GET /users/me</code>.</li>
+</ul>
+<p>Пълният списък с ендпойнти е в кода на сървъра: маршрутите са декларирани в <code>server/channels/api4/*.go</code>, а типовете — в <code>server/public/model</code>. OpenAPI описанието в папката <code>api/v4/source</code> на репозиторията покрива ендпойнтите, наследени от Mattermost, а не добавките на Antimatter.</p>
+
+<h2 id="auth">Автентификация</h2>
+<p>Всяка заявка, с изключение на влизане и няколко публични ендпойнта, изисква токен в заглавието <code>Authorization</code>:</p>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" https://chat.example.com/api/v4/users/me</code></pre>
+<p>Приемат се три вида токени: лични достъпни токени, сесийни токени и OAuth достъпни токени. Приема се и <code>Authorization: Token …</code>. Токените в query string (<code>?access_token=</code>) се приемат само за OAuth достъпни токени.</p>
+
+<h3>Лични достъпни токени (препоръчани за скриптове)</h3>
+<p>Личният достъпен токен действа от ваше име, не изтича, освен ако не му зададете срок на валидност, и може да бъде отменен по всяко време. Личните достъпни токени са изключени по подразбиране:</p>
+<ol>
+<li>Системният администратор активира <b>Разреши маркери за личен достъп</b> в <b>Системна конзола › Интеграции › Управление на интеграциите</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, <code>AM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS</code>).</li>
+<li>За всеки, който може да създава токени, системният администратор отваря <b>Системна конзола › Управление на потребители › Потребители</b>, избира <b>Управление на роли</b> от менюто на съответния човек и отметва <b>Разреши на този акаунт да генерира лични достъпни токени</b>. Системните администратори винаги могат да ги създават.</li>
+<li>Потребителят отваря аватара си в горния десен ъгъл, след което <b>Профил и настройки › Сигурност</b>. Под <b>Лични маркери за достъп</b> описва за какво е предназначен маркерът и избира <b>Създайте маркер</b>. Маркерът се показва само веднъж: копирайте го.</li>
+</ol>
+<p>Чрез API: <code>POST /users/{user_id}/tokens</code> с <code>{"description": "backup script", "expires_at": 0}</code> (<code>expires_at</code> е в милисекунди; 0 означава без срок). Поле <code>token</code> в отговора е тайната стойност; <code>id</code> се използва за отмяна (<code>POST /users/tokens/revoke</code> с <code>{"token_id": "…"}</code>). От командния ред: <code>amctl token generate &lt;user&gt; &lt;description&gt;</code>.</p>
+<p>Системният администратор може да ограничи срока на валидност на маркерите чрез <b>Максимален срок на валидност на личния достъпен токен (дни)</b> на същата страница в Системната конзола.</p>
+
+<h3>Сесийни токени</h3>
+<p>Входът с парола връща сесийен токен в заглавието на отговора <code>Token</code>, същия тип сесия, който използват приложенията:</p>
+<pre><code>curl -i -X POST https://chat.example.com/api/v4/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login_id": "maya", "password": "…"}'</code></pre>
+<p>Добавете <code>"token": "123456"</code> за акаунт с мултифакторна автентикация. Сесиите изтичат според настройките за сесии на сървъра, а входният endpoint е с ограничение на честотата (5 заявки в секунда). <code>POST /users/logout</code> приключва сесията.</p>
+<div class="callout">Браузърите се автентифицират с бисквитка. За заявки, автентифицирани с бисквитка, трябва да се изпраща и заглавието <code>X-CSRF-Token</code> за всичко, което не е GET; токен в заглавието <code>Authorization</code> не изисква CSRF заглавие.</div>
+
+<h3>Приложения за OAuth 2.0</h3>
+<p>За да позволите на хората да влизат в вашето приложение с акаунта си в Antimatter, регистрирайте OAuth 2.0 приложение. Antimatter става OAuth доставчик:</p>
+<ol>
+<li><b>Разреши доставчик OAuth 2.0 услуги</b> трябва да е активиран (<b>Системна конзола › Интеграции › Управление на интеграциите</b>, <code>ServiceSettings.EnableOAuthServiceProvider</code>, активиран по подразбиране).</li>
+<li>Някой с право да управлява OAuth приложения (по подразбиране — системните администратори) отваря своя аватар, след което <b>Интеграции › OAuth 2.0 приложения</b>, и добавя приложението с URL адресите за обратна връзка. Получава клиентски ID и клиентска тайна.</li>
+<li>Приложението ви изпраща потребителите на <code>https://chat.example.com/oauth/authorize</code> с <code>response_type=code</code>, <code>client_id</code>, <code>redirect_uri</code> и <code>state</code>. Поддържа се PKCE с <code>code_challenge_method=S256</code>.</li>
+<li>Кодът се разменя на <code>POST https://chat.example.com/oauth/access_token</code> (с <code>grant_type=authorization_code</code>, а после с <code>refresh_token</code> за подновяване), а API-то се извиква с <code>Authorization: Bearer &lt;access token&gt;</code>.</li>
+</ol>
+<p>Потребителите виждат приложенията, на които са дали достъп, в <b>Профил и настройки › Сигурност › Приложения, на които сте дали достъп</b>.</p>
+
+<h2 id="resources">Основни ресурси</h2>
+<table>
+<thead><tr><th>Какво</th><th>Крайни точки</th></tr></thead>
+<tbody>
+<tr><td>Вие и други потребители</td><td><code>GET /users/me</code>, <code>GET /users/{user_id}</code>, <code>GET /users/username/{username}</code>, <code>POST /users/ids</code> (списък с ID-та), <code>POST /users/search</code>, <code>GET /users?in_team=…&amp;in_channel=…</code></td></tr>
+<tr><td>Общности</td><td><code>GET /users/me/teams</code>, <code>GET /teams/{team_id}</code>, <code>GET /teams/name/{name}</code>, <code>PUT /teams/{team_id}/patch</code>, <code>GET /teams/{team_id}/members</code>, <code>POST /teams/{team_id}/members</code></td></tr>
+<tr><td>Канали</td><td><code>GET /users/me/teams/{team_id}/channels</code>, <code>GET /teams/name/{team}/channels/name/{channel}</code>, <code>POST /channels</code>, <code>POST /channels/direct</code> (два потребителски ID-та), <code>POST /channels/group</code>, <code>POST /channels/{channel_id}/members</code></td></tr>
+<tr><td>Съобщения (пости)</td><td><code>POST /posts</code>, <code>GET /posts/{post_id}</code>, <code>PUT /posts/{post_id}/patch</code>, <code>DELETE /posts/{post_id}</code>, <code>GET /channels/{channel_id}/posts</code>, <code>GET /posts/{post_id}/thread</code>, <code>POST /teams/{team_id}/posts/search</code></td></tr>
+<tr><td>Реакции</td><td><code>POST /reactions</code> с <code>{"user_id", "post_id", "emoji_name"}</code>, <code>DELETE /users/{user_id}/posts/{post_id}/reactions/{emoji_name}</code></td></tr>
+<tr><td>Файлове</td><td><code>POST /files</code> (multipart: <code>channel_id</code> и <code>files</code>), после поставете върнатите ID-та в <code>file_ids</code> на поста; <code>GET /files/{file_id}</code></td></tr>
+<tr><td>Предпочитания</td><td><code>GET /users/me/preferences</code>, <code>PUT /users/me/preferences</code></td></tr>
+<tr><td>Интеграции</td><td><code>/hooks/incoming</code>, <code>/hooks/outgoing</code>, <code>/commands</code>, <code>/bots</code>, <code>/oauth/apps</code> (вижте следващите страници)</td></tr>
+<tr><td>Сървър</td><td><code>GET /system/ping</code> (състояние, не изисква токен), <code>GET /config/client?format=old</code> (настройките, които клиентите виждат)</td></tr>
+</tbody>
+</table>
+
+<h3>Изпращане на съобщение</h3>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "message": "Backup finished: **42 GB** in 3 min"}'</code></pre>
+<p>Съобщенията са в Markdown. Добавете <code>"root_id"</code> (първото съобщение в нишка), за да отговорите в нишка, <code>"file_ids"</code> за файлове и <code>"props"</code> за прикачени файлове и други допълнения (вижте <a href="{{root}}docs/developers/webhooks.html#attachments">Прикачени файлове</a>).</p>
+
+<h3>Намиране на ID на канал</h3>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" \
+  https://chat.example.com/api/v4/teams/name/lumen-labs/channels/name/ops-alerts</code></pre>
+<p>Имената са тези от връзката към канала: <code>/lumen-labs/channels/ops-alerts</code>.</p>
+
+<h2 id="pagination">Пагинация</h2>
+<p>Списъчните крайни точки приемат <code>page</code> (от 0) и <code>per_page</code> (по подразбиране 60, максимум 200). Продължавайте да искате следващата страница, докато не се върне страница, по-къса от <code>per_page</code>.</p>
+<p>Съобщенията в канал (<code>GET /channels/{channel_id}/posts</code>) също приемат <code>since</code> (време: всичко, променено от тогава нататък), или <code>before</code> и <code>after</code> (ID на съобщение). Те се връщат като списък със съобщения: <code>{"order": [IDs, newest first], "posts": {ID: post}, "next_post_id", "prev_post_id"}</code>.</p>
+
+<h2 id="errors">Грешки</h2>
+<p>Грешките използват стандартните HTTP статуси (400 невалиден вход, 401 неавторизиран, 403 не е разрешено, 404 не е намерено, 501 функцията е изключена) и JSON тяло:</p>
+<pre><code>{
+  "id": "api.context.permissions.app_error",
+  "message": "You do not have the appropriate permissions.",
+  "detailed_error": "",
+  "request_id": "jz8zm5nunpbt8f3gpqsz5dq6so",
+  "status_code": 403
+}</code></pre>
+<p>Използвайте <code>id</code> в кода си: <code>message</code> се превежда на езика на потребителя. <code>detailed_error</code> е празно, освен ако сървърът не работи в разработчически режим (<code>ServiceSettings.EnableDeveloper</code>). Посочете <code>request_id</code> на администратора на сървъра: той се намира в логовете.</p>
+
+<h2 id="rate-limits">Ограничения на честотата</h2>
+<p>Ограничаването на трафика е изключено по подразбиране. Когато системният администратор го активира (<b>Системна конзола › Обкръжение › Ограничаване на трафика</b>), всеки клиент получава 10 заявки в секунда с възможност за скок до 100 по подразбиране, преброени по IP адрес или по потребител. Отговорите съдържат <code>X-RateLimit-Limit</code>, <code>X-RateLimit-Remaining</code> и <code>X-RateLimit-Reset</code>; при надхвърляне на лимита сървърът отговаря с <code>429</code> и заглавка <code>Retry-After</code> в секунди. Някои краища, като влизане, имат собствен лимит независимо от настройката.</p>
+<p>Пишете скриптове, които чакат и опитват отново при 429, и избягвайте опитите за периодично извличане: следете WebSocket вместо това.</p>
+
+<h2 id="websocket">Потокът с WebSocket събития</h2>
+<p>Свържете се с <code>wss://chat.example.com/api/v4/websocket</code>. Автентифицирайте се или с заглавка <code>Authorization: Bearer</code> в заявката за свързване, или като изпратите това като първо съобщение:</p>
+<pre><code>{"seq": 1, "action": "authentication_challenge", "data": {"token": "…"}}</code></pre>
+<p>Сървърът изпраща събитие <code>hello</code>, а след това събитие за всичко, което имате право да виждате:</p>
+<pre><code>{
+  "event": "posted",
+  "data": {"channel_id": "…", "channel_type": "O", "post": "{\"id\":\"…\",\"message\":\"Hello\",…}"},
+  "broadcast": {"channel_id": "…", "team_id": "", "user_id": "", "omit_users": null},
+  "seq": 4
+}</code></pre>
+<p>Забележете, че <code>data.post</code> е съобщението като JSON низ. Чести събития: <code>posted</code>, <code>post_edited</code>, <code>post_deleted</code>, <code>reaction_added</code>, <code>reaction_removed</code>, <code>typing</code>, <code>status_change</code>, <code>user_added</code>, <code>direct_added</code>. Приложенията изпращат собствените си събития, наречени <code>custom_&lt;app id&gt;_&lt;event&gt;</code>.</p>
+<p>Можете също да изпращате действия, всяко с нарастващо <code>seq</code>: <code>user_typing</code> с <code>{"channel_id", "parent_id"}</code>, или <code>get_statuses</code>. Върнете се, когато връзката се прекъсне, и извличете пропуснатото с <code>since</code> (вижте <a href="#pagination">Пагинация</a>).</p>
+<p>Antimatter добавя тези събития: <code>community_attributes_updated</code>, <code>member_timeouts_updated</code>, <code>post_put_on_top</code>, <code>post_removed_from_top</code>, <code>server_categories_updated</code>, <code>channel_overrides_updated</code> и <code>category_overrides_updated</code>.</p>
+
+<h2 id="clients">Библиотеки за клиент</h2>
+<ul>
+<li><b>Отиди</b>: <code>model.Client4</code> в <code>server/public/model</code> (импортирайте <code>github.com/mattermost/mattermost/server/public/model</code>). <code>model.NewAPIv4Client(url)</code>, след което <code>client.SetToken(token)</code>; <code>model.NewWebSocketClient4(wsURL, token)</code> следва събитията. Копието на Antimatter добавя методи за собствените си краища, като <code>UpdateMessageRequest</code>, <code>PutPostOnTop</code> и <code>ExportChannel</code>.</li>
+<li><b>TypeScript</b>: класът <code>Client4</code> от <code>@mattermost/client</code>, в <code>webapp/platform/client</code>, с типовете му в <code>webapp/platform/types</code>. Копието в репозиторията на Antimatter включва ендпойнтите на Antimatter; пакетът, публикуван на npm от Mattermost, не ги включва.</li>
+</ul>
+<pre><code>package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/mattermost/mattermost/server/public/model"
+)
+
+func main() {
+	client := model.NewAPIv4Client("https://chat.example.com")
+	client.SetToken("…")
+	post, _, err := client.CreatePost(context.Background(), &amp;model.Post{
+		ChannelId: "…",
+		Message:   "Hello from Go",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("posted", post.Id)
+}</code></pre>
+
+<h2 id="antimatter">Какво Antimatter добавя към API-то</h2>
+<p>Тези ендпойнти и полета не съществуват на сървър на Mattermost. Всички изискват сесия.</p>
+<table>
+<thead><tr><th>Ендпойнт</th><th>Какво прави</th></tr></thead>
+<tbody>
+<tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> същия път<br><code>PATCH</code>, <code>DELETE …/fields/{field_id}</code></td><td>Атрибути на общността: полетата на профила, които администраторите на общността дефинират за нейните членове (до 20). Членовете могат да ги четат; администраторите на общността ги създават и променят.</td></tr>
+<tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> същия път<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>Стойностите на атрибутите на член, като <code>{field_id: value}</code>. Членовете задават собствените си (освен администрираните от администратори); администраторите задават на всеки. Търсенето приема <code>{"user_ids": [...]}</code> (до 200).</td></tr>
+<tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>Изчаквания: <code>{"until": time, "reason": "…"}</code> спира някой да публикува, реагира и качва в общността до тогава (до 28 дни); <code>"until": 0</code> го вдига. Изгледът за модерация показва кога са се присъединили и колко са публикували наскоро.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Съобщения, задържани в горната част на канал (до 10). <code>{"duration": ms}</code>, до 30 дни; 0 го задържа, докато не бъде премахнато. Изисква право да публикува в канала.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>Действа върху вашето искане за съобщение: <code>{"action": "accept"}</code>, <code>"dismiss"</code> или <code>"request"</code>, за да върнете разговор сред исканията. Връща вашия член на канала.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>Какво може да направи роля или човек в канал и кои роли виждат канал, достъпът до който е ограничен по роли.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>Споделените категории канали на общността и изключенията, които се прилагат към всеки канал в дадена категория.</td></tr>
+<tr><td><code>GET /groups/{group_id}/team_role</code><br><code>PUT …/team_role/permissions</code></td><td>Разрешенията, които предоставя роля на общността.</td></tr>
+<tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>Тества правилата за автоматични връзки на общността върху даден текст.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>Изтегля съобщенията от канал като CSV (до 50 000) за хора, които имат право да четат канала.</td></tr>
+<tr><td><code>GET /posts/{post_id}/speech</code></td><td>Съобщението, прочетено на глас като аудио, когато е настроена функция за превръщане на текст в реч.</td></tr>
+</tbody>
+</table>
+<h3>Нови полета</h3>
+<ul>
+<li><b>Общности</b> (<code>Team</code> и <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (всеки е в всеки канал, който може да види, както в Discord), <code>default_channel_id</code> (къде се появяват новите; ако е празно, това е Town Square), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> и <code>autolinks</code> (и двете са JSON низове).</li>
+<li><b>Вградени отговори</b>: публикация с <code>"props": {"reply_to": "&lt;post id&gt;"}</code> цитира това съобщение от същия канал. Добавете <code>"reply_to_mention": false</code>, за да не се уведомява авторът. Сервърът попълва <code>metadata.reply_to</code> с кратко описание на цитираното съобщение.</li>
+<li><b>Спойлери</b>: <code>"props": {"spoiler": true}</code> скрива текста и файловете на публикация, докато читателят не реши да ги види.</li>
+<li><b>Игнорирането и блокирането</b> са предпочитания: категория <code>user_block</code>, наименувана според ID-то на другия човек, със стойност <code>ignore</code> или <code>block</code>. Дали директно съобщение чака като заявка се намира в <code>notify_props.dm_request</code> на вашия член на канала (<code>pending</code>, <code>accepted</code> или <code>dismissed</code>).</li>
+<li><b>Прикачените файлове към съобщения</b> могат да носят <code>stages</code> и <code>chart</code>: вижте <a href="{{root}}docs/developers/webhooks.html#cards">Карти</a>.</li>
+</ul>

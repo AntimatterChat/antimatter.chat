@@ -1,0 +1,105 @@
+title: پشتیبان‌گیری و ارتقاء
+description: پشتیبان‌گیری و بازیابی سرور Antimatter (پایگاه داده، ذخیره‌سازی فایل‌ها، پیکربندی)، ارتقاء ایمن آن، انتقال سرور Mattermost به Antimatter، و خروجی یا ورودی داده.
+guide: admins
+order: 10
+nav: پشتیبان‌گیری و ارتقاء
+lead: چه چیزی باید پشتیبان‌گیری شود، چگونه روی یک میزبان جدید بازیابی شود، چگونه ارتقاء انجام شود و چگونه یک سرور Mattermost یا یک جامعهٔ واحد به Antimatter منتقل شود.
+source: b0797af8b6e7
+---
+<h2 id="what">چه چیزی باید پشتیبان‌گیری شود</h2>
+<table>
+<thead><tr><th>چه چیزی</th><th>با فایل compose سایت</th><th>با یک بایگانی نسخه</th></tr></thead>
+<tbody>
+<tr><td>پایگاه داده: پیام‌ها، کاربران، جوامع، کانال‌ها و، با فایل compose سایت، پیکربندی</td><td>حجم <code>antimatter_postgres</code>، از طریق <code>pg_dump</code></td><td>پایگاه داده PostgreSQL شما</td></tr>
+<tr><td>فایل‌ها، تصاویر و اپلیکیشن‌های نصب‌شدهٔ بارگذاری‌شده</td><td>حجم <code>antimatter_files</code> (ذخیره‌سازی S3)</td><td><code>FileSettings.Directory</code>، به‌طور پیش‌فرض <code>./data/</code></td></tr>
+<tr><td>فایل پیکربندی</td><td>(در پایگاه داده)</td><td><code>config/config.json</code></td></tr>
+<tr><td>GIFها و برچسب‌ها</td><td>حجم <code>antimatter_gifs</code></td><td>دایرکتوری داده سرویس GIF</td></tr>
+<tr><td>رمزها</td><td><code>.env</code> (و <code>compose.override.yaml</code>)</td><td>فایل محیط شما</td></tr>
+</tbody>
+</table>
+<p>پایگاه داده و فایل‌ها به هم وابسته‌اند: آن‌ها را همزمان پشتیبان‌گیری کنید و کپی‌های آن‌ها را خارج از سرور نگه دارید. نام حجم‌ها با نام پروژه compose شروع می‌شوند، <code>antimatter</code> (<code>docker volume ls</code> آن‌ها را فهرست می‌کند).</p>
+
+<h2 id="backup">پشتیبان‌گیری</h2>
+<p>از دایرکتوری <code>compose.yaml</code>. متوقف کردن Antimatter قبل از پشتیبان‌گیری یک کپی کاملاً سازگار می‌دهد؛ یک پشتیبان‌گیری در حالی که در حال اجراست معمولاً بدون مشکل است، اما فایل‌هایی که در حین پشتیبان‌گیری بارگذاری می‌شوند ممکن است در آن موجود نباشند.</p>
+<pre><code>stamp=$(date +%Y%m%d-%H%M%S)
+mkdir -p backups
+docker compose stop antimatter
+# Database
+docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
+    &gt; "backups/antimatter-db-$stamp.dump"
+# File storage and GIF service
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
+        alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
+done
+docker compose start antimatter
+# Secrets
+cp .env "backups/env-$stamp"</code></pre>
+<p>برای پشتیبان‌گیری روزانه از cron استفاده کنید و دایرکتوری <code>backups/</code> را به یک ماشین دیگر کپی کنید. کپی‌های <code>.env</code> را به همان اندازه که سرور امن است نگه دارید: آن‌ها رمزهای عبور آن را در بر دارند.</p>
+<p>برای کپی فایل‌های بارگذاری‌شده شیء به شیء (مثلاً به یک ذخیره‌سازی S3 دیگر)، از ابزار خط فرمان AWS سرویس <code>bucket</code> استفاده کنید:</p>
+<pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
+    "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
+<p>با یک بایگانی نسخه، پایگاه داده را با <code>pg_dump -Fc</code> و دایرکتوری‌های <code>data/</code> و <code>config/</code> را با ابزارهای معمول خود پشتیبان‌گیری کنید.</p>
+
+<h2 id="restore">بازیابی روی یک میزبان جدید</h2>
+<p><code>compose.yaml</code>، <code>.env</code> ذخیره‌شده و پشتیبان‌ها را در یک دایرکتوری جدید قرار دهید، سپس:</p>
+<pre><code>stamp=20261016-030000          # the backup to restore
+docker compose create           # creates the volumes, starts nothing
+docker compose up -d postgres
+docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
+    &lt; "backups/antimatter-db-$stamp.dump"
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
+        alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
+done
+docker compose up -d</code></pre>
+<p>از همان <code>.env</code> استفاده کنید: ذخیره‌سازی و پایگاه داده باید رمزهای عبور قبلی خود را حفظ کنند. اگر میزبان جدید آدرس دیگری دارد، <code>SITE_URL</code> (و <code>DOMAIN</code>) را به‌روزرسانی کنید.</p>
+<p>از زمان به زمان پشتیبان‌های خود را با بازیابی آن‌ها روی یک ماشین دیگر آزمایش کنید.</p>
+
+<h2 id="upgrade">ارتقاء</h2>
+<ol>
+<li>یک پشتیبان‌گیری انجام دهید.</li>
+<li>برچسب تصویر را در <code>.env</code> (<code>ANTIMATTER_IMAGE</code>) تغییر دهید، اگر یکی را ثابت کرده‌اید، همان‌طور که توصیه می‌شود.</li>
+<li>کش کنید و مجدداً راه‌اندازی کنید:
+<pre><code>docker compose pull
+docker compose up -d
+docker compose logs -f antimatter</code></pre></li>
+</ol>
+<p>در هنگام راه‌اندازی، سرور اسکیمای پایگاه داده را ارتقا می‌دهد (این فرآیند را در لاگ پیگیری کنید؛ ممکن است برای یک سرور بزرگ چند دقیقه طول بکشد) و نسخه‌های جدیدتر از برنامه‌های همراه با تصویر را نصب می‌کند. در صورت استفاده از بایگانی نسخه: سرور را متوقف کنید، همه‌چیز به‌جز <code>config/</code>، <code>data/</code>، <code>logs/</code>، <code>plugins/</code> و <code>client/plugins/</code> را با محتوای بایگانی جدید جایگزین کنید و دوباره راه‌اندازی کنید.</p>
+<div class="callout warn">ارتقا فقط به جلو امکان‌پذیر است. یک‌بار که نسخه جدیدتر سرور پایگاه داده را ارتقا داده باشد، نسخه‌های قدیمی‌تر نمی‌توانند از آن استفاده کنند: برای بازگشت، از پشتیبان‌گیری که قبل از ارتقا انجام داده‌اید استفاده کنید. این قاعده برای بازگشت از <code>antimatter-next</code> به <code>antimatter</code> نیز صدق می‌کند.</div>
+<h3>نسخه‌ها</h3>
+<p>سرور Antimatter نسخه خط Mattermost که بر پایه آن ساخته شده را گزارش می‌دهد (در حال حاضر 12.0.0). تصاویر از شاخه‌های <code>main</code> بازسازی می‌شوند: <code>antimatter-next</code> هر شب (با تگ‌های <code>nightly-&lt;YYYYMMDD&gt;</code>) و هر دو تصویر با هر تغییر (با تگ‌های <code>sha-&lt;commit&gt;</code>). یکی از این تگ‌ها را ثابت کنید، به‌طور آگاهانه ارتقا دهید و تگ قبلی را یادداشت کنید تا بدانید کدام پشتیبان‌گیری با آن همخوانی دارد.</p>
+<h3>نسخه‌های اصلی PostgreSQL</h3>
+<p>فایل compose از <code>postgres:17-alpine</code> استفاده می‌کند. Antimatter به PostgreSQL 15 یا جدیدتر نیاز دارد. یک نسخه اصلی جدید از PostgreSQL نمی‌تواند از دایرکتوری داده نسخه قبلی بخواند: برای مهاجرت به نسخه جدید، از پایگاه داده dump بگیرید، نسخه جدید را روی یک volume تازه راه‌اندازی کنید و dump را در آن بازیابی کنید.</p>
+
+<h2 id="mattermost">مهاجرت از Mattermost</h2>
+<p>Antimatter از اسکیمای پایگاه داده Mattermost استفاده می‌کند و جداول اختصاصی خود را به آن اضافه می‌کند، بنابراین می‌تواند پایگاه داده PostgreSQL و فایل‌های یک سرور Mattermost را به ارث ببرد. ابتدا روی یک کپی آزمایش کنید:</p>
+<ol>
+<li>پایگاه داده Mattermost، ذخیره‌سازی فایل‌های آن (<code>data/</code> یا سطل S3) و <code>config.json</code> را پشتیبان‌گیری کنید، سپس Mattermost را متوقف کنید.</li>
+<li>پایگاه داده را در PostgreSQL مربوط به Antimatter بازیابی کنید، یا Antimatter را به یک کپی از آن اشاره دهید (<code>AM_SQLSETTINGS_DATASOURCE</code>).</li>
+<li>فایل‌ها را به ذخیره‌سازی Antimatter کپی کنید و مسیرهایشان را حفظ کنید: با یک ابزار S3 به سطل <code>antimatter</code>، یا با بایگانی نسخه به <code>data/</code>.</li>
+<li>از تنظیمات خود استفاده کنید: <code>config.json</code> را کپی کنید، یا با دستور <code>amctl --local config migrate</code> آن را به پایگاه داده منتقل کنید (به <a href="{{root}}docs/admins/configuration.html">تنظیمات</a> مراجعه کنید). متغیرهای محیطی <code>MM_</code> شما همچنان کار می‌کنند؛ هرگاه مناسب بود، نام آن‌ها را به <code>AM_</code> تغییر دهید.</li>
+<li>Antimatter را راه‌اندازی کنید و در حین ارتقای پایگاه داده، لاگ را دنبال کنید. سپس به <b>کنسول سیستم › پلاگین ها › مدیریت پلاگین</b> مراجعه کنید. Antimatter نسخه‌های اختصاصی خود از مکالمه، پلی‌بوک، تخته (Kanban)، عامل‌ها و یکپارچه‌سازی‌ها را در صورتی نصب می‌کند که از نسخه نصب‌شده جدیدتر باشند. اگر Mattermost نسخه جدیدتری از یکی از این برنامه‌ها داشته باشد، آن برنامه را حذف کرده و Antimatter را مجدداً راه‌اندازی کنید تا نسخه اختصاصی آن نصب شود.</li>
+<li>اعلان‌های Push را مجدداً با پروکسی Push اختصاصی خود پیکربندی کنید: Antimatter هیچ‌گاه اعلان‌هایی را به سرویس‌های Push متعلق به Mattermost (چه آزمایشی و چه میزبانی‌شده) ارسال نمی‌کند، زیرا این سرویس‌ها فقط برای برنامه‌های خود Mattermost اعلان‌ها را تحویل می‌دهند. تا زمانی که <b>Push Notification Server</b> را تغییر ندهید، سرور هیچ اعلان Push ارسال نمی‌کند (به <a href="{{root}}docs/admins/email-push.html#push">اعلان‌های Push</a> مراجعه کنید).</li>
+</ol>
+<p>Antimatter با هیچ سرویسی که توسط Mattermost, Inc. اجرا می‌شود ارتباط برقرار نمی‌کند (به <a href="{{root}}docs/admins/security.html#outbound">اتصالات به سرویس‌های خارجی</a> مراجعه کنید)، حتی اگر پیکربندی شما هنوز یکی از آن‌ها را ذکر کند:</p>
+<ul>
+<li>سرور اعلان push Mattermost در تنظیمات حفظ می‌شود اما هرگز استفاده نمی‌شود؛</li>
+<li>آدرس‌های Mattermost برای بازار برنامه‌ها (<b>URL بازار</b>) و اطلاعیه‌های محصول خالی می‌شوند؛</li>
+<li>افزونه مکالمه به جای سرور STUN Mattermost، از سرور STUN عمومی Cloudflare استفاده می‌کند، بدون اینکه تنظیمات ذخیره‌شده تغییر کند (به <a href="{{root}}docs/admins/calls.html#network">مکالمه</a> مراجعه کنید)؛</li>
+<li>بررسی به‌روزرسانی‌های امنیتی و گزارش‌دهی کرش حذف می‌شوند و به همین دلیل تنظیمات مربوط به آن‌ها در کنسول سیستم (<b>Enable Security Alerts</b>، <b>Enable Diagnostics and Error Reporting</b>) و صفحه <b>اطلاعیه ها</b> نیز حذف می‌شوند.</li>
+</ul>
+<p>سوکت حالت محلی اکنون <code>/var/tmp/antimatter_local.socket</code> است؛ <code>amctl</code> همچنین سوکت قدیمی <code>/var/tmp/mattermost_local.socket</code> را نیز امتحان می‌کند. Mattermost در نسخه‌های اخیر خود فقط از PostgreSQL پشتیبانی می‌کند و Antimatter نیز همین‌طور است: ابتدا پایگاه داده MySQL را به PostgreSQL منتقل کنید. بازگشت به Mattermost پس از ارتقای پایگاه داده توسط Antimatter به معنای بازیابی پشتیبان‌گیری Mattermost شماست.</p>
+
+<h2 id="export-import">خروجی و ورودی داده</h2>
+<p>فرمت خروجی گروهی (bulk export) داده‌ها را بین سرورها جابه‌جا می‌کند: کل سرور، برخی از جوامع یا برخی از کانال‌ها، همراه با پیوست‌ها، تصاویر پروفایل و ایموجی‌های سفارشی در صورت تمایل شما.</p>
+<pre><code># on the source server
+amctl export create --team-name design --include-profile-pictures
+amctl export list
+amctl export download &lt;export file&gt; design.zip
+# on the destination server
+amctl import upload design.zip
+amctl import list available
+amctl import process &lt;uploaded file&gt; --imported-users active</code></pre>
+<p>برای مشاهده وضعیت کارها از دستورات <code>amctl export job list</code> و <code>amctl import job list</code> استفاده کنید. در صورت خروجی‌گیری یا واردسازی یک تیم یا کانال، استفاده از <code>--imported-users</code> الزامی است: اگر افراد به این سرور منتقل می‌شوند، مقدار <code>active</code> و اگر واردسازی در سروری انجام می‌شود که آن‌ها قبلاً حساب دارند، مقدار <code>inactive</code> را تنظیم کنید تا حساب‌هایی که از تطبیقات نامطمئن ایجاد شده‌اند، تا زمانی که یک مدیر آن‌ها را بررسی کند، غیرفعال بمانند. با <code>--destination-team-name</code> می‌توانید داده‌ها را در یک تیم موجود وارد کنید. خروجی‌ها و واردسازی‌ها به‌طور پیش‌فرض به مدت ۳۰ روز در فضای ذخیره‌سازی سرور (<code>ExportSettings.Directory</code>، <code>ImportSettings.Directory</code>) نگهداری می‌شوند.</p>
+<p>مستقیماً روی سرور، دستورات <code>antimatter export bulk</code> و <code>antimatter import bulk --apply</code> عملیات مشابه را از طریق فایل‌ها و بدون استفاده از API انجام می‌دهند.</p>

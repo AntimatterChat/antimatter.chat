@@ -1,0 +1,168 @@
+title: Cài đặt Antimatter
+description: Cài đặt Antimatter bằng Docker Compose hoặc từ tệp lưu trữ phát hành, chọn một ảnh, khởi động lần đầu tiên và tạo quản trị viên hệ thống đầu tiên.
+guide: admins
+order: 2
+nav: Cài đặt
+lead: Cài đặt Antimatter bằng tệp compose có sẵn, chọn ảnh phù hợp, hoặc chạy máy chủ từ tệp lưu trữ phát hành. Sau đó, tạo tài khoản quản trị viên đầu tiên.
+source: 64cd522c4946
+---
+<h2 id="compose">Cài đặt bằng Docker Compose</h2>
+<p>Đây là cách được khuyến nghị. Một tệp compose chạy Antimatter, PostgreSQL, bộ lưu trữ tệp và dịch vụ GIF. Bạn cần một máy chủ Linux có Docker Engine và plugin Compose của nó (<code>docker compose</code>), 2 nhân CPU và 4 GB bộ nhớ trở lên.</p>
+
+<h3>1. Tải xuống tệp compose</h3>
+<pre><code>mkdir antimatter &amp;&amp; cd antimatter
+curl -fsSLO https://antimatter.chat/compose.yaml</code></pre>
+
+<h3>2. Tạo tệp .env</h3>
+<p>Tệp compose đọc cài đặt từ tệp <code>.env</code> trong cùng thư mục. Tạo tệp này với các bí mật ngẫu nhiên:</p>
+<pre><code>cat &gt; .env &lt;&lt;EOF
+SITE_URL=http://localhost:8065
+POSTGRES_PASSWORD=$(openssl rand -hex 24)
+S3_SECRET_KEY=$(openssl rand -hex 24)
+GIFS_API_KEY=$(openssl rand -hex 24)
+EOF
+chmod 600 .env</code></pre>
+<p>Đặt <code>SITE_URL</code> thành địa chỉ mà mọi người sẽ nhập vào trình duyệt, ví dụ <code>http://192.168.1.20:8065</code> trên mạng cục bộ hoặc <code>https://chat.example.com</code> với một tên miền. Giữ lại tệp <code>.env</code>: cơ sở dữ liệu và bộ lưu trữ sử dụng các mật khẩu này từ lần khởi động đầu tiên, và bạn cần cùng tệp này để khôi phục bản sao lưu.</p>
+
+<h3>3. Khởi động</h3>
+<pre><code>docker compose up -d
+docker compose ps</code></pre>
+<p>Lần khởi động đầu tiên mất một hoặc hai phút: PostgreSQL tạo cơ sở dữ liệu, dịch vụ <code>bucket</code> chạy một lần tạo thùng lưu trữ, dịch vụ <code>gifs-stickers</code> chạy một lần nhập bộ sticker khởi đầu, và Antimatter tạo các bảng của nó. Theo dõi quá trình này bằng <code>docker compose logs -f antimatter</code>.</p>
+<p>Để sử dụng tên miền và HTTPS ngay từ đầu, xem <a href="{{root}}docs/admins/https.html">Tên miền và HTTPS</a>: với tệp compose, chỉ cần thêm hai dòng trong <code>.env</code> và hồ sơ <code>https</code>.</p>
+
+<h3>Các biến .env</h3>
+<table>
+<thead><tr><th>Biến</th><th>Mặc định</th><th>Chức năng</th></tr></thead>
+<tbody>
+<tr><td><code>SITE_URL</code></td><td>bắt buộc</td><td>Địa chỉ công khai của Antimatter (<code>ServiceSettings.SiteURL</code>).</td></tr>
+<tr><td><code>POSTGRES_PASSWORD</code></td><td>bắt buộc</td><td>Mật khẩu của người dùng cơ sở dữ liệu <code>antimatter</code>.</td></tr>
+<tr><td><code>S3_SECRET_KEY</code></td><td>bắt buộc</td><td>Khóa bí mật của bộ lưu trữ tệp.</td></tr>
+<tr><td><code>GIFS_API_KEY</code></td><td>bắt buộc</td><td>Khóa mà Antimatter sử dụng để gọi dịch vụ GIF.</td></tr>
+<tr><td><code>GIFS_UPLOAD_KEY</code></td><td>trống</td><td>Cho phép mọi người thêm GIF và sticker của riêng họ từ trình chọn. Để trống sẽ tắt tải lên.</td></tr>
+<tr><td><code>DOMAIN</code></td><td>trống</td><td>Tên miền của bạn, cho hồ sơ <code>https</code>.</td></tr>
+<tr><td><code>HTTP_PORT</code></td><td><code>8065</code></td><td>Cổng máy chủ của máy chủ web Antimatter.</td></tr>
+<tr><td><code>CALLS_PORT</code></td><td><code>8443</code></td><td>Cổng UDP và TCP của âm thanh và video cuộc gọi.</td></tr>
+<tr><td><code>EDGE_SUBNET</code></td><td><code>172.29.71.0/28</code></td><td>Mạng con của mạng giữa Caddy và Antimatter. Thay đổi nếu nó chồng chéo với một trong các mạng của bạn.</td></tr>
+<tr><td><code>TZ</code></td><td><code>UTC</code></td><td>Múi giờ của các container.</td></tr>
+<tr><td><code>ANTIMATTER_IMAGE</code></td><td><code>ghcr.io/antimatterchat/antimatter-next:latest</code></td><td>Ảnh Antimatter để chạy (xem bên dưới).</td></tr>
+</tbody>
+</table>
+
+<h3>Những gì được chạy</h3>
+<table>
+<thead><tr><th>Dịch vụ</th><th>Ảnh</th><th>Vai trò</th></tr></thead>
+<tbody>
+<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>Máy chủ, ứng dụng web và các ứng dụng tích hợp. Công bố <code>HTTP_PORT</code> và <code>CALLS_PORT</code>.</td></tr>
+<tr><td><code>postgres</code></td><td><code>postgres:17-alpine</code></td><td>Cơ sở dữ liệu, trong volume <code>postgres</code>.</td></tr>
+<tr><td><code>files</code></td><td><code>rustfs/rustfs</code></td><td>Lưu trữ tương thích S3 cho các tệp đã tải lên và các ứng dụng đã cài đặt, trong volume <code>files</code>.</td></tr>
+<tr><td><code>bucket</code></td><td><code>amazon/aws-cli</code></td><td>Tạo bucket <code>antimatter</code>, sau đó thoát.</td></tr>
+<tr><td><code>gifs</code></td><td><code>ghcr.io/antimatterchat/gifs-server</code></td><td>Dịch vụ GIF và sticker, trong volume <code>gifs</code>.</td></tr>
+<tr><td><code>gifs-stickers</code></td><td><code>ghcr.io/antimatterchat/gifs-server</code></td><td>Nhập bộ sticker khởi động lần đầu tiên, sau đó thoát.</td></tr>
+<tr><td><code>https</code></td><td><code>caddy:2-alpine</code></td><td>Chỉ với profile <code>https</code>: HTTPS trên cổng 80 và 443.</td></tr>
+</tbody>
+</table>
+<p>PostgreSQL, dịch vụ lưu trữ và dịch vụ GIF nằm trên một mạng nội bộ (<code>private</code>) không có quyền truy cập Internet, và chỉ Antimatter tham gia vào mạng này. Không có dịch vụ nào trong số đó công bố (publish) một cổng.</p>
+<p>Container Antimatter không lưu trữ bất kỳ thứ gì trên đĩa: cài đặt của nó nằm trong cơ sở dữ liệu (<code>AM_CONFIG</code> trỏ đến đó) và tệp cùng ứng dụng của nó nằm trong dịch vụ lưu trữ. Bạn có thể xóa và tạo lại container bất cứ lúc nào. Mọi thứ cần sao lưu nằm trong các volume <code>postgres</code>, <code>files</code> và <code>gifs</code>, cùng với tệp <code>.env</code> của bạn.</p>
+
+<h2 id="images">Chọn một hình ảnh</h2>
+<p>Có hai hình ảnh Antimatter được phát hành, cả hai đều dành cho <code>linux/amd64</code> và <code>linux/arm64</code>, và cả hai đều được xây dựng từ nhánh <code>main</code> của mọi kho lưu trữ:</p>
+<table>
+<thead><tr><th>Ảnh</th><th>Ứng dụng có sẵn</th><th>Thẻ (Tags)</th></tr></thead>
+<tbody>
+<tr><td><code>ghcr.io/antimatterchat/antimatter</code></td><td>Trợ lý, Cuộc gọi, GitHub, GitLab, Jira, Kanban, Metrics và Playbook.</td><td><code>latest</code>, <code>X.Y.Z</code> cho các bản phát hành, <code>sha-&lt;commit&gt;</code></td></tr>
+<tr><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>Tương tự, kèm thêm Kênh thoại, Bình chọn, Email, Lịch, Ghi chú, Bảng trắng, GIF, Việc cần làm và Meme. Được xây dựng lại mỗi đêm.</td><td><code>latest</code>, <code>nightly</code>, <code>nightly-&lt;YYYYMMDD&gt;</code>, <code>sha-&lt;commit&gt;</code></td></tr>
+</tbody>
+</table>
+<p>Tệp compose của trang web sử dụng <code>antimatter-next</code>, vì dịch vụ GIF và hầu hết các ứng dụng được mô tả trên trang web này chỉ có trong hình ảnh đó. Để thay đổi hình ảnh, hãy đặt <code>ANTIMATTER_IMAGE</code> trong <code>.env</code> và chạy <code>docker compose up -d</code>.</p>
+<div class="callout warn"><code>latest</code> có thể thay đổi dưới chân bạn. Trong môi trường sản xuất, hãy cố định (pin) một thẻ như <code>nightly-20261015</code> hoặc <code>sha-&lt;commit&gt;</code>, và chỉ thay đổi nó một cách có chủ đích khi bạn nâng cấp. Máy chủ sẽ nâng cấp cơ sở dữ liệu của nó khi khởi động, vì vậy bạn không thể quay lại một hình ảnh cũ hơn, hoặc chuyển từ <code>antimatter-next</code> sang <code>antimatter</code>, mà không khôi phục bản sao lưu được tạo trước đó. Xem <a href="{{root}}docs/admins/backups-upgrades.html">Sao lưu và nâng cấp</a>.</div>
+
+<h3>Bên trong hình ảnh</h3>
+<ul>
+<li>Máy chủ nằm trong <code>/antimatter</code>, với các tệp nhị phân <code>antimatter</code> và <code>amctl</code> trong <code>/antimatter/bin</code> (trên <code>PATH</code>).</li>
+<li>Nó chạy dưới người dùng không đặc quyền <code>antimatter</code> (uid 2000) trên một nền tảng distroless tối thiểu, không có shell.</li>
+<li>Cổng: 8065 (web và API), 8067 (metrics), 8074 (cluster), 8443 UDP và TCP (cuộc gọi).</li>
+<li>Chế độ cục bộ (<code>ServiceSettings.EnableLocalMode</code>) đang bật, do đó <code>amctl --local</code> hoạt động bên trong container. Kiểm tra sức khỏe chạy lệnh <code>amctl system status --local</code>.</li>
+<li>Các ứng dụng tích hợp sẵn nằm trong <code>/antimatter/prepackaged_plugins</code>, được ký bằng khóa ký ứng dụng Antimatter.</li>
+<li>Các công cụ trích xuất văn bản (<code>pdftotext</code>, <code>wvText</code>, <code>unrtf</code>, <code>tidy</code>) được bao gồm, cho phép tìm kiếm nội dung của các tài liệu đã tải lên.</li>
+</ul>
+
+<h3>Các tệp compose khác</h3>
+<p>Kho <a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> có cấu hình cho môi trường sản xuất trong <code>deploy/compose/</code>: nginx với chứng chỉ của bạn hoặc Let's Encrypt (certbot), PostgreSQL, dịch vụ GIF tùy chọn (profile <code>gifs</code>) và các volume có tên cho cấu hình, dữ liệu và nhật ký của máy chủ, được mô tả trong tệp README. Tệp này sử dụng ảnh ổn định (stable) theo mặc định và lưu tệp trên volume cục bộ thay vì lưu trữ S3. Hãy sử dụng nó nếu bạn ưu tiên nginx hơn Caddy, hoặc đã có sẵn chứng chỉ.</p>
+
+<h2 id="first-admin">Tạo quản trị viên đầu tiên</h2>
+<p>Mở <code>SITE_URL</code> trong trình duyệt và tạo tài khoản. <b>Tài khoản đầu tiên được tạo trên máy chủ mới sẽ trở thành quản trị viên hệ thống</b>, sau đó quy trình thiết lập sẽ hướng dẫn bạn tạo cộng đồng đầu tiên (tên mà Antimatter dùng để chỉ nhóm hoặc không gian làm việc).</p>
+<p>Hãy thực hiện ngay sau lần khởi động đầu tiên: cho đến khi đó, bất kỳ ai tiếp cận máy chủ trước sẽ trở thành quản trị viên của nó. Để tạo tài khoản từ dòng lệnh thay vì qua trình duyệt, trước khi máy chủ có thể được truy cập từ bên ngoài:</p>
+<pre><code>docker compose exec antimatter amctl --local user create --system-admin --email-verified \
+    --email admin@example.com --username admin --password 'a-long-password'
+docker compose exec antimatter amctl --local team create --name main --display-name "Main"
+docker compose exec antimatter amctl --local team users add main admin</code></pre>
+<p>Sau đó, đăng nhập tại <code>SITE_URL</code>. Bắt đầu lệnh bằng một khoảng trắng để mật khẩu không bị lưu vào lịch sử shell (với <code>HISTCONTROL=ignorespace</code>), hoặc thay đổi mật khẩu sau khi đã đăng nhập.</p>
+<p>Các bước tiếp theo sau khi bạn đã vào hệ thống:</p>
+<ol>
+<li>Quyết định ai có thể tạo tài khoản: <a href="{{root}}docs/admins/authentication.html">Đăng nhập và tài khoản</a>.</li>
+<li>Cấu hình email để lời mời và đặt lại mật khẩu hoạt động: <a href="{{root}}docs/admins/email-push.html">Email và thông báo đẩy</a>.</li>
+<li>Mở cổng cho cuộc gọi trong tường lửa: <a href="{{root}}docs/admins/calls.html">Cuộc gọi và thoại</a>.</li>
+<li>Kiểm tra ứng dụng nào đang bật: <a href="{{root}}docs/admins/apps.html">Ứng dụng tích hợp sẵn</a>.</li>
+</ol>
+
+<h2 id="archive">Cài đặt từ tệp lưu trữ bản phát hành</h2>
+<p>Nếu không có Docker, máy chủ sẽ chạy từ một tệp lưu trữ có tên <code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code> (ví dụ <code>antimatter-linux-amd64.tar.gz</code>). Tệp này chứa một thư mục <code>antimatter/</code> duy nhất, bên trong có <code>bin/antimatter</code>, <code>bin/amctl</code>, <code>config/config.json</code>, các ứng dụng web (<code>client/</code> và <code>client-fusion/</code>), các mẫu email và các tệp dịch.</p>
+
+<h3>1. Chuẩn bị PostgreSQL</h3>
+<p>Antimatter chỉ hỗ trợ PostgreSQL, phiên bản 15 trở lên (các phiên bản cũ hơn sẽ khởi động nhưng ghi lỗi vào nhật ký). Hãy tạo một người dùng và một cơ sở dữ liệu:</p>
+<pre><code>sudo -u postgres psql &lt;&lt;'EOF'
+CREATE USER antimatter WITH PASSWORD 'a-long-password';
+CREATE DATABASE antimatter OWNER antimatter;
+EOF</code></pre>
+
+<h3>2. Giải nén và cấu hình</h3>
+<pre><code>sudo tar -xzf antimatter-linux-amd64.tar.gz -C /opt
+sudo useradd --system --user-group antimatter
+sudo mkdir -p /opt/antimatter/data
+sudo chown -R antimatter:antimatter /opt/antimatter</code></pre>
+<p>Chỉ định máy chủ đến cơ sở dữ liệu, thông qua <code>/opt/antimatter/config/config.json</code> (<code>SqlSettings.DataSource</code>) hoặc bằng các biến môi trường, và đặt URL của trang web:</p>
+<pre><code>AM_SQLSETTINGS_DRIVERNAME=postgres
+AM_SQLSETTINGS_DATASOURCE=postgres://antimatter:a-long-password@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10
+AM_SERVICESETTINGS_SITEURL=https://chat.example.com</code></pre>
+<p>Tệp <code>config.json</code> trong tệp lưu trữ là một cấu hình mặc định hoàn chỉnh: các cài đặt bạn thay đổi trong Bảng điều khiển Hệ thống sẽ được lưu lại vào tệp này. Nếu muốn lưu cấu hình trong cơ sở dữ liệu thay vì tệp, hãy xem <a href="{{root}}docs/admins/configuration.html">Cấu hình</a>.</p>
+
+<h3>3. Chạy dưới dạng dịch vụ</h3>
+<p>Một đơn vị systemd, đặt tại <code>/etc/systemd/system/antimatter.service</code>:</p>
+<pre><code>[Unit]
+Description=Antimatter
+After=network.target postgresql.service
+
+[Service]
+Type=notify
+User=antimatter
+Group=antimatter
+WorkingDirectory=/opt/antimatter
+ExecStart=/opt/antimatter/bin/antimatter
+EnvironmentFile=-/etc/antimatter.env
+TimeoutStartSec=3600
+Restart=always
+RestartSec=10
+LimitNOFILE=49152
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+<p>Đặt các biến <code>AM_</code> của bạn vào <code>/etc/antimatter.env</code> (chỉ root có quyền đọc), sau đó:</p>
+<pre><code>sudo systemctl daemon-reload
+sudo systemctl enable --now antimatter
+journalctl -u antimatter -f</code></pre>
+<p>Máy chủ sẽ lắng nghe trên cổng 8065. Mở <code>http://&lt;server&gt;:8065</code>, hoặc tên miền của bạn sau khi đã cấu hình bộ định tuyến ngược (xem <a href="{{root}}docs/admins/https.html">Tên miền và HTTPS</a>), và tạo tài khoản đầu tiên: tài khoản này sẽ trở thành quản trị viên hệ thống.</p>
+<p><code>bin/amctl</code> cho phép quản lý máy chủ đang chạy từ dòng lệnh. Trên chính máy chủ, nó hoạt động mà không cần đăng nhập thông qua chế độ cục bộ: đặt <code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>, sau đó chạy <code>sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code>.</p>
+
+<h2 id="other-commands">Các lệnh máy chủ khác</h2>
+<p>Ngoài lệnh chạy máy chủ (<code>antimatter</code>, hoặc <code>antimatter server</code>), tệp nhị phân còn có một số lệnh bảo trì. Chúng đọc cùng một cấu hình với máy chủ.</p>
+<table>
+<thead><tr><th>Lệnh</th><th>Chức năng</th></tr></thead>
+<tbody>
+<tr><td><code>antimatter version</code></td><td>In ra phiên bản, số hiệu bản dựng, ngày dựng và mã băm của bản dựng.</td></tr>
+<tr><td><code>antimatter db ping</code></td><td>Kiểm tra xem có thể kết nối đến cơ sở dữ liệu hay không.</td></tr>
+<tr><td><code>antimatter db init</code></td><td>Tạo cấu hình trong cơ sở dữ liệu (với <code>AM_CONFIG</code> được đặt thành một URL <code>postgres://</code>).</td></tr>
+<tr><td><code>antimatter db migrate</code></td><td>Áp dụng các di chuyển cơ sở dữ liệu mà không khởi động máy chủ.</td></tr>
+<tr><td><code>antimatter db version</code></td><td>In ra di chuyển cuối cùng đã được áp dụng vào cơ sở dữ liệu.</td></tr>
+<tr><td><code>antimatter import bulk</code>, <code>antimatter export bulk</code></td><td>Nhập hoặc xuất dữ liệu ở định dạng hàng loạt (xem <a href="{{root}}docs/admins/backups-upgrades.html">Sao lưu và nâng cấp</a>).</td></tr>
+</tbody>
+</table>

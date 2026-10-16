@@ -1,0 +1,164 @@
+title: L'API REST
+description: L'API REST d'Antimatter: l'URL base, els tokens d'accés personals, els tokens de sessió i OAuth, els recursos principals, la paginació, els errors, els límits de taxa, el flux d'esdeveniments WebSocket i les biblioteques de client.
+guide: developers
+order: 2
+nav: API REST
+lead: Tot el que fan les aplicacions d'Antimatter passa per la mateixa API HTTP, de manera que els vostres scripts també ho poden fer. Aquesta pàgina explica com autenticar-se, els recursos que utilitzareu més, com són les respostes i els errors, i com seguir els esdeveniments en directe mitjançant WebSocket.
+source: f4b8c83efdba
+---
+<h2 id="basics">Bases</h2>
+<ul>
+<li><b>URL base</b>: <code>https://chat.example.com/api/v4</code>. Tots els punts d'accés següents són relatius a aquesta URL.</li>
+<li><b>Format</b>: JSON a l'entrada i a la sortida, excepte les pujades de fitxers (multipart). Envieu <code>Content-Type: application/json</code>.</li>
+<li><b>Identificadors</b>: cada objecte té un <code>id</code> de 26 caràcters. Els temps són mil·lisegons des de l'època Unix (<code>create_at</code>, <code>update_at</code>, <code>delete_at</code>; 0 significa «no suprimit»).</li>
+<li><b>Les comunitats són equips</b>: l'API els anomena <code>teams</code>, amb un <code>team_id</code>.</li>
+<li><b>Tu mateix/a</b>: en qualsevol ruta que accepti un <code>user_id</code>, <code>me</code> fa referència a l’usuari iniciat, com en <code>GET /users/me</code>.</li>
+</ul>
+<p>La llista completa de punts d'accés es troba al codi del servidor: les rutes estan declarades a <code>server/channels/api4/*.go</code> i els tipus a <code>server/public/model</code>. La descripció OpenAPI a la carpeta <code>api/v4/source</code> del repositori cobreix els punts d'accés heretats de Mattermost, no les afegides d'Antimatter.</p>
+
+<h2 id="auth">Autenticació</h2>
+<p>Totes les peticions, excepte l'inici de sessió i alguns punts d'accés públics, requereixen un token a la capçalera <code>Authorization</code>:</p>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" https://chat.example.com/api/v4/users/me</code></pre>
+<p>S'accepten tres tipus de token: tokens d'accés personals, tokens de sessió i tokens d'accés OAuth. També s'accepta <code>Authorization: Token …</code>. Els tokens a la cadena de consulta (<code>?access_token=</code>) només s'accepten per a tokens d'accés OAuth.</p>
+
+<h3>Tokens d'accés personals (recomanats per a scripts)</h3>
+<p>Un token d'accés personal actua com a vosaltres, no caduca llevat que li assigneu una data de caducitat, i es pot revocar en qualsevol moment. Els tokens d'accés personals estan desactivats per defecte:</p>
+<ol>
+<li>Un administrador del sistema habilita <b>Habilita els tokens d’accés personals</b> a <b>Consola del sistema › Integracions › Gestió d'integracions</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, <code>AM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS</code>).</li>
+<li>Per a cada persona que pugui crear fitxes d'accés, un administrador del sistema obre <b>Consola del sistema › Gestió d'usuaris › Usuaris</b>, tria <b>Gestiona els rols</b> al menú de la persona i marca <b>Permet que aquest compte generi fitxes d'accés personals</b>. Els administradors del sistema sempre poden crear-les.</li>
+<li>La persona obre el seu avatar a la part superior dreta i després <b>Perfil i configuració › Seguretat</b>. Sota <b>Tokens d'accés personals</b>, descriu per a què servirà el token i tria <b>Crea un token</b>. El token es mostra només una vegada: copia’l.</li>
+</ol>
+<p>Mitjançant l'API: <code>POST /users/{user_id}/tokens</code> amb <code>{"description": "backup script", "expires_at": 0}</code> (<code>expires_at</code> en mil·lisegons; 0 si no n'hi ha). El camp <code>token</code> de la resposta és el secret; el seu <code>id</code> és el que s'usa per revocar-lo (<code>POST /users/tokens/revoke</code> amb <code>{"token_id": "…"}</code>). Des de la línia d'ordres: <code>amctl token generate &lt;user&gt; &lt;description&gt;</code>.</p>
+<p>Un administrador del sistema pot establir un límit de durada per als tokens mitjançant <b>Durada màxima dels tokens d’accés personals (dies)</b> a la mateixa pàgina de la Consola del sistema.</p>
+
+<h3>Fitxes de sessió</h3>
+<p>Iniciar sessió amb una contrasenya retorna una fitxa de sessió a la capçalera de resposta <code>Token</code>, el mateix tipus de sessió que utilitzen les aplicacions:</p>
+<pre><code>curl -i -X POST https://chat.example.com/api/v4/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login_id": "maya", "password": "…"}'</code></pre>
+<p>Afegeix <code>"token": "123456"</code> per a un compte amb autenticació multifactor. Les sessions expiren segons els paràmetres de sessió del servidor, i el punt d'entrada d'inici de sessió té un límit de freqüència (5 sol·licituds per segon). <code>POST /users/logout</code> finalitza la sessió.</p>
+<div class="callout">Els navegadors s'autenticen amb una galeta en lloc d'una fitxa. Una sol·licitut autenticada per la galeta també ha d'enviar la capçalera <code>X-CSRF-Token</code> per a qualsevol cosa que no sigui GET; una fitxa a la capçalera <code>Authorization</code> no necessita capçalera CSRF.</div>
+
+<h3>Aplicacions OAuth 2.0</h3>
+<p>Per permetre que les persones iniciïn sessió a la vostra aplicació amb el seu compte d'Antimatter, registreu una aplicació OAuth 2.0. Antimatter serà llavors el proveïdor OAuth:</p>
+<ol>
+<li><b>Habilita el proveïdor de serveis OAuth 2.0</b> ha d’estar activat (<b>Consola del sistema › Integracions › Gestió d'integracions</b>, <code>ServiceSettings.EnableOAuthServiceProvider</code>, activat per defecte).</li>
+<li>Alguien amb el dret de gestionar aplicacions OAuth (els administradors del sistema per defecte) obre el seu avatar, després <b>Integracions › Aplicacions OAuth 2.0</b>, i afegeix l'aplicació amb les seves URL de callback. Rep un ID de client i un secret de client.</li>
+<li>La vostra aplicació envia les persones a <code>https://chat.example.com/oauth/authorize</code> amb <code>response_type=code</code>, <code>client_id</code>, <code>redirect_uri</code> i <code>state</code>. Es suporta PKCE amb <code>code_challenge_method=S256</code>.</li>
+<li>Intercanvia el codi a <code>POST https://chat.example.com/oauth/access_token</code> (<code>grant_type=authorization_code</code>, i després <code>refresh_token</code> per renovar-lo) i crida la API amb <code>Authorization: Bearer &lt;access token&gt;</code>.</li>
+</ol>
+<p>Les persones veuen les aplicacions que han autoritzat a <b>Perfil i configuració › Seguretat › Aplicacions que has autoritzat</b>.</p>
+
+<h2 id="resources">Recursos principals</h2>
+<table>
+<thead><tr><th>Què</th><th>Punts finals</th></tr></thead>
+<tbody>
+<tr><td>Vosaltres i altres persones</td><td><code>GET /users/me</code>, <code>GET /users/{user_id}</code>, <code>GET /users/username/{username}</code>, <code>POST /users/ids</code> (una llista d'ID), <code>POST /users/search</code>, <code>GET /users?in_team=…&amp;in_channel=…</code></td></tr>
+<tr><td>Comunitats</td><td><code>GET /users/me/teams</code>, <code>GET /teams/{team_id}</code>, <code>GET /teams/name/{name}</code>, <code>PUT /teams/{team_id}/patch</code>, <code>GET /teams/{team_id}/members</code>, <code>POST /teams/{team_id}/members</code></td></tr>
+<tr><td>Canals</td><td><code>GET /users/me/teams/{team_id}/channels</code>, <code>GET /teams/name/{team}/channels/name/{channel}</code>, <code>POST /channels</code>, <code>POST /channels/direct</code> (dos ID d'usuari), <code>POST /channels/group</code>, <code>POST /channels/{channel_id}/members</code></td></tr>
+<tr><td>Missatges (publicacions)</td><td><code>POST /posts</code>, <code>GET /posts/{post_id}</code>, <code>PUT /posts/{post_id}/patch</code>, <code>DELETE /posts/{post_id}</code>, <code>GET /channels/{channel_id}/posts</code>, <code>GET /posts/{post_id}/thread</code>, <code>POST /teams/{team_id}/posts/search</code></td></tr>
+<tr><td>Reaccions</td><td><code>POST /reactions</code> amb <code>{"user_id", "post_id", "emoji_name"}</code>, <code>DELETE /users/{user_id}/posts/{post_id}/reactions/{emoji_name}</code></td></tr>
+<tr><td>Fitxers</td><td><code>POST /files</code> (multipart: <code>channel_id</code> i <code>files</code>), i després poseu els ID retornats a <code>file_ids</code> del missatge; <code>GET /files/{file_id}</code></td></tr>
+<tr><td>Preferències</td><td><code>GET /users/me/preferences</code>, <code>PUT /users/me/preferences</code></td></tr>
+<tr><td>Integracions</td><td><code>/hooks/incoming</code>, <code>/hooks/outgoing</code>, <code>/commands</code>, <code>/bots</code>, <code>/oauth/apps</code> (vegeu les pàgines següents)</td></tr>
+<tr><td>Servidor</td><td><code>GET /system/ping</code> (estat de salut, no cal token), <code>GET /config/client?format=old</code> (la configuració que veuen els clients)</td></tr>
+</tbody>
+</table>
+
+<h3>Publicar un missatge</h3>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "message": "Backup finished: **42 GB** in 3 min"}'</code></pre>
+<p>Els missatges són Markdown. Afegiu <code>"root_id"</code> (el primer missatge d'un fil) per respondre en un fil, <code>"file_ids"</code> per als fitxers i <code>"props"</code> per als adjunts i altres elements addicionals (vegeu <a href="{{root}}docs/developers/webhooks.html#attachments">Adjunts</a>).</p>
+
+<h3>Trobar l'ID d'un canal</h3>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" \
+  https://chat.example.com/api/v4/teams/name/lumen-labs/channels/name/ops-alerts</code></pre>
+<p>Els noms són els del vincle del canal: <code>/lumen-labs/channels/ops-alerts</code>.</p>
+
+<h2 id="pagination">Paginació</h2>
+<p>Els punts finals de llistes accepten <code>page</code> (des de 0) i <code>per_page</code> (60 per defecte, com a màxim 200). Seguiu demanant la pàgina següent fins que una pàgina torni més curta que <code>per_page</code>.</p>
+<p>Els missatges d'un canal (<code>GET /channels/{channel_id}/posts</code>) també accepten <code>since</code> (un temps: tot el que ha canviat des d'aleshores), o <code>before</code> i <code>after</code> (un ID de publicació). Torna com una llista de publicacions: <code>{"order": [IDs, newest first], "posts": {ID: post}, "next_post_id", "prev_post_id"}</code>.</p>
+
+<h2 id="errors">Errors</h2>
+<p>Els errors utilitzen els codis d'estat HTTP habituals (400 entrada incorrecta, 401 no autenticat, 403 no permès, 404 no trobat, 501 funció desactivada) i un cos JSON:</p>
+<pre><code>{
+  "id": "api.context.permissions.app_error",
+  "message": "You do not have the appropriate permissions.",
+  "detailed_error": "",
+  "request_id": "jz8zm5nunpbt8f3gpqsz5dq6so",
+  "status_code": 403
+}</code></pre>
+<p>Utilitzeu <code>id</code> al vostre codi: <code>message</code> es tradueix a la llengua de l'usuari. <code>detailed_error</code> queda buit, llevat que el servidor s'executi en mode de desenvolupament (<code>ServiceSettings.EnableDeveloper</code>). Citeu <code>request_id</code> a l'administrador del servidor: es troba als registres.</p>
+
+<h2 id="rate-limits">Límits de freqüència</h2>
+<p>La limitació de freqüència està desactivada per defecte. Quan un administrador del sistema l’activa (<b>Consola del sistema › Entorn › Limitació de freqüència</b>), cada client rep 10 sol·licituds per segon amb pics de 100 per defecte, comptades per adreça IP o per usuari. Les respostes inclouen <code>X-RateLimit-Limit</code>, <code>X-RateLimit-Remaining</code> i <code>X-RateLimit-Reset</code>; si es supera el límit, el servidor respon <code>429</code> amb una capçalera <code>Retry-After</code> en segons. Alguns punts d’accés, com ara l’inici de sessió, tenen el seu propi límit independentment de la configuració.</p>
+<p>Escriveu scripts que esperin i tornin a provar en cas de 429, i eviteu la sondeja: seguiu el WebSocket en lloc d'això.</p>
+
+<h2 id="websocket">El flux d'esdeveniments del WebSocket</h2>
+<p>Connecteu-vos a <code>wss://chat.example.com/api/v4/websocket</code>. Autentiqueu-vos amb la capçalera <code>Authorization: Bearer</code> a la petició de connexió, o bé enviant això com a primer missatge:</p>
+<pre><code>{"seq": 1, "action": "authentication_challenge", "data": {"token": "…"}}</code></pre>
+<p>El servidor envia un esdeveniment <code>hello</code> i, a continuació, un esdeveniment per a tot el que esteu autoritzats a veure:</p>
+<pre><code>{
+  "event": "posted",
+  "data": {"channel_id": "…", "channel_type": "O", "post": "{\"id\":\"…\",\"message\":\"Hello\",…}"},
+  "broadcast": {"channel_id": "…", "team_id": "", "user_id": "", "omit_users": null},
+  "seq": 4
+}</code></pre>
+<p>Ateneu-vos que <code>data.post</code> és el missatge com a cadena JSON. Esdeveniments habituals: <code>posted</code>, <code>post_edited</code>, <code>post_deleted</code>, <code>reaction_added</code>, <code>reaction_removed</code>, <code>typing</code>, <code>status_change</code>, <code>user_added</code>, <code>direct_added</code>. Les aplicacions envien els seus propis esdeveniments, anomenats <code>custom_&lt;app id&gt;_&lt;event&gt;</code>.</p>
+<p>També podeu enviar accions, cadascuna amb un <code>seq</code> creixent: <code>user_typing</code> amb <code>{"channel_id", "parent_id"}</code>, o <code>get_statuses</code>. Reconnecteu-vos quan la connexió es trenqui i recupereu el que heu perdut amb <code>since</code> (vegeu <a href="#pagination">Paginació</a>).</p>
+<p>Antimatter afegeix aquests esdeveniments: <code>community_attributes_updated</code>, <code>member_timeouts_updated</code>, <code>post_put_on_top</code>, <code>post_removed_from_top</code>, <code>server_categories_updated</code>, <code>channel_overrides_updated</code> i <code>category_overrides_updated</code>.</p>
+
+<h2 id="clients">Biblioteques de client</h2>
+<ul>
+<li><b>Vés</b>: <code>model.Client4</code> a <code>server/public/model</code> (importa <code>github.com/mattermost/mattermost/server/public/model</code>). <code>model.NewAPIv4Client(url)</code>, després <code>client.SetToken(token)</code>; <code>model.NewWebSocketClient4(wsURL, token)</code> segueix els esdeveniments. La còpia d’Antimatter afegeix mètodes per als seus propis punts d’accés, com ara <code>UpdateMessageRequest</code>, <code>PutPostOnTop</code> i <code>ExportChannel</code>.</li>
+<li><b>TypeScript</b>: la classe <code>Client4</code> de <code>@mattermost/client</code>, a <code>webapp/platform/client</code>, amb els seus tipus a <code>webapp/platform/types</code>. La còpia al repositori d'Antimatter inclou els punts d'accés d'Antimatter; el paquet publicat a npm per Mattermost no els inclou.</li>
+</ul>
+<pre><code>package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/mattermost/mattermost/server/public/model"
+)
+
+func main() {
+	client := model.NewAPIv4Client("https://chat.example.com")
+	client.SetToken("…")
+	post, _, err := client.CreatePost(context.Background(), &amp;model.Post{
+		ChannelId: "…",
+		Message:   "Hello from Go",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("posted", post.Id)
+}</code></pre>
+
+<h2 id="antimatter">Què afegeix Antimatter a la API</h2>
+<p>Aquests punts d'accés i camps no existeixen en un servidor de Mattermost. Tots ells requereixen una sessió.</p>
+<table>
+<thead><tr><th>Punt d'accés</th><th>Què fa</th></tr></thead>
+<tbody>
+<tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> mateix camí<br><code>PATCH</code>, <code>DELETE …/fields/{field_id}</code></td><td>Atributs de la comunitat: els camps del perfil que els administradors d'una comunitat defineixen per als seus membres (màxim 20). Els membres els poden llegir; els administradors de la comunitat els creen i els modifiquen.</td></tr>
+<tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> mateix camí<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>Els valors dels atributs d'un membre, com a <code>{field_id: value}</code>. Els membres estableixen els propis (excepte els gestionats pels administradors); els administradors estableixen els de qualsevol persona. La cerca rep <code>{"user_ids": [...]}</code> (màxim 200).</td></tr>
+<tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>Temps d'espera: <code>{"until": time, "reason": "…"}</code> impedeix a algú publicar, reaccionar i penjar fitxers a la comunitat fins a aquest moment (màxim 28 dies); <code>"until": 0</code> el revoca. La vista de moderació mostra quan es van unir i quants missatges han publicat recentment.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Missatges fixats a la part superior d'un canal (màxim 10). <code>{"duration": ms}</code>, màxim 30 dies; 0 els manté fins que es suprimeixin. Cal tenir el permís de publicar al canal.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>Actua sobre la teva pròpia sol·licitud de missatge: <code>{"action": "accept"}</code>, <code>"dismiss"</code> o <code>"request"</code> per tornar a posar una conversa entre les sol·licituds. Retorna el teu membre del canal.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>Què pot fer un rol o una persona en un canal, i quins rols veuen un canal restringit per rol.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>Les categories de canals compartides de la comunitat, i les substitucions que s'apliquen a tots els canals d'una categoria.</td></tr>
+<tr><td><code>GET /groups/{group_id}/team_role</code><br><code>PUT …/team_role/permissions</code></td><td>Els permisos que atorga un rol de la comunitat.</td></tr>
+<tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>Prova les regles d'enllaços automàtics de la comunitat en un text.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>Descarrega els missatges d'un canal en format CSV (fins a 50.000), per a les persones que poden llegir el canal.</td></tr>
+<tr><td><code>GET /posts/{post_id}/speech</code></td><td>El missatge llegit en veu alta, en format d'àudio, quan s'ha configurat la conversió de text a veu.</td></tr>
+</tbody>
+</table>
+<h3>Nous camps</h3>
+<ul>
+<li><b>Comunitats</b> (<code>Team</code>, i <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (tots els membres estan en tots els canals que poden veure, com a Discord), <code>default_channel_id</code> (on aterren els nous membres; si està buit, significa Town Square), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> i <code>autolinks</code> (tots dos cadenes JSON).</li>
+<li><b>Respostes en línia</b>: una publicació amb <code>"props": {"reply_to": "&lt;post id&gt;"}</code> cita aquest missatge del mateix canal. Afegeix <code>"reply_to_mention": false</code> per no notificar-ne l'autor. El servidor omple <code>metadata.reply_to</code> amb una descripció breu del missatge citat.</li>
+<li><b>Alertes de contingut</b>: <code>"props": {"spoiler": true}</code> amaga el text i els fitxers d'una publicació fins que el lector decideixi veure'ls.</li>
+<li><b>Ignorar i bloquejar</b> són preferències: categoria <code>user_block</code>, anomenada segons el ID de l'altra persona, amb el valor <code>ignore</code> o <code>block</code>. Si un missatge directe espera com a sol·licitud, es troba al <code>notify_props.dm_request</code> del teu membre del canal (<code>pending</code>, <code>accepted</code> o <code>dismissed</code>).</li>
+<li>Els <b>adjunts de missatge</b> poden portar <code>stages</code> i un <code>chart</code>: consulta <a href="{{root}}docs/developers/webhooks.html#cards">Targetes</a>.</li>
+</ul>

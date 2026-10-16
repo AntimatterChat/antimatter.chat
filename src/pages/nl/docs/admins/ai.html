@@ -1,0 +1,104 @@
+title: AI
+description: Koppel de AI-functies van Antimatter aan modellen naar keuze, inclusief servers die u zelf draait: AI-agents, speech-to-text voor gesprekken, voorlezen, automatische vertaling, welke gegevens waar naartoe gaan en hoe u elke functie kunt uitschakelen.
+guide: admins
+order: 8
+nav: AI
+lead: De AI-functies van Antimatter gebruiken modellen naar keuze: een cloudprovider of een server op uw eigen netwerk. Er wordt nergens iets naartoe gestuurd totdat u een model hebt geconfigureerd. Deze pagina behandelt elke functie, de gegevens die deze verstuurt en hoe u deze kunt uitschakelen.
+source: b6dfe1d5e313
+---
+<h2 id="overview">De AI-functies</h2>
+<table>
+<thead><tr><th>Functie</th><th>Geconfigureerd in</th><th>Type model</th><th>Standaard ingeschakeld</th></tr></thead>
+<tbody>
+<tr><td>AI-agents: chatten met een bot, samenvattingen van draadjes en kanalen, hulp in de invoer</td><td>De Agents-app</td><td>Elke large language model (LLM)-service</td><td>De app is ingeschakeld, maar doet niets totdat u een service toevoegt</td></tr>
+<tr><td>Transcripties en live ondertiteling van gesprekken</td><td>De Calls-app</td><td>Speech-to-text, OpenAI-compatibel</td><td>nee</td></tr>
+<tr><td>Voorlezen</td><td>De server</td><td>Text-to-speech, OpenAI-compatibel</td><td>nee</td></tr>
+<tr><td>Automatische vertaling van kanalen</td><td>De server</td><td>LibreTranslate, een OpenAI-compatibel LLM of een Agents-service</td><td>nee</td></tr>
+</tbody>
+</table>
+<p>“OpenAI-compatibel” betekent een server die dezelfde HTTP-API aanbiedt als OpenAI. De meeste modelserver die u zelf kunt draaien, doen dit (zoals Ollama, vLLM, de server van llama.cpp, of Whisper- en text-to-speech-servers), net als veel cloudproviders. Voor geen van deze functies is een licentie vereist.</p>
+
+<h2 id="agents">AI-agents</h2>
+<p>De Agents-app (id <code>mattermost-ai</code>) is standaard ingeschakeld. Het instellen vereist twee stappen: voeg een <b>service</b> toe (een verbinding met een modelprovider) en maak vervolgens <b>agents</b> (bots die een service gebruiken).</p>
+<figure><img src="{{root}}assets/img/shots/ai.webp" alt="The Agents panel on the right of a channel: a user asked about an incident and the agent answered with a summary of the related threads."><figcaption>Een agent die antwoordt in het Agents-paneel.</figcaption></figure>
+<h3>1. Een service toevoegen</h3>
+<p>Ga naar <b>Systeemconsole › Plugins › Agents</b> en klik onder <b>AI Services</b> op <b>Een AI-service toevoegen</b>. Kies het <b>Service type</b>:</p>
+<ul>
+<li><b>OpenAI Compatible</b>: voor een modelserver die u zelf draait, of voor elke provider met een OpenAI-stijl API. Vul de <b>API URL</b> in (bijvoorbeeld <code>http://ollama:11434/v1</code> of <code>http://vllm.internal:8000/v1</code>) en de <b>API-sleutel</b> alleen als de server er een vereist. Als de server alleen de Chat Completions API ondersteunt, schakel dan <b>Use Responses API</b> uit.</li>
+<li><b>OpenAI</b>, <b>Anthropic</b>, <b>Google Gemini</b>, <b>Google Vertex AI</b>, <b>AWS Bedrock</b>, <b>Azure</b>, <b>Cohere</b>, <b>Mistral</b>: gehoste providers. Elke provider vereist een <b>API-sleutel</b> (Bedrock: een AWS-regio en referenties of een IAM-role; Vertex AI: een project, regio en service account; Azure: ook de API URL).</li>
+</ul>
+<p>Stel daarna het <b>Standaard model</b> in (een lijst als de provider zijn modellen kan rapporteren, anders typ je de naam in) en, als de provider ze niet rapporteert, de <b>Tokenlimiet invoer</b> en <b>Tokenlimiet uitvoer</b>. Een <b>Reserve-service</b> kan overnemen als deze faalt. Sla op.</p>
+<p>De server voert deze aanvragen zelf uit, dus hij moet de API kunnen bereiken: een modelserver in hetzelfde compose-project, op je netwerk of op het internet. Uitgaande aanvragen respecteren de variabelen <code>HTTP_PROXY</code> en <code>HTTPS_PROXY</code>.</p>
+<h3>2. Agents aanmaken</h3>
+<p>Agents worden aangemaakt op de pagina <b>Agents</b> van de webapp: open deze via het productmenu of met <b>Beheren</b> in de agentkeuze van het Agents-paneel. Het adres is <code>https://chat.example.com/plug/mattermost-ai/agents</code>. Elke agent heeft een <b>Weergavenaam</b>, een <b>Agent-gebruikersnaam</b> (zoals mensen hem vermelden), een <b>Service</b> en optioneel een model, <b>Aangepaste instructies</b> en schakelaars voor <b>Visie inschakelen</b> (afbeeldingen) en <b>Tools inschakelen</b>. Het tabblad <b>Toegang</b> beperkt in welke kanalen de agent kan worden gebruikt en welke gebruikers hem kunnen gebruiken. Onder <b>AI-functies</b> in de Systeemconsole kiest <b>Standaard bot</b> de agent die wordt gebruikt als er geen is geselecteerd, bijvoorbeeld voor samenvattingen van gesprekken.</p>
+<div class="callout">Standaard mag elke gebruiker eigen agents aanmaken, met de door jou geconfigureerde services. Om dit alleen voor beheerders te behouden, verwijder je de machtiging <b>Eigen AI-agenten beheren</b> van de rol voor leden in <b>Systeemconsole › Gebruikersbeheer › Machtigingen</b>.</div>
+<h3>Optionele functies van de Agents-app</h3>
+<ul>
+<li><b>Embedding-zoeken</b> (experimenteel, uit): semantisch zoeken door berichten. Dit vereist PostgreSQL met de pgvector-extensie en een embedding-model (OpenAI of OpenAI-compatibel). Het stuurt <em>elk</em> bericht naar het embedding-model, inclusief privé-kanalen en privéberichten.</li>
+<li><b>Webzoeken</b> (uit): laat agents het web doorzoeken via Google, Brave of een SearXNG-server die je zelf draait.</li>
+<li><b>Inheemse tools</b>: bij providers die ze aanbieden, kunnen agents de eigen webzoekfunctie van de provider gebruiken (standaard ingeschakeld voor nieuwe agents, indien ondersteund), web fetch en code-uitvoering. Deze worden uitgevoerd bij de provider. Schakel ze per agent uit.</li>
+<li><b>Model Context Protocol (MCP)</b>: verbind agents met MCP-servers die je vertrouwt, voor extra tools.</li>
+<li><b>Debug</b>: <b>Trace Output</b> (uit, serverlog of een OpenTelemetry-endpoint) en <b>Token Usage Logging inschakelen</b>, dat tokenaantallen schrijft naar <code>logs/agents/token_usage.log</code>.</li>
+</ul>
+
+<h2 id="speech-to-text">Spraak-naar-tekst: transcripties en ondertiteling van gesprekken</h2>
+<p>Gesprekken kunnen worden getranscribeerd, met live ondertiteling, door een spraak-naar-tekstserver die een OpenAI-compatibele <code>/v1/audio/transcriptions</code>-endpoint aanbiedt. De configuratie staat in <a href="{{root}}docs/admins/calls.html#transcription">Gesprekken en spraak</a>. Als <b>Transcripties samenvatten</b> is ingeschakeld, plaatst de standaardagent ook een samenvatting van elk transcript.</p>
+
+<h2 id="text-to-speech">Tekst naar spraak: voorlezen</h2>
+<p>Als tekst naar spraak is ingeschakeld, heeft het menu van elk bericht <b>Voorlezen</b>: de server stuurt de tekst van het bericht naar een tekst-naar-spraak-API en speelt de audio af. De instellingen staan in <b>Systeemconsole › Integraties › Tekst naar spraak</b>:</p>
+<table>
+<thead><tr><th>Instelling</th><th>Sleutel en variabele</th><th>Wat er in moet</th></tr></thead>
+<tbody>
+<tr><td><b>Berichten hardop voorlezen</b></td><td><code>TextToSpeechSettings.Enable</code>, <code>AM_TEXTTOSPEECHSETTINGS_ENABLE</code></td><td><code>true</code> (standaard uitgeschakeld)</td></tr>
+<tr><td><b>API-basis-URL</b></td><td><code>TextToSpeechSettings.URL</code>, <code>AM_TEXTTOSPEECHSETTINGS_URL</code></td><td>De basis-URL tot en met <code>/v1</code>, bijvoorbeeld <code>http://tts.internal:8000/v1</code>. De server roept de <code>/audio/speech</code>-endpoint aan.</td></tr>
+<tr><td><b>Model</b></td><td><code>TextToSpeechSettings.Model</code>, <code>AM_TEXTTOSPEECHSETTINGS_MODEL</code></td><td>Het model zoals de API het noemt, bijvoorbeeld <code>tts-1</code>. Verplicht.</td></tr>
+<tr><td><b>Stem</b></td><td><code>TextToSpeechSettings.Voice</code>, <code>AM_TEXTTOSPEECHSETTINGS_VOICE</code></td><td>Een van de stemmen van het model, of leeg voor de standaardstem.</td></tr>
+<tr><td><b>API-sleutel</b></td><td><code>TextToSpeechSettings.APIKey</code>, <code>AM_TEXTTOSPEECHSETTINGS_APIKEY</code></td><td>Wordt verzonden als bearer token. Leeg als de API er geen nodig heeft.</td></tr>
+</tbody>
+</table>
+<p>Voor verzending verwijdert de server codeblokken, links, emoji-codes en opmaak, en behoudt maximaal 4000 tekens. Het vraagt om MP3-audio en bewaart de laatste 64 resultaten in het geheugen, zodat een bericht dat twee keer wordt voorgelezen maar één keer wordt verzonden.</p>
+
+<h2 id="translation">Automatische vertaling</h2>
+<p>Automatische vertaling toont de berichten van een kanaal in de eigen taal van elke lezer. Configureer dit in <b>Systeemconsole › Site Configuratie › Lokalisatie</b>, onder <b>Automatische vertaling</b>:</p>
+<table>
+<thead><tr><th>Instelling</th><th>Sleutel</th><th>Standaardwaarde</th></tr></thead>
+<tbody>
+<tr><td>Inschakelen</td><td><code>AutoTranslationSettings.Enable</code></td><td>Uit</td></tr>
+<tr><td><b>Vertaalprovider</b></td><td><code>AutoTranslationSettings.Provider</code></td><td><code>libretranslate</code>, <code>openai</code> (weergegeven als "OpenAI-compatible API") of <code>agents</code> (een service van de Agents-app)</td></tr>
+<tr><td><b>Toegestane talen</b></td><td><code>AutoTranslationSettings.TargetLanguages</code></td><td><code>en</code>: de talen waarnaar berichten kunnen worden vertaald</td></tr>
+<tr><td><b>Time-out vertaling (ms)</b></td><td><code>AutoTranslationSettings.TimeoutMs</code></td><td>5000</td></tr>
+<tr><td><b>Automatische vertaling beperken voor privéberichten en groepsberichten</b></td><td><code>AutoTranslationSettings.RestrictDMAndGM</code></td><td>Uit</td></tr>
+</tbody>
+</table>
+<p>Elke provider heeft zijn eigen velden:</p>
+<ul>
+<li><b>LibreTranslate</b>: <b>LibreTranslate API Endpoint</b> en <b>LibreTranslate API-sleutel</b> (<code>AutoTranslationSettings.LibreTranslate.URL</code>, <code>.APIKey</code>). Een LibreTranslate-server kan op uw eigen netwerk draaien.</li>
+<li><b>OpenAI-compatible API</b>: <b>API-basis-URL</b> (tot en met <code>/v1</code>; de server gebruikt de chat completions endpoint), <b>Model</b> en <b>API-sleutel</b> (<code>AutoTranslationSettings.OpenAI.URL</code>, <code>.Model</code>, <code>.APIKey</code>). Een klein vertaalmodel dat lokaal draait werkt goed.</li>
+<li><b>Agents</b>: <b>AI-Service</b>, een van de services die zijn geconfigureerd in de Agents-app.</li>
+</ul>
+<p>Wanneer de functie is ingeschakeld, schakelen kanaalbeheerders de vertaling in voor een kanaal in de instellingen (<b>Automatische vertaling</b>), en elk lid kan zich uitschakelen via het kanaalmenu (<b>Berichten vertalen</b>). In privé- en groepsberichten kan elk lid de functie inschakelen; als de beperking is ingeschakeld, is vertaling daar niet beschikbaar. Vertaalde berichten tonen “Vertaald van …” met een link naar het origineel.</p>
+<p>Code, links, vermeldingen en emoji’s worden door placeholders vervangen voordat de tekst wordt verzonden, en daarna weer hersteld.</p>
+
+<h2 id="data">Welke gegevens waar naartoe gaan</h2>
+<table>
+<thead><tr><th>Functie</th><th>Wat wordt verzonden</th><th>Naar</th></tr></thead>
+<tbody>
+<tr><td>Agents</td><td>De aanvraag, de berichten van het draadje of kanaal waarover het gaat, de instructies van de agent, toolresultaten, afbeeldingen wanneer vision is ingeschakeld, en de naam, gebruikersnaam, functie en taal van de vraagende gebruiker</td><td>De API van de service</td></tr>
+<tr><td>Zoeken met embeddings</td><td>Elk bericht (behalve berichten van bots en systeemberichten)</td><td>De embedding-API</td></tr>
+<tr><td>Ingebouwde tools en webzoekopdrachten</td><td>Zoekopdrachten, pagina’s om op te halen, code</td><td>De provider, of de zoekmachine die u hebt gekozen</td></tr>
+<tr><td>Transcriptie van gesprekken</td><td>De stem van iedereen die spreekt terwijl de functie is ingeschakeld</td><td>De speech-to-text-API</td></tr>
+<tr><td>Voorlezen</td><td>De tekst van het bericht dat wordt voorgelezen</td><td>De text-to-speech-API</td></tr>
+<tr><td>Vertaling</td><td>De tekst van de berichten in vertaalde kanalen</td><td>LibreTranslate, de LLM-API, of de Agents-service</td></tr>
+</tbody>
+</table>
+<p>Om alles binnen uw netwerk te houden, wijst u elke functie naar servers die u zelf draait. Bij een cloudprovider controleert u de voorwaarden voor het bewaren van gegevens en informeert u uw gebruikers welke functies hun berichten naar buiten sturen.</p>
+
+<h2 id="turn-off">AI uitschakelen</h2>
+<p>Er is geen enkele schakelaar: elke functie heeft er een eigen.</p>
+<ul>
+<li><b>Agents</b>: schakel de Agents-app uit in <b>Systeemconsole › Plugins › Plugin Beheer</b>. Hiermee worden ook de samenvattingen van gesprekken en de vertaalprovider van Agents verwijderd.</li>
+<li><b>Transcriptie en ondertiteling</b>: <code>AM_CALLS_ENABLE_TRANSCRIPTIONS=false</code> en <code>AM_CALLS_ENABLE_LIVE_CAPTIONS=false</code> (de standaardwaarden).</li>
+<li><b>Voorlezen</b>: <b>Berichten hardop voorlezen</b> uitschakelen (<code>AM_TEXTTOSPEECHSETTINGS_ENABLE=false</code>, de standaardwaarde).</li>
+<li><b>Vertaling</b>: automatische vertaling uitschakelen (<code>AM_AUTOTRANSLATIONSETTINGS_ENABLE=false</code>, de standaardwaarde).</li>
+</ul>
+<p>Het uitschakelen van de Agents-app schakelt de andere drie functies niet uit: die roepen hun eigen API’s rechtstreeks aan.</p>

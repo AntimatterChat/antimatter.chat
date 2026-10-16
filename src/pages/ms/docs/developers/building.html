@@ -1,0 +1,102 @@
+title: Membina dari sumber
+description: Cara membina Antimatter dari sumber: pelayan Go, antara muka web Fusion dan klasik, pelayan pembangunan, ujian, arkib keluaran, imej Docker, dan aplikasi desktop serta mudah alih.
+guide: developers
+order: 7
+nav: Membina dari sumber
+lead: Laman ini menerangkan cara membina dan menjalankan Antimatter dari kod sumbernya, sama ada untuk bekerja dengannya atau untuk membuat binaan anda sendiri. Ia merangkumi pelayan dan antara muka web, yang berada dalam satu repositori, kemudian imej Docker dan aplikasi.
+source: dfdf67f34f6e
+---
+<h2 id="requirements">Apa yang anda perlukan</h2>
+<ul>
+<li><b>Pergi</b>, pada versi dalam <code>server/go.mod</code> (1.26.7 pada masa penulisan ini).</li>
+<li><b>Node.js dan npm</b>, pada versi dalam <code>.nvmrc</code> dan <code>webapp/package.json</code> (Node 24.11.1 dengan npm 11.6.2). Dengan <a href="https://mise.jdx.dev">mise</a>, fail <code>mise.toml</code> repositori memasang Node yang betul.</li>
+<li><b>Docker</b> dengan Compose: persediaan pembangunan menjalankan PostgreSQL dan beberapa perkhidmatan lain dalam kontena.</li>
+<li><b>make</b>, <b>git</b>, dan mesin Linux atau macOS.</li>
+<li><b>Kekuatan</b>: membina antara muka web adalah bahagian yang berat. Rancang untuk 16 GB RAM; lihat <a href="#memory">Binaan dan memori</a>.</li>
+</ul>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter.git
+cd antimatter</code></pre>
+<p>Repositori menyimpan pelayan dalam <code>server/</code>, antara muka web dalam <code>webapp/</code> (Fusion dalam <code>webapp/fusion</code>, klasik dalam <code>webapp/channels</code>, pakej bersama dalam <code>webapp/platform</code>), dan ujian hujung-ke-hujung dalam <code>e2e-tests/</code>.</p>
+
+<h2 id="dev-server">Jalankan pelayan pembangunan</h2>
+<pre><code>cd server
+make run</code></pre>
+<p><code>make run</code> memulakan kontena pembangunan (PostgreSQL, Redis, penangkap e-mel dan alat pemantauan), mengaitkan binaan aplikasi web ke tempatnya, memulakan pelayan di latar belakang dengan <code>go run</code>, dan memulakan pengamat aplikasi web, yang membina semula antara muka klasik semasa anda menyuntingnya. Buka <code>http://localhost:8065</code> dan cipta akaun: akaun pertama menjadi pentadbir sistem.</p>
+<table>
+<thead><tr><th>Arahan (dalam <code>server/</code>)</th><th>Fungsinya</th></tr></thead>
+<tbody>
+<tr><td><code>make run-server</code>, <code>make run-client</code></td><td>Mulakan hanya pelayan, atau hanya pengamat aplikasi web.</td></tr>
+<tr><td><code>make restart-server</code></td><td>Mula semula pelayan selepas mengubah kod Go.</td></tr>
+<tr><td><code>make stop</code></td><td>Hentikan pelayan, pengamat dan kontena.</td></tr>
+<tr><td><code>make debug-server</code></td><td>Jalankan pelayan di bawah penyahpepijat Delve.</td></tr>
+<tr><td><code>make run-cli ARGS="-version"</code></td><td>Jalankan arahan pelayan.</td></tr>
+<tr><td><code>make config-reset</code></td><td>Set semula <code>config/config.json</code> ke lalai.</td></tr>
+<tr><td><code>make clean</code>, <code>make nuke</code></td><td>Buang fail binaan; <code>nuke</code> juga memadam data pembangunan.</td></tr>
+</tbody>
+</table>
+<p>Pangkalan data pembangunan ialah <code>postgres://mmuser:mostest_password@localhost/mattermost_test</code>, sumber data lalai pelayan. Pilih kontena yang bermula dengan <code>ENABLED_DOCKER_SERVICES</code>, dalam fail <code>server/config.override.mk</code> atau dalam persekitaran anda (lihat <code>server/config.mk</code>).</p>
+
+<h2 id="webapp">Antara muka web</h2>
+<p>Dalam <code>webapp/</code>:</p>
+<pre><code>npm install      # also builds the shared packages
+npm run build    # the classic interface, then Fusion</code></pre>
+<p>Binaan akan diletakkan di <code>webapp/channels/dist</code> (klasik) dan <code>webapp/fusion/dist</code> (Fusion). <code>make client</code> di <code>server/</code> akan memautkannya sebagai <code>server/client</code> dan <code>server/client-fusion</code>, di mana pelayan akan melayanannya: klasik di bawah <code>/static/</code>, dan Fusion di bawah <code>/static/fusion/</code>.</p>
+<ul>
+<li><code>npm run run</code> (atau <code>make run</code> di <code>webapp/</code>) akan memantau dan membina semula antara muka klasik. Tambahkan <code>WATCH_FUSION=true</code> untuk membina semula Fusion juga.</li>
+<li><code>npm run dev-server</code> (<code>make dev</code>) akan menjalankan pelayan pembangunan webpack sebaliknya: klasik pada port 9005, dan Fusion pada port 9006.</li>
+<li>Untuk melihat antara muka klasik atau Fusion dalam pelayar web, tambahkan <code>?webui=fusion</code> atau <code>?webui=classic</code> ke alamat mana-mana halaman.</li>
+</ul>
+
+<h2 id="tests">Ujian dan semakan</h2>
+<table>
+<thead><tr><th>Arahan</th><th>Di mana</th><th>Fungsinya</th></tr></thead>
+<tbody>
+<tr><td><code>make test-server</code></td><td><code>server/</code></td><td>Sijil ujian pelayan, menentang bekas pembangunan. Ia mengambil masa yang lama.</td></tr>
+<tr><td><code>make test-server-quick</code></td><td><code>server/</code></td><td>Hanya ujian yang singkat.</td></tr>
+<tr><td><code>go test ./channels/app/... -run TestName</code></td><td><code>server/</code></td><td>Satu pakej atau ujian, dengan bekas dalam keadaan berjalan (<code>make start-docker</code>).</td></tr>
+<tr><td><code>make check-style</code></td><td><code>server/</code></td><td>go vet, golangci-lint dan semakan Go yang lain.</td></tr>
+<tr><td><code>make test</code></td><td><code>webapp/</code></td><td>Ujian unit aplikasi web (Jest), dalam setiap pakej.</td></tr>
+<tr><td><code>npm run test -- &lt;pattern&gt;</code></td><td><code>webapp/fusion</code></td><td>Sebahagian daripada ujian Fusion.</td></tr>
+<tr><td><code>make check-style</code>, <code>make check-types</code></td><td><code>webapp/</code></td><td>ESLint dan TypeScript.</td></tr>
+<tr><td><code>make i18n-extract</code></td><td><code>server/</code> dan <code>webapp/</code></td><td>Mengemas kini fail string bahasa Inggeris selepas anda menambah atau mengubah string (lihat <a href="{{root}}docs/developers/contributing.html#translations">Terjemahan</a>).</td></tr>
+</tbody>
+</table>
+<p>Jalankan <code>make modules-tidy</code> bukannya <code>go mod tidy</code> di <code>server/</code>.</p>
+
+<h2 id="release">Arkib keluaran</h2>
+<pre><code>cd webapp &amp;&amp; npm run build &amp;&amp; cd ..
+cd server
+make build-linux       # the antimatter and amctl binaries
+make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
+<p><code>make build</code> membina antara muka web dan binari Linux sekaligus. Arkib ini mengandungi <code>bin/antimatter</code>, <code>bin/amctl</code>, <code>config/config.json</code> lalai, kedua-dua antara muka web, templat, fon dan terjemahan. Platform lain: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>. Arkib ini tidak termasuk aplikasi terikat; imej Docker pula menyertainya.</p>
+
+<h2 id="docker">Imej Docker</h2>
+<p>Repositori <a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> membina imej yang diterbitkan, iaitu pelayan beserta aplikasinya, sepenuhnya di dalam Docker:</p>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter-docker.git
+cd antimatter-docker
+scripts/build-all.sh                     # from the main branches on GitHub
+SOURCES=local scripts/build-all.sh       # from your checkouts next to this folder
+VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatter app</code></pre>
+<p>Anda memerlukan Docker dengan buildx, Python 3, git dan gpg, kira-kira 16 GB RAM dan 30 GB ruang cakera. Hasilnya dimuat sebagai <code>ghcr.io/antimatterchat/antimatter:dev</code>; cuba jalankan dengan <code>ANTIMATTER_IMAGE=ghcr.io/antimatterchat/antimatter:dev docker compose -f compose.local.yml up -d</code>. Fail <code>plugins.json</code> menyenaraikan aplikasi dan versi yang dibina, manakala README repositori menerangkan pelbagai variasi.</p>
+<div class="callout warn"><code>build-all.sh</code> menandatangani aplikasi terikat dengan kunci penandatanganan Antimatter, dan pembinaan imej akan menolak aplikasi yang tidak ditandatangani. Tanpa kunci peribadi tersebut, yang hanya dimiliki oleh penyelenggara, jalankan langkah-langkah awal sahaja: <code>scripts/fetch-sources.sh</code>, <code>scripts/build-plugins.sh</code> (bundle aplikasi dalam <code>out/plugins/</code>) dan <code>scripts/build-server.sh</code> (arkib pelayan dalam <code>out/server/</code>).</div>
+
+<h2 id="memory">Pembinaan dan memori</h2>
+<p>Antara muka web adalah pembinaan webpack yang besar, dan kehabisan memori adalah kegagalan pembinaan yang paling kerap berlaku.</p>
+<ul>
+<li><code>npm run build</code> membina antara muka klasik dan Fusion secara berurutan, bukan serentak, untuk mengekalkan puncak penggunaan yang lebih rendah. Jangan jalankan kedua-duanya secara selari.</li>
+<li>Penyusut (minifier) memulakan satu pekerja untuk setiap pemproses. Pada mesin dengan banyak teras tetapi memori terhad, hadkan bilangan pemproses yang dilihat oleh pembinaan: <code>taskset -c 0-5 npm run build</code>.</li>
+<li>Jika Node kehabisan ruang timbunan (heap), naikkan hadnya: <code>NODE_OPTIONS=--max-old-space-size=6144</code>. Pembinaan Docker menggunakan nilai ini (<code>BUILD_NODE_OPTIONS</code> dalam <code>build.env</code>).</li>
+<li>Elakkan menjalankan suite ujian penuh pelayan, pembinaan web dan pembinaan Docker secara serentak pada mesin kecil.</li>
+</ul>
+
+<h2 id="apps">Aplikasi</h2>
+<p>Setiap aplikasi (plugin) mempunyai repositori dan Makefile sendiri; <code>make dist</code> membina bundle-nya. Lihat <a href="{{root}}docs/developers/apps.html#build">Bina, pasang dan nyahpepijat</a>.</p>
+<h3>Aplikasi desktop</h3>
+<p><a href="https://github.com/AntimatterChat/desktop-app">Aplikasi desktop</a> ialah aplikasi Electron. Dengan Node.js 24 atau lebih baru:</p>
+<pre><code>npm install --allow-git=all
+npm run build          # development build, into dist/
+npm start              # run it
+npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
+<p>Tetapan masa pembinaan, seperti pelayan untuk dikonfigurasi awal, terdapat dalam <code>src/common/config/buildConfig.ts</code>.</p>
+<h3>Aplikasi mudah alih</h3>
+<p><a href="https://github.com/AntimatterChat/mobile-app">Aplikasi mudah alih</a> ialah aplikasi React Native; README-nya menyenaraikan arahan (<code>npm run ios</code>, <code>npm run android</code>). Untuk membina salinan anda sendiri, anda juga memerlukan kunci penandatanganan anda sendiri, projek Firebase untuk pemberitahuan Android, kunci APNs untuk iOS, dan <a href="https://github.com/AntimatterChat/push-proxy">proxy push</a> yang memegang kelayakan tersebut.</p>

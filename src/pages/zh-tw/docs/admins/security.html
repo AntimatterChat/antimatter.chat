@@ -1,0 +1,107 @@
+title: 安全性
+description: 強化 Antimatter 伺服器：哪些埠位應公開、金鑰、速率限制、IP 過濾、上傳限制、隱私設定與使用者封鎖、工作階段、伺服器與外部服務的連線，以及如何回報安全漏洞。
+guide: admins
+order: 12
+nav: 安全性
+lead: 強化 Antimatter 伺服器的檢查清單：應公開哪些埠位、需檢視的限制與隱私設定、伺服器連線的外部服務，以及如何回報安全問題。
+source: dbe2371ecf30
+---
+<h2 id="exposure">應公開的內容</h2>
+<table>
+<thead><tr><th>埠位</th><th>服務</th><th>公開方式</th></tr></thead>
+<tbody>
+<tr><td>443/tcp、443/udp、80/tcp</td><td>您的 HTTPS 代理程式（Caddy 或 nginx）</td><td>公開：這是使用者存取 Antimatter 的方式。</td></tr>
+<tr><td>8443/udp 和 8443/tcp</td><td>通話媒體</td><td>若使用者從您的網路外部使用通話功能，則需公開。</td></tr>
+<tr><td>8065/tcp</td><td>Antimatter 的 Web 伺服器</td><td>僅對代理程式公開：將其發佈至 <code>127.0.0.1</code>（<code>HTTP_PORT=127.0.0.1:8065</code>）。</td></tr>
+<tr><td>8067/tcp</td><td>指標</td><td>僅限私人網路（若已啟用）。無需登入。</td></tr>
+<tr><td>8074/tcp 和 udp</td><td>叢集 gossip</td><td>僅限叢集節點之間。</td></tr>
+<tr><td>5432, 9000, 8080, 8066</td><td>PostgreSQL、檔案儲存、GIF 服務、推送代理程式</td><td>絕不公開。Compose 檔案將它們保留在內部網路中，不發佈任何埠位。</td></tr>
+</tbody>
+</table>
+<p>該站點的 compose 檔案也會以 <code>no-new-privileges</code> 執行所有容器，在 distroless 映像上以非特權使用者執行 Antimatter，並以唯讀檔案系統執行 GIF 服務。資料庫、儲存空間和 GIF 服務位於沒有網際網路存取的網路上。</p>
+
+<h2 id="checklist">安裝後的檢查清單</h2>
+<ol>
+<li>在其他人能存取伺服器之前，先建立第一個管理員帳號（<a href="{{root}}docs/admins/install.html#first-admin">安裝</a>）。</li>
+<li>僅透過 HTTPS 提供 Antimatter，並將站點 URL 設定為 <code>https://</code> 位址（<a href="{{root}}docs/admins/https.html">網域與 HTTPS</a>）。</li>
+<li>確保 <code>.env</code>、<code>config.json</code> 和 TLS 金鑰僅可由 root（或伺服器使用者）讀取：<code>chmod 600 .env</code>。</li>
+<li>決定誰可以建立帳號，除非社群是公開的，否則請保持<b>啟用開放伺服器</b>關閉，並在電子郵件功能正常運作後開啟<b>需要驗證電子郵件</b>（<a href="{{root}}docs/admins/authentication.html">登入與帳號</a>）。</li>
+<li>啟用多因素驗證，並至少強制管理員帳號使用，或使用您的身分驗證提供者的功能。</li>
+<li>檢視以下外部連線，特別是通話功能預設使用的 STUN 伺服器。</li>
+<li>進行備份，並測試還原（<a href="{{root}}docs/admins/backups-upgrades.html">備份與升級</a>）。</li>
+<li>保持映像最新：安全修復會隨新映像發布。</li>
+</ol>
+
+<h2 id="rate-limiting">速率限制</h2>
+<p>伺服器可限制每個客戶端發出的 API 請求數量。此功能預設為停用。在 <b>系統控制台 › 環境 › 速率限制</b> 中：</p>
+<table>
+<thead><tr><th>設定</th><th>金鑰</th><th>預設值</th></tr></thead>
+<tbody>
+<tr><td><b>啟用張貼頻率限制</b></td><td><code>RateLimitSettings.Enable</code></td><td>關閉</td></tr>
+<tr><td><b>每秒最多查詢數量</b></td><td><code>RateLimitSettings.PerSec</code></td><td>10</td></tr>
+<tr><td><b>最大高載值</b></td><td><code>RateLimitSettings.MaxBurst</code></td><td>100</td></tr>
+<tr><td><b>記憶體儲存體大小</b></td><td><code>RateLimitSettings.MemoryStoreSize</code></td><td>追蹤 10000 個客戶端</td></tr>
+<tr><td><b>根據遠端位址計算張貼速率限制</b></td><td><code>RateLimitSettings.VaryByRemoteAddr</code></td><td>開啟</td></tr>
+<tr><td><b>根據使用者計算張貼速率限制</b></td><td><code>RateLimitSettings.VaryByUser</code></td><td>關閉</td></tr>
+<tr><td><b>根據 HTTP 標頭計算張貼速率限制</b></td><td><code>RateLimitSettings.VaryByHeader</code></td><td>留空</td></tr>
+</tbody>
+</table>
+<p>在代理伺服器後方，僅依位址的限制只有在伺服器知道每個客戶端的位址時才有效（<code>ServiceSettings.TrustedProxyIPHeader</code> 和 <code>ServiceSettings.TrustedProxyIPs</code>，請參閱 <a href="{{root}}docs/admins/https.html#client-address">代理伺服器後的客戶端位址</a>）。否則，所有請求看起來都來自代理伺服器，且所有人共用同一個限制。IP 過濾和稽核日誌中的位址也是如此。</p>
+<p>登入嘗試次數會單獨限制：<b>最大登入嘗試次數</b>（10）會在輸入錯誤密碼達到該次數後鎖定帳戶。</p>
+
+<h2 id="ip-filtering">IP 過濾</h2>
+<p><b>系統控制台 › 網站設定 › IP 過濾</b> 可透過 IP 位址限制對伺服器的存取，並使用允許和拒絕規則（各為一個位址或 CIDR 範圍）。當 <b>啟用 IP 過濾</b> 開啟時，位址符合拒絕規則，或在存在允許規則時未符合任何允許規則的人，無法連接到伺服器。該頁面會拒絕會封鎖您自己位址的規則。在代理伺服器後方，請先設定客戶端位址（<a href="{{root}}docs/admins/https.html#client-address">代理伺服器後的客戶端位址</a>）：否則所有請求看起來都來自代理伺服器。</p>
+
+<h2 id="uploads">上傳與檔案分享</h2>
+<table>
+<thead><tr><th>設定</th><th>位置</th><th>預設值</th></tr></thead>
+<tbody>
+<tr><td><b>最大檔案大小</b>（<code>FileSettings.MaxFileSize</code>）</td><td>環境 › 檔案儲存</td><td>100 MB。請將代理伺服器的請求大小限制設為至少此值。</td></tr>
+<tr><td><b>最大有效負載大小（位元組數）</b>（<code>ServiceSettings.MaximumPayloadSizeBytes</code>）</td><td>環境 › Web 伺服器</td><td>300000：除檔案上傳外最大的 API 請求</td></tr>
+<tr><td><b>允許檔案分享</b>（<code>FileSettings.EnableFileAttachments</code>）</td><td>網站設定 › 檔案分享與下載</td><td>開啟</td></tr>
+<tr><td><b>允許自行動裝置上傳檔案</b>、<b>允許自行動裝置下載檔案</b></td><td>網站設定 › 檔案分享與下載</td><td>開啟</td></tr>
+<tr><td><b>啟用公開檔案連結</b>（<code>FileSettings.EnablePublicLink</code>）</td><td>網站設定 › 公開連結</td><td>停用：啟用後，人們可以透過連結分享檔案，且無需登入即可存取</td></tr>
+<tr><td><b>啟用 SVG</b>（<code>ServiceSettings.EnableSVGs</code>）</td><td>網站設定 › 貼文</td><td>新伺服器上預設為停用：啟用後，SVG 影像將內嵌顯示</td></tr>
+</tbody>
+</table>
+<p>Antimatter 不會掃描上傳檔案中的惡意軟體。</p>
+
+<h2 id="privacy">隱私設定</h2>
+<p>在 <b>系統控制台 › 網站設定 › 使用者與團隊</b> 中：</p>
+<table>
+<thead><tr><th>設定</th><th>金鑰</th><th>預設值</th><th>功能說明</th></tr></thead>
+<tbody>
+<tr><td><b>顯示電子郵件地址</b></td><td><code>PrivacySettings.ShowEmailAddress</code></td><td>開啟</td><td>關閉時，成員的電子郵件地址對除管理員外的所有人隱藏。請在公開伺服器上關閉此選項。</td></tr>
+<tr><td><b>顯示全名</b></td><td><code>PrivacySettings.ShowFullName</code></td><td>開啟</td><td>關閉時，全名將被隱藏，並改為顯示使用者名稱。</td></tr>
+<tr><td><b>啟用忽略、封鎖與訊息請求</b></td><td><code>PrivacySettings.EnableUserBlocking</code></td><td>開啟</td><td>請見下方說明。</td></tr>
+<tr><td><b>允許私人訊息的對象</b></td><td><code>TeamSettings.RestrictDirectMessage</code></td><td>Antimatter 伺服器上的任何使用者</td><td>或<b>任何團隊成員</b>：僅限於共同參與同一社群的人員。</td></tr>
+</tbody>
+</table>
+<h3>忽略、封鎖與訊息請求</h3>
+<p>當 <b>啟用忽略、封鎖與訊息請求</b> 開啟時（預設值），使用者可以互相忽略和封鎖，並可選擇將來自陌生人的私人訊息作為訊息請求接收，這些請求在被接受前不會發送通知。這適合公開社群。在同事必須隨時能聯繫對方的工作場所中，請將其關閉（<code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING=false</code>）：這些限制將不再強制執行，但使用者已建立的清單和選擇會保留，若重新開啟則會再次生效。</p>
+
+<h2 id="sessions">工作階段與令牌</h2>
+<ul>
+<li>工作階段時長與閒置逾時：請見 <a href="{{root}}docs/admins/authentication.html#sessions">登入與帳號</a>。較短的工作階段意味著遺失的筆記型電腦或手機保持登入狀態的時間較短。</li>
+<li><b>啟用個人存取 Token</b>（<code>ServiceSettings.EnableUserAccessTokens</code>，預設為關閉）可讓使用者建立 API token；<b>個人存取權杖最長有效期（天）</b>則用於限制其有效期。兩者皆位於<b>系統控制台 › 整合 › 整合管理</b>。</li>
+<li>若要讓所有使用者一次登出（例如在疑似資料外洩之後），請前往<b>系統控制台 › 使用者管理 › 使用者</b>，並執行<b>廢除所有工作階段</b>。</li>
+</ul>
+
+<h2 id="outbound">與外部服務的連線</h2>
+<p>Antimatter 不會聯繫任何由 Mattermost, Inc. 營運的服務。它不會發送遙測資料、崩潰報告或安全更新檢查，也不會擷取產品通知。從 Mattermost 移轉過來但仍指向 Mattermost 服務（其推送服務、應用程式市集、通知或通話用的 STUN 伺服器）的設定，不會導致伺服器與這些服務聯繫：這些地址將被忽略。</p>
+<p>伺服器與應用程式僅在需要相關功能時，才會連線到其他外部服務，以及您所設定的服務：</p>
+<table>
+<thead><tr><th>功能</th><th>通訊</th><th>預設值</th></tr></thead>
+<tbody>
+<tr><td>通話：透過 STUN 尋找公開地址。伺服器與每位加入通話的使用者都會發送請求，向 STUN 伺服器顯示其 IP 位址和埠號。</td><td>Cloudflare 的公開 STUN 伺服器，<code>stun.cloudflare.com</code></td><td>on，前提是已啟用通話應用程式。若要變更此設定，請參閱<a href="{{root}}docs/admins/calls.html#network">通話</a>。</td></tr>
+<tr><td>連結預覽：伺服器會抓取訊息中連結的頁面（<b>啟用連結預覽</b>，<code>ServiceSettings.EnableLinkPreviews</code>）</td><td>人們連結的網站</td><td>on。使用 <code>AM_SERVICESETTINGS_ENABLELINKPREVIEWS=false</code> 關閉。</td></tr>
+<tr><td>推播通知至行動應用程式</td><td>您自己的推播代理（<a href="{{root}}docs/admins/email-push.html#push">推播通知</a>）</td><td>off，直到您設定其位址</td></tr>
+<tr><td>遠端應用程式市集（<code>PluginSettings.EnableRemoteMarketplace</code>）</td><td>您所設定的<b>市集網址</b></td><td>off，且未設定位址</td></tr>
+<tr><td>電子郵件</td><td>您的 SMTP 伺服器</td><td>預設伺服器為 <code>localhost</code></td></tr>
+<tr><td>單一登入、AI 模型、語音轉文字與翻譯、外發 Webhook，以及 Mail、Calendar、GitHub、GitLab 或 Jira 等應用程式</td><td>您設定的服務</td><td>off，直到您完成設定</td></tr>
+</tbody>
+</table>
+<p>預設情況下，伺服器會拒絕透過這些功能（連結預覽、Webhook、應用程式）連線至私人位址與環回位址，以防止訊息或整合被用來存取您的內部網路。您可以在<b>允許不受信任的內部連線連往</b>（<code>ServiceSettings.AllowedUntrustedInternalConnections</code>，位於<b>系統控制台 › 環境 › 開發者</b>）中列出允許存取的內部主機；該站點的 compose 檔案在此處列出了 <code>gifs</code>。</p>
+
+<h2 id="report">回報安全漏洞</h2>
+<p>請依<a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">Antimatter 安全政策</a>的說明私下回報安全問題，而非在公開的 issue 中提出。</p>

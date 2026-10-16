@@ -1,0 +1,107 @@
+title: Securitate
+description: Întărește un server Antimatter: ce porturi să expui, secrete, limitarea ratei, filtrarea IP, limitele de încărcare, setările de confidențialitate și blocarea utilizatorilor, sesiuni, conexiunile pe care serverul le face către servicii externe și cum să raportezi o vulnerabilitate.
+guide: admins
+order: 12
+nav: Securitate
+lead: O listă de verificare pentru întărirea unui server Antimatter: ce să expui, limitele și setările de confidențialitate de verificat, serviciile externe cu care serverul comunică și cum să raportezi o problemă de securitate.
+source: dbe2371ecf30
+---
+<h2 id="exposure">Ce să expui</h2>
+<table>
+<thead><tr><th>Port</th><th>Serviciu</th><th>Expoziție</th></tr></thead>
+<tbody>
+<tr><td>443/tcp, 443/udp, 80/tcp</td><td>Proxy-ul HTTPS (Caddy sau nginx)</td><td>Public: așa ajung oamenii la Antimatter.</td></tr>
+<tr><td>8443/udp și 8443/tcp</td><td>Media apelurilor</td><td>Public, dacă oamenii folosesc apeluri din afara rețelei tale.</td></tr>
+<tr><td>8065/tcp</td><td>Serverul web Antimatter</td><td>Doar către proxy: publică-l pe <code>127.0.0.1</code> (<code>HTTP_PORT=127.0.0.1:8065</code>).</td></tr>
+<tr><td>8067/tcp</td><td>Metrice</td><td>Doar în rețeaua privată, când este activat. Fără autentificare.</td></tr>
+<tr><td>8074/tcp și udp</td><td>Gossip al clusterului</td><td>Doar între nodurile clusterului.</td></tr>
+<tr><td>5432, 9000, 8080, 8066</td><td>PostgreSQL, stocarea fișierelor, serviciul GIF, proxy-ul de notificări push</td><td>Niciodată. Fișierele compose le păstrează pe rețele interne, fără port publicat.</td></tr>
+</tbody>
+</table>
+<p>Fișierul compose al site-ului rulează, de asemenea, fiecare container cu <code>no-new-privileges</code>, rulează Antimatter ca un utilizator neprivilegiat pe o imagine distroless și rulează serviciul GIF cu un sistem de fișiere în mod de doar-lectură. Baza de date, stocarea și serviciul GIF se află pe o rețea fără acces la Internet.</p>
+
+<h2 id="checklist">Listă de verificare după instalare</h2>
+<ol>
+<li>Creează primul cont de administrator înainte ca oricine altcineva să poată accesa serverul (<a href="{{root}}docs/admins/install.html#first-admin">Instalare</a>).</li>
+<li>Servește Antimatter doar prin HTTPS și setează URL-ul site-ului pe adresa <code>https://</code> (<a href="{{root}}docs/admins/https.html">Domeniu și HTTPS</a>).</li>
+<li>Păstrează <code>.env</code>, <code>config.json</code> și cheile TLS citibile doar de root (sau de utilizatorul serverului): <code>chmod 600 .env</code>.</li>
+<li>Stabiliți cine poate crea conturi, păstrați <b>Activați serverul deschis</b> dezactivat, cu excepția cazului în care comunitatea este publică, și activați <b>Necesită verificarea e-mail</b> odată ce e-mailul funcționează (<a href="{{root}}docs/admins/authentication.html">Autentificare și conturi</a>).</li>
+<li>Activează autentificarea cu factori multipli și impune-o cel puțin pentru conturile de administrator, sau folosește cea a furnizorului tău de identitate.</li>
+<li>Verifică conexiunile externe de mai jos, în special serverul STUN folosit implicit de Apeluri.</li>
+<li>Fă o copie de rezervă și testează o restaurare (<a href="{{root}}docs/admins/backups-upgrades.html">Copii de rezervă și actualizări</a>).</li>
+<li>Păstrează imaginile actualizate: corecțiile de securitate vin cu imaginile noi.</li>
+</ol>
+
+<h2 id="rate-limiting">Limitarea ratei</h2>
+<p>Serverul poate limita numărul de cereri API pe care fiecare client le face. Este dezactivat implicit. În <b>Consola de sistem › Mediu › Evaluați setările de limită</b>:</p>
+<table>
+<thead><tr><th>Setare</th><th>Cheie</th><th>Implicit</th></tr></thead>
+<tbody>
+<tr><td><b>Activați limitarea ratei</b></td><td><code>RateLimitSettings.Enable</code></td><td>dezactivat</td></tr>
+<tr><td><b>Interogări maxime pe secundă</b></td><td><code>RateLimitSettings.PerSec</code></td><td>10</td></tr>
+<tr><td><b>Dimensiunea maximă de rupere</b></td><td><code>RateLimitSettings.MaxBurst</code></td><td>100</td></tr>
+<tr><td><b>Dimensiunea magazinului de memorie</b></td><td><code>RateLimitSettings.MemoryStoreSize</code></td><td>10000 de clienți urmăriți</td></tr>
+<tr><td><b>Limita de rată a limitei prin adresa la distanță</b></td><td><code>RateLimitSettings.VaryByRemoteAddr</code></td><td>activat</td></tr>
+<tr><td><b>Limita de rată a limitelor de utilizator</b></td><td><code>RateLimitSettings.VaryByUser</code></td><td>dezactivat</td></tr>
+<tr><td><b>Variație a ratei variabile de către antetul HTTP</b></td><td><code>RateLimitSettings.VaryByHeader</code></td><td>gol</td></tr>
+</tbody>
+</table>
+<p>În spatele unui proxy, limitarea după adresă funcționează doar dacă serverul cunoaște adresa fiecărui client (<code>ServiceSettings.TrustedProxyIPHeader</code> și <code>ServiceSettings.TrustedProxyIPs</code>, vezi <a href="{{root}}docs/admins/https.html#client-address">Adresele clientului în spatele unui proxy</a>). În caz contrar, toate cererile par a veni de la proxy, iar toți utilizatorii împart aceeași limită. Același lucru se aplică și filtrării IP și adreselor din jurnalele de audit.</p>
+<p>Încercările de autentificare sunt limitate separat: <b>Încercări de conectare maximă</b> (10) blochează un cont după acest număr de parole eșuate.</p>
+
+<h2 id="ip-filtering">Filtrare IP</h2>
+<p><b>Consola de sistem › Configurația site-ului › Filtrare IP</b> limitează accesul la server prin adresă IP, cu reguli de permitere și respingere (o adresă sau o gamă CIDR, fiecare). Cu <b>Activează filtrarea IP</b> activat, persoanele ale căror adrese se potrivesc cu o regulă de respingere, sau nu se potrivesc cu nicio regulă de permitere atunci când există reguli de permitere, nu pot ajunge la server. Pagina respinge regulile care ar bloca propria adresă. În spatele unui proxy, configurați mai întâi adresele client (<a href="{{root}}docs/admins/https.html#client-address">Adresele client în spatele unui proxy</a>): în caz contrar, fiecare cerere pare să vină de la proxy.</p>
+
+<h2 id="uploads">Încărcări și partajare de fișiere</h2>
+<table>
+<thead><tr><th>Setare</th><th>Unde</th><th>Implicit</th></tr></thead>
+<tbody>
+<tr><td><b>Dimensiunea maximă a fișierului</b> (<code>FileSettings.MaxFileSize</code>)</td><td>Mediu › Stocare fișiere</td><td>100 MB. Păstrați limita de dimensiune a cererii proxy cel puțin la această valoare.</td></tr>
+<tr><td><b>Dimensiunea maximă a încărcăturii (octeți)</b> (<code>ServiceSettings.MaximumPayloadSizeBytes</code>)</td><td>Mediu › Server web</td><td>300000: cea mai mare cerere API, în afară de încărcările de fișiere</td></tr>
+<tr><td><b>Permiteți partajarea fișierelor</b> (<code>FileSettings.EnableFileAttachments</code>)</td><td>Configurare site › Partajare și descărcare fișiere</td><td>activat</td></tr>
+<tr><td><b>Permiteți încărcarea fișierelor pe mobil</b>, <b>Permiteți descărcarea fișierelor pe mobil</b></td><td>Configurare site › Partajare și descărcare fișiere</td><td>activat</td></tr>
+<tr><td><b>Activați legăturile publice de fișiere</b> (<code>FileSettings.EnablePublicLink</code>)</td><td>Configurare site › Linkuri publice</td><td>dezactivat: când este activat, persoanele pot partaja un fișier cu un link care funcționează fără autentificare</td></tr>
+<tr><td><b>Activați SVG-uri</b> (<code>ServiceSettings.EnableSVGs</code>)</td><td>Configurare site › Mesaje</td><td>dezactivat pe un server nou: când este activat, imaginile SVG sunt afișate inline</td></tr>
+</tbody>
+</table>
+<p>Antimatter nu scanează încărcările în căutarea de malware.</p>
+
+<h2 id="privacy">Setări de confidențialitate</h2>
+<p>În <b>Consola de sistem › Configurația site-ului › Utilizatori și echipe</b>:</p>
+<table>
+<thead><tr><th>Setare</th><th>Cheie</th><th>Implicit</th><th>Ce face</th></tr></thead>
+<tbody>
+<tr><td><b>Arată adresa de e-mail</b></td><td><code>PrivacySettings.ShowEmailAddress</code></td><td>activat</td><td>Dezactivat, adresele de e-mail ale membrilor sunt ascunse de toți, cu excepția administratorilor. Dezactivați această opțiune pe serverele publice.</td></tr>
+<tr><td><b>Afișați numele complet</b></td><td><code>PrivacySettings.ShowFullName</code></td><td>activat</td><td>Dezactivat, numele complete sunt ascunse și se afișează în schimb numele de utilizator.</td></tr>
+<tr><td><b>Activați ignorarea, blocarea și cererile de mesaj</b></td><td><code>PrivacySettings.EnableUserBlocking</code></td><td>activat</td><td>Consultați mai jos.</td></tr>
+<tr><td><b>Permiteți utilizatorilor să deschidă canale Direct Message cu</b></td><td><code>TeamSettings.RestrictDirectMessage</code></td><td>Orice utilizator de pe serverul Antimatter</td><td>Sau <b>Orice membru al echipei</b>: doar persoanele care împărtășesc o comunitate.</td></tr>
+</tbody>
+</table>
+<h3>Ignorare, blocare și cereri de mesaj</h3>
+<p>Cu <b>Activați ignorarea, blocarea și cererile de mesaj</b> activat (implicit), persoanele pot ignora și bloca reciproc și pot alege să primească mesaje directe de la persoane necunoscute sub forma cererilor de mesaj, care nu le notifică până nu sunt acceptate. Acest lucru se potrivește comunităților publice. Într-un mediu de lucru în care colegii trebuie să poată fi întotdeauna contactați, dezactivați-l (<code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING=false</code>): niciuna dintre aceste funcții nu mai este aplicată, dar listele și opțiunile făcute de persoane sunt păstrate și se aplică din nou dacă îl reactivați.</p>
+
+<h2 id="sessions">Sesiuni și tokeni</h2>
+<ul>
+<li>Durata sesiunilor și timeout-ul de inactivitate: consultați <a href="{{root}}docs/admins/authentication.html#sessions">Autentificare și conturi</a>. Sesiunile mai scurte înseamnă că un laptop sau telefon pierdut rămâne autentificat pentru un timp mai scurt.</li>
+<li><b>Activați jetoanele de acces personal</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, dezactivat) permite utilizatorilor să creeze jetoane API; <b>Durata maximă de validitate a tokenului de acces personal (zile)</b> le limitează. Ambele se găsesc în <b>Consola de sistem › Integrări › Managementul integrării</b>.</li>
+<li>Pentru a deconecta toți utilizatorii simultan, de exemplu după o încălcare suspectată: <b>Revocați toate sesiunile</b> în <b>Consola de sistem › Gestionarea utilizatorilor › Utilizatori</b>.</li>
+</ul>
+
+<h2 id="outbound">Conexiuni la servicii externe</h2>
+<p>Antimatter nu contactează niciun serviciu operat de Mattermost, Inc. Nu trimite telemetrie, rapoarte de eroare sau verificări de actualizări de securitate și nu preia nicio notificare de produs. O configurație preluată din Mattermost care menționează încă unul dintre serviciile Mattermost (serviciile sale de push, magazinul său de aplicații, notificările sale sau serverul STUN pentru apeluri) nu face ca serverul să le contacteze: acele adrese sunt ignorate.</p>
+<p>Serverul și aplicațiile se conectează la alte servicii externe doar pentru funcțiile care le necesită și la serviciile pe care le configurați:</p>
+<table>
+<thead><tr><th>Funcție</th><th>Contacte</th><th>Implicit</th></tr></thead>
+<tbody>
+<tr><td>Apeluri: găsirea adreselor publice cu STUN. Serverul și fiecare persoană care participă la un apel trimit o cerere, care îi arată serverului STUN adresa IP și portul.</td><td>Serverul STUN public Cloudflare, <code>stun.cloudflare.com</code></td><td>activ, în timp ce aplicația Calls este activată. Pentru a o modifica, consultați <a href="{{root}}docs/admins/calls.html#network">Calls</a>.</td></tr>
+<tr><td>Previzualizările de link-uri: serverul preia paginile la care se face referință în mesaje (<b>Activați Previzualizările de link-uri</b>, <code>ServiceSettings.EnableLinkPreviews</code>)</td><td>site-urile web la care se face link</td><td>activ. Dezactivați cu <code>AM_SERVICESETTINGS_ENABLELINKPREVIEWS=false</code>.</td></tr>
+<tr><td>Notificări push către aplicația mobilă</td><td>propriul proxy push (<a href="{{root}}docs/admins/email-push.html#push">Notificări push</a>)</td><td>inactiv până când configurați adresa sa</td></tr>
+<tr><td>Piața de aplicații remote (<code>PluginSettings.EnableRemoteMarketplace</code>)</td><td>the <b>Marketplace URL</b> you set</td><td>inactiv, și fără adresă</td></tr>
+<tr><td>E-mail</td><td>serverul SMTP</td><td>serverul implicit este <code>localhost</code></td></tr>
+<tr><td>Autentificare unică, modele AI, transcriere vocală și traducere, webhooks de ieșire și aplicații precum Mail, Calendar, GitHub, GitLab sau Jira</td><td>serviciile pe care le configurați</td><td>inactiv până când le configurați</td></tr>
+</tbody>
+</table>
+<p>În mod implicit, serverul refuză să se conecteze la adrese private și de buclă pentru aceste elemente (previzualizări de link-uri, webhooks, aplicații), astfel încât un mesaj sau o integrare nu poate fi folosit pentru a accesa rețeaua internă. Enumerați gazdele interne la care este permisă accesul în <b>Permiteți conexiunile interne de neîncrederi la</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>, în <b>Consola de sistem › Mediu › Dezvoltator</b>); fișierul de compunere al site-ului enumeră <code>gifs</code> acolo.</p>
+
+<h2 id="report">Raportarea unei vulnerabilități</h2>
+<p>Raportați problemele de securitate în mod privat, așa cum este explicat în <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">política de securitate Antimatter</a>, nu în probleme publice.</p>

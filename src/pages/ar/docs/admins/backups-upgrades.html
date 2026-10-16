@@ -1,0 +1,105 @@
+title: النسخ الاحتياطي والترقيات
+description: أنشئ نسخة احتياطية من خادم Antimatter (قاعدة البيانات، تخزين الملفات، الإعدادات) واستعدها، قم بترقية الخادم بأمان، انقل خادم Mattermost إلى Antimatter، وصدّر البيانات أو استوردها.
+guide: admins
+order: 10
+nav: النسخ الاحتياطي والترقيات
+lead: ما الذي يجب نسخه احتياطياً، وكيف تستعيده على مضيف جديد، وكيف تجري الترقية، وكيف تنقل خادم Mattermost أو مجتمعاً واحداً إلى Antimatter.
+source: b0797af8b6e7
+---
+<h2 id="what">ما الذي يجب نسخه احتياطياً</h2>
+<table>
+<thead><tr><th>العنصر</th><th>مع ملف compose الخاص بالموقع</th><th>مع أرشيف الإصدار</th></tr></thead>
+<tbody>
+<tr><td>قاعدة البيانات: الرسائل، المستخدمون، المجتمعات، القنوات، والإعدادات (عند استخدام ملف compose الخاص بالموقع)</td><td>الحجم <code>antimatter_postgres</code>، عبر <code>pg_dump</code></td><td>قاعدة بيانات PostgreSQL الخاصة بك</td></tr>
+<tr><td>الملفات المرفوعة، الصور، والتطبيقات المثبتة</td><td>الحجم <code>antimatter_files</code> (تخزين S3)</td><td><code>FileSettings.Directory</code>، الافتراضي هو <code>./data/</code></td></tr>
+<tr><td>ملف الإعدادات</td><td>(في قاعدة البيانات)</td><td><code>config/config.json</code></td></tr>
+<tr><td>ملفات GIF والملصقات</td><td>الحجم <code>antimatter_gifs</code></td><td>مجلد بيانات خدمة GIF</td></tr>
+<tr><td>الأسرار</td><td><code>.env</code> (و <code>compose.override.yaml</code>)</td><td>ملف البيئة الخاص بك</td></tr>
+</tbody>
+</table>
+<p>قاعدة البيانات والملفات متلازمان: انسخهما احتياطياً في نفس الوقت، واحتفظ بنسخ منهما خارج الخادم. تبدأ أسماء الأحجام باسم مشروع compose، <code>antimatter</code> (تُعرض القائمة عبر <code>docker volume ls</code>).</p>
+
+<h2 id="backup">النسخ الاحتياطي</h2>
+<p>من مجلد <code>compose.yaml</code>. إيقاف Antimatter أولاً يمنحك نسخة متسقة تماماً؛ والنسخة المأخوذة أثناء التشغيل غالباً ما تكون جيدة، لكن الملفات المرفوعة أثناء النسخ الاحتياطي قد لا تكون موجودة فيها.</p>
+<pre><code>stamp=$(date +%Y%m%d-%H%M%S)
+mkdir -p backups
+docker compose stop antimatter
+# Database
+docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
+    &gt; "backups/antimatter-db-$stamp.dump"
+# File storage and GIF service
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
+        alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
+done
+docker compose start antimatter
+# Secrets
+cp .env "backups/env-$stamp"</code></pre>
+<p>شغّله من cron للنسخ الاحتياطي اليومي، وانسخ مجلد <code>backups/</code> إلى جهاز آخر. احتفظ بنسخ <code>.env</code> بأمان مساوٍ للخادم: فهي تحتوي على كلمات المرور الخاصة به.</p>
+<p>لنسخ الملفات المرفوعة كائنًا تلو الآخر (على سبيل المثال إلى تخزين S3 آخر)، استخدم أداة سطر الأوامر AWS الخاصة بخدمة <code>bucket</code>:</p>
+<pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
+    "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
+<p>مع أرشيف الإصدار، انسخ قاعدة البيانات احتياطياً باستخدام <code>pg_dump -Fc</code>، ومجلدي <code>data/</code> و <code>config/</code> باستخدام أدواتك المعتادة.</p>
+
+<h2 id="restore">الاستعادة على مضيف جديد</h2>
+<p>ضع <code>compose.yaml</code>، و <code>.env</code> المحفوظ، والنسخ الاحتياطية في مجلد جديد، ثم:</p>
+<pre><code>stamp=20261016-030000          # the backup to restore
+docker compose create           # creates the volumes, starts nothing
+docker compose up -d postgres
+docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
+    &lt; "backups/antimatter-db-$stamp.dump"
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
+        alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
+done
+docker compose up -d</code></pre>
+<p>استخدم نفس <code>.env</code>: يجب أن يحتفظ التخزين وقاعدة البيانات بكلمات المرور التي كانت لديهم. إذا كان للمضيف الجديد عنوان آخر، حدّث <code>SITE_URL</code> (و <code>DOMAIN</code>).</p>
+<p>اختبر نسخك الاحتياطية من خلال استعادتها على جهاز آخر من حين لآخر.</p>
+
+<h2 id="upgrade">الترقية</h2>
+<ol>
+<li>أنشئ نسخة احتياطية.</li>
+<li>غيّر وسم الصورة في <code>.env</code> (<code>ANTIMATTER_IMAGE</code>)، إذا كنت تثبته، كما يُوصى به.</li>
+<li>اسحب الصورة وأعد التشغيل:
+<pre><code>docker compose pull
+docker compose up -d
+docker compose logs -f antimatter</code></pre></li>
+</ol>
+<p>عند بدء التشغيل، يحدّث الخادم مخطط قاعدة البيانات (يمكنك متابعة ذلك في السجل؛ وقد يستغرق الأمر عدة دقائق على خادم كبير) ويثبّت الإصدارات الأحدث من التطبيقات المضمّنة من الصورة. عند استخدام أرشيف إصدار: أوقف الخادم، واستبدل كل شيء باستثناء <code>config/</code>، <code>data/</code>، <code>logs/</code>، <code>plugins/</code> و<code>client/plugins/</code> بمحتوى الأرشيف الجديد، ثم ابدأه مرة أخرى.</p>
+<div class="callout warn">التحديثات تتم للأمام فقط. بمجرد أن يحدّث خادم أحدث قاعدة البيانات، لا يمكن للإصدار الأقدم استخدامها: للرجوع، استعِد النسخة الاحتياطية المأخوذة قبل التحديث. وينطبق الأمر نفسه على الانتقال من <code>antimatter-next</code> إلى <code>antimatter</code>.</div>
+<h3>الإصدارات</h3>
+<p>يقوم خادم Antimatter بالإبلاغ عن إصدار خط Mattermost الذي يستند إليه (حاليًا 12.0.0). تُعاد بناء الصور من فروع <code>main</code>: <code>antimatter-next</code> كل ليلة (وسوم <code>nightly-&lt;YYYYMMDD&gt;</code>)، وكلا من الصور عند كل تغيير (وسوم <code>sha-&lt;commit&gt;</code>). ثبّت أحد هذه الوسوم، وحدث عمدًا، واحتفظ بتدوين الوسم السابق حتى تعرف أي نسخة احتياطية تتوافق معه.</p>
+<h3>الإصدارات الرئيسية لـ PostgreSQL</h3>
+<p>يستخدم ملف compose <code>postgres:17-alpine</code>. يحتاج Antimatter إلى PostgreSQL 15 أو أحدث. لا يمكن لإصدار رئيسي جديد من PostgreSQL قراءة مجلد بيانات الإصدار السابق: للانتقال إلى إصدار جديد، قم بتصدير قاعدة البيانات، ابدأ الإصدار الجديد على مجلد جديد، واستعِد التصدير فيه.</p>
+
+<h2 id="mattermost">الانتقال من Mattermost</h2>
+<p>يستخدم Antimatter مخطط قاعدة بيانات Mattermost ويضيف جداوله الخاصة، لذا يمكنه الاستيلاء على قاعدة بيانات PostgreSQL وملفات خادم Mattermost. جرّب ذلك على نسخة أولاً:</p>
+<ol>
+<li>أنشئ نسخة احتياطية من قاعدة بيانات Mattermost، وتخزين الملفات الخاص بها (<code>data/</code> أو حاوية S3) و<code>config.json</code>، ثم أوقف Mattermost.</li>
+<li>استعِد قاعدة البيانات في PostgreSQL الخاص بـ Antimatter، أو وجّه Antimatter إلى نسخة منها (<code>AM_SQLSETTINGS_DATASOURCE</code>).</li>
+<li>انسخ الملفات إلى تخزين Antimatter، مع الحفاظ على مساراتها: إلى حاوية <code>antimatter</code> باستخدام أداة S3، أو إلى <code>data/</code> باستخدام أرشيف إصدار.</li>
+<li>أعد استخدام إعداداتك: انسخ <code>config.json</code>، أو انقله إلى قاعدة البيانات باستخدام <code>amctl --local config migrate</code> (انظر <a href="{{root}}docs/admins/configuration.html">الإعدادات</a>). تبقى متغيرات البيئة <code>MM_</code> الخاصة بك تعمل؛ أعد تسميتها إلى <code>AM_</code> عند الحاجة.</li>
+<li>شغّل Antimatter وتابع السجل أثناء ترقية قاعدة البيانات. ثم افحص <b>وحدة التحكم بالنظام › الإضافات › إدارة الإضافات</b>. يقوم Antimatter بتثبيت نسخاته الخاصة من مكالمات، أدلة التشغيل، لوحات كانبان، الوكلاء، والتكاملات عندما تكون أحدث من الإصدار المثبّت. إذا كان لدى Mattermost إصدار أحدث لأيٍّ منها، احذف تلك التطبيق وأعد تشغيل Antimatter ليتم تثبيت نسخته الخاصة.</li>
+<li>قم بإعداد الإشعارات الفورية مرة أخرى باستخدام وكيل الإشعارات الخاص بك: لا يرسل Antimatter أي إشعارات إلى خدمات Mattermost الفورية، سواء كانت تجريبية أو مستضافة، لأنها تصل فقط إلى تطبيقات Mattermost الخاصة. حتى تقوم بتغيير <b>خادم الإشعارات الفورية</b>، لن يرسل الخادم أي إشعارات فورية (راجع <a href="{{root}}docs/admins/email-push.html#push">الإشعارات الفورية</a>).</li>
+</ol>
+<p>لا يتواصل Antimatter مع أي خدمة تشغّلها Mattermost, Inc. (راجع <a href="{{root}}docs/admins/security.html#outbound">الاتصالات مع الخدمات الخارجية</a>)، حتى إذا كان تكوينك لا يزال يذكر خدمةً منها:</p>
+<ul>
+<li>يُحفظ خادم الإشعارات الفورية الخاص بـ Mattermost في الإعدادات لكنه لا يُستخدم أبداً؛</li>
+<li>يتم إفراغ عناوين Mattermost الخاصة بمتجر التطبيقات (<b>عنوان URL للمتجر</b>) والإشعارات المتعلقة بالمنتج؛</li>
+<li>يستخدم تطبيق المكالمات خادم STUN العام من Cloudflare بدلاً من خادم Mattermost، دون تغيير الإعداد المحفوظ (راجع <a href="{{root}}docs/admins/calls.html#network">المكالمات</a>)؛</li>
+<li>تمت إزالة فحص التحديثات الأمنية والإبلاغ عن الأعطال، وكذلك إعدادات وحدة التحكم بالنظام الخاصة بها (<b>تفعيل التنبيهات الأمنية</b>، <b>تفعيل التشخيص والإبلاغ عن الأخطاء</b>) وصفحة <b>الإشعارات</b>.</li>
+</ul>
+<p>أصبح المقبس الخاص بالوضع المحلي <code>/var/tmp/antimatter_local.socket</code>؛ ويحاول <code>amctl</code> أيضاً استخدام المقبس القديم <code>/var/tmp/mattermost_local.socket</code>. يدعم Mattermost قاعدة بيانات PostgreSQL فقط في إصداراته الحديثة، وكذلك يفعل Antimatter: انقل قاعدة بيانات MySQL إلى PostgreSQL أولاً. العودة إلى Mattermost بعد ترقية Antimatter لقاعدة البيانات تعني استعادة نسخة احتياطية من Mattermost.</p>
+
+<h2 id="export-import">تصدير واستيراد البيانات</h2>
+<p>تنسيق التصدير الشامل ينقل البيانات بين الخوادم: الخادم بأكمله، أو بعض المجتمعات، أو بعض القنوات، مع المرفقات وصور الملفات الشخصية والرموز التعبيرية المخصصة إذا رغبت في ذلك.</p>
+<pre><code># on the source server
+amctl export create --team-name design --include-profile-pictures
+amctl export list
+amctl export download &lt;export file&gt; design.zip
+# on the destination server
+amctl import upload design.zip
+amctl import list available
+amctl import process &lt;uploaded file&gt; --imported-users active</code></pre>
+<p>راقب المهام باستخدام <code>amctl export job list</code> و<code>amctl import job list</code>. عند تصدير مجتمع أو قناة، يكون <code>--imported-users</code> مطلوبًا: <code>active</code> إذا انتقل الأشخاص إلى هذا الخادم، و<code>inactive</code> عند الاستيراد إلى خادم لديهم فيه حسابات بالفعل، حتى تبقى الحسابات المُنشأة من تطابقات غير مؤكدة موقوفة حتى يفحصها مدير. يستورد <code>--destination-team-name</code> إلى مجتمع موجود. تُحفظ عمليات التصدير والاستيراد على تخزين الخادم (<code>ExportSettings.Directory</code>، <code>ImportSettings.Directory</code>) لمدة 30 يومًا افتراضيًا.</p>
+<p>على الخادم نفسه، تنجز <code>antimatter export bulk</code> و<code>antimatter import bulk --apply</code> نفس الشيء من الملفات، دون استخدام واجهة برمجة التطبيقات.</p>

@@ -1,0 +1,126 @@
+title: Rozmowy i głos
+description: Skonfiguruj rozmowy i kanały głosowe w Antimatter: port mediów, NAT i STUN, TURN, tryb testowy, wideo, zewnętrzny serwer rtcd, transkrypcję i napisy na żywo z własnym modelem rozpoznawania mowy oraz nagrania.
+guide: admins
+order: 5
+nav: Rozmowy i głos
+lead: Rozmowy i kanały głosowe przesyłają audio, wideo i udostępnianie ekranu bezpośrednio do serwera na jego własnym porcie. Ta strona omawia stronę sieciową, ustawienia do sprawdzenia po instalacji oraz transkrypcję z modelem rozpoznawania mowy, który uruchamiasz samodzielnie.
+source: 16057458346f
+---
+<h2 id="overview">Jak działają rozmowy</h2>
+<p>Rozmowy są dostarczane przez aplikację <b>Połączenia</b> (id <code>com.mattermost.calls</code>), która jest zainstalowana i włączona domyślnie. Kanały głosowe (aplikacja <b>Voice Channels</b>, obraz <code>antimatter-next</code>) to stałe pokoje do rozmów oparte na Połączeniach: wymagają włączonej aplikacji Połączenia i korzystają z tych samych ustawień, portów i serwerów.</p>
+<p>Aplikacja Rozmowy uruchamia serwer mediów wewnątrz Antimatter. Aplikacja webowa, aplikacja desktopowa i aplikacje mobilne łączą się z nim za pomocą WebRTC:</p>
+<ul>
+<li>sygnalizacja przechodzi przez zwykłe połączenie webowe (Twój proxy HTTPS);</li>
+<li><b>media</b> (audio, wideo, udostępnianie ekranu) nie przechodzą przez niego: są przesyłane bezpośrednio do serwera na porcie rozmów, domyślnie <b>8443 UDP i TCP</b>.</li>
+</ul>
+<p>Ustawienia znajdują się w <b>Konsola systemu › Wtyczki › Połączenia</b>. Każde z nich można również ustawić za pomocą zmiennej środowiskowej <code>AM_CALLS_</code> na usłudze <code>antimatter</code>, która ma wtedy pierwszeństwo przed Konsolą systemu i blokuje zmianę tego ustawienia. Działają również starsze nazwy <code>MM_CALLS_</code>.</p>
+
+<h2 id="after-install">Sprawdź to po instalacji</h2>
+<ol>
+<li><b>Otwórz port rozmów.</b> Zezwól na 8443/udp i 8443/tcp w zaporze firewall serwera oraz dostawcy chmury.</li>
+<li><b>Wyłącz tryb testowy.</b> <b>Tryb testowy</b> (<code>DefaultEnabled</code>) jest domyślnie włączony: tylko administratorzy systemowi mogą rozpoczynać rozmowy w kanałach, dzięki czemu można sprawdzić, czy rozmowy działają, zanim skorzysta z nich każdy. Ustaw go na <b>Wył</b> w <b>Konsola systemu › Wtyczki › Połączenia</b> lub ustaw <code>AM_CALLS_DEFAULT_ENABLED=true</code>.</li>
+<li><b>Podejmij decyzję dotyczącą wideo.</b> <b>Włącz rozmowy wideo w wiadomościach bezpośrednich (eksperymentalne)</b> (<code>EnableVideo</code>, <code>AM_CALLS_ENABLE_VIDEO</code>) jest domyślnie wyłączony. Gdy jest wyłączony, nikt nie może włączyć kamery, nawet w kanałach głosowych. Gdy jest włączony, kamery działają w rozmowach w wiadomościach bezpośrednich i w kanałach głosowych (chyba że <b>Zezwalaj na wideo w kanałach głosowych</b> w aplikacji Kanały głosowe jest wyłączony).</li>
+<li><b>W przypadku NAT ustaw publiczny adres</b> (następna sekcja).</li>
+</ol>
+
+<h2 id="network">Porty, NAT i STUN</h2>
+<table>
+<thead><tr><th>Ustawienie</th><th>Zmienna</th><th>Domyślnie</th></tr></thead>
+<tbody>
+<tr><td><b>Port serwera RTC (UDP)</b></td><td><code>AM_CALLS_UDP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>Port serwera RTC (TCP)</b></td><td><code>AM_CALLS_TCP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>Adres serwera RTC (UDP)</b>, <b>(TCP)</b></td><td><code>AM_CALLS_UDP_SERVER_ADDRESS</code>, <code>AM_CALLS_TCP_SERVER_ADDRESS</code></td><td>puste: wszystkie adresy</td></tr>
+<tr><td><b>Nadpisanie hosta ICE</b></td><td><code>AM_CALLS_ICE_HOST_OVERRIDE</code></td><td>puste: wykrywane przez STUN</td></tr>
+<tr><td><b>Nadpisanie portu hosta ICE</b></td><td><code>AM_CALLS_ICE_HOST_PORT_OVERRIDE</code></td><td>puste: port serwera</td></tr>
+<tr><td><b>Konfiguracja serwerów ICE</b></td><td><code>AM_CALLS_ICE_SERVERS_CONFIGS</code></td><td><code>[{"urls":["stun:stun.cloudflare.com:3478"]}]</code></td></tr>
+<tr><td><b>(Eksperymentalne) Włącz wsparcie dla IPv6</b></td><td>(Konsola systemu)</td><td>Wyłączone</td></tr>
+</tbody>
+</table>
+<p>Porty muszą mieścić się w zakresie od 80 do 49151. W pliku compose witryny zmień <code>CALLS_PORT</code> w <code>.env</code>: ustawia on obie zmienne i publikuje port, ten sam numer na hoście i w kontenerze. Klienci najpierw próbują UDP, a w razie niepowodzenia przechodzą na TCP na tym samym porcie.</p>
+<h3>Adres, pod który klienci wysyłają dane mediów</h3>
+<p>Serwer informuje każdego klienta o adresie, pod który ma wysyłać dane mediów (jego „kandydat hosta”). Domyślnie znajduje swój publiczny adres, pytając serwer STUN, czyli publiczny serwis, który odpowiada adresem i portem, z których pochodzi żądanie. Domyślnym serwerem jest publiczny serwer STUN firmy Cloudflare, <code>stun:stun.cloudflare.com:3478</code>. To nie tylko serwer z niego korzysta: każdy klient dołączający do rozmowy również pyta go o swój publiczny adres. Serwer STUN widzi tylko adresy IP i porty, nigdy dźwięk, wideo ani wiadomości z rozmów.</p>
+<p>Serwer, który nadal ma w <b>Konfiguracji serwerów ICE</b> zapisany serwer STUN Mattermost (<code>stun.global.calls.mattermost.com</code>), np. po przejściu z Mattermost, używa zamiast niego serwera Cloudflare. Zapisane ustawienie nie jest zmieniane.</p>
+<p>Ustaw adres samodzielnie, gdy:</p>
+<ul>
+<li>serwer znajduje się za NAT lub ma kilka publicznych adresów: ustaw <b>Nadpisanie hosta ICE</b> na publiczny adres IP (lub nazwę hosta, która na niego wskazuje);</li>
+<li>NAT mapuje inny publiczny port na 8443: ustaw również <b>Nadpisanie portu hosta ICE</b> na ten publiczny port;</li>
+<li>serwer nie ma dostępu do Internetu lub nie chcesz, aby serwer i klienci kontaktowali się z zewnętrznym serwerem STUN: ustaw <b>Nadpisanie hosta ICE</b> i wyczyść listę STUN za pomocą <code>AM_CALLS_ICE_SERVERS_CONFIGS=[]</code>. Gdy ustawisz <b>Nadpisanie hosta ICE</b>, serwer nie pyta już serwera STUN o swój adres; pusta lista uniemożliwia klientom zadawanie takich pytań.</li>
+</ul>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ICE_HOST_OVERRIDE: 203.0.113.10
+      AM_CALLS_ICE_SERVERS_CONFIGS: "[]"</code></pre>
+<p>Aby korzystać ze STUN bez udziału strony trzeciej, uruchom własny serwer STUN (serwer TURN, np. coturn, również odpowiada na żądania STUN) i podaj go w <b>Konfiguracji serwerów ICE</b> zamiast domyślnego, jak w przykładzie TURN poniżej.</p>
+<p>W sieci lokalnej użyj adresu LAN serwera. Po zmianie portów, adresów lub ustawień ICE uruchom serwer ponownie albo wyłącz i włącz aplikację Calls: serwer mediów jest konfigurowany przy starcie aplikacji.</p>
+
+<h2 id="turn">TURN, dla restrykcyjnych zapór sieciowych</h2>
+<p>Niektóre sieci blokują zarówno UDP, jak i połączenia wychodzące na nietypowe porty TCP. Osoby korzystające z takich sieci potrzebują serwera TURN, który przesyła dane multimedialne przez port, do którego mają dostęp (często 443). Antimatter nie zawiera wbudowanego serwera TURN; uruchom serwer TURN, np. coturn, i dodaj go do <b>Konfiguracji serwerów ICE</b>, czyli listy JSON:</p>
+<pre><code>[
+  {"urls": ["stun:turn.example.com:3478"]},
+  {"urls": ["turn:turn.example.com:3478?transport=udp", "turns:turn.example.com:443?transport=tcp"]}
+]</code></pre>
+<ul>
+<li>Przy użyciu wspólnego hasła (parametr <code>use-auth-secret</code> w coturn) wpisz to samo hasło w polu <b>Statyczny klucz uwierzytelniający TURN</b> (<code>AM_CALLS_TURN_STATIC_AUTH_SECRET</code>): serwer wydaje każdemu klientowi krótkoterminowe dane uwierzytelniające, ważne przez czas określony w polu <b>Ważność danych uwierzytelniających TURN (minuty)</b> (domyślnie 240).</li>
+<li>W przypadku stałych danych uwierzytelniających dodaj do wpisu TURN pola <code>"username"</code> i <code>"credential"</code>.</li>
+<li>Opcja <b>TURN po stronie serwera</b> (wyłączona domyślnie) również używa serwerów TURN dla połączeń inicjowanych przez serwer.</li>
+</ul>
+
+<h2 id="general">Inne ustawienia rozmów</h2>
+<table>
+<thead><tr><th>Ustawienie</th><th>Zmienna</th><th>Domyślnie</th><th>Opis</th></tr></thead>
+<tbody>
+<tr><td><b>Maksymalna liczba uczestników rozmowy</b></td><td><code>AM_CALLS_MAX_CALL_PARTICIPANTS</code></td><td>0 (brak limitu)</td><td>Największa liczba osób, które mogą brać udział w jednej rozmowie.</td></tr>
+<tr><td><b>Zezwalaj na udostępnianie ekranu</b></td><td>(Konsola systemu)</td><td>włączone</td><td>Umożliwia uczestnikom udostępnianie ekranu.</td></tr>
+<tr><td><b>Włącz dzwonienie przy rozmowach</b></td><td><code>AM_CALLS_ENABLE_RINGING</code></td><td>włączone</td><td>Dzwoni do pozostałych osób w wiadomości bezpośredniej lub grupowej, gdy w niej rozpocznie się rozmowa.</td></tr>
+<tr><td><b>Włącz simulcast dla udostępniania ekranu (eksperymentalne)</b></td><td>(Konsola systemu)</td><td>Wyłączone</td><td>Przesyła udostępniany ekran w kilku jakościach.</td></tr>
+<tr><td><b>Włącz kodek AV1 dla udostępniania ekranu (eksperymentalne)</b></td><td>(Konsola systemu)</td><td>Wyłączone</td><td>Ignorowane, gdy simulcast jest włączony.</td></tr>
+</tbody>
+</table>
+<p>Aplikacja Kanały głosowe ma dwa ustawienia, dostępne w <b>Konsola systemu › Wtyczki › Kanały głosowe</b>: <b>Dołączaj przy otwieraniu kanału głosowego</b> (włączone domyślnie) oraz <b>Zezwalaj na wideo w kanałach głosowych</b> (włączone domyślnie, ale patrz wideo powyżej). Administratorzy społeczności zmieniają kanał w kanał głosowy w jego ustawieniach.</p>
+<div class="callout">Aby całkowicie wyłączyć rozmowy, wyłącz aplikację Rozmowy w <b>Konsola systemu › Wtyczki › Zarządzanie wtyczkami</b> lub ustaw <code>AM_CALLS_DISABLE=true</code>. Wtedy przestaną też działać kanały głosowe.</div>
+
+<h2 id="rtcd">Większe serwery: zewnętrzny rtcd</h2>
+<p>Domyślnie jeden serwer Antimatter obsługuje wszystkie dane mediów z rozmów. W przypadku wielu równoległych rozmów lub aby odciążyć serwer czatu od przetwarzania mediów, aplikacja Rozmowy może przekazać media do <b>rtcd</b>, osobnego serwera mediów (otwartoźródłowy <code>rtcd</code> od Mattermost, wersja 0.17 lub nowszy). Ustaw <b>Adres URL usługi RTCD</b> (<code>AM_CALLS_RTCD_SERVICE_URL</code>), na przykład <code>https://rtcd.example.com</code>: wtedy wszystkie rozmowy przechodzą przez ten serwer, a klienci wysyłają swoje media do własnego portu rtcd, a nie do portu Antimatter. Dane uwierzytelniające można podać za pomocą <code>AM_CALLS_RTCD_CLIENT_ID</code> i <code>AM_CALLS_RTCD_AUTH_KEY</code>; bez nich aplikacja rejestruje się samodzielnie w rtcd. Licencja nie jest wymagana. Aplikacja Rozmowy wyświetla administratorom ostrzeżenie zalecające użycie rtcd, gdy na serwerze często odbywa się więcej niż 50 rozmów jednocześnie.</p>
+
+<h2 id="transcription">Transkrypcja i napisy na żywo</h2>
+<p>Antimatter może transkrybować rozmowy za pomocą modelu rozpoznawania mownego, który uruchamiasz samodzielnie, oraz wyświetlać napisy na żywo podczas mówienia. Antimatter obsługuje dowolny serwer oferujący endpoint zgodny z OpenAI <code>/v1/audio/transcriptions</code>, na przykład serwer Whisper w Twojej sieci. Nie jest wymagana żadna dodatkowa usługa od Antimatter.</p>
+<h3>Jak to działa</h3>
+<ul>
+<li>Gospodarz rozmowy rozpoczyna transkrypcję za pomocą opcji <b>Transkrybuj rozmowę</b> w sterowaniu rozmową. Odznaka <b>Transkrypcja</b> informuje o tym wszystkich.</li>
+<li>Aplikacja każdego uczestnika nasłuchuje jego własnego mikrofonu, dzieli mowę na krótkie fragmenty (do 12 sekund, nigdy podczas wyciszenia) i wysyła je do Antimatter, który przekazuje je do Twojego serwera rozpoznawania mownego.</li>
+<li>Po włączeniu napisów na żywo tekst każdego fragmentu jest natychmiast wyświetlany uczestnikom jako napis.</li>
+<li>Gdy transkrypcja się zatrzyma lub rozmowa się zakończy, bot Rozmów publikuje transkrypcję jako plik tekstowy i plik napisów WebVTT w wątku rozmowy (w kanałach głosowych – w kanale).</li>
+<li>Po włączeniu opcji <b>Podsumowuj transkrypcje</b>, domyślny agent aplikacji Agentów publikuje również podsumowanie w wątku (patrz <a href="{{root}}docs/admins/ai.html">AI</a>).</li>
+</ul>
+<figure><img src="{{root}}assets/img/shots/transcript.webp" alt="A call's thread: the Calls bot has posted the transcript as a text file, and an AI agent has posted a summary below it."><figcaption>Po zakończeniu rozmowy: transkrypcja i jej podsumowanie w wątku rozmowy.</figcaption></figure>
+<h3>Konfiguracja</h3>
+<p>Ustaw te parametry w usłudze <code>antimatter</code>:</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ENABLE_TRANSCRIPTIONS: "true"
+      AM_CALLS_TRANSCRIBE_API: openai
+      AM_CALLS_TRANSCRIBE_API_OPEN_AIURL: http://stt.internal:8000/v1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL: whisper-1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY: ""
+      AM_CALLS_ENABLE_LIVE_CAPTIONS: "true"
+      AM_CALLS_LIVE_CAPTIONS_LANGUAGE: en</code></pre>
+<table>
+<thead><tr><th>Ustawienie</th><th>Zmienna</th><th>Co wpisać</th></tr></thead>
+<tbody>
+<tr><td><b>Włącz transkrypcję rozmów (Beta)</b></td><td><code>AM_CALLS_ENABLE_TRANSCRIPTIONS</code></td><td><code>true</code></td></tr>
+<tr><td><b>API transkrybera rozmów</b></td><td><code>AM_CALLS_TRANSCRIBE_API</code></td><td><code>openai</code> (wyświetlane jako „API zgodne z OpenAI (bez usługi zadań)”)</td></tr>
+<tr><td><b>Adres URL API rozpoznawania mownego</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AIURL</code></td><td>Podstawowy adres URL API, łącznie z <code>/v1</code>.</td></tr>
+<tr><td><b>Model rozpoznawania mownego</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL</code></td><td>Nazwa modelu, tak jak ją zna API, na przykład <code>whisper-1</code>. Pole wymagane.</td></tr>
+<tr><td><b>Klucz API rozpoznawania mownego</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY</code></td><td>Wysyłany jako token bearer. Pozostaw puste, jeśli API nie wymaga klucza.</td></tr>
+<tr><td><b>Włącz napisy na żywo (Beta)</b></td><td><code>AM_CALLS_ENABLE_LIVE_CAPTIONS</code></td><td><code>true</code>, aby wyświetlać napisy podczas rozmowy.</td></tr>
+<tr><td><b>Język napisów na żywo</b></td><td><code>AM_CALLS_LIVE_CAPTIONS_LANGUAGE</code></td><td>Mówiony język, jako dwuliterowy kod (domyślnie <code>en</code>). Jest on również przekazywany do API rozpoznawania mowy w celu tworzenia transkrypcji, więc ustaw go nawet wtedy, gdy nie używasz napisów.</td></tr>
+<tr><td><b>Podsumowuj transkrypcje</b></td><td><code>AM_CALLS_SUMMARIZE_TRANSCRIPTIONS</code></td><td><code>true</code>, aby generować podsumowanie AI po zakończeniu rozmowy.</td></tr>
+</tbody>
+</table>
+<div class="callout">W Konsoli systemu ustawienia transkrypcji pojawiają się dopiero po włączeniu opcji <b>Włącz nagrywanie rozmów</b>, choć ten rodzaj transkrypcji nie wymaga nagrywania. Ustawienie ich za pomocą zmiennych opisanych powyżej pozwala tego uniknąć. Nie włączaj nagrywania jednocześnie z transkryberem <code>openai</code>: rozpoczęcie nagrywania spowodowałoby wtedy próbę uruchomienia transkrybera usługi job-service, co zakończyłoby się błędem.</div>
+<p>Audio wszystkich osób, które mówią, gdy transkrypcja jest włączona, jest przesyłane do serwera rozpoznawania mowy, który skonfigurowałeś, a transkrypcja jest publikowana w miejscu, w którym może ją przeczytać każdy w kanale. Poinformuj o tym użytkowników i, jeśli rozmowy są poufne, utrzymuj ten serwer w swojej własnej sieci.</p>
+
+<h2 id="recordings">Nagrania</h2>
+<p>Nagrywanie rozmów (oraz transkrypcja przy użyciu wbudowanych transkryberów <code>whisper.cpp</code> lub Azure) odbywa się w osobnych kontenerach uruchamianych przez usługę job-service, open-source'owy <code>calls-offloader</code> od Mattermost, który sam wdrażasz obok Antimatter. Ustawienia to: <b>Włącz nagrywanie rozmów</b> (<code>AM_CALLS_ENABLE_RECORDINGS</code>, domyślnie wyłączony), <b>Adres URL usługi job-service</b> (<code>AM_CALLS_JOB_SERVICE_URL</code>), <b>Maksymalny czas nagrywania rozmowy</b> (domyślnie 60 minut, zakres od 15 do 180) oraz <b>Jakość nagrywania rozmów</b> (niska, średnia lub wysoka; domyślnie średnia). Nie jest wymagana licencja. Jeśli potrzebujesz tylko transkrypcji i napisów, konfiguracja rozpoznawania mowy opisana powyżej jest prostsza: nie wymaga usługi job-service.</p>

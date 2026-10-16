@@ -1,0 +1,104 @@
+title: IA
+description: Conecta las funciones de IA de Antimatter con los modelos que elijas, incluidos servidores que ejecutas tú mismo: agentes de IA, transcripción de voz para llamadas, lectura en voz alta, traducción automática, qué datos se envían a dónde y cómo desactivar cada función.
+guide: admins
+order: 8
+nav: IA
+lead: Las funciones de IA de Antimatter utilizan modelos que tú eliges: un proveedor en la nube o un servidor en tu propia red. No se envía nada a ningún lugar hasta que configuras un modelo. Esta página describe cada función, los datos que envía y cómo desactivarla.
+source: b6dfe1d5e313
+---
+<h2 id="overview">Las funciones de IA</h2>
+<table>
+<thead><tr><th>Función</th><th>Configurada en</th><th>Tipo de modelo</th><th>Activada por defecto</th></tr></thead>
+<tbody>
+<tr><td>Agentes de IA: chatear con un bot, resúmenes de hilos y canales, ayuda en el editor de mensajes</td><td>La app Agents</td><td>Cualquier servicio de modelo de lenguaje grande (LLM)</td><td>La app está activada, pero no hace nada hasta que añades un servicio</td></tr>
+<tr><td>Transcripciones de llamadas y subtítulos en vivo</td><td>La app Calls</td><td>Transcripción de voz, compatible con OpenAI</td><td>no</td></tr>
+<tr><td>Lectura en voz alta</td><td>El servidor</td><td>Síntesis de voz, compatible con OpenAI</td><td>no</td></tr>
+<tr><td>Traducción automática de canales</td><td>El servidor</td><td>LibreTranslate, un LLM compatible con OpenAI o un servicio de Agents</td><td>no</td></tr>
+</tbody>
+</table>
+<p>«Compatible con OpenAI» significa un servidor que ofrece la misma API HTTP que OpenAI. La mayoría de los servidores de modelos que puedes ejecutar tú mismo lo hacen (por ejemplo, Ollama, vLLM, el servidor de llama.cpp, o servidores de transcripción de voz y síntesis de voz), al igual que muchos proveedores en la nube. No se necesita licencia para ninguna de estas funciones.</p>
+
+<h2 id="agents">Agentes de IA</h2>
+<p>La app Agents (id <code>mattermost-ai</code>) está activada por defecto. Su configuración requiere dos pasos: añadir un <b>servicio</b> (una conexión a un proveedor de modelos) y luego crear <b>agentes</b> (bots que utilizan un servicio).</p>
+<figure><img src="{{root}}assets/img/shots/ai.webp" alt="The Agents panel on the right of a channel: a user asked about an incident and the agent answered with a summary of the related threads."><figcaption>Un agente respondiendo en el panel de Agents.</figcaption></figure>
+<h3>1. Añadir un servicio</h3>
+<p>Vaya a <b>Consola de sistema › Plugins › Agentes</b> y, bajo <b>Servicios de IA</b>, haga clic en <b>Añadir un servicio de IA</b>. Elija el <b>Tipo de servicio</b>:</p>
+<ul>
+<li><b>Compatible con OpenAI</b>: para un servidor de modelos que ejecutas tú mismo, o cualquier proveedor con una API estilo OpenAI. Rellena <b>URL de la API</b> (por ejemplo <code>http://ollama:11434/v1</code> o <code>http://vllm.internal:8000/v1</code>) y <b>Clave de API</b> solo si el servidor la requiere. Si el servidor solo admite la API de Chat Completions, desactiva <b>Usar API de Respuestas</b>.</li>
+<li><b>OpenAI</b>, <b>Anthropic</b>, <b>Google Gemini</b>, <b>Google Vertex AI</b>, <b>AWS Bedrock</b>, <b>Azure</b>, <b>Cohere</b>, <b>Mistral</b>: proveedores alojados. Cada uno requiere su <b>Clave de API</b> (Bedrock: una región de AWS y credenciales o un rol IAM; Vertex AI: un proyecto, una región y una cuenta de servicio; Azure: también la URL de la API).</li>
+</ul>
+<p>A continuación, configura el <b>Modelo predeterminado</b> (una lista si el proveedor puede informar sus modelos, o escribe el nombre) y, si el proveedor no los informa, el <b>Límite de tokens de entrada</b> y el <b>Límite de tokens de salida</b>. Un <b>Servicio de respaldo</b> puede tomar el control si este falla. Guarda.</p>
+<p>El servidor realiza estas solicitudes por sí mismo, por lo que debe poder acceder a la API: un servidor de modelos en el mismo proyecto de compose, en tu red o en Internet. Las salientes respetan las variables <code>HTTP_PROXY</code> y <code>HTTPS_PROXY</code>.</p>
+<h3>2. Crear agentes</h3>
+<p>Los agentes se crean en la página <b>Agentes</b> de la aplicación web: ábrala desde el menú del producto o con <b>Administrar</b> en el selector de agentes del panel de Agentes. Su dirección es <code>https://chat.example.com/plug/mattermost-ai/agents</code>. Cada agente tiene un <b>Nombre a mostrar</b>, un <b>Nombre de usuario del agente</b> (cómo lo mencionan las personas), un <b>Servicio</b> y, opcionalmente, un modelo, <b>Instrucciones personalizadas</b> y conmutadores para <b>Habilitar visión</b> (imágenes) y <b>Habilitar herramientas</b>. Su pestaña <b>Acceso</b> limita en qué canales puede usarse y qué usuarios pueden usarlo. Bajo <b>Funciones de IA</b> en la Consola de sistema, <b>Bot predeterminado</b> elige el agente que se usa cuando no se selecciona ninguno, por ejemplo para resúmenes de llamadas.</p>
+<div class="callout">De forma predeterminada, cada usuario puede crear sus propios agentes, con los servicios que configuró. Para restringir esto a los administradores, elimine el permiso <b>Gestionar agentes de IA propios</b> del rol de los miembros en <b>Consola de sistema › Gestión de Usuarios › Permisos</b>.</div>
+<h3>Funciones opcionales de la aplicación Agentes</h3>
+<ul>
+<li><b>Búsqueda de incrustaciones</b> (experimental, desactivada): búsqueda semántica sobre mensajes. Requiere PostgreSQL con la extensión pgvector y un modelo de incrustaciones (OpenAI o compatible con OpenAI). Envía <em>cada</em> mensaje al modelo de incrustaciones, incluidos los canales privados y los mensajes directos.</li>
+<li><b>Búsqueda web</b> (desactivada): permite a los agentes buscar en la web a través de Google, Brave o un servidor SearXNG que ejecutes.</li>
+<li><b>Herramientas nativas</b>: con proveedores que las ofrezcan, los agentes pueden usar la búsqueda web propia del proveedor (activada por defecto para nuevos agentes, donde se admita), la recuperación web y la ejecución de código. Estas se ejecutan en el proveedor. Desactívalas por agente.</li>
+<li><b>Protocolo de contexto de modelo (MCP)</b>: conecta agentes a servidores MCP en los que confíes, para herramientas adicionales.</li>
+<li><b>Depurar</b>: <b>Salida de seguimiento</b> (desactivado, registros del servidor o un punto de conexión de OpenTelemetry) y <b>Habilitar registro de uso de tokens</b>, que escribe los recuentos de tokens en <code>logs/agents/token_usage.log</code>.</li>
+</ul>
+
+<h2 id="speech-to-text">Conversión de voz a texto: transcripciones y subtítulos de llamadas</h2>
+<p>Las llamadas pueden transcribirse, con subtítulos en vivo, mediante un servidor de voz a texto que ofrezca un endpoint <code>/v1/audio/transcriptions</code> compatible con OpenAI. La configuración se encuentra en <a href="{{root}}docs/admins/calls.html#transcription">Llamadas y voz</a>. Con <b>Resumir transcripciones</b> activado, el agente predeterminado también publica un resumen de cada transcripción.</p>
+
+<h2 id="text-to-speech">Texto a voz: leer en voz alta</h2>
+<p>Con el texto a voz activado, el menú de cada mensaje incluye <b>Leer en voz alta</b>: el servidor envía el texto del mensaje a una API de texto a voz y reproduce el audio. La configuración se encuentra en <b>Consola de sistema › Integraciones › Texto a voz</b>:</p>
+<table>
+<thead><tr><th>Ajuste</th><th>Clave y variable</th><th>Qué introducir</th></tr></thead>
+<tbody>
+<tr><td><b>Leer mensajes en voz alta</b></td><td><code>TextToSpeechSettings.Enable</code>, <code>AM_TEXTTOSPEECHSETTINGS_ENABLE</code></td><td><code>true</code> (desactivado por defecto)</td></tr>
+<tr><td><b>URL base de la API</b></td><td><code>TextToSpeechSettings.URL</code>, <code>AM_TEXTTOSPEECHSETTINGS_URL</code></td><td>La URL base hasta e incluyendo <code>/v1</code>, por ejemplo <code>http://tts.internal:8000/v1</code>. El servidor llama a su endpoint <code>/audio/speech</code>.</td></tr>
+<tr><td><b>Modelo</b></td><td><code>TextToSpeechSettings.Model</code>, <code>AM_TEXTTOSPEECHSETTINGS_MODEL</code></td><td>El modelo tal como lo nombra la API, por ejemplo <code>tts-1</code>. Obligatorio.</td></tr>
+<tr><td><b>Voz</b></td><td><code>TextToSpeechSettings.Voice</code>, <code>AM_TEXTTOSPEECHSETTINGS_VOICE</code></td><td>Una de las voces del modelo, o vacío para usar la predeterminada.</td></tr>
+<tr><td><b>Clave de API</b></td><td><code>TextToSpeechSettings.APIKey</code>, <code>AM_TEXTTOSPEECHSETTINGS_APIKEY</code></td><td>Se envía como token de portador. Déjalo vacío si la API no lo requiere.</td></tr>
+</tbody>
+</table>
+<p>Antes de enviar, el servidor elimina bloques de código, enlaces, códigos de emoji y formato, y conserva como máximo 4000 caracteres. Solicita audio en MP3 y conserva los últimos 64 resultados en memoria, por lo que un mensaje leído dos veces solo se envía una vez.</p>
+
+<h2 id="translation">Traducción automática</h2>
+<p>La traducción automática muestra los mensajes de un canal en el idioma propio de cada lector. Configúrela en <b>Consola de sistema › Configuración del Sitio › Idiomas</b>, bajo <b>Traducción automática</b>:</p>
+<table>
+<thead><tr><th>Ajuste</th><th>Clave</th><th>Predeterminado</th></tr></thead>
+<tbody>
+<tr><td>Activar</td><td><code>AutoTranslationSettings.Enable</code></td><td>desactivado</td></tr>
+<tr><td><b>Proveedor de traducción</b></td><td><code>AutoTranslationSettings.Provider</code></td><td><code>libretranslate</code>, <code>openai</code> (mostrado como "API compatible con OpenAI") o <code>agents</code> (un servicio de la app Agentes)</td></tr>
+<tr><td><b>Idiomas permitidos</b></td><td><code>AutoTranslationSettings.TargetLanguages</code></td><td><code>en</code>: los idiomas en los que se pueden traducir los mensajes</td></tr>
+<tr><td><b>Tiempo de espera de la traducción (ms)</b></td><td><code>AutoTranslationSettings.TimeoutMs</code></td><td>5000</td></tr>
+<tr><td><b>Restringir la traducción automática en mensajes directos y de grupo</b></td><td><code>AutoTranslationSettings.RestrictDMAndGM</code></td><td>desactivado</td></tr>
+</tbody>
+</table>
+<p>Cada proveedor tiene sus propios campos:</p>
+<ul>
+<li><b>LibreTranslate</b>: <b>Punto de conexión API de LibreTranslate</b> y <b>Clave API de LibreTranslate</b> (<code>AutoTranslationSettings.LibreTranslate.URL</code>, <code>.APIKey</code>). Un servidor de LibreTranslate puede ejecutarse en su propia red.</li>
+<li><b>API compatible con OpenAI</b>: <b>URL base de la API</b> (hasta e incluyendo <code>/v1</code>; el servidor usa su endpoint de completado de chat), <b>Modelo</b> y <b>Clave de API</b> (<code>AutoTranslationSettings.OpenAI.URL</code>, <code>.Model</code>, <code>.APIKey</code>). Un pequeño modelo de traducción ejecutado localmente funciona bien.</li>
+<li><b>Agentes</b>: <b>Servicio de IA</b>, uno de los servicios configurados en la app Agentes.</li>
+</ul>
+<p>Una vez activado, los administradores de canal activan la traducción para un canal en su configuración (<b>Traducción automática</b>), y cada miembro puede desactivarla desde el menú del canal (<b>Traducir mensajes</b>). En los mensajes directos y de grupo, cualquier miembro puede activarla; si la restricción está activada, la traducción no está disponible allí. Los mensajes traducidos muestran «Traducido de …» con un enlace al original.</p>
+<p>El código, los enlaces, las menciones y los emojis se reemplazan por marcadores antes de enviar el texto, y se restauran después.</p>
+
+<h2 id="data">Qué datos van a dónde</h2>
+<table>
+<thead><tr><th>Función</th><th>Lo que se envía</th><th>Destino</th></tr></thead>
+<tbody>
+<tr><td>Agentes</td><td>La solicitud, los mensajes del hilo o canal al que se refiere, las instrucciones del agente, los resultados de las herramientas, las imágenes cuando la visión está activada, y el nombre, el nombre de usuario, el cargo y el idioma del usuario que hace la pregunta</td><td>La API del servicio</td></tr>
+<tr><td>Búsqueda por incrustaciones</td><td>Cada mensaje (excepto los de bots y mensajes del sistema)</td><td>La API de incrustaciones</td></tr>
+<tr><td>Herramientas nativas y búsqueda web</td><td>Consultas de búsqueda, páginas a recuperar, código</td><td>El proveedor, o el motor de búsqueda que hayas elegido</td></tr>
+<tr><td>Transcripción de llamadas</td><td>La voz de todos los que hablan mientras esté activada</td><td>La API de voz a texto</td></tr>
+<tr><td>Lectura en voz alta</td><td>El texto del mensaje que se está leyendo</td><td>La API de texto a voz</td></tr>
+<tr><td>Traducción</td><td>El texto de los mensajes en los canales traducidos</td><td>LibreTranslate, la API de LLM, o el servicio de Agentes</td></tr>
+</tbody>
+</table>
+<p>Para mantener todo en tu red, dirige cada función a servidores que ejecutes tú mismo. Con un proveedor en la nube, revisa sus términos de retención de datos y comunica a tus usuarios qué funciones envían sus mensajes hacia el exterior.</p>
+
+<h2 id="turn-off">Desactivar la IA</h2>
+<p>No hay un solo interruptor: cada función tiene el suyo.</p>
+<ul>
+<li><b>Agentes</b>: desactive la aplicación Agentes en <b>Consola de sistema › Plugins › Gestión de Plugins</b>. Esto también elimina los resúmenes de llamadas y el proveedor de traducción de Agentes.</li>
+<li><b>Transcripción y subtítulos</b>: <code>AM_CALLS_ENABLE_TRANSCRIPTIONS=false</code> y <code>AM_CALLS_ENABLE_LIVE_CAPTIONS=false</code> (los valores predeterminados).</li>
+<li><b>Leer en voz alta</b>: desactiva <b>Leer mensajes en voz alta</b> (<code>AM_TEXTTOSPEECHSETTINGS_ENABLE=false</code>, el valor predeterminado).</li>
+<li><b>Traducción</b>: desactiva la traducción automática (<code>AM_AUTOTRANSLATIONSETTINGS_ENABLE=false</code>, el valor predeterminado).</li>
+</ul>
+<p>Desactivar la app Agentes no desactiva las otras tres: estas llaman directamente a sus propias APIs.</p>

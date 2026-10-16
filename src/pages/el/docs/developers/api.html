@@ -1,0 +1,164 @@
+title: Το REST API
+description: Το REST API του Antimatter: η βασική διεύθυνση URL, τα προσωπικά διακριτικά πρόσβασης, τα διακριτικά συνεδρίας και το OAuth, οι κύριοι πόροι, η σελιδοποίηση, τα σφάλματα, τα όρια ρυθμού, η ροή γεγονότων WebSocket και οι βιβλιοθήκες πελατών.
+guide: developers
+order: 2
+nav: REST API
+lead: Ό,τι κάνουν οι εφαρμογές Antimatter περνάει από το ίδιο HTTP API, οπότε μπορούν να το κάνουν και τα σενάρια σας. Αυτή η σελίδα εξηγεί τον τρόπο ελέγχου ταυτότητας, τους πόρους που θα χρησιμοποιήσετε περισσότερο, τη μορφή των απαντήσεων και των σφαλμάτων, και τον τρόπο παρακολούθησης των γεγονότων σε πραγματικό χρόνο μέσω WebSocket.
+source: f4b8c83efdba
+---
+<h2 id="basics">Βασικά</h2>
+<ul>
+<li><b>Βασική διεύθυνση URL</b>: <code>https://chat.example.com/api/v4</code>. Όλα τα τελικά σημεία (endpoints) που ακολουθούν είναι σχετικά με αυτήν.</li>
+<li><b>Μορφή</b>: JSON στην είσοδο και στην έξοδο, εκτός από τα ανέβασματα αρχείων (multipart). Στείλτε <code>Content-Type: application/json</code>.</li>
+<li><b>Αναγνωριστικά (IDs)</b>: κάθε αντικείμενο έχει ένα <code>id</code> 26 χαρακτήρων. Οι χρόνοι είναι σε χιλιοστά του δευτερολέπτου από την εποχή Unix (<code>create_at</code>, <code>update_at</code>, <code>delete_at</code>· 0 σημαίνει «δεν έχει διαγραφεί»).</li>
+<li><b>Οι κοινότητες είναι ομάδες</b>: το API τα αποκαλεί <code>teams</code>, με <code>team_id</code>.</li>
+<li><b>Εσάς</b>: όπου μια διαδρομή απαιτεί <code>user_id</code>, το <code>me</code> σημαίνει τον συνδεδεμένο χρήστη, όπως στο <code>GET /users/me</code>.</li>
+</ul>
+<p>Η πλήρης λίστα των τελικών σημείων βρίσκεται στον κώδικα του server: οι διαδρομές δηλώνονται στο <code>server/channels/api4/*.go</code> και οι τύποι στο <code>server/public/model</code>. Η περιγραφή OpenAPI στον φάκελο <code>api/v4/source</code> του αποθετηρίου καλύπτει τα τελικά σημεία που κληρονομούνται από το Mattermost, όχι τις προσθήκες του Antimatter.</p>
+
+<h2 id="auth">Ελέγχος ταυτότητας</h2>
+<p>Κάθε αίτημα, εκτός από την σύνδεση και μερικά δημόσια τελικά σημεία, απαιτεί διακριτικό (token) στο πεδίο <code>Authorization</code>:</p>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" https://chat.example.com/api/v4/users/me</code></pre>
+<p>Δεχόμαστε τρεις τύπους διακριτικών: προσωπικά διακριτικά πρόσβασης, διακριτικά συνεδρίας και διακριτικά πρόσβασης OAuth. Δεχόμαστε επίσης τη μορφή <code>Authorization: Token …</code>. Τα διακριτικά στην συμβολοσειρά ερωτήματος (<code>?access_token=</code>) δέχονται μόνο για διακριτικά πρόσβασης OAuth.</p>
+
+<h3>Προσωπικά διακριτικά πρόσβασης (συμβουλεύονται για σενάρια)</h3>
+<p>Ένα προσωπικό διακριτικό πρόσβασης δρα ως εσείς, δεν λήγει εκτός αν του ορίσετε ημερομηνία λήξης, και μπορεί να ανακληθεί ανά πάσα στιγμή. Τα προσωπικά διακριτικά πρόσβασης είναι απενεργοποιημένα από προεπιλογή:</p>
+<ol>
+<li>Ένας διαχειριστής συστήματος ενεργοποιεί την επιλογή <b>Ενεργοποίηση προσωπικών διαπιστευτηρίων πρόσβασης</b> στη <b>Κονσόλα συστήματος › Ολοκληρώσεις › Διαχείριση ολοκληρώσεων</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, <code>AM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS</code>).</li>
+<li>Για κάθε χρήστη που μπορεί να δημιουργήσει tokens, ένας διαχειριστής συστήματος ανοίγει το <b>Κονσόλα συστήματος › Διαχείριση χρηστών › Χρήστες</b>, επιλέγει <b>Διαχείριση ρόλων</b> από το μενού του χρήστη και επιλέγει <b>Επιτρέπεται σε αυτόν τον λογαριασμό να δημιουργεί tokens πρόσβασης</b>. Οι διαχειριστές συστήματος μπορούν πάντα να δημιουργούν tokens.</li>
+<li>Ο χρήστης ανοίγει το avatar του στην πάνω δεξιά γωνία και στη συνέχεια πηγαίνει στις <b>Ρυθμίσεις προφίλ › Ασφάλεια</b>. Κάτω από <b>Προσωπικά Tokens Πρόσβασης</b>, περιγράφει τη χρήση του token και επιλέγει <b>Δημιουργία token</b>. Το token εμφανίζεται μία φορά: αντιγράψτε το.</li>
+</ol>
+<p>Μέσω της API: <code>POST /users/{user_id}/tokens</code> με <code>{"description": "backup script", "expires_at": 0}</code> (<code>expires_at</code> σε χιλιοστά του δευτερολέπτου· 0 για κανένα). Το πεδίο <code>token</code> στην απάντηση είναι το μυστικό· το <code>id</code> χρησιμοποιείται για την ακύρωσή του (<code>POST /users/tokens/revoke</code> με <code>{"token_id": "…"}</code>). Από τη γραμμή εντολών: <code>amctl token generate &lt;user&gt; &lt;description&gt;</code>.</p>
+<p>Ένας διαχειριστής συστήματος μπορεί να ορίσει ένα όριο στη διάρκεια ζωής των tokens χρησιμοποιώντας την επιλογή <b>Μέγιστη διάρκεια ζωής προσωπικού token πρόσβασης (ημέρες)</b> στη σελίδα της Κονσόλας συστήματος.</p>
+
+<h3>Tokens συνεδρίας</h3>
+<p>Η σύνδεση με κωδικό επιστρέφει ένα token συνεδρίας στο πεδίο <code>Token</code> της κεφαλίδας της απάντησης, του ίδιου τύπου με τις συνεδρίες που χρησιμοποιούν οι εφαρμογές:</p>
+<pre><code>curl -i -X POST https://chat.example.com/api/v4/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login_id": "maya", "password": "…"}'</code></pre>
+<p>Προσθέστε <code>"token": "123456"</code> για λογαριασμούς με πολυπαραγοντική ελέγχου. Οι συνεδρίες λήγουν σύμφωνα με τις ρυθμίσεις συνεδρίας του server, και το endpoint σύνδεσης έχει περιορισμό ρυθμού (5 αιτήματα ανά δευτερόλεπτο). Το <code>POST /users/logout</code> τερματίζει τη συνεδρία.</p>
+<div class="callout">Οι περιηγητές ελέγχουν την ταυτότητα με cookie. Ένα αίτημα που ελέγχεται με cookie πρέπει επίσης να στέλνει την κεφαλίδα <code>X-CSRF-Token</code> για οτιδήποτε εκτός από GET· ένα token στην κεφαλίδα <code>Authorization</code> δεν χρειάζεται κεφαλίδα CSRF.</div>
+
+<h3>Εφαρμογές OAuth 2.0</h3>
+<p>Για να επιτρέψετε στους χρήστες να συνδέονται στην εφαρμογή σας με τον λογαριασμό Antimatter, καταχωρίστε μια εφαρμογή OAuth 2.0. Το Antimatter γίνεται τότε πάροχος OAuth:</p>
+<ol>
+<li>Η επιλογή <b>Ενεργοποίηση παρόχου υπηρεσιών OAuth 2.0</b> πρέπει να είναι ενεργοποιημένη (<b>Κονσόλα συστήματος › Ολοκληρώσεις › Διαχείριση ολοκληρώσεων</b>, <code>ServiceSettings.EnableOAuthServiceProvider</code>, ενεργοποιημένη από προεπιλογή).</li>
+<li>Κάποιος με τα κατάλληλα δικαιώματα διαχείρισης εφαρμογών OAuth (από προεπιλογή, οι διαχειριστές συστήματος) ανοίγει το avatar του και στη συνέχεια πηγαίνει στις <b>Ολοκληρώσεις › Εφαρμογές OAuth 2.0</b>, προσθέτοντας την εφαρμογή με τις URL callback. Λαμβάνει ένα client ID και ένα client secret.</li>
+<li>Η εφαρμογή σας στέλνει τους χρήστες στο <code>https://chat.example.com/oauth/authorize</code> με <code>response_type=code</code>, <code>client_id</code>, <code>redirect_uri</code> και <code>state</code>. Υποστηρίζεται PKCE με <code>code_challenge_method=S256</code>.</li>
+<li>Εκτελεί την ανταλλαγή του κωδικού στο <code>POST https://chat.example.com/oauth/access_token</code> (<code>grant_type=authorization_code</code>, και στη συνέχεια <code>refresh_token</code> για ανανέωση) και καλεί το API με <code>Authorization: Bearer &lt;access token&gt;</code>.</li>
+</ol>
+<p>Οι χρήστες βλέπουν τις εφαρμογές που έχουν εξουσιοδοτήσει στο <b>Προφίλ &amp; ρυθμίσεις › Ασφάλεια › Εφαρμογές που εξουσιοδοτήσατε</b>.</p>
+
+<h2 id="resources">Βασικοί πόροι</h2>
+<table>
+<thead><tr><th>Τι</th><th>Τελικά σημεία (Endpoints)</th></tr></thead>
+<tbody>
+<tr><td>Εσείς και άλλοι χρήστες</td><td><code>GET /users/me</code>, <code>GET /users/{user_id}</code>, <code>GET /users/username/{username}</code>, <code>POST /users/ids</code> (μια λίστα με αναγνωριστικά), <code>POST /users/search</code>, <code>GET /users?in_team=…&amp;in_channel=…</code></td></tr>
+<tr><td>Κοινότητες</td><td><code>GET /users/me/teams</code>, <code>GET /teams/{team_id}</code>, <code>GET /teams/name/{name}</code>, <code>PUT /teams/{team_id}/patch</code>, <code>GET /teams/{team_id}/members</code>, <code>POST /teams/{team_id}/members</code></td></tr>
+<tr><td>Κανάλια</td><td><code>GET /users/me/teams/{team_id}/channels</code>, <code>GET /teams/name/{team}/channels/name/{channel}</code>, <code>POST /channels</code>, <code>POST /channels/direct</code> (δύο αναγνωριστικά χρηστών), <code>POST /channels/group</code>, <code>POST /channels/{channel_id}/members</code></td></tr>
+<tr><td>Μηνύματα (δημοσιεύσεις)</td><td><code>POST /posts</code>, <code>GET /posts/{post_id}</code>, <code>PUT /posts/{post_id}/patch</code>, <code>DELETE /posts/{post_id}</code>, <code>GET /channels/{channel_id}/posts</code>, <code>GET /posts/{post_id}/thread</code>, <code>POST /teams/{team_id}/posts/search</code></td></tr>
+<tr><td>Αντιδράσεις</td><td><code>POST /reactions</code> με <code>{"user_id", "post_id", "emoji_name"}</code>, <code>DELETE /users/{user_id}/posts/{post_id}/reactions/{emoji_name}</code></td></tr>
+<tr><td>Αρχεία</td><td><code>POST /files</code> (multipart: <code>channel_id</code> και <code>files</code>), στη συνέχεια τοποθετήστε τα αναγνωριστικά που επιστρέφονται στο πεδίο <code>file_ids</code> της δημοσίευσης· <code>GET /files/{file_id}</code></td></tr>
+<tr><td>Προτιμήσεις</td><td><code>GET /users/me/preferences</code>, <code>PUT /users/me/preferences</code></td></tr>
+<tr><td>Ενσωματώσεις</td><td><code>/hooks/incoming</code>, <code>/hooks/outgoing</code>, <code>/commands</code>, <code>/bots</code>, <code>/oauth/apps</code> (βλ. τις επόμενες σελίδες)</td></tr>
+<tr><td>Εξυπηρετητής</td><td><code>GET /system/ping</code> (κατάσταση, δεν απαιτείται token), <code>GET /config/client?format=old</code> (οι ρυθμίσεις που βλέπουν τα πελάτες)</td></tr>
+</tbody>
+</table>
+
+<h3>Δημοσίευση μηνύματος</h3>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "message": "Backup finished: **42 GB** in 3 min"}'</code></pre>
+<p>Τα μηνύματα είναι σε Markdown. Προσθέστε <code>"root_id"</code> (την πρώτη δημοσίευση ενός νήματος) για να απαντήσετε σε ένα νήμα, <code>"file_ids"</code> για αρχεία και <code>"props"</code> για συνημμένα και άλλα πρόσθετα (βλ. <a href="{{root}}docs/developers/webhooks.html#attachments">Συνημμένα</a>).</p>
+
+<h3>Εύρεση του αναγνωριστικού (ID) ενός καναλιού</h3>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" \
+  https://chat.example.com/api/v4/teams/name/lumen-labs/channels/name/ops-alerts</code></pre>
+<p>Οι ονομασίες είναι αυτές που βρίσκονται στο σύνδεσμο του καναλιού: <code>/lumen-labs/channels/ops-alerts</code>.</p>
+
+<h2 id="pagination">Σελιδοποίηση</h2>
+<p>Τα τελικά σημεία που επιστρέφουν λίστες δέχονται <code>page</code> (από 0) και <code>per_page</code> (60 από προεπιλογή, έως 200). Συνεχίστε να ζητάτε την επόμενη σελίδα μέχρι να επιστραφεί μια σελίδα με λιγότερα στοιχεία από το <code>per_page</code>.</p>
+<p>Τα μηνύματα ενός καναλιού (<code>GET /channels/{channel_id}/posts</code>) δέχονται επίσης <code>since</code> (χρονική στιγμή: όλα όσα άλλαξαν από τότε) ή <code>before</code> και <code>after</code> (ID μηνύματος). Επιστρέφονται ως λίστα μηνυμάτων: <code>{"order": [IDs, newest first], "posts": {ID: post}, "next_post_id", "prev_post_id"}</code>.</p>
+
+<h2 id="errors">Σφάλματα</h2>
+<p>Τα σφάλματα χρησιμοποιούν τους συνηθισμένους κωδικούς κατάστασης HTTP (400 λανθασμένη είσοδος, 401 χωρίς σύνδεση, 403 μη επιτρεπόμενο, 404 μη βρεθέν, 501 λειτουργία απενεργοποιημένη) και ένα JSON σώμα:</p>
+<pre><code>{
+  "id": "api.context.permissions.app_error",
+  "message": "You do not have the appropriate permissions.",
+  "detailed_error": "",
+  "request_id": "jz8zm5nunpbt8f3gpqsz5dq6so",
+  "status_code": 403
+}</code></pre>
+<p>Χρησιμοποιήστε <code>id</code> στον κώδικά σας: το <code>message</code> μεταφράζεται στη γλώσσα του χρήστη. Το <code>detailed_error</code> είναι κενό εκτός αν ο διακομιστής εκτελεί σε λειτουργία προγραμματιστή (<code>ServiceSettings.EnableDeveloper</code>). Αναφέρετε το <code>request_id</code> στον διαχειριστή του διακομιστή: βρίσκεται στα αρχεία καταγραφής.</p>
+
+<h2 id="rate-limits">Περιορισμοί ρυθμού</h2>
+<p>Ο περιορισμός ρυθμού είναι απενεργοποιημένος από προεπιλογή. Όταν ένας διαχειριστής συστήματος τον ενεργοποιεί (<b>Κονσόλα συστήματος › Περιβάλλον › Περιορισμός ρυθμού</b>), κάθε client λαμβάνει 10 αιτήματα ανά δευτερόλεπτο με bursts των 100 από προεπιλογή, μετρώντας ανά διεύθυνση IP ή ανά χρήστη. Οι απαντήσεις περιέχουν τα <code>X-RateLimit-Limit</code>, <code>X-RateLimit-Remaining</code> και <code>X-RateLimit-Reset</code>. Αν ξεπεραστεί το όριο, ο server απαντά με <code>429</code> και ένα header <code>Retry-After</code> σε δευτερόλεπτα. Ορισμένα endpoints, όπως η σύνδεση, έχουν το δικό τους όριο ανεξάρτητα από τις ρυθμίσεις.</p>
+<p>Γράψτε σενάρια που περιμένουν και επαναλαμβάνουν σε 429, και αποφύγετε την ερωτηματική αναζήτηση: ακολουθήστε το WebSocket.</p>
+
+<h2 id="websocket">Η ροή γεγονότων WebSocket</h2>
+<p>Συνδεθείτε στο <code>wss://chat.example.com/api/v4/websocket</code>. Επαληθεύστε είτε με την κεφαλίδα <code>Authorization: Bearer</code> στο αίτημα σύνδεσης, είτε στέλνοντας αυτό ως πρώτο μήνυμα:</p>
+<pre><code>{"seq": 1, "action": "authentication_challenge", "data": {"token": "…"}}</code></pre>
+<p>Ο διακομιστής στέλνει ένα γεγονός <code>hello</code>, και στη συνέχεια ένα γεγονός για όλα όσα έχετε άδεια να δείτε:</p>
+<pre><code>{
+  "event": "posted",
+  "data": {"channel_id": "…", "channel_type": "O", "post": "{\"id\":\"…\",\"message\":\"Hello\",…}"},
+  "broadcast": {"channel_id": "…", "team_id": "", "user_id": "", "omit_users": null},
+  "seq": 4
+}</code></pre>
+<p>Σημειώστε ότι το <code>data.post</code> είναι το μήνυμα ως JSON string. Συνηθισμένα γεγονότα: <code>posted</code>, <code>post_edited</code>, <code>post_deleted</code>, <code>reaction_added</code>, <code>reaction_removed</code>, <code>typing</code>, <code>status_change</code>, <code>user_added</code>, <code>direct_added</code>. Οι εφαρμογές στέλνουν τα δικά τους γεγονότα, με ονομασία <code>custom_&lt;app id&gt;_&lt;event&gt;</code>.</p>
+<p>Μπορείτε επίσης να στέλνετε ενέργειες, καθεμία με αυξανόμενο <code>seq</code>: <code>user_typing</code> με <code>{"channel_id", "parent_id"}</code>, ή <code>get_statuses</code>. Επανασυνδεθείτε όταν η σύνδεση χαθεί, και ανακτήστε ό,τι χάσατε με <code>since</code> (βλ. <a href="#pagination">Σελιδοποίηση</a>).</p>
+<p>Το Antimatter προσθέτει τα εξής συμβάντα: <code>community_attributes_updated</code>, <code>member_timeouts_updated</code>, <code>post_put_on_top</code>, <code>post_removed_from_top</code>, <code>server_categories_updated</code>, <code>channel_overrides_updated</code> και <code>category_overrides_updated</code>.</p>
+
+<h2 id="clients">Βιβλιοθήκες πελάτη</h2>
+<ul>
+<li><b>Go</b>: <code>model.Client4</code> στο <code>server/public/model</code> (import <code>github.com/mattermost/mattermost/server/public/model</code>). <code>model.NewAPIv4Client(url)</code>, στη συνέχεια <code>client.SetToken(token)</code>. Το <code>model.NewWebSocketClient4(wsURL, token)</code> παρακολουθεί τα συμβάντα. Η έκδοση του Antimatter προσθέτει μεθόδους για τα δικά του endpoints, όπως <code>UpdateMessageRequest</code>, <code>PutPostOnTop</code> και <code>ExportChannel</code>.</li>
+<li><b>TypeScript</b>: η κλάση <code>Client4</code> του <code>@mattermost/client</code>, στο <code>webapp/platform/client</code>, με τους τύπους της στο <code>webapp/platform/types</code>. Το αντίγραφο στο αποθετήριο του Antimatter περιλαμβάνει τα τελεία του Antimatter· το πακέτο που δημοσιεύεται στο npm από το Mattermost δεν τα περιλαμβάνει.</li>
+</ul>
+<pre><code>package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/mattermost/mattermost/server/public/model"
+)
+
+func main() {
+	client := model.NewAPIv4Client("https://chat.example.com")
+	client.SetToken("…")
+	post, _, err := client.CreatePost(context.Background(), &amp;model.Post{
+		ChannelId: "…",
+		Message:   "Hello from Go",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("posted", post.Id)
+}</code></pre>
+
+<h2 id="antimatter">Τι προσθέτει το Antimatter στο API</h2>
+<p>Τα τελεία και τα πεδία αυτά δεν υπάρχουν σε έναν διακομιστή Mattermost. Όλα απαιτούν συνεδρία.</p>
+<table>
+<thead><tr><th>Τέλος</th><th>Λειτουργία</th></tr></thead>
+<tbody>
+<tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> στην ίδια διαδρομή<br><code>PATCH</code>, <code>DELETE …/fields/{field_id}</code></td><td>Χαρακτηριστικά κοινότητας: τα πεδία προφίλ που ορίζουν οι διαχειριστές μιας κοινότητας για τα μέλη της (έως 20). Τα μέλη μπορούν να τα διαβάσουν· οι διαχειριστές της κοινότητας τα δημιουργούν και τα τροποποιούν.</td></tr>
+<tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> στην ίδια διαδρομή<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>Οι τιμές των χαρακτηριστικών ενός μέλους, ως <code>{field_id: value}</code>. Τα μέλη ορίζουν τις δικές τους (εκτός από αυτά που διαχειρίζονται οι διαχειριστές)· οι διαχειριστές ορίζουν τις τιμές οποιουδήποτε. Η αναζήτηση δέχεται <code>{"user_ids": [...]}</code> (έως 200).</td></tr>
+<tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>Χρονικά όρια: το <code>{"until": time, "reason": "…"}</code> εμποδίζει κάποιον να δημοσιεύει, να αντιδρά και να ανεβάζει αρχεία στην κοινότητα έως τότε (έως 28 ημέρες)· το <code>"until": 0</code> το αίρει. Η προβολή διαχείρισης δείχνει πότε συμμετείχε και πόσα δημοσίευσε πρόσφατα.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Μηνύματα που παραμένουν στην κορυφή ενός καναλιού (έως 10). <code>{"duration": ms}</code>, έως 30 ημέρες· το 0 τα διατηρεί έως ότου αφαιρεθούν. Απαιτεί το δικαίωμα δημοσίευσης στο κανάλι.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>Διαχειρίζεται το αίτημά σας για μήνυμα: <code>{"action": "accept"}</code>, <code>"dismiss"</code> ή <code>"request"</code> για να επαναφέρετε μια συνομιλία μεταξύ των αιτημάτων. Επιστρέφει το μέλος του καναλιού σας.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>Τι μπορεί να κάνει ένας ρόλος ή ένα άτομο σε ένα κανάλι, και ποιοι ρόλοι βλέπουν ένα κανάλι με περιορισμό ρόλου.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>Οι κοινές κατηγορίες καναλιών της κοινότητας, και οι εξαιρέσεις που ισχύουν για κάθε κανάλι σε μια κατηγορία.</td></tr>
+<tr><td><code>GET /groups/{group_id}/team_role</code><br><code>PUT …/team_role/permissions</code></td><td>Τα δικαιώματα που χορηγεί ένας ρόλος κοινότητας.</td></tr>
+<tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>Δοκιμάζει τους κανόνες αυτόματων συνδέσμων της κοινότητας σε ένα κείμενο.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>Λήψη των μηνυμάτων ενός καναλιού ως CSV (έως 50.000), για άτομα που μπορούν να διαβάσουν το κανάλι.</td></tr>
+<tr><td><code>GET /posts/{post_id}/speech</code></td><td>Το μήνυμα που διαβάζεται από μηχανή, ως ήχος, όταν έχει ρυθμιστεί η μετατροπή κειμένου σε ομιλία.</td></tr>
+</tbody>
+</table>
+<h3>Νέα πεδία</h3>
+<ul>
+<li><b>Κοινότητες</b> (<code>Team</code>, και <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (όλοι βρίσκονται σε κάθε κανάλι που μπορούν να δουν, όπως στο Discord), <code>default_channel_id</code> (όπου καταλήγουν οι καινούριοι· κενό σημαίνει Town Square), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> και <code>autolinks</code> (και τα δύο συμβολοσειρές JSON).</li>
+<li><b>Ενσωματωμένες απαντήσεις</b>: μια ανάρτηση με <code>"props": {"reply_to": "&lt;post id&gt;"}</code> παραθέτει το μήνυμα του ίδιου καναλιού. Προσθέστε <code>"reply_to_mention": false</code> για να μην ειδοποιηθεί ο δημιουργός του. Ο διακομιστής γεμίζει το <code>metadata.reply_to</code> με μια σύντομη περιγραφή του παρατιθέμενου μηνύματος.</li>
+<li><b>Σποίλερ</b>: <code>"props": {"spoiler": true}</code> κρύβει το κείμενο και τα αρχεία μιας αναρτησης μέχρι ο αναγνώστης να επιλέξει να τα δει.</li>
+<li><b>Αγνόηση και αποκλεισμός</b> είναι προτιμήσεις: κατηγορία <code>user_block</code>, με το όνομα του ID του άλλου ατόμου, και τιμή <code>ignore</code> ή <code>block</code>. Αν ένα άμεσο μήνυμα περιμένει ως αίτημα, αυτό καθορίζεται στο <code>notify_props.dm_request</code> του μέλους του καναλιού σας (<code>pending</code>, <code>accepted</code> ή <code>dismissed</code>).</li>
+<li><b>Συνημμένα μηνυμάτων</b> μπορούν να φέρουν <code>stages</code> και <code>chart</code>: δείτε <a href="{{root}}docs/developers/webhooks.html#cards">Κάρτες</a>.</li>
+</ul>

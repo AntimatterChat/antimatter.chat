@@ -1,0 +1,164 @@
+title: ממשק REST
+description: ממשק REST של Antimatter: כתובת URL בסיסית, אישורי גישה אישיים, אישורי סשן ו-OAuth, משאבים עיקריים, עימוד, שגיאות, מגבלות קצב, זרם אירועים WebSocket וספריות לקוח.
+guide: developers
+order: 2
+nav: ממשק REST
+lead: כל פעולה שיישומי Antimatter מבצעים עוברת דרך ממשק HTTP זהה, ולכן גם הסקריפטים שלכם יכולים לבצע אותה. עמוד זה מסביר כיצד לבצע אימות, אילו משאבים תשתמשו בהם ביותר, כיצד נראות תגובות ושגיאות, וכיצד לעקוב אחר אירועים בזמן אמת דרך WebSocket.
+source: f4b8c83efdba
+---
+<h2 id="basics">יסודות</h2>
+<ul>
+<li><b>כתובת URL בסיסית</b>: <code>https://chat.example.com/api/v4</code>. כל נקודות התורן (endpoints) המפורטות להלן יחסיות אליה.</li>
+<li><b>פורמט</b>: JSON כקלט ויציאה, למעט העלאת קבצים (multipart). יש לשלוח <code>Content-Type: application/json</code>.</li>
+<li><b>מזהים</b>: לכל אובייקט יש <code>id</code> באורך 26 תווים. זמנים מוצגים במילי-שניות מאז תחילת Unix (<code>create_at</code>, <code>update_at</code>, <code>delete_at</code>; 0 מייצג "לא נמחק").</li>
+<li><b>קהילות הן צוותים</b>: הממשק מכנה אותם <code>teams</code>, עם <code>team_id</code>.</li>
+<li><b>עצמך</b>: בכל מקום שבו נתיב מקבל <code>user_id</code>, <code>me</code> מייצג את המשתמש המחובר, כפי שמופיע ב־<code>GET /users/me</code>.</li>
+</ul>
+<p>רשימת נקודות התורן המלאה נמצאת בקוד השרת: נתיבי התורן מוגדרים ב-<code>server/channels/api4/*.go</code> והטיפוסים ב-<code>server/public/model</code>. תיאור OpenAPI שנמצא בתיקיית <code>api/v4/source</code> במאגר מכסה את נקודות התורן שנוצלו מ-Mattermost, ולא את ההוספות של Antimatter.</p>
+
+<h2 id="auth">אימות</h2>
+<p>כל בקשה, למעט התחברות וכמה נקודות תורן ציבוריות, דורשת אישור (token) בכותרת <code>Authorization</code>:</p>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" https://chat.example.com/api/v4/users/me</code></pre>
+<p>שלושה סוגי אישורים נקבלים שם: אישורי גישה אישיים, אישורי סשן ואישורי גישה OAuth. גם <code>Authorization: Token …</code> נקבל. אישורים במחרוזת השאילתה (<code>?access_token=</code>) נקבלים רק עבור אישורי גישה OAuth.</p>
+
+<h3>אישורי גישה אישיים (מומלצים לסקריפטים)</h3>
+<p>אישור גישה אישי פועל בשם המשתמש, אינו פג תוקף אלא אם כן מוגדר לו תאריך פג תוקף, וניתן לשבשו בכל עת. אישורי גישה אישיים כבויים כברירת מחדל:</p>
+<ol>
+<li>מנהל מערכת מפעיל את <b>הפעל אסימוני גישה אישיים</b> ב־<b>קונסולת מערכת › אינטגרציות › ניהול אינטגרציות</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, <code>AM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS</code>).</li>
+<li>עבור כל אדם שיוכל ליצור טוקנים, מנהל מערכת פותח את <b>קונסולת מערכת › ניהול משתמשים › משתמשים</b>, בוחר <b>ניהול תפקידים</b> בתפריט של האדם, וסומן <b>אפשרות לחשבון זה ליצור טוקני גישה אישיים</b>. מנהלי מערכת תמיד יכולים ליצור אותם.</li>
+<li>המשתמש פותח את האווטאר שלו בפינה הימנית העליונה, ואז <b>פרופיל והגדרות › אבטחה</b>. תחת <b>אישורי גישה אישיים</b>, הוא מתאר מה מטרת האסימון ובוחר ב־<b>יצירת אסימון</b>. האסימון מוצג פעם אחת בלבד: יש להעתיק אותו.</li>
+</ol>
+<p>באמצעות ה-API: <code>POST /users/{user_id}/tokens</code> עם <code>{"description": "backup script", "expires_at": 0}</code> (<code>expires_at</code> במילי שניות; 0 אם אין תוקף). שדה ה<code>token</code> בתגובה הוא הסוד; ה<code>id</code> שלו הוא מה שמשמשים כדי לבטל אותו (<code>POST /users/tokens/revoke</code> עם <code>{"token_id": "…"}</code>). משורת הפקודה: <code>amctl token generate &lt;user&gt; &lt;description&gt;</code>.</p>
+<p>מנהל מערכת יכול להגביל את משך החיים של אסימונים באמצעות <b>משך חיים מקסימלי לטוקן גישה אישי (ימים)</b> בדף קונסולת המערכת האותו.</p>
+
+<h3>טוקני סשן</h3>
+<p>כניסה עם סיסמה מחזירה טוקן סשן בכותרת התגובה <code>Token</code>, אותו סוג סשן שהאפליקציות משתמשות בו:</p>
+<pre><code>curl -i -X POST https://chat.example.com/api/v4/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login_id": "maya", "password": "…"}'</code></pre>
+<p>יש להוסיף <code>"token": "123456"</code> עבור חשבון עם אימות דו-שלבי. סשנים פגים בהתאם להגדרות הסשן של השרת, ונקודת הכניסה מוגבלת בקצב (5 בקשות בשנייה). <code>POST /users/logout</code> מסתיים בסשן.</p>
+<div class="callout">דפדפנים מתאימים באמצעות עוגיה במקום. בקשה שהותאמה באמצעות העוגיה חייבת לשלוח גם את כותרת ה<code>X-CSRF-Token</code> לכל דבר מלבד GET; טוקן בכותרת <code>Authorization</code> אינו דורש כותרת CSRF.</div>
+
+<h3>אפליקציות OAuth 2.0</h3>
+<p>כדי לאפשר לאנשים להיכנס לאפליקציה שלך עם חשבון Antimatter שלהם, יש להרשיר אפליקציית OAuth 2.0. Antimatter היא אז ספק OAuth:</p>
+<ol>
+<li><b>הפעלת ספק שירות OAuth 2.0</b> חייבת להיות פעילה (<b>קונסולת מערכת › אינטגרציות › ניהול אינטגרציות</b>, <code>ServiceSettings.EnableOAuthServiceProvider</code>, פעיל כברירת מחדל).</li>
+<li>מי שיש לו את הזכות לנהל אפליקציות OAuth (מנהלי מערכת כברירת מחדל) פותח את האווטאר שלו, ואז <b>אינטגרציות › אפליקציות OAuth 2.0</b>, ומוסיף את האפליקציה עם כתובות ה-callback שלה. הם מקבלים client ID ו-client secret.</li>
+<li>האפליקציה שלך שולחת אנשים לכתובת <code>https://chat.example.com/oauth/authorize</code> עם <code>response_type=code</code>, <code>client_id</code>, <code>redirect_uri</code> ו-<code>state</code>. נתמך PKCE עם <code>code_challenge_method=S256</code>.</li>
+<li>היא מחליפה את הקוד בכתובת <code>POST https://chat.example.com/oauth/access_token</code> (עם <code>grant_type=authorization_code</code>, ואז <code>refresh_token</code> לחדיד), וקוראת ל-API עם <code>Authorization: Bearer &lt;access token&gt;</code>.</li>
+</ol>
+<p>משתמשים רואים את האפליקציות שהרשיתו ב־<b>פרופיל והגדרות › אבטחה › אפליקציות שהרשיתם</b>.</p>
+
+<h2 id="resources">מאגרי מידע עיקריים</h2>
+<table>
+<thead><tr><th>מה</th><th>נקודות קצה</th></tr></thead>
+<tbody>
+<tr><td>אתה ואנשים אחרים</td><td><code>GET /users/me</code>, <code>GET /users/{user_id}</code>, <code>GET /users/username/{username}</code>, <code>POST /users/ids</code> (רשימת מזהים), <code>POST /users/search</code>, <code>GET /users?in_team=…&amp;in_channel=…</code></td></tr>
+<tr><td>קהילות</td><td><code>GET /users/me/teams</code>, <code>GET /teams/{team_id}</code>, <code>GET /teams/name/{name}</code>, <code>PUT /teams/{team_id}/patch</code>, <code>GET /teams/{team_id}/members</code>, <code>POST /teams/{team_id}/members</code></td></tr>
+<tr><td>ערוצים</td><td><code>GET /users/me/teams/{team_id}/channels</code>, <code>GET /teams/name/{team}/channels/name/{channel}</code>, <code>POST /channels</code>, <code>POST /channels/direct</code> (שני מזהי משתמשים), <code>POST /channels/group</code>, <code>POST /channels/{channel_id}/members</code></td></tr>
+<tr><td>הודעות</td><td><code>POST /posts</code>, <code>GET /posts/{post_id}</code>, <code>PUT /posts/{post_id}/patch</code>, <code>DELETE /posts/{post_id}</code>, <code>GET /channels/{channel_id}/posts</code>, <code>GET /posts/{post_id}/thread</code>, <code>POST /teams/{team_id}/posts/search</code></td></tr>
+<tr><td>תגובות</td><td><code>POST /reactions</code> עם <code>{"user_id", "post_id", "emoji_name"}</code>, <code>DELETE /users/{user_id}/posts/{post_id}/reactions/{emoji_name}</code></td></tr>
+<tr><td>קבצים</td><td><code>POST /files</code> (multipart: <code>channel_id</code> ו-<code>files</code>), ואז מוסיפים את המזהים שהוחזרו לשדה <code>file_ids</code> של ההודעה; <code>GET /files/{file_id}</code></td></tr>
+<tr><td>העדפות</td><td><code>GET /users/me/preferences</code>, <code>PUT /users/me/preferences</code></td></tr>
+<tr><td>אינטגרציות</td><td><code>/hooks/incoming</code>, <code>/hooks/outgoing</code>, <code>/commands</code>, <code>/bots</code>, <code>/oauth/apps</code> (ראו דפי הדף הבאים)</td></tr>
+<tr><td>שרת</td><td><code>GET /system/ping</code> (בדיקת תקינות, ללא צורך בתוקן), <code>GET /config/client?format=old</code> (ההגדרות שהלקיאות רואות)</td></tr>
+</tbody>
+</table>
+
+<h3>פרסום הודעה</h3>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "message": "Backup finished: **42 GB** in 3 min"}'</code></pre>
+<p>הודעות הן Markdown. כדי להגיב בשרשור, מוסיפים <code>"root_id"</code> (ההודעה הראשונה בשרשור), <code>"file_ids"</code> לקבצים, ו-<code>"props"</code> לקבצים מצורפים ותוספות נוספות (ראו <a href="{{root}}docs/developers/webhooks.html#attachments">קבצים מצורפים</a>).</p>
+
+<h3>מציאת מזהה ערוץ</h3>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" \
+  https://chat.example.com/api/v4/teams/name/lumen-labs/channels/name/ops-alerts</code></pre>
+<p>השמות הם אלה שמופיעים בקישור הערוץ: <code>/lumen-labs/channels/ops-alerts</code>.</p>
+
+<h2 id="pagination">עימוד</h2>
+<p>נקודות קצה של רשימות מקבלות <code>page</code> (מתחיל ב-0) ו-<code>per_page</code> (60 כברירת מחדל, עד 200 לכל היותר). ממשיכים לבקש את הדף הבא עד שדף קצר יותר מ-<code>per_page</code> חוזר.</p>
+<p>ההודעות של ערוץ (<code>GET /channels/{channel_id}/posts</code>) מקבלות גם <code>since</code> (זמן: כל מה ששונה מאז), או <code>before</code> ו-<code>after</code> (מזהה הודעה). הן חוזרות כרשימת הודעות: <code>{"order": [IDs, newest first], "posts": {ID: post}, "next_post_id", "prev_post_id"}</code>.</p>
+
+<h2 id="errors">שגיאות</h2>
+<p>שגיאות משתמשות בקודי HTTP הרגילים (400 קלט שגוי, 401 לא מחובר, 403 לא מורשה, 404 לא נמצא, 501 תכונה כבויה) וגוף JSON:</p>
+<pre><code>{
+  "id": "api.context.permissions.app_error",
+  "message": "You do not have the appropriate permissions.",
+  "detailed_error": "",
+  "request_id": "jz8zm5nunpbt8f3gpqsz5dq6so",
+  "status_code": 403
+}</code></pre>
+<p>השתמשו ב-<code>id</code> בקוד שלכם: <code>message</code> מתורגם לשפת המשתמש. <code>detailed_error</code> ריק אלא אם כן השרת רץ במצב פיתוח (<code>ServiceSettings.EnableDeveloper</code>). ציטטו את <code>request_id</code> למנהל השרת: הוא מופיע ביומנים.</p>
+
+<h2 id="rate-limits">מגבלות קצב</h2>
+<p>הגבלת קצב כבויה כברירת מחדל. כאשר מנהל מערכת מפעיל אותה (<b>קונסולת מערכת › סביבה › הגבלת קצב</b>), כל לקוח מקבל 10 בקשות בשנייה עם פיצוצים של 100 כברירת מחדל, ומונה לפי כתובת IP או לפי משתמש. התגובות נושאות את <code>X-RateLimit-Limit</code>, <code>X-RateLimit-Remaining</code> ו־<code>X-RateLimit-Reset</code>; מעבר למגבלה, השרת עונה <code>429</code> עם כותרת <code>Retry-After</code> בשניות. לחלק מהנקודות, כגון התחברות, יש מגבלה משלהן ללא תלות בהגדרה.</p>
+<p>כתבו סקריפטים שממתינים ומנסים שוב ב-429, והימנעו מ-polling: עקבו אחר ה-WebSocket במקום.</p>
+
+<h2 id="websocket">זרם האירועים של WebSocket</h2>
+<p>התחברו ל-<code>wss://chat.example.com/api/v4/websocket</code>. התאיידו באמצעות כותרת <code>Authorization: Bearer</code> בבקשת ההתחברות, או על ידי שליחת זה כהודעה הראשונה:</p>
+<pre><code>{"seq": 1, "action": "authentication_challenge", "data": {"token": "…"}}</code></pre>
+<p>השרת שולח אירוע <code>hello</code>, ואז אירוע לכל מה שאתם מורשים לראות:</p>
+<pre><code>{
+  "event": "posted",
+  "data": {"channel_id": "…", "channel_type": "O", "post": "{\"id\":\"…\",\"message\":\"Hello\",…}"},
+  "broadcast": {"channel_id": "…", "team_id": "", "user_id": "", "omit_users": null},
+  "seq": 4
+}</code></pre>
+<p>שים לב ש-<code>data.post</code> הוא הפוסט כמחרוזת JSON. אירועים נפוצים: <code>posted</code>, <code>post_edited</code>, <code>post_deleted</code>, <code>reaction_added</code>, <code>reaction_removed</code>, <code>typing</code>, <code>status_change</code>, <code>user_added</code>, <code>direct_added</code>. אפליקציות שולחות אירועים משלהן, בשם <code>custom_&lt;app id&gt;_&lt;event&gt;</code>.</p>
+<p>ניתן גם לשלוח פעולות, כל אחת עם <code>seq</code> עולה: <code>user_typing</code> עם <code>{"channel_id", "parent_id"}</code>, או <code>get_statuses</code>. התחברו מחדש כאשר ההתחברות נופלת, ואספו את מה שפספסתם עם <code>since</code> (ראו <a href="#pagination">עימוד</a>).</p>
+<p>Antimatter מוסיף את האירועים הבאים: <code>community_attributes_updated</code>, <code>member_timeouts_updated</code>, <code>post_put_on_top</code>, <code>post_removed_from_top</code>, <code>server_categories_updated</code>, <code>channel_overrides_updated</code> ו-<code>category_overrides_updated</code>.</p>
+
+<h2 id="clients">ספריות לקוח</h2>
+<ul>
+<li><b>המשך</b>: <code>model.Client4</code> ב־<code>server/public/model</code> (ייבוא <code>github.com/mattermost/mattermost/server/public/model</code>). <code>model.NewAPIv4Client(url)</code>, ואז <code>client.SetToken(token)</code>; <code>model.NewWebSocketClient4(wsURL, token)</code> עוקב אחר אירועים. העותק של Antimatter מוסיף שיטות לנקודות הגישה שלו, כגון <code>UpdateMessageRequest</code>, <code>PutPostOnTop</code> ו־<code>ExportChannel</code>.</li>
+<li><b>TypeScript</b>: מחלקת <code>Client4</code> של <code>@mattermost/client</code>, ב-<code>webapp/platform/client</code>, עם סוגיה ב-<code>webapp/platform/types</code>. העותק במאגר של Antimatter כולל את נקודות הקצה של Antimatter; החבילה שפורסמה ב-npm על ידי Mattermost אינה כוללת אותן.</li>
+</ul>
+<pre><code>package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/mattermost/mattermost/server/public/model"
+)
+
+func main() {
+	client := model.NewAPIv4Client("https://chat.example.com")
+	client.SetToken("…")
+	post, _, err := client.CreatePost(context.Background(), &amp;model.Post{
+		ChannelId: "…",
+		Message:   "Hello from Go",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("posted", post.Id)
+}</code></pre>
+
+<h2 id="antimatter">מה Antimatter מוסיף ל-API</h2>
+<p>נקודות הקצה והשדות האלה אינן קיימות בשרת Mattermost. כולן דורשות סשן.</p>
+<table>
+<thead><tr><th>נקודת קצה</th><th>מה היא עושה</th></tr></thead>
+<tbody>
+<tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> באותה נתיב<br><code>PATCH</code>, <code>DELETE …/fields/{field_id}</code></td><td>מאפייני קהילה: שדות הפרופיל שמגדירים מנהלי הקהילה עבור חבריה (עד 20). חברים יכולים לקרוא אותם; מנהלי קהילה יוצרים ומשנים אותם.</td></tr>
+<tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> באותה נתיב<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>ערכי המאפיינים של חבר, כ-<code>{field_id: value}</code>. חברים מגדירים את שלהם (מלבד אלה המנוהלים על ידי מנהלים); מנהלים מגדירים עבור כל אחד. החיפוש מקבל <code>{"user_ids": [...]}</code> (עד 200).</td></tr>
+<tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>השהיות: <code>{"until": time, "reason": "…"}</code> מונע ממשתמש לכתוב, להגיב ולהעלות בקהילה עד אז (עד 28 ימים); <code>"until": 0</code> מסיר את ההשהיה. תצוגת ההנחיה מציגה מתי הצטרפו וכמה כתבו לאחרונה.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>הודעות שנשמרות בראש הערוץ (עד 10). <code>{"duration": ms}</code>, עד 30 ימים; 0 שומר אותה עד להסרה. דורש הרשאה לכתוב בערוץ.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>פועל על בקשת ההודעה שלך: <code>{"action": "accept"}</code>, <code>"dismiss"</code>, או <code>"request"</code> כדי להחזיר שיחה בין הבקשות. מחזיר את חבר הערוץ שלך.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>מה תפקיד או אדם יכולים לעשות בערוץ, ואילו תפקידים רואים ערוץ המוגבל לתפקידים.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>קטגוריות הערוצים המשותפות לקהילה, וההגדרות המותאמות (overrides) החלות על כל ערוץ בקטגוריה.</td></tr>
+<tr><td><code>GET /groups/{group_id}/team_role</code><br><code>PUT …/team_role/permissions</code></td><td>ההרשאות שמעניק תפקיד קהילה.</td></tr>
+<tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>מבדק את כללי הלינקים האוטומטיים (autolink) של הקהילה על טקסט.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>מוריד את ההודעות של ערוץ כקובץ CSV (עד 50,000), עבור אנשים שיש להם הרשאה לקרוא את הערוץ.</td></tr>
+<tr><td><code>GET /posts/{post_id}/speech</code></td><td>ההודעה, כקובץ אודיו, כאשר מוגדר קריאת טקסט (text-to-speech).</td></tr>
+</tbody>
+</table>
+<h3>שדות חדשים</h3>
+<ul>
+<li><b>קהילות</b> (<code>Team</code>, ו-<code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (כל אדם חבר בכל ערוץ שהוא יכול לראות, כמו ב-Discord), <code>default_channel_id</code> (לאן נוחתים מתחילים; ערך ריק פירושו Town Square), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> ו-<code>autolinks</code> (שניהם מחרוזות JSON).</li>
+<li><b>תשובות מוטמעות</b>: פוסט עם <code>"props": {"reply_to": "&lt;post id&gt;"}</code> מצטט את ההודעה הזו מאותו ערוץ. הוספת <code>"reply_to_mention": false</code> מונעת שליחת התראה למחבר ההודעה המקורית. השרת ממלא את <code>metadata.reply_to</code> עם תיאור קצר של ההודעה המצוטטת.</li>
+<li><b>ספוילרים</b>: <code>"props": {"spoiler": true}</code> מסתיר את הטקסט והקבצים של פוסט עד שהקורא בוחר להציג אותם.</li>
+<li><b>התעלמות וחסימה</b> הן העדפות: קטגוריה <code>user_block</code>, ששמה מבוסס על מזהה האדם האחר, עם הערך <code>ignore</code> או <code>block</code>. האם הודעה ישירה ממתינה כבקשה נקבעת ב-<code>notify_props.dm_request</code> של חבר הערוץ שלך (<code>pending</code>, <code>accepted</code> או <code>dismissed</code>).</li>
+<li><b>קבצים מצורפים להודעות</b> יכולים להכיל <code>stages</code> ו-<code>chart</code>: ראו <a href="{{root}}docs/developers/webhooks.html#cards">כרטיסים</a>.</li>
+</ul>

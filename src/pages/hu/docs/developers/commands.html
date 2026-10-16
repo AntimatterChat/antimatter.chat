@@ -1,0 +1,122 @@
+title: Perjeles parancsok
+description: Egyedi perjeles parancsok az Antimatterben: létrehozásuk, a szolgálatod által fogadott kérés, a válasz formátuma, ideiglenes és csatornabeli válaszok, késleltetett válaszok és automatikus kiegészítés.
+guide: developers
+order: 4
+nav: Perjeles parancsok
+lead: Az egyedi perjeles parancs lehetővé teszi, hogy a felhasználók a /something formában írjanak a bejegyzésmezőbe, hogy meghívják a szolgálatod. Az Antimatter elküldi a parancsot a megadott URL-re, és megjeleníti a választ, akár csak a felhasználó számára, akár a teljes csatorna számára.
+source: 24dbc9730e62
+---
+<h2 id="how">Hogyan működik a perjeles parancs</h2>
+<ol>
+<li>Valaki beírja a <code>/weather Paris</code> parancsot, és elküldi. A szöveg nem kerül bejegyzésként a csatornába.</li>
+<li>Az Antimatter HTTP-kérést küld a parancs URL-ére, amely tartalmazza, ki írta, hol, és mi a szöveg a parancs utáni részeként.</li>
+<li>A szolgálatod a kérés időtúllépési határideje (alapértelmezés szerint 30 másodperc) alatt válaszol egy üzenettel.</li>
+<li>Az Antimatter megjeleníti a választ: csak az adott felhasználó számára (ideiglenes) vagy a csatornában mindenki számára.</li>
+</ol>
+<p>A parancsok egy közösséghez tartoznak, és a parancs szava egyedi a közösségen belül. A beépített parancsok, mint például a <code>/join</code>, <code>/msg</code> vagy <code>/away</code> nem helyettesíthetők. Az alkalmazások (bővítmények) is regisztrálhatnak parancsokat; lásd: <a href="{{root}}docs/developers/apps.html#server">A szerverrész</a>.</p>
+
+<h2 id="create">Parancs létrehozása</h2>
+<p>Az egyéni perjeles parancsok alapértelmezés szerint engedélyezve vannak (<b>Engedélyezze az egyéni perjel parancsokat</b> a <b>Rendszerkonzol › Integrációk › Integrációkezelés</b> menüben, <code>ServiceSettings.EnableCommands</code>). A közösségi adminisztrátorok és a rendszeradminisztrátorok alapértelmezés szerint létrehozhatják őket.</p>
+<ol>
+<li>Nyissa meg az avatárját a jobb felső sarokban, majd válassza az <b>Integrációk › Perjeles parancsok</b>, és utána az <b>Perjel parancs hozzáadása</b> lehetőséget.</li>
+<li>Töltsd ki a <b>Cím</b> és a <b>Leírás</b> mezőket (ezek jelennek meg az integrációk oldalain).</li>
+<li>Adja meg a <b>Parancs kulcsszót</b>, perjel és szóköz nélkül, például <code>weather</code>.</li>
+<li>Adja meg a <b>Kérés URL</b> címet, és válassza a <b>Kérés módját</b>: <b>POST</b> (alapértelmezett) vagy <b>GET</b>.</li>
+<li>Szabadon választható a <b>Válasz felhasználónév</b> és a <b>Válasz ikon</b> beállítása. Ezeket csak akkor használja a rendszer, ha a szerver engedélyezi, hogy az integrációk felülírják a neveket és ikonokat (lásd: <a href="{{root}}docs/developers/webhooks.html#identity">Név és ikon</a>).</li>
+<li>Jelölje be az <b>Automatikus kitöltés</b> opciót, hogy a parancs megjelenjen a listában, amikor a felhasználók beírják a <code>/</code> jelet. Adjon meg egy <b>Automatikus kiegészítés tippet</b> (például az argumentumokat, mint <code>[city]</code>) és egy <b>Automatikus kiegészítés leírást</b>.</li>
+<li>Válaszd a <b>Mentés</b> lehetőséget, és másold ki a megjelenített tokent. A szolgálatod ezt használja annak ellenőrzésére, hogy a kérések a szerveredtől származnak.</li>
+</ol>
+<p>API-val: <code>POST /api/v4/commands</code> a következő testtel: <code>{"team_id", "trigger", "url", "method": "P", "display_name", "description", "auto_complete": true, "auto_complete_hint", "auto_complete_desc", "username", "icon_url"}</code>. A módszer értéke <code>P</code> a POST, vagy <code>G</code> a GET esetén. A <code>PUT /api/v4/commands/{command_id}/regen_token</code> új token kiállítására szolgál.</p>
+
+<h2 id="request">A szervered által fogadott kérés</h2>
+<p>A POST parancs formátumozott törzsként (<code>application/x-www-form-urlencoded</code>) küldi az adatokat, a GET parancs pedig ugyanazokat a mezőket a lekérdezési karakterláncban. A token az <code>Authorization: Token &lt;token&gt;</code> fejlécben is szerepel.</p>
+<table>
+<thead><tr><th>Mező</th><th>Érték</th></tr></thead>
+<tbody>
+<tr><td><code>token</code></td><td>A parancs tokenje. Minden kérésnél ellenőrizd.</td></tr>
+<tr><td><code>command</code></td><td>A parancs neve perjével, például <code>/weather</code>.</td></tr>
+<tr><td><code>text</code></td><td>A parancs utáni minden, például <code>Paris</code>.</td></tr>
+<tr><td><code>user_id</code>, <code>user_name</code></td><td>Ki futtatta.</td></tr>
+<tr><td><code>channel_id</code>, <code>channel_name</code></td><td>Hol futtatták.</td></tr>
+<tr><td><code>team_id</code>, <code>team_domain</code></td><td>A közösség azonosítója és URL-neve.</td></tr>
+<tr><td><code>root_id</code></td><td>Az üzenetszál, ha a parancs egy üzenetszál válaszmezőjében futott le.</td></tr>
+<tr><td><code>trigger_id</code></td><td>Lehetővé teszi, hogy a válasz párbeszédablakot nyisson (lásd: <a href="{{root}}docs/developers/bots.html#dialogs">Párbeszédablakok</a>). Csak rövid ideig érvényes.</td></tr>
+<tr><td><code>response_url</code></td><td>Egy URL, ahová később további válaszokat küldhetsz (lásd: <a href="#delayed">Késleltetett válaszok</a>).</td></tr>
+<tr><td><code>user_mentions</code>, <code>user_mentions_ids</code>, <code>channel_mentions</code>, <code>channel_mentions_ids</code></td><td>A szövegben említett személyek és nyílt csatornák, ha vannak ilyenek.</td></tr>
+</tbody>
+</table>
+<div class="callout">A szerver <b>Rendszer URL</b> értékének beállítva kell lennie, hogy az egyéni parancsok futtathatók legyenek: az Antimatter ebből állítja elő a <code>response_url</code> értékét.</div>
+
+<h2 id="response">A válasz</h2>
+<p>Válaszolj <code>200</code> státuszkóddal JSON formátumban (<code>Content-Type: application/json</code>):</p>
+<pre><code>{
+  "response_type": "in_channel",
+  "text": "Paris: 18 °C, light rain",
+  "attachments": []
+}</code></pre>
+<table>
+<thead><tr><th>Mező</th><th>Jelentés</th></tr></thead>
+<tbody>
+<tr><td><code>response_type</code></td><td><code>ephemeral</code> (alapérték): csak az a személy látja a választ, aki a parancsot futtatta, és újratöltés után nem marad meg. <code>in_channel</code>: a válasz a csatornába kerül.</td></tr>
+<tr><td><code>text</code>, <code>attachments</code></td><td>Az üzenet, webhookokhoz hasonlóan: Markdown szöveg és <a href="{{root}}docs/developers/webhooks.html#attachments">csatolmányok</a>, gombok és menük.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code></td><td>A megjelenítendő név és kép, ha a felülírások engedélyezettek. A parancs saját beállításai ezeket felülbírálják.</td></tr>
+<tr><td><code>channel_id</code></td><td>A válasz más csatornába küldése, amelynek tagja kell, hogy legyen a felhasználó.</td></tr>
+<tr><td><code>goto_location</code></td><td>Egy URL, amely a parancs lefuttatása után megnyílik.</td></tr>
+<tr><td><code>props</code>, <code>type</code></td><td>További tulajdonságok és egyedi bejegyzéstípus, webhookokhoz hasonlóan.</td></tr>
+<tr><td><code>extra_responses</code></td><td>További válaszok, mindegyik ugyanazokkal a mezőkkel, az első után megjelenítve.</td></tr>
+<tr><td><code>skip_slack_parsing</code></td><td>A <code>true</code> érték a szöveget változatlanul hagyja, nem konvertálja a Slack-stílusú hivatkozásokat és említéseket.</td></tr>
+</tbody>
+</table>
+<p>A nem JSON formátumú válasz egy ideiglenes üzenetként jelenik meg, a törzs szövegével. A <code>204 No Content</code> státusz nem jelenít meg semmit. A 200–299-en kívüli bármely státuszkód hibát jelez a felhasználónak.</p>
+
+<h2 id="example">Példa szerver</h2>
+<p>Egy minimális parancsszerver Pythonban, csak a standard könyvtárral:</p>
+<pre><code>import hmac
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
+
+TOKEN = "the token shown when you saved the command"
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        form = {key: values[0] for key, values in parse_qs(body).items()}
+        if not hmac.compare_digest(form.get("token", ""), TOKEN):
+            self.send_response(401)
+            self.end_headers()
+            return
+        answer = {
+            "response_type": "ephemeral",
+            "text": f"Hello @{form['user_name']}, you asked for: {form.get('text', '')}",
+        }
+        data = json.dumps(answer).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(data)
+
+HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()</code></pre>
+<p>Ha a szolgáltatás egy privát hálózati címen fut, a rendszeradminisztrátor engedélyeznie kell azt a <b>Nem megbízható belső kapcsolatok engedélyezése ide</b> beállításban (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>).</p>
+
+<h2 id="delayed">Késleltetett válaszok</h2>
+<p>Ha a munka hosszabb ideig tart, mint a időtúllépési határ, azonnal adjon választ (például egy ideiglenes „Foglalkozom vele…” üzenettel), majd küldje el a valódi választ a <code>response_url</code> címre. Ugyanazt a JSON-t várja, mint a válasz, és a parancs kiadásától számított 30 percen belül legfeljebb 5 alkalommal használható.</p>
+<pre><code>curl -X POST "$RESPONSE_URL" -H 'Content-Type: application/json' \
+  -d '{"response_type": "in_channel", "text": "Report ready: https://reports.example.com/42"}'</code></pre>
+
+<h2 id="run">Parancs futtatása a API-val</h2>
+<p>A szkriptek és botok bármely parancsot, beépítettet vagy egyébit, úgy futtathatnak, mintha beírták volna:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/commands/execute \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "command": "/weather Paris"}'</code></pre>
+<p>A <code>GET /api/v4/teams/{team_id}/commands/autocomplete</code> felsorolja azokat a parancsokat, amelyeket a felhasználók befejezhetnek egy közösségben.</p>
+
+<h2 id="autocomplete">Befejezés</h2>
+<p>Az integrációs oldalakon létrehozott parancsok a kiváltó szavukkal, utalásukkal és leírásukkal fejeződnek be. Az alkalmazások által regisztrált parancsok részletesen leírhatják alkomandusaikat és argumentumaikat a <code>AutocompleteData</code> segítségével, a <code>model.NewAutocompleteData(trigger, hint, helpText)</code> függvényt használva:</p>
+<ul>
+<li>A <code>AddCommand(sub)</code> hozzáad egy alkomandust, amely szintén egy <code>AutocompleteData</code>.</li>
+<li>A <code>AddTextArgument(helpText, hint, pattern)</code> szabad szöveget ad hozzá.</li>
+<li>A <code>AddStaticListArgument(helpText, required, items)</code> egy rögzített <code>AutocompleteListItem{Item, Hint, HelpText}</code> listát kínál.</li>
+<li>A <code>AddDynamicListArgument(helpText, url, required)</code> az alkalmazástól kér javaslatokat, amíg a felhasználó gépel. Az URL az alkalmazás egy útvonala, például <code>/plugins/com.example.weather/cities</code>. Megkapja a felhasználót, a csatornát és a közösséget, és egy <code>{"Item", "Hint", "HelpText"}</code> JSON listát ad vissza.</li>
+</ul>
+<p>A <code>Named…</code> változatok (<code>AddNamedTextArgument</code> és mások) <code>--name value</code> kapcsolókat adnak hozzá. Mindkét webes felület megjeleníti ezeket a javaslatokat.</p>

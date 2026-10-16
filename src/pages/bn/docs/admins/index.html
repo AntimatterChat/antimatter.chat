@@ -1,0 +1,75 @@
+title: সার্ভার চালনা
+description: যে সিস্টেম অ্যাডমিনস Antimatter ইনস্টল এবং চালান তাদের জন্য গাইড: একটি ডিপ্লয়মেন্ট কী কী নিয়ে গঠিত, কী কী প্রয়োজন এবং কোথা থেকে শুরু করবেন।
+guide: admins
+order: 1
+nav: সারসংক্ষেপ
+lead: এই গাইডটি Antimatter সার্ভার ইনস্টল এবং চালানোর জন্য সিস্টেম অ্যাডমিনসদের জন্য। এটি ধরে নেয় যে আপনি Linux, Docker এবং রিভার্স প্রক্সি সম্পর্কে জানেন, কিন্তু Antimatter সম্পর্কে জানেন না।
+source: bf9ad573ed07
+---
+<h2 id="parts">ডিপ্লয়মেন্টের উপাদানসমূহ</h2>
+<p>Antimatter একটি সেলফ-হোস্টেড টিম চ্যাট, Mattermost-এর একটি ফর্ক। একটি সম্পূর্ণ ডিপ্লয়মেন্টে এই অংশগুলো রয়েছে। শুধুমাত্র প্রথম তিনটি আবশ্যক।</p>
+<table>
+<thead><tr><th>অংশ</th><th>এটি কী করে</th><th>আবশ্যক</th></tr></thead>
+<tbody>
+<tr><td><b>Antimatter সার্ভার</b></td><td>একটি Go প্রোগ্রাম (<code>antimatter</code>) যা পোর্ট 8065-এ ওয়েব অ্যাপ, API এবং ওয়েবসকেট পরিবেশন করে, বান্ডল করা অ্যাপস (প্লাগইন) চালায় এবং পোর্ট 8443-এ কলের মিডিয়া বহন করে। কমান্ড-লাইন টুল <code>amctl</code> এর মাধ্যমে এটি পরিচালনা করা হয়।</td><td>হ্যাঁ</td></tr>
+<tr><td><b>PostgreSQL</b></td><td>ডাটাবেস: মেসেজ, ব্যবহারকারী, কমিউনিটি এবং, সুপারিশকৃত সেটআপে, সার্ভারের কনফিগারেশন। ভার্সন 15 বা তার পরের।</td><td>হ্যাঁ</td></tr>
+<tr><td><b>ফাইল স্টোরেজ</b></td><td>আপলোড করা ফাইল, ছবি এবং ইনস্টল করা অ্যাপস: একটি S3-সম্পাতক সার্ভিস (কম্পোজ ফাইল RustFS চালায়), বা একটি লোকাল ডিরেক্টরি।</td><td>হ্যাঁ</td></tr>
+<tr><td><b>একটি রিভার্স প্রক্সি</b></td><td>সার্ভারের সামনে HTTPS: কম্পোজ ফাইলের Caddy প্রোফাইল, বা আপনার নিজের nginx।</td><td>প্রোডাকশনের জন্য</td></tr>
+<tr><td><b>GIF সার্ভিস</b> (<code>gifs-server</code>)</td><td>GIF পিকারের জন্য GIF এবং স্টিকার, আপনার নিজের ক্যাটালগ থেকে। এটি Tenor API ব্যবহার করে।</td><td>না</td></tr>
+<tr><td><b>একটি পুশ প্রক্সি</b></td><td>Apple এবং Google-এর মাধ্যমে মোবাইল অ্যাপে নোটিফিকেশনসমূহ ফরওয়ার্ড করে।</td><td>মোবাইল নোটিফিকেশনের জন্য</td></tr>
+<tr><td><b>rtcd</b>, <b>একটি TURN সার্ভার</b></td><td>অনেক কলের জন্য একটি আলাদা মিডিয়া সার্ভার, এবং কঠোর ফায়ারওয়ালের পেছনে থাকা মানুষদের জন্য একটি রিলে।</td><td>না</td></tr>
+<tr><td><b>AI এন্ডপয়েন্টস</b></td><td>AI এজেন্ট, কল ট্রান্সক্রিপশন, রিড-আলাউড এবং ট্রান্সলেশনের পেছনের মডেল: একটি ক্লাউড প্রোভাইডার বা আপনি যে সার্ভার চালাচ্ছেন।</td><td>না</td></tr>
+</tbody>
+</table>
+<p>Antimatter-এ কোনো লাইসেন্স বা পেইড এডিশন নেই: সিঙ্গেল সাইন-অন, LDAP, হাই অ্যাভেইলেবিলিটি, কমপ্লায়েন্স এক্সপোর্ট, ডাটা রিটেনশন এবং Mattermost-এর পেইড প্ল্যানের জন্য সংরক্ষিত অন্যান্য ফিচারসমূহ সবই অন্তর্ভুক্ত।</p>
+
+<h2 id="requirements">প্রয়োজনীয়তা</h2>
+<ul>
+<li>একটি Linux সার্ভার, <code>amd64</code> বা <code>arm64</code>, কয়েকশো মানুষের জন্য 2টি CPU কোর এবং 4 GB মেমরি বা তার বেশি, এবং মানুষেরা যে ফাইলগুলো আপলোড করবে তার জন্য ডিস্ক স্পেস।</li>
+<li>সুপারিশকৃত ইনস্টলেশনের জন্য Docker Engine Compose প্লাগইন (<code>docker compose</code>) সহ।</li>
+<li>প্রোডাকশনের জন্য: সার্ভারের দিকে ইঙ্গিতকারী একটি ডোমেইন নাম, এবং HTTPS-এর জন্য পোর্ট 80 এবং 443 খোলা।</li>
+<li>কলের জন্য: পোর্ট 8443, UDP এবং TCP, যে মানুষেরা কল করবে তাদের কাছে পৌঁছানো যায় এমন।</li>
+<li>ইমেইলের জন্য: একটি SMTP সার্ভার যার মাধ্যমে Antimatter পাঠাতে পারে।</li>
+</ul>
+
+<h2 id="quick-start">দ্রুত শুরু</h2>
+<pre><code>mkdir antimatter &amp;&amp; cd antimatter
+curl -fsSLO https://antimatter.chat/compose.yaml
+cat &gt; .env &lt;&lt;EOF
+SITE_URL=http://localhost:8065
+POSTGRES_PASSWORD=$(openssl rand -hex 24)
+S3_SECRET_KEY=$(openssl rand -hex 24)
+GIFS_API_KEY=$(openssl rand -hex 24)
+EOF
+docker compose up -d</code></pre>
+<p>তারপর সাইটের URL-এ যান এবং আপনার অ্যাকাউন্ট তৈরি করুন: প্রথম অ্যাকাউন্টটি সিস্টেম অ্যাডমিন হিসেবে কাজ করবে। <a href="{{root}}docs/admins/install.html">ইনস্টল করা</a> প্রতিটি ধাপ এবং ইনস্টল করার অন্যান্য উপায় ব্যাখ্যা করে।</p>
+
+<h2 id="in-this-guide">এই গাইডে</h2>
+<ul>
+<li><a href="{{root}}docs/admins/install.html">ইনস্টল করা</a>: Docker Compose, ইমেজ, রিলিজ আর্কাইভ, প্রথম অ্যাডমিন।</li>
+<li><a href="{{root}}docs/admins/configuration.html">কনফিগারেশন</a>: ডাটাবেস বা ফাইলে সেটিংস, <code>AM_</code> এনভাইরনমেন্ট ভেরিয়েবল, সিস্টেম কনসোল, <code>amctl</code>, লগ।</li>
+<li><a href="{{root}}docs/admins/https.html">ডোমেইন এবং HTTPS</a>: সাইটের URL, Caddy, nginx, ক্লায়েন্ট ঠিকানা।</li>
+<li><a href="{{root}}docs/admins/calls.html">কল এবং ভয়েস</a>: পোর্ট, NAT, TURN, rtcd, ট্রান্সক্রিপশন এবং ক্যাপশন।</li>
+<li><a href="{{root}}docs/admins/email-push.html">ইমেইল এবং পুশ</a>: SMTP, পুশ প্রক্সি এবং মোবাইল অ্যাপ।</li>
+<li><a href="{{root}}docs/admins/apps.html">বান্ডল অ্যাপ</a>: কোন অ্যাপ চালু আছে, তাদের সেটিংস, অন্য অ্যাপ ইনস্টল করা।</li>
+<li><a href="{{root}}docs/admins/ai.html">AI</a>: এজেন্ট, ভাষা এবং অনুবাদ মডেল, এবং কোন ডেটা কোথায় যায়।</li>
+<li><a href="{{root}}docs/admins/authentication.html">সাইন-ইন এবং অ্যাকাউন্ট</a>: সাইন-আপ, পাসওয়ার্ড, MFA, সিঙ্গেল সাইন-অন, LDAP, অতিথি, সেশন।</li>
+<li><a href="{{root}}docs/admins/backups-upgrades.html">ব্যাকআপ এবং আপগ্রেড</a>: ব্যাকআপ, রিস্টোর, আপগ্রেড, Mattermost থেকে সরানো।</li>
+<li><a href="{{root}}docs/admins/operations.html">অপারেশনস</a>: মনিটরিং, স্কেলিং, ডেটা রিটেনশন, কমপ্লায়েন্স, ট্রাবলশুটিং।</li>
+<li><a href="{{root}}docs/admins/security.html">সিকিউরিটি</a>: হার্ডেনিং চেকলিস্ট এবং বাইরের সংযোগ।</li>
+</ul>
+<p>সার্ভারের পরিবর্তে কমিউনিটি পরিচালনা (চ্যানেল, রোল, মডারেশন)? দেখুন <a href="{{root}}docs/communities/index.html">কমিউনিটি পরিচালনা</a>। ইন্টিগ্রেশন তৈরি করছেন? দেখুন <a href="{{root}}docs/developers/index.html">Antimatter-এ তৈরি করা</a>।</p>
+
+<h2 id="first-hour">আপনার প্রথম ঘণ্টা</h2>
+<ol>
+<li>ইনস্টল করুন এবং সাথে সাথে অ্যাডমিন অ্যাকাউন্ট তৈরি করুন।</li>
+<li>সার্ভারটি HTTPS-এর পেছনে নিজস্ব ডোমেইনে রাখুন।</li>
+<li>SMTP কনফিগার করুন এবং একটি টেস্ট ইমেইল পাঠান।</li>
+<li>কল পোর্ট খুলুন এবং কল অ্যাপের টেস্ট মোড বন্ধ করুন।</li>
+<li>নির্ধারণ করুন কে সাইন-আপ করতে পারবে, এবং MFA চালু করুন।</li>
+<li><a href="{{root}}docs/admins/security.html#outbound">সিকিউরিটি</a>-তে বাইরের সংযোগগুলো পরীক্ষা করুন।</li>
+<li>দৈনিক ব্যাকআপ সেটআপ করুন।</li>
+</ol>
+
+<h2 id="help">সাহায্য নেওয়া</h2>
+<p>প্রশ্ন করুন <a href="https://github.com/AntimatterChat/community/discussions">কমিউনিটি ডিসকাসনস</a>-এ, এবং <a href="https://github.com/AntimatterChat/community/issues/new/choose">কমিউনিটি রিপোজিটরি</a>-তে বাগ রিপোর্ট করুন। নিরাপত্তা সংক্রান্ত সমস্যাগুলো <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">নিরাপত্তা নীতি</a>-তে বর্ণিত অনুযায়ী গোপনে রিপোর্ট করুন।</p>

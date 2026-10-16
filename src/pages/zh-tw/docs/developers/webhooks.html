@@ -1,0 +1,170 @@
+title: Webhook
+description: Antimatter 的傳入與傳出 Webhook：建立方式、負載與回應、訊息附件與卡片、覆寫名稱與圖示，並附上範例。
+guide: developers
+order: 3
+nav: Webhook
+lead: 傳入 Webhook 讓其他系統透過向特定 URL 傳送 JSON 來向頻道發布訊息。傳出 Webhook 則相反：它將以觸發詞開頭的訊息傳送至您的 URL，並發布您回覆的內容。
+source: ecd698619944
+---
+<h2 id="where">管理 Webhook 的位置</h2>
+<p>開啟右上角的個人頭像，然後選擇<b>整合</b>。目前社群的整合頁面列出<b>送入的 Webhook</b>和<b>寄出的 Webhook</b>。每個 Webhook 都屬於一個社群。</p>
+<p>By default, community admins and system admins can create webhooks. A system admin can give the right to other roles in the permission settings of the System Console. A system admin can also turn each kind off in <b>System Console › Integrations › Integration Management</b>: <b>Enable Incoming Webhooks</b> and <b>Enable Outgoing Webhooks</b> are both on by default.</p>
+<figure><img src="{{root}}assets/img/shots/integrations.webp" alt="A channel with messages from a CI bot and from GitHub, shown as cards with fields, pipeline stages and a button"><figcaption>以卡片形式呈現的整合訊息：欄位、管線階段與操作按鈕。</figcaption></figure>
+
+<h2 id="incoming">建立傳入 Webhook</h2>
+<ol>
+<li>在<b>整合</b>中，選擇<b>送入的 Webhook</b>，然後選擇<b>新增送入的 Webhook</b>。</li>
+<li>填寫<b>標題</b>和<b>敘述</b>：這些資訊僅顯示在整合頁面上。</li>
+<li>選擇訊息預設要發送的<b>頻道</b>。如果是私人頻道，您必須是該頻道的成員。</li>
+<li>如果發送者不應能發布到其他位置，請勾選<b>鎖定至此頻道</b>。</li>
+<li>選填其訊息的<b>使用者名稱</b>和<b>大頭貼</b>網址（請參閱<a href="#identity">名稱與圖示</a>）。</li>
+<li>選擇<b>儲存</b>。複製顯示的 URL：<code>https://chat.example.com/hooks/&lt;key&gt;</code>。</li>
+</ol>
+<div class="callout warn">URL 是唯一的機密：任何擁有它的人都可以向該頻道發布訊息。請不要將其放入公開儲存庫，若洩漏請刪除該 Webhook。</div>
+<p>使用 API：<code>POST /api/v4/hooks/incoming</code>，搭配 <code>{"channel_id", "display_name", "description", "username", "icon_url", "channel_locked"}</code>；回應中的 <code>id</code> 即為金鑰。從命令列：<code>amctl webhook create-incoming --channel &lt;channel id&gt; --user &lt;user&gt; --display-name "CI"</code>。</p>
+
+<h2 id="incoming-send">向傳入 Webhook 發送訊息</h2>
+<pre><code>curl -X POST https://chat.example.com/hooks/xgh5ycrx1jf7mbs9w8z4c8e7ho \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Deploy of **api 2.4.0** finished :white_check_mark:"}'</code></pre>
+<p>伺服器會以 <code>200</code> 回應，內容為 <code>ok</code>。它也接受 <code>application/x-www-form-urlencoded</code>，將 JSON 放在 <code>payload</code> 欄位中，就像 Slack 的 Webhook 一樣，因此為 Slack 打造的工具通常可以不加修改直接使用。</p>
+<table>
+<thead><tr><th>欄位</th><th>意義</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>以 Markdown 格式撰寫的訊息內容。除非包含 <code>attachments</code>，否則此欄位為必填。若文字長度超過伺服器的訊息限制，將被拆分為多則訊息。</td></tr>
+<tr><td><code>channel</code></td><td>Webhook 所在社群的另一個頻道，以名稱指定（<code>ops-alerts</code> 或 <code>#ops-alerts</code>），或指定 <code>@username</code> 以發送來自 Webhook 擁有者的私人訊息。若 Webhook 已鎖定至特定頻道，則此請求將被拒絕。</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code>, <code>icon_emoji</code></td><td>要顯示的名稱與圖片，前提是伺服器允許覆寫。</td></tr>
+<tr><td><code>attachments</code></td><td>訊息附件，將以卡片形式呈現（見下方）。</td></tr>
+<tr><td><code>props</code></td><td>儲存在訊息上的額外屬性，供應用程式讀取。</td></tr>
+<tr><td><code>type</code></td><td>自訂的貼文類型，例如 <code>custom_poll</code>，供特定應用程式繪製。以 <code>system_</code> 開頭的類型將被拒絕。</td></tr>
+<tr><td><code>root_id</code></td><td>討論串第一則訊息的 ID，用於在該討論串中回覆。</td></tr>
+<tr><td><code>priority</code></td><td>訊息優先順序，例如 <code>{"priority": "urgent"}</code>。</td></tr>
+<tr><td><code>silent</code></td><td>設定為 <code>true</code> 時，將發送訊息但不觸發推送通知。</td></tr>
+</tbody>
+</table>
+<p>顯示在覆寫名稱下的訊息旁邊會帶有<b>機器人</b>標籤，以便使用者將其與真實帳號區分。Webhook 訊息不會觸發寄出的 Webhook。</p>
+
+<h2 id="identity">名稱與圖示</h2>
+<p>Webhook 會以建立者的身分發文，除非伺服器允許覆寫。<b>系統控制台 › 整合 › 整合管理</b> 中有兩項設定可變更此行為，兩者預設皆為關閉：</p>
+<ul>
+<li><b>允許外部整合功能覆寫使用者名稱</b>（<code>ServiceSettings.EnablePostUsernameOverride</code>）：將顯示 Webhook 的<b>使用者名稱</b>或請求中的<code>username</code>；若兩者皆無，則名稱顯示為<code>webhook</code>。</li>
+<li><b>允許外部整合功能覆寫大頭貼</b>（<code>ServiceSettings.EnablePostIconOverride</code>）：將顯示 Webhook 的<b>大頭貼</b>，或請求中的<code>icon_url</code>或<code>icon_emoji</code>。</li>
+</ul>
+<p>請求中的值優先於儲存在 Webhook 上的值。</p>
+
+<h2 id="attachments">附件</h2>
+<p>附件會在文字下方新增結構化內容。其遵循 Slack 的訊息附件格式：</p>
+<pre><code>{
+  "text": "Build failed on `main`",
+  "attachments": [{
+    "fallback": "main #1902 failed",
+    "color": "#d24b4e",
+    "author_name": "GitHub Actions",
+    "author_icon": "https://chat.example.com/static/ci.png",
+    "title": "main #1902 failed",
+    "title_link": "https://ci.example.com/runs/1902",
+    "text": "Commit `0f4d8e2` by Jonas Weber",
+    "fields": [
+      {"title": "Branch", "value": "zephyr-3.7", "short": true},
+      {"title": "Duration", "value": "3m 40s", "short": true}
+    ],
+    "footer": "Lumen CI",
+    "ts": 1760000000
+  }]
+}</code></pre>
+<table>
+<thead><tr><th>欄位</th><th>意義</th></tr></thead>
+<tbody>
+<tr><td><code>fallback</code></td><td>純文字，用於無法顯示卡片的環境，例如通知。</td></tr>
+<tr><td><code>color</code></td><td>色彩欄：十六進位色彩值，或 <code>good</code>、<code>warning</code>、<code>danger</code>。</td></tr>
+<tr><td><code>pretext</code></td><td>卡片上方的文字。</td></tr>
+<tr><td><code>author_name</code>, <code>author_link</code>, <code>author_icon</code></td><td>小型標題列。</td></tr>
+<tr><td><code>title</code>, <code>title_link</code></td><td>卡片的標題，可選地作為連結。</td></tr>
+<tr><td><code>text</code></td><td>卡片的內容，以 Markdown 格式撰寫。</td></tr>
+<tr><td><code>fields</code></td><td><code>{"title", "value", "short"}</code> 的列表；<code>short</code> 欄位會並排顯示。</td></tr>
+<tr><td><code>image_url</code>, <code>thumb_url</code></td><td>下方大型圖片，或側邊小型圖片。</td></tr>
+<tr><td><code>footer</code>, <code>footer_icon</code>, <code>ts</code></td><td>頁尾列與時間（Unix 秒）。</td></tr>
+<tr><td><code>actions</code></td><td>按鈕與選單：請參閱 <a href="{{root}}docs/developers/bots.html#interactive">互動式訊息</a>。</td></tr>
+</tbody>
+</table>
+
+<h2 id="cards">卡片：階段與圖表</h2>
+<p>Antimatter 為附件新增兩個欄位，並由預設介面繪製：</p>
+<ul>
+<li><code>stages</code>：以膠囊樣式顯示管線的步驟，最多 20 個。每個步驟為 <code>{"name", "status"}</code>，狀態可為 <code>passed</code>、<code>failed</code>、<code>running</code>、<code>pending</code>、<code>skipped</code> 或 <code>canceled</code>。</li>
+<li><code>chart</code>：近期數值的迷你折線圖，<code>{"values": [2 to 200 numbers], "threshold": number, "label": "…"}</code>。閾值以虛線繪製，代表警報的限值。</li>
+</ul>
+<pre><code>{
+  "attachments": [{
+    "color": "danger",
+    "title": "main #1902 failed",
+    "stages": [
+      {"name": "build", "status": "failed"},
+      {"name": "unit", "status": "skipped"},
+      {"name": "publish", "status": "skipped"}
+    ]
+  }, {
+    "color": "warning",
+    "title": "API latency above 400 ms",
+    "chart": {"values": [210, 230, 260, 390, 450, 470], "threshold": 400, "label": "p95 latency, ms"}
+  }]
+}</code></pre>
+<p>傳統介面和其他用戶端會忽略這兩個欄位，因此請務必在 <code>text</code> 或 <code>fields</code> 中也包含必要資訊。</p>
+
+<h2 id="outgoing">建立傳出 Webhook</h2>
+<p>傳出 Webhook 會監控社群的<b>公開</b>頻道。當訊息的第一個字符合其中一個觸發詞時，Antimatter 會將該訊息傳送至您的 URL。</p>
+<ol>
+<li>在<b>整合</b>中，選擇<b>寄出的 Webhook</b>，然後選擇<b>增加寄出的 Webhook</b>。</li>
+<li>填寫<b>標題</b>和<b>敘述</b>。</li>
+<li>選擇請求的<b>內容類型</b>：<code>application/x-www-form-urlencoded</code> 或 <code>application/json</code>。</li>
+<li>選擇一個<b>頻道</b>，輸入<b>觸發關鍵字（每行一個）</b>，或兩者皆設。若設定頻道但未設定觸發關鍵字，該頻道的每則訊息都會被送出。若兩者皆設，訊息必須同時符合兩者。</li>
+<li>在<b>觸發於</b>下，選擇<b>首字完全和觸發關鍵字相符</b>或<b>首字以觸發關鍵字開頭</b>。</li>
+<li>輸入<b>Callback 網址（每行一個）</b>。每個網址都會收到所有符合條件的訊息。</li>
+<li>選填用於回覆的<b>使用者名稱</b>和<b>大頭貼</b>。</li>
+<li>選擇<b>儲存</b>並複製顯示的令牌。您的服務將使用此令牌來驗證請求是否來自您的伺服器。</li>
+</ol>
+<p>使用 API：<code>POST /api/v4/hooks/outgoing</code>，參數為 <code>{"team_id", "channel_id", "trigger_words", "trigger_when", "callback_urls", "content_type", "display_name"}</code>（<code>trigger_when</code>：0 代表完全符合，1 代表「以...開頭」）。</p>
+<div class="callout">如果您的服務位於私人網路中，系統管理員必須在<b>允許不受信任的內部連線連往</b>（<code>ServiceSettings.AllowedUntrustedInternalConnections</code>）中允許其位址。否則，伺服器不會呼叫私人位址。</div>
+
+<h2 id="outgoing-request">傳出請求</h2>
+<p>Antimatter 會傳送包含以下欄位的 POST 請求，根據內容類型以 JSON 或表單編碼格式傳送：</p>
+<pre><code>{
+  "token": "6kd1ofo5ojr5zgu5ipfipybgnc",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "channel_id": "…",
+  "channel_name": "ops-alerts",
+  "timestamp": 1760010000000,
+  "user_id": "…",
+  "user_name": "priya",
+  "post_id": "…",
+  "text": "deploy api 2.4.0",
+  "trigger_word": "deploy",
+  "file_ids": ""
+}</code></pre>
+<p>在執行任何操作之前，請先將 <code>token</code> 與 Webhook 的 token 進行比對。在表單編碼版本中，<code>timestamp</code> 以秒為單位，而非毫秒。伺服器會等待您的回應，時間長度以<b>整合請求超時</b>設定為準（預設為 30 秒，<code>ServiceSettings.OutgoingIntegrationRequestsTimeout</code>）。</p>
+
+<h2 id="outgoing-response">回覆傳出 Webhook</h2>
+<p>若要發布回覆，請以 JSON 格式回應。若要什麼都不發布，請以空內容回應。</p>
+<pre><code>{
+  "text": "Deploying **api 2.4.0** to staging…",
+  "response_type": "comment",
+  "username": "deploy-bot",
+  "icon_url": "https://chat.example.com/static/deploy.png"
+}</code></pre>
+<ul>
+<li><code>text</code> 與 <code>attachments</code>：即為回覆內容。若兩者皆無，則不會發布任何內容。</li>
+<li><code>response_type</code>：<code>comment</code> 會將回覆發布在觸發訊息的討論串中；否則會發布在頻道中。</li>
+<li><code>username</code>、<code>icon_url</code>：當伺服器允許覆寫時會顯示；否則會使用 Webhook 本身的值。</li>
+<li><code>props</code>、<code>type</code>、<code>priority</code>：與傳入 Webhook 相同。</li>
+</ul>
+<p>回覆會以 Webhook 建立者的身分發布，若存在覆寫名稱，則使用該名稱。若內容長於簡短回應，請立即回應，並稍後透過傳入 Webhook 或 API 發布。</p>
+
+<h2 id="troubleshooting">當 Webhook 無法運作時</h2>
+<ul>
+<li><b>Hook URL 回傳 501</b>：伺服器上的傳入 Webhook 已停用。</li>
+<li><b>400 "Failed to decode the payload…"</b>：JSON 無效，或表單欄位未命名為 <code>payload</code>。<b>"No text specified."</b> 表示請求中既沒有 <code>text</code> 也沒有 <code>attachments</code>。</li>
+<li><b>403</b>：Webhook 被鎖定在其他頻道，或其擁有者已無法讀取該頻道。</li>
+<li><b>傳出 Webhook 從未觸發</b>：頻道為私人頻道、觸發詞不是第一個字，或訊息來自 Webhook。</li>
+<li><b>日誌</b>：開啟 <b>啟用 Webhook 除錯</b>（<code>LogSettings.EnableWebhookDebugging</code>），並將日誌層級設為 <code>DEBUG</code>，伺服器會記錄失敗的傳入請求內容。失敗的傳出呼叫會記錄為 <code>Outgoing Webhook POST failed</code>。</li>
+</ul>

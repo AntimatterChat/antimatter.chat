@@ -1,0 +1,120 @@
+title: پیکربندی
+description: نحوه عملکرد پیکربندی Antimatter: تنظیمات در پایگاه داده یا در config.json، متغیرهای محیطی AM_، کنسول سیستم، ابزار خط فرمان amctl و محل یافتن لاگ‌ها.
+guide: admins
+order: 3
+nav: پیکربندی
+lead: محل نگهداری تنظیمات Antimatter، سه روش تغییر آن‌ها (کنسول سیستم، متغیرهای محیطی، amctl) و محل ذخیره لاگ‌ها.
+source: e2d6546121d3
+---
+<h2 id="where">محل نگهداری تنظیمات</h2>
+<p>هر تنظیم سرور نامی دارد که از یک بخش و یک کلید تشکیل شده، مانند <code>ServiceSettings.SiteURL</code> یا <code>EmailSettings.SMTPServer</code>. این دو با هم یک پیکربندی را تشکیل می‌دهند که در یکی از دو محل ذخیره می‌شود:</p>
+<ul>
+<li><b>در پایگاه داده.</b> فایل compose سایت مقدار <code>AM_CONFIG</code> را به URL اتصال PostgreSQL تنظیم می‌کند، بنابراین پیکربندی یک ردیف در پایگاه داده است و کانتینر چیزی روی دیسک نگه نمی‌دارد. چندین سرور که یک پایگاه داده را به اشتراک می‌گذارند، پیکربندی خود را نیز به اشتراک می‌گذارند.</li>
+<li><b>در یک فایل.</b> بدون <code>AM_CONFIG</code>، سرور فایل <code>config/config.json</code> را در کنار دایرکتوری <code>bin/</code> (در تصویر Docker در مسیر <code>/antimatter/config/config.json</code>) می‌خواند. آرشیو انتشار و فایل‌های compose تولیدی antimatter-docker به این شیوه کار می‌کنند. این فایل را فقط برای کاربر سرور خوانا نگه دارید: رمزهای عبور و کلیدها در آن نگهداری می‌شوند.</li>
+</ul>
+<p><code>AM_CONFIG</code> (یا پرچم <code>--config</code> دستور <code>antimatter</code>) می‌تواند یک مسیر فایل یا یک URL <code>postgres://</code> را بپذیرد. تنظیماتی که خالی بگذارید، مقدار پیش‌فرض خود را می‌گیرند.</p>
+<p>برای جابه‌جایی یک پیکربندی موجود از فایل به پایگاه داده، این دستور را روی سرور اجرا کنید، سپس سرور را با <code>AM_CONFIG</code> تنظیم‌شده روی همان URL راه‌اندازی کنید:</p>
+<pre><code>amctl --local config migrate /opt/antimatter/config/config.json \
+    "postgres://antimatter:PASSWORD@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10"</code></pre>
+
+<h2 id="environment">متغیرهای محیطی</h2>
+<p>هر تنظیمی می‌تواند به صورت یک متغیر محیطی نیز داده شود. متغیرها بر پیکربندی ذخیره‌شده اولویت دارند، بنابراین برای مواردی که به استقرار (deployment) تعلق دارند مناسب‌اند: پایگاه داده، URL سایت، ذخیره‌سازی فایل و پورت‌ها.</p>
+<h3>قانون نام‌گذاری</h3>
+<p>ابتدا <code>AM_</code> را بنویسید، سپس بخش، و سپس کلید را با حروف بزرگ و جدا شده با خط زیر. کلمات داخل نام بخش یا کلید جدا نمی‌شوند:</p>
+<table>
+<thead><tr><th>تنظیم</th><th>متغیر</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.SiteURL</code></td><td><code>AM_SERVICESETTINGS_SITEURL</code></td></tr>
+<tr><td><code>SqlSettings.DataSource</code></td><td><code>AM_SQLSETTINGS_DATASOURCE</code></td></tr>
+<tr><td><code>EmailSettings.SMTPServer</code></td><td><code>AM_EMAILSETTINGS_SMTPSERVER</code></td></tr>
+<tr><td><code>PrivacySettings.EnableUserBlocking</code></td><td><code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li>تنظیمات صحیح و نادرست (true/false) مقدار <code>true</code> یا <code>false</code> می‌گیرند؛ اعداد به صورت اعداد ساده هستند.</li>
+<li>تنظیمات فهرستی (List) مقادیر خود را با فاصله جدا می‌گیرند، برای مثال <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>.</li>
+<li>تنظیماتی که اشیاء (objects) هستند، JSON می‌گیرند. تنها متغیر محیطی از این نوع برای اپلیکیشن‌ها <code>AM_PLUGINSETTINGS_PLUGINS</code> است و تنظیمات <em>همه</em> اپلیکیشن‌ها را یکجا جایگزین می‌کند: به جای آن، تنظیمات اپلیکیشن‌ها را در کنسول سیستم یا با <code>amctl</code> تنظیم کنید (در ادامه).</li>
+<li>پیکربندی‌های قدیمی Mattermost از پیشوند <code>MM_</code> استفاده می‌کنند، برای مثال <code>MM_SQLSETTINGS_DATASOURCE</code>. این پیشوند همچنان به‌عنوان یک نام جایگزین قدیمی کار می‌کند. در صورتی که هر دو متغیر تنظیم شده باشند، متغیر <code>AM_</code> اولویت دارد.</li>
+</ul>
+<p>تنظیماتی که از طریق متغیر تعیین شده باشند، در کنسول سیستم قفل می‌شوند و با یادداشت «این تنظیم از طریق یک متغیر محیطی تعیین شده است. نمی‌توان آن را از طریق کنسول سیستم تغییر داد.» نمایش داده می‌شوند. این تنظیم به پیکربندی ذخیره‌شده نوشته نمی‌شود؛ متغیر را حذف کنید تا مقدار ذخیره‌شده دوباره اعمال شود.</p>
+<h3>با Docker Compose</h3>
+<p>متغیرها را در بخش <code>environment:</code> سرویس <code>antimatter</code> اضافه کنید، یا در یک فایل <code>compose.override.yaml</code> در کنار <code>compose.yaml</code> (Compose به‌طور خودکار آن را می‌خواند و در به‌روزرسانی‌های فایل دانلودشده باقی می‌ماند):</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_LOGSETTINGS_CONSOLELEVEL: INFO</code></pre>
+<p>تغییرات را با <code>docker compose up -d</code> اعمال کنید که کانتینر را دوباره ایجاد می‌کند.</p>
+<h3>متغیرهایی که توسط برنامه‌ها خوانده می‌شوند</h3>
+<p>چند برنامه متغیرهای خاص خود را که روی سرویس <code>antimatter</code> تنظیم شده‌اند، می‌خوانند: برنامه مکالمه‌ها <code>AM_CALLS_*</code> را می‌خواند (به <a href="{{root}}docs/admins/calls.html">مکالمه‌ها و صدا</a> مراجعه کنید) و برنامه GIFs <code>AM_GIFS_SERVICE_URL</code>، <code>AM_GIFS_API_KEY</code> و <code>AM_GIFS_UPLOAD_KEY</code> را می‌خواند (به <a href="{{root}}docs/admins/apps.html">برنامه‌های همراه</a> مراجعه کنید).</p>
+
+<h2 id="console">کنسول سیستم</h2>
+<p>کنسول سیستم بخش مدیریت اپلیکیشن وب برای مدیران سیستم است. برای باز کردن آن، روی عکس پروفایل خود کلیک کنید و <b>کنسول سیستم</b> را انتخاب کنید، یا به <code>https://chat.example.com/admin_console</code> بروید. نوار کناری آن یک جعبه <b>تنظیمات را پیدا کنید</b> دارد که در تمام صفحات جستجو می‌کند.</p>
+<figure><img src="{{root}}assets/img/shots/admin.webp" alt="The System Console, with its sidebar of sections on the left and the SAML 2.0 settings page on the right."><figcaption>کنسول سیستم. نوار کناری صفحات را در بخش‌هایی مانند گزارش نویسی، مدیریت کاربر و محیط گروه‌بندی می‌کند.</figcaption></figure>
+<p>بخش‌های آن عبارتند از:</p>
+<ul>
+<li><b>گزارش نویسی</b>: آمار و لاگ‌های سرور.</li>
+<li><b>مدیریت کاربر</b>: کاربران، گروه‌ها، جوامع (به‌عنوان تیم‌ها فهرست شده)، کانال‌ها، مجوزها و مدیریت تفویض‌شده.</li>
+<li><b>ویژگی‌های سیستم</b>: ویژگی‌های سفارشی پروفایل و دسترسی مبتنی بر ویژگی.</li>
+<li><b>محیط</b>: سرور وب، پایگاه داده، ذخیره‌سازی فایل، پروکسی تصویر، SMTP، اعلان‌های push، محدودیت نرخ، لاگ‌نویسی، مدت زمان نشست‌ها و پایش عملکرد.</li>
+<li><b>پیکربندی سایت</b>: برندینگ، کاربران و تیم‌ها، اعلان‌ها، پست‌ها، اشتراک‌گذاری فایل و سایر رفتارهای سراسری سرور.</li>
+<li><b>احراز هویت</b>: ثبت‌نام، ورود با ایمیل و رمز عبور، MFA، AD/LDAP، SAML 2.0، OAuth 2.0، OpenID Connect و دسترسی مهمان.</li>
+<li><b>پلاگین ها</b>: مدیریت برنامه‌ها و تنظیمات هر برنامه نصب‌شده.</li>
+<li><b>ادغام ها</b>: وب‌هوک‌ها، دستورات اسلش، حساب‌های ربات، GIFs، تبدیل متن به گفتار، CORS.</li>
+<li><b>انطباق</b>: نگهداری داده‌ها، خروجی انطباق و پایش، ثبت رویدادهای ممیزی، و شرایط استفاده سفارشی.</li>
+<li><b>تجربی</b>: ویژگی‌هایی که ممکن است تغییر کنند.</li>
+</ul>
+<p>در این راهنما، هر تنظیم به‌صورت مسیر آن در کنسول سیستم، سپس برچسب آن، و در نهایت کلید پیکربندی نوشته می‌شود؛ برای مثال <b>کنسول سیستم › پیکربندی سایت › کاربران و تیم ها › فعال‌سازی نادیده‌گرفتن، مسدودسازی و درخواست پیام</b> (<code>PrivacySettings.EnableUserBlocking</code>).</p>
+<p>بیشتر تغییرات به‌محض کلیک روی <b>صرفه جویی</b> اعمال می‌شوند. برخی از تنظیمات (مانند آدرس گوش‌دهی، برخی تنظیمات پایگاه داده و کش) به راه‌اندازی مجدد نیاز دارند و صفحه مربوطه این نکته را ذکر می‌کند.</p>
+
+<h2 id="amctl">ابزار خط فرمان amctl</h2>
+<p><code>amctl</code> سرور را از خط فرمان مدیریت می‌کند: کاربران، جوامع، کانال‌ها، برنامه‌ها، پیکربندی، وظایف و موارد دیگر. این ابزار به یکی از دو روش با سرور ارتباط برقرار می‌کند.</p>
+<h3>حالت محلی، روی سرور</h3>
+<p>حالت محلی به <code>amctl</code> اجازه می‌دهد بدون نیاز به ورود، از طریق یک سوکت یونیکس با سرور ارتباط برقرار کند. این حالت در تصویر Docker فعال است. روی سرورهایی که از آرشیو نصب شده‌اند، می‌توانید آن را با <b>ServiceSettings.EnableLocalMode</b> (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>) فعال کنید. سوکت به‌طور پیش‌فرض در <code>/var/tmp/antimatter_local.socket</code> قرار دارد (<code>ServiceSettings.LocalModeSocketLocation</code>).</p>
+<pre><code># with Docker Compose
+docker compose exec antimatter amctl --local system status
+# with a release archive
+sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code></pre>
+<div class="callout warn">هر کس که بتواند از سوکت استفاده کند یا دستور <code>docker compose exec</code> را روی میزبان اجرا کند، دسترسی کامل مدیر سیستم را دارد.</div>
+<h3>دورانی، با یک حساب کاربری</h3>
+<p>از هر دستگاهی، با یک حساب مدیر سیستم (یا یک توکن دسترسی شخصی) وارد شوید، سپس دستورات را روی آن سرور اجرا کنید:</p>
+<pre><code>amctl auth login https://chat.example.com --name prod --username admin
+amctl system status</code></pre>
+<h3>دستورات پیکربندی</h3>
+<table>
+<thead><tr><th>دستور</th><th>عملکرد</th></tr></thead>
+<tbody>
+<tr><td><code>amctl config get ServiceSettings.SiteURL</code></td><td>یک تنظیم را چاپ می‌کند.</td></tr>
+<tr><td><code>amctl config set TeamSettings.EnableOpenServer false</code></td><td>یک تنظیم را تغییر می‌دهد. تنظیمات فهرستی چند مقدار می‌پذیرند.</td></tr>
+<tr><td><code>amctl config patch settings.json</code></td><td>یک فایل JSON شامل تنظیمات را با پیکربندی ادغام می‌کند.</td></tr>
+<tr><td><code>amctl config show</code></td><td>کل پیکربندی را به‌صورت JSON چاپ می‌کند.</td></tr>
+<tr><td><code>amctl config edit</code></td><td>پیکربندی را در ویرایشگر شما (<code>$EDITOR</code>) باز می‌کند.</td></tr>
+<tr><td><code>amctl config reset</code></td><td>تنظیمات را به مقادیر پیش‌فرض بازمی‌گرداند.</td></tr>
+<tr><td><code>amctl config reload</code></td><td>پیکربندی را از محل ذخیره‌سازی بارگذاری مجدد می‌کند، پس از تغییری که خارج از سرور انجام شده است.</td></tr>
+</tbody>
+</table>
+<p>تنظیمات برنامه‌ها زیر <code>PluginSettings.Plugins.&lt;app id&gt;</code> قرار دارند و کلیدها با حروف کوچک نوشته می‌شوند. برای مثال، برای تنظیم آدرس سرویس و کلید برنامه GIFs از میزبان Docker:</p>
+<pre><code>docker compose exec -T antimatter amctl --local config patch /dev/stdin &lt;&lt;'EOF'
+{"PluginSettings": {"Plugins": {"com.antimatterchat.gifs": {
+  "serviceurl": "http://gifs:8080/v2",
+  "apikey": "the GIFS_API_KEY of your .env"
+}}}}
+EOF</code></pre>
+<p>دستورات مفید دیگر: <code>amctl user create</code>، <code>amctl user deactivate</code>، <code>amctl team create</code>، <code>amctl plugin list</code>، <code>amctl plugin enable</code>، <code>amctl system supportpacket</code> و <code>amctl logs</code>. برای مشاهده گزینه‌های هر دستور، <code>amctl help &lt;command&gt;</code> را اجرا کنید.</p>
+
+<h2 id="logs">لاگ‌ها</h2>
+<p>سرور گزارش‌های خود را در دو مکان می‌نویسد؛ هر کدام دارای سطح اختصاصی (<code>DEBUG</code>، <code>INFO</code>، <code>WARN</code> یا <code>ERROR</code>) است که در <b>کنسول سیستم › محیط › ورود به سیستم</b> تنظیم می‌شود:</p>
+<table>
+<thead><tr><th>مقصد</th><th>تنظیمات</th><th>مقادیر پیش‌فرض</th></tr></thead>
+<tbody>
+<tr><td>کنسول (خروجی استاندارد)</td><td><b>گزارش های خروجی به کنسول</b> (<code>LogSettings.EnableConsole</code>)، <b>سطح گزارش کنسول</b> (<code>LogSettings.ConsoleLevel</code>)، <b>گزارش های کنسول خروجی به صورت JSON</b> (<code>LogSettings.ConsoleJson</code>)</td><td>روشن، <code>DEBUG</code>، JSON</td></tr>
+<tr><td>فایل، <code>antimatter.log</code></td><td><b>خروجی گزارش‌ها به فایل</b> (<code>LogSettings.EnableFile</code>)، <b>سطح گزارش فایل</b> (<code>LogSettings.FileLevel</code>)، <b>پوشه ردپای پرونده‌ها</b> (<code>LogSettings.FileLocation</code>)</td><td>روشن، <code>INFO</code>، پوشه <code>logs/</code> در کنار <code>bin/</code></td></tr>
+</tbody>
+</table>
+<p>فایل‌های گزارش در ۱۰۰ مگابایت چرخش داده می‌شوند و فایل‌های قدیمی فشرده می‌شوند.</p>
+<p>فایل compose سایت، گزارش‌دهی فایل را غیرفعال می‌کند (<code>AM_LOGSETTINGS_ENABLEFILE=false</code>)، بنابراین گزارش‌ها فقط در خروجی کانتینر موجود هستند:</p>
+<pre><code>docker compose logs -f antimatter
+docker compose logs --since 1h antimatter | grep -i error</code></pre>
+<p>سطح کنسول به‌طور پیش‌فرض <code>DEBUG</code> است که بسیار پرحاشیه است. روی سرورهای شلوغ، <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code> را تنظیم کنید. در صورت استفاده از آرشیو ریلیز تحت systemd، خروجی کنسول به ژورنال (<code>journalctl -u antimatter</code>) و فایل به <code>/opt/antimatter/logs/antimatter.log</code> می‌رود.</p>
+<p>هنگامی که گزارش‌دهی فایل فعال است، مدیران سیستم می‌توانند آخرین خطوط گزارش را در <b>کنسول سیستم › گزارش نویسی › گزارش های سرور</b> یا با دستور <code>amctl logs</code> بخوانند.</p>

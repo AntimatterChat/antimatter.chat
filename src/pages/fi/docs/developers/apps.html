@@ -1,0 +1,313 @@
+title: Sovellusten (liitännäisten) kirjoittaminen
+description: Antimatter-sovelluksen (liitännäisen) kirjoittaminen: pakettirakenne ja plugin.json, palvelimen koukut ja API, web-sovelluksen rekisteri, Fusion-käyttöliittymän tuki, asetukset, avain-arvo-tallennus, käännökset, pakkaaminen ja asennus.
+guide: developers
+order: 6
+nav: Sovellusten kirjoittaminen
+lead: Sovellukset lisäävät Antimatteriin toiminnallisuutta sisältä: Go-kielinen palvelinosa, joka kytketään palvelimeen, ja React-kielinen web-sovellusosa, joka lisää valikot, paneelit, viestityypit ja sivut. Tässä sivussa näytetään sovelluksen rakenne käyttäen mukana toimitettavaa Kyselyt-sovellusta esimerkkinä, ja mitä muutoksia Antimatterin Fusion-käyttöliittymässä tapahtuu.
+source: d9c132cac759
+---
+<h2 id="overview">Sovelluksen toimintaperiaate</h2>
+<ul>
+<li><b>Palvelinosa</b> on Go-ohjelma. Palvelin käynnistää sen erillisenä prosessina ja kommunikoi sen kanssa RPC:n kautta: se kutsuu sovelluksen <b>koukuja</b> (viesti on postitumassa, komento suoritettiin…) ja sovellus kutsuu palvelimen <b>liitännäis-API:ta</b> (luo viesti, lue käyttäjä, tallenna dataa…). Se voi myös palvella HTTP-reittejä polulla <code>/plugins/&lt;app id&gt;/</code>.</li>
+<li><b>Web-sovellusosa</b> on JavaScript-paketti, joka ladataan selaimeen web-sovelluksen mukana. Se rekisteröi React-komponentit ja takaisinkutsut <b>rekisteriin</b>: valikon painike, paneeli, tapa piirtää viestityyppi.</li>
+<li>Molemmat osat ovat valinnaisia. Sovellus asennetaan <code>.tar.gz</code>-pakkina, ja järjestelmän ylläpitäjät voivat ottaa sen käyttöön, poistaa sen käytöstä ja määrittää sen asetukset.</li>
+</ul>
+<div class="callout warn">Palvelinosa ajetaan täydellä pääsyoikeudella palvelimen dataan. Kohtele sovellusta kuten koodia, jonka deployaat palvelimelle.</div>
+<p>Antimatter ajaa Mattermostille kirjoitettuja sovelluksia ja toisinpäin, niin kauan kuin sovellus käyttää vain koukuja, joita molemmilla on. Katso <a href="#antimatter-hooks">Vain Antimatterin omaat koukut</a>.</p>
+
+<h2 id="layout">Paketin rakenne</h2>
+<p>Ei ole erillistä aloituspohjaa: aloita pienestä mukana toimitetusta sovelluksesta, kuten <a href="https://github.com/AntimatterChat/antimatter-plugin-polls">antimatter-plugin-polls</a> tai <a href="https://github.com/AntimatterChat/antimatter-plugin-todo">antimatter-plugin-todo</a>, ja muuta sen ID:tä ja koodia. Kyselyt-sovellus on rakennettu tällä tavalla:</p>
+<pre><code>antimatter-plugin-polls/
+├── plugin.json            the manifest
+├── Makefile               build, test, bundle, deploy
+├── build/                 the manifest and pluginctl helper tools (Go), setup.mk
+├── assets/icon.svg        files shipped with the bundle
+├── go.mod
+├── server/
+│   ├── main.go            plugin.ClientMain(&amp;Plugin{})
+│   ├── plugin.go          the Plugin type, OnActivate, ServeHTTP
+│   ├── manifest.go        generated from plugin.json
+│   ├── api.go, command.go, hooks.go, store.go …
+│   └── dist/              compiled binaries, one per platform
+└── webapp/
+    ├── package.json, webpack.config.js, tsconfig.json
+    ├── i18n/              en.json and one file per language
+    ├── src/index.tsx      registers the app with the web app
+    ├── src/manifest.ts    generated from plugin.json
+    ├── src/translations.ts
+    └── dist/main.js       the bundle</code></pre>
+<p>Valinnainen: <code>public/</code>-kansio, joka palvelletaan sellaisenaan polulla <code>/plugins/&lt;app id&gt;/public/</code>.</p>
+
+<h2 id="manifest">plugin.json</h2>
+<pre><code>{
+  "id": "com.example.weather",
+  "name": "Weather",
+  "description": "Forecasts in the chat.",
+  "homepage_url": "https://github.com/example/weather",
+  "support_url": "https://github.com/example/weather/issues",
+  "icon_path": "assets/icon.svg",
+  "version": "1.0.0",
+  "min_server_version": "12.0.0",
+  "server": {
+    "executables": {
+      "linux-amd64": "server/dist/plugin-linux-amd64",
+      "linux-arm64": "server/dist/plugin-linux-arm64",
+      "darwin-amd64": "server/dist/plugin-darwin-amd64",
+      "darwin-arm64": "server/dist/plugin-darwin-arm64",
+      "windows-amd64": "server/dist/plugin-windows-amd64.exe"
+    }
+  },
+  "webapp": {"bundle_path": "webapp/dist/main.js"},
+  "settings_schema": {"settings": []}
+}</code></pre>
+<ul>
+<li><code>id</code>: ainutlaatuinen ja pysyvä; käänteinen verkkotunnus on yleistä. Se nimetää reitit, tallennetut asetukset ja WebSocket-tapahtumat.</li>
+<li><code>version</code>: semanttinen versio. Mukana toimitetut sovellukset jättävät sen pois <code>plugin.json</code>-tiedostosta; niiden rakennustyökalu hakee sen uusimmasta <code>v*</code>-git-tagista.</li>
+<li><code>min_server_version</code>: Antimatter raportoi <code>12.0.0</code>.</li>
+<li><code>settings_schema</code>: sovelluksen asetussivu Järjestelmäkonsolissa (ks. <a href="#settings">Asetukset</a>).</li>
+</ul>
+<p><code>make apply</code> kopioi manifestin tiedostoihin <code>server/manifest.go</code> ja <code>webapp/src/manifest.ts</code>; <code>make manifest-check</code> validoi sen.</p>
+
+<h2 id="server">Palvelinosa</h2>
+<p>Palvelinosa tuottaa saman Go-moduulin kuin Mattermost-sovellukset, <code>github.com/mattermost/mattermost/server/public</code>, Go-moduuliproksista. Sen <code>main</code> käynnistää vain sovelluksen:</p>
+<pre><code>package main
+
+import "github.com/mattermost/mattermost/server/public/plugin"
+
+func main() {
+	plugin.ClientMain(&amp;Plugin{})
+}</code></pre>
+<p><code>Plugin</code>-tyyppi upottaa <code>plugin.MattermostPlugin</code>-tyypin, joka antaa sille <code>p.API</code>:n, ja toteuttaa tarvitsemansa hookit:</p>
+<pre><code>type Plugin struct {
+	plugin.MattermostPlugin
+	router *mux.Router
+}
+
+func (p *Plugin) OnActivate() error {
+	p.router = p.newRouter()
+	return p.API.RegisterCommand(&amp;model.Command{
+		Trigger:          "weather",
+		AutoComplete:     true,
+		AutoCompleteDesc: "Show the forecast",
+		AutoCompleteHint: "[city]",
+	})
+}
+
+func (p *Plugin) ExecuteCommand(c *plugin.Context, args *model.CommandArgs) (*model.CommandResponse, *model.AppError) {
+	city := strings.TrimSpace(strings.TrimPrefix(args.Command, "/weather"))
+	return &amp;model.CommandResponse{
+		ResponseType: model.CommandResponseTypeEphemeral,
+		Text:         "Forecast for " + city + ": sunny",
+	}, nil
+}
+
+func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Request) {
+	p.router.ServeHTTP(w, r)
+}</code></pre>
+<h3>Yleiset hookit</h3>
+<table>
+<thead><tr><th>Hook</th><th>Kun se ajetaan</th></tr></thead>
+<tbody>
+<tr><td><code>OnActivate</code>, <code>OnDeactivate</code></td><td>Kun sovellus otetaan käyttöön tai poistetaan käytöstä, sekä kun palvelin käynnistyy ja pysähtyy. Rekisteröi komennot ja botit <code>OnActivate</code>-hookissa.</td></tr>
+<tr><td><code>OnConfigurationChange</code></td><td>Kun sen asetukset muuttuvat; lue ne komennolla <code>p.API.LoadPluginConfiguration(&amp;cfg)</code>.</td></tr>
+<tr><td><code>ServeHTTP</code></td><td>Pyyntö osoitteeseen <code>/plugins/&lt;app id&gt;/…</code>. Palvelin asettaa <code>Mattermost-User-Id</code>-otsikon, kun pyyntö tulee kirjautuneelta käyttäjältä; hylkää pyynnöt, joissa ei tätä ole, ellei ne ole tarkoitettu julkisiksi.</td></tr>
+<tr><td><code>ExecuteCommand</code></td><td>Sovelluksen rekisteröimä komento suoritettiin.</td></tr>
+<tr><td><code>MessageWillBePosted</code>, <code>MessageWillBeUpdated</code></td><td>Ennen viestin tallentamista: palauta muuttunut viesti tai syy hylkäyselle.</td></tr>
+<tr><td><code>MessageHasBeenPosted</code>, <code>MessageHasBeenUpdated</code>, <code>MessageHasBeenDeleted</code></td><td>Tapahtuman jälkeen, sivuvaikutuksia varten.</td></tr>
+<tr><td><code>ReactionHasBeenAdded</code>, <code>ReactionHasBeenRemoved</code></td><td>Reaktiot.</td></tr>
+<tr><td><code>UserHasJoinedChannel</code>, <code>UserHasLeftChannel</code>, <code>UserHasJoinedTeam</code>, <code>UserHasLeftTeam</code>, <code>ChannelHasBeenCreated</code></td><td>Jäsenyyden ja kanavien muutokset. Tiimi on yhteisö.</td></tr>
+<tr><td><code>FileWillBeUploaded</code></td><td>Ennen tiedoston tallentamista: muuta tai hylkää se.</td></tr>
+<tr><td><code>OnPluginClusterEvent</code></td><td>Viesti samasta sovelluksesta toisesta klusterin palvelimesta.</td></tr>
+</tbody>
+</table>
+<p>Täydellinen luettelo, täydellisillä allekirjoituksilla, on tiedostossa <code>server/public/plugin/hooks.go</code>; API on tiedostossa <code>server/public/plugin/api.go</code>. <code>pluginapi</code>-paketti (<code>server/public/pluginapi</code>) kääsee API:n ystävällisemmiksi apurutiineiksi.</p>
+<h3>Hyödylliset API-kutsut</h3>
+<ul>
+<li><code>CreatePost</code>, <code>UpdatePost</code>, <code>SendEphemeralPost</code>: julkaise sovelluksen bottina tai käyttäjänä.</li>
+<li><code>EnsureBotUser(&amp;model.Bot{Username, DisplayName})</code>: luo sovelluksen botti kerran ja hae sen ID.</li>
+<li><code>PublishWebSocketEvent("poll_updated", payload, &amp;model.WebsocketBroadcast{ChannelId: id})</code>: lähetä tapahtuma web-sovellukselle. Se saapuu nimellä <code>custom_&lt;app id&gt;_poll_updated</code>.</li>
+<li><code>OpenInteractiveDialog</code>: avaa <a href="{{root}}docs/developers/bots.html#dialogs">dialogi</a>.</li>
+<li><code>LogInfo</code>, <code>LogError</code> ja vastaavat: kirjoita palvelinlokiin, merkitty sovelluksen ID:llä.</li>
+<li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: tarkista, kuka saa tehdä mitä, ennen kuin toimit käyttäjän puolesta.</li>
+</ul>
+<p>Sovellus ajetaan jokaisella klusterin palvelimella. Säilytä tila avain-arvo-tallennuksessa tai tietokannassa, ei vain muistissa.</p>
+
+<h2 id="kv">Tietojen tallentaminen</h2>
+<p>Jokaisella sovelluksella on oma avain-arvo-tallennus palvelimen tietokannassa:</p>
+<ul>
+<li><code>KVSet(key, value)</code>, <code>KVGet(key)</code>, <code>KVDelete(key)</code>: arvot ovat tavuja, tyypillisesti JSON-muodossa. Avaimet ovat enintään 150 merkkiä.</li>
+<li><code>KVSetWithExpiry(key, value, seconds)</code>: arvo poistuu tämän ajan jälkeen.</li>
+<li><code>KVCompareAndSet(key, old, new)</code> ja <code>KVSetWithOptions</code> -parametrilla <code>Atomic</code>: turvalliset päivitykset, kun useat pyynnöt tai palvelimet kirjoittavat samaa avainta. Polls-tiedote tallentaa jokaisen äänen tällä tavalla ja yrittää uudelleen konfliktin tapauksessa.</li>
+<li><code>KVList(page, perPage)</code>: avaimet sivulta toiselle.</li>
+</ul>
+
+<h2 id="webapp">Web-sovelluksen osa</h2>
+<p>Paketti rekisteröi luokan metodilla <code>window.registerPlugin</code>. Sen <code>initialize</code>-metodi saa rekisterin ja Redux-tallennuksen:</p>
+<pre><code>import manifest from './manifest';
+
+class Plugin {
+    initialize(registry, store) {
+        registry.registerTranslations((locale) =&gt; translationsFor(locale));
+        registry.registerPostTypeComponent('custom_poll', PollPost);
+        registry.registerWebSocketEventHandler(`custom_${manifest.id}_poll_updated`, (msg) =&gt; {
+            store.dispatch(pollUpdated(JSON.parse(msg.data.poll)));
+        });
+        registry.registerReconnectHandler(() =&gt; store.dispatch(reloadPolls()));
+    }
+}
+
+window.registerPlugin(manifest.id, new Plugin());</code></pre>
+<ul>
+<li><b>Yhteiset kirjastot.</b> Web-sovellus tarjoaa Reactin, ReactDOM, Redux, React Reduxin ja React Intl:in: listaa ne webpackin <code>externals</code>-osassa (<code>React</code>, <code>ReactDOM</code>, <code>Redux</code>, <code>ReactRedux</code>, <code>ReactIntl</code>) sen sijaan, että pakettaisit omat kopiosi. Katso Polls-tiedotteen <code>webpack.config.js</code>.</li>
+<li><b>Palvelinosan kutsuminen.</b> Hae osoitteesta <code>${window.basename}/plugins/&lt;app id&gt;/…</code> vaihtoehdot, jotka saat metodista <code>Client4.getOptions()</code> (moduulista <code>mattermost-redux/client</code>): ne sisältävät otsakkeet, joita palvelin tarvitsee hyväksyäkseen pyynnön selaimesta.</li>
+<li><b>Oma tilasi.</b> <code>registerReducer</code> lisää reducerin, joka tallennetaan osoitteeseen <code>state['plugins-&lt;app id&gt;']</code>.</li>
+<li><b>Tyyppitiedot.</b> Antimatterin lisärekisterimetodit eivät sisälly Mattermostin julkaisemiin tyyppitietoihin: Polls-tiedote määrittelee käyttämänsä rekisterin tiedostossa <code>webapp/src/types/host.ts</code>.</li>
+</ul>
+<p>Rekisterin metodit ja niiden parametrit on dokumentoitu koodissa, tiedostoissa <code>webapp/fusion/src/plugins/registry.ts</code> (Fusion) ja <code>webapp/channels/src/plugins/registry.ts</code> (klassinen).</p>
+
+<h2 id="fusion">Fusion-käyttöliittymän tuki</h2>
+<p>Antimatterilla on kaksi web-käyttöliittymää: Fusion, joka on oletus, ja klassinen. Molemmat lataavat samat sovelluspaketit ja käyttävät samaa rekisteriä, mutta Fusion piirtää monia asioita itse ja sijoittaa lisäosien komponentit omalla tavallaan. Testaa sovelluksesi molemmissa.</p>
+<h3>Käyttöliittymän tunnistaminen</h3>
+<p>Ennen kuin mikään sovellus latautuu, molemmat käyttöliittymät asettavat <code>window.antimatterWebUI</code>-muuttujan arvoksi <code>'fusion'</code> tai <code>'classic'</code>, ja saman arvon sivun juurelementtiin ominaisuutena <code>data-am-web-ui</code>. Mattermostissa kumpikaan ei ole asetettu.</p>
+<pre><code>export function isFusionUI(): boolean {
+    return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
+}</code></pre>
+<p>Sisällytetyt sovellukset käyttävät tätä piirtääkseen eri tavalla. Kyselyt piirtää kyselykorttinsa ja luontailmakkuunsa Fusionin tyyliin ja avaa oman <code>/poll</code>-komenton dialogin Fusionissa. Puhelut ja äänikanavat jättävät sivupalkin ja toast-komponentit pois, koska Fusion korvaa ne omalla puhelintajallaan. Agentit-sovellutus sijoittaa tekoälytoimintonsa viestimenun alamenuun, ei viestien hover-työkalupalkkiin. Fusionin omat CSS-luokat (etuliitteellä <code>am-</code>) ja dialogikerros (<code>am-layer</code>-elementti) ovat se, mitä nämä sovellukset käyttävät rajapinnan mukauttamiseen; ne eivät ole dokumentoitu, vakaa API.</p>
+<h3>Missä Fusion näyttää lisäosakomponentit</h3>
+<table>
+<thead><tr><th>Rekisteröintimenetelmä</th><th>Missä se näkyy Fusionissa</th></tr></thead>
+<tbody>
+<tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>Sovellusreuna, ikoni- ja symbolipalkki oikeassa reunassa, profiilisi ja <b>Tietoja Antimatterista</b> -painikkeen välissä. Kanavan otsikon painikkeet sijoittuvat sinne, eivät kanavan otsikkoon. Piilossa, kun järjestelmän ylläpitäjä on ottanut <b>Poista Apps Bar -palkki käytöstä</b> (<code>ExperimentalSettings.DisableAppBar</code>, oletus poissa) käyttöön.</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>Oikea paneeli. Käyttäjät voivat muuttaa sen kokoa vetämällä sen reunaa. Jos sovellus on myös tuote, paneeli tarjoaa <b>Avaa koko sivuna</b> -toiminnon.</td></tr>
+<tr><td><code>registerChannelHeaderIcon</code></td><td>Kanavan otsikon ikonit, puhelinpainikkeiden jälkeen; puhelimissa otsikon <b>Lisää</b> -valikossa.</td></tr>
+<tr><td><code>registerCallButtonAction</code></td><td>Kanavan otsikon puhelupainike; useat palveluntarjoajat käyttävät yhteistä <b>Muita tapoja soittaa</b> -valikkoa.</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>Viestin <b>Lisätoiminnot</b> (⋯) -valikko, <b>Viestitoiminnot</b> -alivalikon alla; myös ketjupaneelin <b>Ketjun toiminnot</b> -valikossa, <b>Lisätoiminnot</b> -kohdan alla.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Oma alamenu samassa valikossa, sovelluksen nimen ja ikonin kanssa.</td></tr>
+<tr><td><code>registerPostActionComponent</code></td><td>Viestin hover-työkalupalkki, ⋯-painikkeen edessä.</td></tr>
+<tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>Viesti itse: sen runko, tekstin alla, ajan jälkeen ja linkkien esikatselujen tilalla.</td></tr>
+<tr><td><code>registerChannelHeaderMenuAction</code></td><td>Kanavan <b>Kanavan vaihtoehdot</b> -valikko (⋯ sivupalkin kanavassa tai hiiren oikea napsautus), kohteina, joissa on liitäntäsymboli.</td></tr>
+<tr><td><code>registerMainMenuAction</code></td><td>Yhteisön valikko (yhteisön nimi kanavalistan yläreunassa), <b>Lisätoiminnot</b> -kohdan alla, ryhmiteltynä sovellusten mukaan.</td></tr>
+<tr><td><code>registerSidebarBrowseOrAddChannelMenuAction</code></td><td>Yhteisön valikko, <b>Luo kanava</b> - ja <b>Luo kategoria</b> -kohtien jälkeen.</td></tr>
+<tr><td><code>registerFileUploadMethod</code></td><td>Kirjoitusruudun <b>+</b> -valikko (<b>Lisää viestiin</b>), <b>Lähetä tiedosto</b> -kohdan jälkeen.</td></tr>
+<tr><td><code>registerPostEditorActionComponent</code></td><td>Kirjoitusruudun muotoilupalkki, kun muotoilua näytetään.</td></tr>
+<tr><td><code>registerAIActionMenuItemComponent</code></td><td>Kirjoitusruudun <b>AI</b> -valikko.</td></tr>
+<tr><td><code>registerFileDropdownMenuAction</code>, <code>registerFilePreviewComponent</code></td><td>Tiedoston valikkomenu ja tiedoston esikatselu.</td></tr>
+<tr><td><code>registerUserSettings</code></td><td><b>Profiili ja asetukset</b>, yksi välilehti per sovellus <b>Liiteohjelmat</b> -otsikon alla.</td></tr>
+<tr><td><code>registerChannelSettingsTab</code></td><td>Kanavan asetukset -dialogi, <b>Sovellukset</b> -otsikon alla.</td></tr>
+<tr><td><code>registerPopoverUserAttributesComponent</code>, <code>registerPopoverUserActionsComponent</code></td><td>Profiilikortti, joka näkyy, kun napsautat nimeä tai profiilikuvaa.</td></tr>
+<tr><td><code>registerLeftSidebarHeaderComponent</code>, <code>registerSidebarChannelLinkLabelComponent</code>, <code>registerChannelIconOverride</code>, <code>registerBottomTeamSidebarComponent</code></td><td>Yhteisön kanavalistan yläreuna, kanavan nimen ja ikoon viereen sekä yhteisön vasemmanpuoleisen sivupalkin alareuna.</td></tr>
+<tr><td><code>registerChannelIntro</code>, <code>registerChannelIntroButtonAction</code>, <code>registerChannelToastComponent</code>, <code>registerNewMessagesSeparatorActionComponent</code>, <code>registerChannelComposerBannerComponent</code>, <code>registerComposerPlaceholder</code></td><td>Kanavan historian alku, viestilistan yläreuna, lukemattomien viestien raja, kirjoituskentän yläpuolella ja kirjoituskentän placeholder-teksti.</td></tr>
+<tr><td><code>registerChannelTypeOption</code></td><td><b>Luo kanava</b> -ikkunan kanavatyyppit.</td></tr>
+<tr><td><code>registerSearchComponents</code></td><td>Kanavan otsikon hakukenttä: sovellusten alueet näkyvät, kun kenttä on tyhjä.</td></tr>
+<tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>Tietoja Antimatterista</b> (sovelluksen sivupalkin alareunassa), kohdassa <b>Ohje</b>.</td></tr>
+<tr><td><code>registerProduct</code></td><td>Koko sivut tuotteen osoitteessa, luettuna kohdassa <b>Tuotteet</b> sivulla <b>Tietoja Antimatterista</b>. Tuotesivut säilyttävät klassisen sivukehyksen.</td></tr>
+<tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, koukut kuten <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>Toimivat klassisen käyttöliittymän tapaan.</td></tr>
+<tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>Järjestelmäkonsoli, joka on klassinen molemmissa käyttöliittymissä.</td></tr>
+</tbody>
+</table>
+<h3>Mitä Fusion ei näytä tai aja</h3>
+<ul>
+<li><code>registerPostDropdownMenuComponent</code> (viestin valikon komponentti), <code>registerPostCardTypeComponent</code> (viestin kortti oikeanpuoleisessa paneelissa) ja <code>registerProductSwitcherMenuItem</code> eivät näy Fusionin päänäkymissä. Käytä <code>registerPostDropdownMenuAction</code>:ia ensimmäisen sijaan.</li>
+<li><code>registerMessageWillBeUpdatedHook</code> ei aja, kun viestiä muokataan Fusionissa. Tarkista muokkaukset palvelimella <code>MessageWillBeUpdated</code>-koukulla.</li>
+<li><code>registerActionAfterChannelCreation</code> suoritetaan vain klassisesta kanavan luontiaikaruudusta, jonka Fusion avaa <b>Lisää vaihtoehtoja…</b> -kohdasta <b>Luo kanava</b> -ikkunassaan.</li>
+<li>Sovelluspalkin komponentit näkyvät riippumatta <code>supportedProductIds</code>-arvosta.</li>
+<li>Reitit, jotka on rekisteröity metodien <code>registerNeedsTeamRoute</code> ja <code>registerCustomRoute</code> kautta, säilyttävät klassisen sivukehyksen, kuten tuotteet.</li>
+</ul>
+
+<h2 id="antimatter-hooks">Koukut, joita vain Antimatterissa on</h2>
+<p>Näitä rekisteröintimetodeja ei ole Mattermostissa. Tarkista, että metodi on olemassa ennen kutsua, jotta sovellus toimii sielläkin:</p>
+<pre><code>if (typeof registry.registerComposerMenuItem === 'function') {
+    registry.registerComposerMenuItem({
+        text: 'Create a poll',
+        icon: &lt;i className='icon icon-chart-bar'/&gt;,
+        fusionIcon: 'poll',
+        action: ({channelId, rootId}) =&gt; openPollCreation(channelId, rootId),
+    });
+} else {
+    registry.registerChannelHeaderButtonAction(icon, (channel) =&gt; openPollCreation(channel.id), 'Create a poll', 'Create a poll');
+}</code></pre>
+<table>
+<thead><tr><th>Metodi</th><th>Mitä se lisää</th></tr></thead>
+<tbody>
+<tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>Kohta viestikentän <b>+</b>-valikossa, molemmissa käyttöliittymissä. <code>action</code> saa parametrina <code>{channelId, rootId}</code>.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Viestiruudun emojivalitsimen välilehti, kuten GIFit tai tarrat. Fusionissa välilehdet, joiden <code>order</code>-arvo on alle 10, tulevat Emoji-välilehden eteen. Komponentti saa parametreina <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> ja <code>isFusion</code>.</td></tr>
+<tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>Paneeli kanavan otsikon ja viestien välillä, kanaville, jotka <code>matcher(state, channel)</code> valitsee. Se voi piilottaa viestit ja kirjoitusruudun (<code>setMessagesVisible</code>), kuten äänikanavat tekevät.</td></tr>
+<tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>Rivi kanavan alla sivupalkissa, kuten puhelun osallistujat. Se saa parametrikseen <code>channel</code>.</td></tr>
+<tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Vain Fusion: kohde <b>Integraatiot</b> -sivuilla, mukautettujen emojien vieressä. GIF-sovellus lisää sinne mukautetut GIF-kuvaansa ja tarransa.</td></tr>
+</tbody>
+</table>
+<p><code>fusionIcon</code> nimittää Fusionin ikoni-setin ikonia (esimerkiksi <code>poll</code>, <code>sticker</code>, <code>calendar</code> tai <code>image</code>; ks. <code>webapp/fusion/src/fusion/components/icon</code>). Fusion näyttää sen <code>icon</code>-ikonin sijaan, jotta kohde vastaa muita.</p>
+
+<h2 id="settings">Asetukset</h2>
+<p><code>settings_schema</code> -määritelmä <code>plugin.json</code> -tiedostossa kuvaa sovelluksen sivua <b>Järjestelmäkonsoli › Liiteohjelmat</b> -osiossa:</p>
+<pre><code>"settings_schema": {
+  "header": "Forecasts come from the weather service below.",
+  "settings": [
+    {"key": "ServiceURL", "display_name": "Service URL", "type": "text", "default": "https://api.example.com"},
+    {"key": "Units", "display_name": "Units", "type": "dropdown", "default": "metric",
+     "options": [{"display_name": "Celsius", "value": "metric"}, {"display_name": "Fahrenheit", "value": "imperial"}]},
+    {"key": "EnableAlerts", "display_name": "Severe weather alerts", "type": "bool", "default": false,
+     "help_text": "Post alerts in the channels that follow a city."}
+  ]
+}</code></pre>
+<p>Asetustyypit: <code>bool</code>, <code>text</code>, <code>longtext</code>, <code>number</code>, <code>dropdown</code>, <code>radio</code>, <code>generated</code> (satunnainen salaisuus), <code>username</code> ja <code>custom</code> (piirretään komponentilla, jonka web-sovelluksen osa rekisteröi <code>registerAdminConsoleCustomSetting</code> -funktiolla). Asetukset voidaan ryhmitellä <code>sections</code> -ryhmiin.</p>
+<p>Palvelinosa lukee ne rakenteeseen, jonka kentät vastaavat avaimia:</p>
+<pre><code>type configuration struct {
+	ServiceURL   string
+	Units        string
+	EnableAlerts bool
+}
+
+func (p *Plugin) OnConfigurationChange() error {
+	var cfg configuration
+	if err := p.API.LoadPluginConfiguration(&amp;cfg); err != nil {
+		return err
+	}
+	p.setConfiguration(&amp;cfg)
+	return nil
+}</code></pre>
+<p>Ylläpitäjät voivat myös asettaa ne asetustiedostoon kohdassa <code>PluginSettings.Plugins.&lt;app id&gt;</code>, avaimet pienin kirjaimin (ks. <a href="{{root}}docs/admins/configuration.html#amctl">ylläpitäjän opas</a>).</p>
+
+<h2 id="translations">Käännökset</h2>
+<p>Antimatter on käännetty 37 kielelle, ja mukana toimitetut sovellukset ovat käännettyjä. Web-sovelluksen osa tekee sen näin:</p>
+<ol>
+<li>Kirjoita jokainen merkkijono React Intl -kirjastolla, ID:llä ja englanninkielisellä tekstillä: <code>&lt;FormattedMessage id='polls.create' defaultMessage='Create a poll'/&gt;</code> tai <code>defineMessages</code>. Lisää ID:hin etuliiteksi sovelluksesi nimi.</li>
+<li>Poista englanninkieliset merkkijonot tiedostoon <code>webapp/i18n/en.json</code> (mukana toimitetut sovellukset käyttävät <code>formatjs extract</code> -työkalua).</li>
+<li>Lisää yksi tiedosto per kieli sen viereen, samoin ID:llä: <code>fr.json</code>, <code>de.json</code>, <code>pt-BR.json</code>, <code>zh-CN.json</code>…</li>
+<li>Anna ne webbisovellukselle, joka kysyy käyttäjän kieltä:
+<pre><code>import fr from '../i18n/fr.json';
+import ptBR from '../i18n/pt-BR.json';
+
+const catalogs = {fr, 'pt-BR': ptBR};
+
+export function translationsFor(locale) {
+    return catalogs[locale] || catalogs[locale.split('-')[0]] || {};
+}
+
+registry.registerTranslations(translationsFor);</code></pre></li>
+</ol>
+<p>Puuttuva merkkijono palautuu englanninkieliseen <code>defaultMessage</code>-arvoon. Palvelinpuolen lähettämille merkkijonoille (komentovastaukset, bottiviestit) <code>pluginapi/i18n</code>-paketti lukee pakettiin sisältyvät käännöstiedostot (esimerkiksi <code>assets/i18n</code>) ja antaa kääntäjän kullekin käyttäjälle hänen kielellään.</p>
+
+<h2 id="build">Käännä, asenna ja vianetsi</h2>
+<p>Tarvitset Go- ja Node.js-ympäristön (sovelluksen <code>.nvmrc</code>-tiedostossa määritetty versio). Sovelluksen hakemistossa:</p>
+<table>
+<thead><tr><th>Komento</th><th>Toiminto</th></tr></thead>
+<tbody>
+<tr><td><code>make dist</code></td><td>Kääntää palvelinpuolen kaikille alustoille ja webbisovelluspuolen, ja kirjoittaa paketin polkuun <code>dist/&lt;app id&gt;-&lt;version&gt;.tar.gz</code>.</td></tr>
+<tr><td><code>make test</code></td><td>Suorittaa Go- ja JavaScript-testit.</td></tr>
+<tr><td><code>make check-style</code></td><td>Tarkistaa koodin laadun (golangci-lint, ESLint) ja TypeScript-tyypit.</td></tr>
+<tr><td><code>make deploy</code></td><td>Kääntää, asenna ja ottaa paketin käyttöön palvelimella.</td></tr>
+<tr><td><code>make watch</code>, <code>make deploy-from-watch</code></td><td>Ensimmäinen kääntää webbisovelluspuolen joka kerta, kun tallennat; toinen paketoima käännetyt osat ja asettaa ne palvelimelle.</td></tr>
+<tr><td><code>make enable</code>, <code>make disable</code>, <code>make reset</code></td><td>Ota sovellus käyttöön, poista se käytöstä tai käynnistä se uudelleen palvelimella.</td></tr>
+<tr><td><code>make logs</code>, <code>make logs-watch</code></td><td>Näytä sovelluksen rivit palvelinlokkissa.</td></tr>
+<tr><td><code>make attach</code></td><td>Liittää Delve-vianetsin käynnissä olevaan palvelinosaan (käännä ensin <code>AM_DEBUG=1</code> kanssa).</td></tr>
+</tbody>
+</table>
+<p><code>make deploy</code> ja muut palvelinkomennot käyttävät paikallista tilaa koskevaa sokkelia, jos sellainen löytyy (<code>/var/tmp/antimatter_local.socket</code> tai <code>AM_LOCALSOCKETPATH</code>): aja ne palvelimen koneella, jossa paikallinen tila on päällä. Muuten ne kirjautuvat palvelimelle, jonka osoitteen antaa <code>MM_SERVICESETTINGS_SITEURL</code>, käyttäen <code>AM_ADMIN_TOKEN</code>-tai <code>AM_ADMIN_USERNAME</code>- ja <code>AM_ADMIN_PASSWORD</code>-tunnuksia. Käännöstyökalut eivät vielä lue <code>AM_</code>-nimistä asetusta palvelimen osoitteelle.</p>
+<h3>Asenna paketti käsin</h3>
+<ul>
+<li>Järjestelmäylläpitäjä sallii lataukset asetuksella <code>AM_PLUGINSETTINGS_ENABLEUPLOADS=true</code> (oletuksena pois käytöstä; Järjestelmäkonsolissa ei ole kytkintä).</li>
+<li>Sitten <b>Järjestelmäkonsoli › Liiteohjelmat › Liiteohjelmien hallinta › Lähetä liiteohjelma</b>, tai <code>amctl plugin add weather.tar.gz</code> ja sen jälkeen <code>amctl plugin enable com.example.weather</code>.</li>
+<li>Jos palvelimella on <b>Vaadi lisäosan allekirjoitusta</b> käytössä, se hyväksyy vain luotetulla avaimella allekirjoitetut paketit; ks. <a href="{{root}}docs/admins/apps.html#other-apps">Muiden sovellusten asennus</a>.</li>
+</ul>
+<div class="callout">Nopeita kehitysiteraatiosia kehityspalvelimelle varten aseta palvelimelle <code>AM_SERVICESETTINGS_ENABLEDEVELOPER=true</code>: virheet sisältävät silloin tarkemmat tiedot. Pakettien Makefilet kääntävät palvelinpuolen vain sille alustalle, jolla <code>MM_SERVICESETTINGS_ENABLEDEVELOPER</code> on määritetty shellissäsi.</div>

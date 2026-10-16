@@ -1,0 +1,164 @@
+title: REST API
+description: REST API ของ Antimatter: URL ฐาน, โทเคนการเข้าถึงส่วนบุคคล, โทเคนเซสชัน และ OAuth, ทรัพยากรหลัก, การแบ่งหน้า, ข้อผิดพลาด, ข้อจำกัดอัตรา, กระแสด่วน WebSocket และไลบรารีไคลเอนต์
+guide: developers
+order: 2
+nav: REST API
+lead: ทุกสิ่งที่แอป Antimatter ทำจะผ่าน HTTP API เดียวกัน ดังนั้นสคริปต์ของคุณก็สามารถทำได้เช่นกัน หน้านี้จะอธิบายวิธีการยืนยันตัวตน ทรัพยากรที่คุณจะใช้งานบ่อยที่สุด รูปแบบของคำตอบและข้อผิดพลาด และวิธีการติดตามเหตุการณ์แบบเรียลไทม์ผ่าน WebSocket
+source: f4b8c83efdba
+---
+<h2 id="basics">พื้นฐาน</h2>
+<ul>
+<li><b>URL ฐาน</b>: <code>https://chat.example.com/api/v4</code> ปลายทางทั้งหมดด้านล่างนี้จะเป็นค่าสัมพัทธ์จาก URL นี้</li>
+<li><b>ฟอร์แมต</b>: JSON ทั้งเข้าและออก ยกเว้นการอัปโหลดไฟล์ (multipart) ส่ง <code>Content-Type: application/json</code>.</li>
+<li><b>ID</b>: ทุกออบเจกต์จะมี <code>id</code> ยาว 26 ตัวอักษร เวลาจะเป็นมิลลิวินาทีนับตั้งแต่ Unix epoch (<code>create_at</code>, <code>update_at</code>, <code>delete_at</code>; 0 หมายถึง "ไม่ถูกลบ")</li>
+<li><b>ชุมชนคือทีม</b>: API เรียกสิ่งเหล่านี้ว่า <code>teams</code> พร้อม <code>team_id</code></li>
+<li><b>ตัวคุณเอง</b>: ในทุกเส้นทางที่รับ <code>user_id</code> คำว่า <code>me</code> หมายถึงผู้ใช้ที่เข้าสู่ระบบ เช่น <code>GET /users/me</code></li>
+</ul>
+<p>รายการปลายทางทั้งหมดอยู่ในโค้ดของเซิร์ฟเวอร์: เส้นทางถูกประกาศใน <code>server/channels/api4/*.go</code> และประเภทข้อมูลอยู่ใน <code>server/public/model</code> คำอธิบาย OpenAPI ในโฟลเดอร์ <code>api/v4/source</code> ของรีพอสิทอรีครอบคลุมปลายทางที่สืบทอดมาจาก Mattermost ไม่ใช่ส่วนที่ Antimatter เพิ่มเข้ามา</p>
+
+<h2 id="auth">การยืนยันตัวตน</h2>
+<p>ทุกคำขอ ยกเว้นการเข้าสู่ระบบและปลายทางสาธารณะบางรายการ ต้องมีโทเคนในหัว <code>Authorization</code>:</p>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" https://chat.example.com/api/v4/users/me</code></pre>
+<p>ยอมรับโทเคนสามประเภท: โทเคนการเข้าถึงส่วนบุคคล, โทเคนเซสชัน และโทเคนการเข้าถึง OAuth <code>Authorization: Token …</code> ก็ถูกยอมรับเช่นกัน โทเคนในสตริงคำขอ (<code>?access_token=</code>) จะถูกยอมรับเฉพาะสำหรับโทเคนการเข้าถึง OAuth เท่านั้น</p>
+
+<h3>โทเคนการเข้าถึงส่วนบุคคล (แนะนำสำหรับสคริปต์)</h3>
+<p>โทเคนการเข้าถึงส่วนบุคคลจะทำงานในนามของคุณ ไม่หมดอายุเว้นแต่คุณกำหนดวันหมดอายุ และสามารถเพิกถอนได้ตลอดเวลา โทเคนการเข้าถึงส่วนบุคคลจะปิดอยู่เป็นค่าเริ่มต้น:</p>
+<ol>
+<li>ผู้ดูแลระบบเปิดใช้งาน <b>เปิดใช้งานโทเคนการเข้าถึงส่วนตัว</b> ใน <b>คอนโซลระบบ › อินทิเกรชัน › การจัดการอินทิเกรชัน</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, <code>AM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS</code>).</li>
+<li>สำหรับแต่ละบุคคลที่อาจสร้างโทเคน ผู้ดูแลระบบเปิด <b>คอนโซลระบบ › การจัดการผ้้ใช้ › ผู้ใช้งาน</b> เลือก <b>จัดการบทบาท</b> ในเมนูของบุคคลนั้น และติ๊ก <b>Allow this account to generate personal access tokens</b> ผู้ดูแลระบบสามารถสร้างโทเคนได้เสมอ</li>
+<li>บุคคลนั้นเปิดอวตารของตนที่มุมบนขวา จากนั้น <b>Profile &amp; settings › ความปลอดภัย</b> ภายใต้ <b>โทเคนการเข้าถึงส่วนตัว</b> อธิบายว่าโทเคนนี้ใช้สำหรับอะไร และเลือก <b>สร้างโทเคน</b> โทเคนจะแสดงเพียงครั้งเดียว: คัดลอกไว้</li>
+</ol>
+<p>ผ่าน API: <code>POST /users/{user_id}/tokens</code> พร้อม <code>{"description": "backup script", "expires_at": 0}</code> (<code>expires_at</code> เป็นมิลลิวินาที; 0 สำหรับไม่หมดอายุ) ฟิลด์ <code>token</code> ในคำตอบคือความลับ; <code>id</code> ของมันคือสิ่งที่ใช้เพิกถอน (<code>POST /users/tokens/revoke</code> พร้อม <code>{"token_id": "…"}</code>) จากบรรทัดคำสั่ง: <code>amctl token generate &lt;user&gt; &lt;description&gt;</code>.</p>
+<p>ผู้ดูแลระบบสามารถกำหนดอายุการใช้งานสูงสุดของโทเคนด้วย <b>อายุการใช้งานสูงสุดของโทเคนการเข้าถึงส่วนบุคคล (วัน)</b> ในหน้าคอนโซลระบบเดียวกัน</p>
+
+<h3>โทเคนเซสชัน</h3>
+<p>การเข้าสู่ระบบด้วยรหัสผ่านจะคืนค่าโทเคนเซสชันในหัวตอบกลับ <code>Token</code> ซึ่งเป็นเซสชันประเภทเดียวกับที่แอปพลิเคชันใช้:</p>
+<pre><code>curl -i -X POST https://chat.example.com/api/v4/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login_id": "maya", "password": "…"}'</code></pre>
+<p>เพิ่ม <code>"token": "123456"</code> สำหรับบัญชีที่มีการยืนยันตัวตนหลายปัจจัย เซสชันจะหมดอายุตามที่การตั้งค่าเซสชันของเซิร์ฟเวอร์ระบุ และจุดสิ้นสุดการเข้าสู่ระบบมีการจำกัดอัตรา (5 คำขอต่อวินาที) <code>POST /users/logout</code> สิ้นสุดเซสชัน</p>
+<div class="callout">เบราว์เซอร์ยืนยันตัวตนด้วยคุกกี้แทน คำขอที่ยืนยันตัวตนด้วยคุกกี้ต้องส่งหัว <code>X-CSRF-Token</code> ด้วยสำหรับทุกสิ่งที่ไม่ใช่ GET; โทเคนในหัว <code>Authorization</code> ไม่ต้องการหัว CSRF</div>
+
+<h3>แอปพลิเคชัน OAuth 2.0</h3>
+<p>เพื่อให้ผู้คนสามารถเข้าสู่ระบบแอปพลิเคชันของคุณด้วยบัญชี Antimatter ของพวกเขา จดทะเบียนแอปพลิเคชัน OAuth 2.0 Antimatter จะเป็นผู้ให้บริการ OAuth:</p>
+<ol>
+<li><b>เปิดใช้งานผู้ให้บริการ OAuth 2.0</b> ต้องเปิดใช้งาน (<b>คอนโซลระบบ › อินทิเกรชัน › การจัดการอินทิเกรชัน</b>, <code>ServiceSettings.EnableOAuthServiceProvider</code>, เปิดใช้งานโดยค่าเริ่มต้น)</li>
+<li>บุคคลที่มีสิทธิ์จัดการแอป OAuth (ผู้ดูแลระบบโดยค่าเริ่มต้น) เปิดอวตารของตน จากนั้น <b>อินทิเกรชัน › แอป OAuth 2.0</b> และเพิ่มแอปพร้อม URL callback พวกเขาจะได้รับ client ID และ client secret</li>
+<li>แอปพลิเคชันของคุณจะส่งผู้ใช้ไปยัง <code>https://chat.example.com/oauth/authorize</code> พร้อม <code>response_type=code</code>, <code>client_id</code>, <code>redirect_uri</code> และ <code>state</code> ระบบรองรับ PKCE โดยใช้ <code>code_challenge_method=S256</code></li>
+<li>จากนั้นจะแลกเปลี่ยน code ที่ <code>POST https://chat.example.com/oauth/access_token</code> (ใช้ <code>grant_type=authorization_code</code> และใช้ <code>refresh_token</code> เพื่อต่ออายุ) และเรียกใช้ API ด้วย <code>Authorization: Bearer &lt;access token&gt;</code></li>
+</ol>
+<p>ผู้ใช้เห็นแอปที่พวกเขาอนุญาตใน <b>Profile &amp; settings › ความปลอดภัย › แอปที่คุณให้สิทธิ์</b></p>
+
+<h2 id="resources">ทรัพยากรหลัก</h2>
+<table>
+<thead><tr><th>รายการ</th><th>Endpoints</th></tr></thead>
+<tbody>
+<tr><td>คุณและผู้ใช้คนอื่น</td><td><code>GET /users/me</code>, <code>GET /users/{user_id}</code>, <code>GET /users/username/{username}</code>, <code>POST /users/ids</code> (รายการ ID), <code>POST /users/search</code>, <code>GET /users?in_team=…&amp;in_channel=…</code></td></tr>
+<tr><td>ชุมชน</td><td><code>GET /users/me/teams</code>, <code>GET /teams/{team_id}</code>, <code>GET /teams/name/{name}</code>, <code>PUT /teams/{team_id}/patch</code>, <code>GET /teams/{team_id}/members</code>, <code>POST /teams/{team_id}/members</code></td></tr>
+<tr><td>ช่อง</td><td><code>GET /users/me/teams/{team_id}/channels</code>, <code>GET /teams/name/{team}/channels/name/{channel}</code>, <code>POST /channels</code>, <code>POST /channels/direct</code> (ID ของผู้ใช้สองคน), <code>POST /channels/group</code>, <code>POST /channels/{channel_id}/members</code></td></tr>
+<tr><td>ข้อความ (posts)</td><td><code>POST /posts</code>, <code>GET /posts/{post_id}</code>, <code>PUT /posts/{post_id}/patch</code>, <code>DELETE /posts/{post_id}</code>, <code>GET /channels/{channel_id}/posts</code>, <code>GET /posts/{post_id}/thread</code>, <code>POST /teams/{team_id}/posts/search</code></td></tr>
+<tr><td>รีแอคชัน</td><td><code>POST /reactions</code> พร้อม <code>{"user_id", "post_id", "emoji_name"}</code>, <code>DELETE /users/{user_id}/posts/{post_id}/reactions/{emoji_name}</code></td></tr>
+<tr><td>ไฟล์</td><td><code>POST /files</code> (multipart: <code>channel_id</code> และ <code>files</code>) จากนั้นนำ ID ที่ได้รับกลับมารวมใน <code>file_ids</code> ของโพสต์; <code>GET /files/{file_id}</code></td></tr>
+<tr><td>การตั้งค่า</td><td><code>GET /users/me/preferences</code>, <code>PUT /users/me/preferences</code></td></tr>
+<tr><td>การบูรณาการ</td><td><code>/hooks/incoming</code>, <code>/hooks/outgoing</code>, <code>/commands</code>, <code>/bots</code>, <code>/oauth/apps</code> (ดูหน้าถัดไป)</td></tr>
+<tr><td>เซิร์ฟเวอร์</td><td><code>GET /system/ping</code> (ตรวจสอบสถานะระบบ ไม่ต้องใช้ token), <code>GET /config/client?format=old</code> (การตั้งค่าที่ไคลเอนต์จะเห็น)</td></tr>
+</tbody>
+</table>
+
+<h3>โพสต์ข้อความ</h3>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "message": "Backup finished: **42 GB** in 3 min"}'</code></pre>
+<p>ข้อความใช้รูปแบบ Markdown เพิ่ม <code>"root_id"</code> (โพสต์แรกของเธรด) เพื่อตอบกลับในเธรด, <code>"file_ids"</code> สำหรับไฟล์ และ <code>"props"</code> สำหรับไฟล์แนบและข้อมูลอื่น ๆ (ดู <a href="{{root}}docs/developers/webhooks.html#attachments">ไฟล์แนบ</a>)</p>
+
+<h3>ค้นหา ID ของช่อง</h3>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" \
+  https://chat.example.com/api/v4/teams/name/lumen-labs/channels/name/ops-alerts</code></pre>
+<p>ชื่อเหล่านี้คือชื่อที่อยู่ในลิงก์ของช่อง: <code>/lumen-labs/channels/ops-alerts</code></p>
+
+<h2 id="pagination">การแบ่งหน้า</h2>
+<p>Endpoints แบบรายการจะรับ <code>page</code> (เริ่มจาก 0) และ <code>per_page</code> (ค่าเริ่มต้น 60 สูงสุด 200) ให้ขอหน้าถัดไปเรื่อย ๆ จนกว่าหน้าที่ได้รับกลับมามีจำนวนน้อยกว่า <code>per_page</code></p>
+<p>ข้อความในช่อง (<code>GET /channels/{channel_id}/posts</code>) ยังสามารถรับ <code>since</code> (เวลา: ทังสิ่งที่เปลี่่ยนไปแล้วตั้้งแต่วนั้้น) หรือ <code>before</code> และ <code>after</code> (ID ของโพสต์) ได้ด้วย ผลลัพธ์ที่ได้นั้้นจะเป็็นรายชื่่อโพสต์: <code>{"order": [IDs, newest first], "posts": {ID: post}, "next_post_id", "prev_post_id"}</code>.</p>
+
+<h2 id="errors">ข้อผิดพลาด</h2>
+<p>ข้อผิดพลาดใช้รหัสสถานะ HTTP มาตรฐาน (400 ข้อมูลไม่ถุกต้อง, 401 ยังไม่ได่ลงน้าม, 403 ไม่ได้รับอนุญาต, 404 ไม่พบ, 501 ฟีเจอร์ถูกปิด) และเนื้อหา JSON:</p>
+<pre><code>{
+  "id": "api.context.permissions.app_error",
+  "message": "You do not have the appropriate permissions.",
+  "detailed_error": "",
+  "request_id": "jz8zm5nunpbt8f3gpqsz5dq6so",
+  "status_code": 403
+}</code></pre>
+<p>ใช้ <code>id</code> ในโค้ดของคุณ: <code>message</code> จะถุกแปลเป็นภาษาของผู้ใช้ <code>detailed_error</code> จะว่างเว้นจากเนื้ือหา เว้นแต่เซิร์ฟเวอร์จะทำงานในโหมดนักพัฒนา (<code>ServiceSettings.EnableDeveloper</code>) ระบุ <code>request_id</code> ให้แก่ผู้ดูแลระบบของเซิร์ฟเวอร์: มันอยู่ในบันทึกเหตุการณ์ (logs).</p>
+
+<h2 id="rate-limits">การจำกัดอัตรา</h2>
+<p>การจำกัดอัตรามีค่าเริ่มต้นเป็นปิด เมื่อผู้ดูแลระบบเปิดใช้งาน (<b>คอนโซลระบบ › สภาพแวดล้อม › การจำกัดอัตร</b>) แต่ละไคลเอนต์จะได้รับ 10 คำขอต่อวินาทีพร้อมการกระแทก (bursts) 100 โดยค่าเริ่มต้น นับตามที่อยู่ IP หรือตามผู้ใช้ คำตอบจะนำ <code>X-RateLimit-Limit</code>, <code>X-RateLimit-Remaining</code> และ <code>X-RateLimit-Reset</code>; เมื่อเกินขีดจำกัด เซิร์ฟเวอร์จะตอบ <code>429</code> พร้อม header <code>Retry-After</code> ในหน่วยวินาที บาง endpoint เช่น การเข้าสู่ระบบ มีขีดจำกัดของตัวเองไม่ว่าการตั้งค่าจะเป็นอย่างไร</p>
+<p>เขียนสคริปต์ที่รอและลองใหม่เมื่อได้รับ 429 และหลีกเลี่ยงการโพล (polling): ใช้การติดตาม WebSocket แทน</p>
+
+<h2 id="websocket">สตรีมเหตุการณ์ WebSocket</h2>
+<p>เชื่อมต่อกับ <code>wss://chat.example.com/api/v4/websocket</code> ยืนยันตัวตนด้วยหัว <code>Authorization: Bearer</code> ในคำขอเชื่อมต่อ หรือด้วยการส่งสิ่งน้ีเป็นข้อความแรก:</p>
+<pre><code>{"seq": 1, "action": "authentication_challenge", "data": {"token": "…"}}</code></pre>
+<p>เซิร์ฟเวอร์จะส่งเหตุการณ์ <code>hello</code> แล้วตามด้วยเหตุการณ์สำหรับทุกสิ่่งท่ีคุณได้รับอนุญาตให้ดู:</p>
+<pre><code>{
+  "event": "posted",
+  "data": {"channel_id": "…", "channel_type": "O", "post": "{\"id\":\"…\",\"message\":\"Hello\",…}"},
+  "broadcast": {"channel_id": "…", "team_id": "", "user_id": "", "omit_users": null},
+  "seq": 4
+}</code></pre>
+<p>สังเกตว่า <code>data.post</code> เป็นข้อความในรู่ปแบบสตริง JSON เหตุการณ์ที่พบบ่อย: <code>posted</code>, <code>post_edited</code>, <code>post_deleted</code>, <code>reaction_added</code>, <code>reaction_removed</code>, <code>typing</code>, <code>status_change</code>, <code>user_added</code>, <code>direct_added</code> แอพจะส่งเหตุการณ์ของตัวเอง โดยตั้งชื่ือว่า <code>custom_&lt;app id&gt;_&lt;event&gt;</code>.</p>
+<p>คุณยังสามารถส่งการกระทำ (actions) ได้ด้วย แต่ละอย่างมี <code>seq</code> ที่เพิ่่มขึ้้น: <code>user_typing</code> พร้อม <code>{"channel_id", "parent_id"}</code> หรือ <code>get_statuses</code> เชื่อมต่อใหม่เมื่อการเชื่อมต่อหลุด และดึงสิ่่งท่ีคุณพลาดไปโดยใช้ <code>since</code> (ดู <a href="#pagination">การแบ่งหน้า</a>).</p>
+<p>Antimatter เพิ่มเหตุการณ์เหล่านี้: <code>community_attributes_updated</code>, <code>member_timeouts_updated</code>, <code>post_put_on_top</code>, <code>post_removed_from_top</code>, <code>server_categories_updated</code>, <code>channel_overrides_updated</code> และ <code>category_overrides_updated</code>.</p>
+
+<h2 id="clients">ไลบรารีไคลเอนต์</h2>
+<ul>
+<li><b>Go</b>: <code>model.Client4</code> ใน <code>server/public/model</code> (import <code>github.com/mattermost/mattermost/server/public/model</code>). ใช้ <code>model.NewAPIv4Client(url)</code> แล้วตามด้วย <code>client.SetToken(token)</code>; <code>model.NewWebSocketClient4(wsURL, token)</code> สำหรับติดตามเหตุการณ์ Antimatter เพิ่มเมธอดสำหรับ endpoint ของตัวเอง เช่น <code>UpdateMessageRequest</code>, <code>PutPostOnTop</code> และ <code>ExportChannel</code></li>
+<li><b>TypeScript</b>: คลาส <code>Client4</code> ของ <code>@mattermost/client</code> ใน <code>webapp/platform/client</code> พร้อม type ใน <code>webapp/platform/types</code> คัดลอกในคลัง Antimatter รวม endpoint ของ Antimatter ไว้ด้วย แต่แพ็กเกจที่ Mattermost เผยแพร่บน npm ไม่มี</li>
+</ul>
+<pre><code>package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/mattermost/mattermost/server/public/model"
+)
+
+func main() {
+	client := model.NewAPIv4Client("https://chat.example.com")
+	client.SetToken("…")
+	post, _, err := client.CreatePost(context.Background(), &amp;model.Post{
+		ChannelId: "…",
+		Message:   "Hello from Go",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("posted", post.Id)
+}</code></pre>
+
+<h2 id="antimatter">สิ่งที่ Antimatter เพิ่มใน API</h2>
+<p>endpoint และฟิลด์เหล่านี้ไม่มีในเซิร์ฟเวอร์ Mattermost ทุกตัวต้องมีการเซสชัน</p>
+<table>
+<thead><tr><th>Endpoint</th><th>สิ่งที่ทำ</th></tr></thead>
+<tbody>
+<tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> ทางเดียวกัน<br><code>PATCH</code>, <code>DELETE …/fields/{field_id}</code></td><td>คุณลักษณะของชุมชน: ฟิลด์โปรไฟล์ที่ผู้ดูแลระบบของชุมชนกำหนดให้กับสมาชิก (สูงสุด 20 ฟิลด์) สมาชิกสามารถอ่านได้; ผู้ดูแลระบบของชุมชนเป็นผู้สร้างและแก้ไข</td></tr>
+<tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> ทางเดียวกัน<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>ค่าของคุณลักษณะของสมาชิก ในรูปแบบ <code>{field_id: value}</code> สมาชิกตั้งค่าของตัวเองได้ (ยกเว้นฟิลด์ที่ผู้ดูแลระบบจัดการ); ผู้ดูแลระบบตั้งค่าของใครก็ได้ การค้นหาใช้ <code>{"user_ids": [...]}</code> (สูงสุด 200)</td></tr>
+<tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>Timeout: <code>{"until": time, "reason": "…"}</code> ป้องกันไม่ให้ใครบางคนโพสต์, ทำรีแอคชัน และอัปโหลดในชุมชนจนกว่าจะถึงเวลานั้น (สูงสุด 28 วัน); <code>"until": 0</code> ยกเลิกการป้องกันนี้ มุมมองการดูแลระบบแสดงว่าพวกเขาเข้าร่วมเมื่อไหร่และโพสต์ไปมากแค่ไหนเมื่อไม่นานมานี้</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>ข้อความที่ถูกตรึงไว้บนสุดของช่อง (สูงสุด 10 ข้อความ) <code>{"duration": ms}</code>, สูงสุด 30 วัน; 0 จะตรึงไว้จนกว่าจะเอาออก ต้องมีสิทธิ์โพสต์ในช่องนั้น</td></tr>
+<tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>ดำเนินการกับคำขอข้อความของคุณเอง: <code>{"action": "accept"}</code>, <code>"dismiss"</code> หรือ <code>"request"</code> เพื่อส่งบทสนทนานั้นกลับไปยังรายการคำขอ คืนค่าสมาชิกช่องของคุณ</td></tr>
+<tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>บทบาทหรือบุคคลสามารถทำอะไรได้บ้างในช่อง และบทบาทใดบ้างที่เห็นช่องท่ีถูกกั้นดวยบทบาท</td></tr>
+<tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>หมวดหมู่ช่องท่ีชุมชนใช้ร่วมกัน และข้อยกเว้นท่ีใช้กวยช่องทุกช่องในหมวดหมู่นั้น</td></tr>
+<tr><td><code>GET /groups/{group_id}/team_role</code><br><code>PUT …/team_role/permissions</code></td><td>สิทธิ์ท่ีบทบาทของชุมชนให</td></tr>
+<tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>ทดสอบกฎการเชื่อมโยงอัตโนมัติ (autolink) ของชุมชนกวยข้อความ</td></tr>
+<tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>ดาวน์โหลดข้อความในช่องเป็น CSV (สูงสุด 50,000 ข้อความ) สำหรบผท่ีสามารถอ่านช่องได้</td></tr>
+<tr><td><code>GET /posts/{post_id}/speech</code></td><td>ข้อความท่ีอ่านออกเสียงเป็นไฟล์เสียง เม่อต้งค่าการแปลงข้อความเป็นเสียงแลว</td></tr>
+</tbody>
+</table>
+<h3>ฟิลด์ใหม่</h3>
+<ul>
+<li><b>ชุมชน</b> (<code>Team</code>, และ <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (ทุกคนอยู่ในช่องทุกช่องท่ีพวกเขาสามารถเห็นได้ เชนใน Discord), <code>default_channel_id</code> (ท่ีท่ีคนใหมจะเขามา; ว่างหมายถึง Town Square), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> และ <code>autolinks</code> (ท้งสองเป็นสตริง JSON).</li>
+<li><b>การตอบกลบในบรรทัดเดยวกน</b>: โพสต์ท่ีมี <code>"props": {"reply_to": "&lt;post id&gt;"}</code> จะอ้างถึงข้อความในช่องเดยวกนนั้น เพิ่ม <code>"reply_to_mention": false</code> เพอไมแจ้งเตือนผ้ท่ีโพสต์ข้อความท่ีถูกอ้างถึง เซิร์ฟเวอร์จะเติม <code>metadata.reply_to</code> ดวยคำอธิบายสั้นๆ ของข้อความท่ีถูกอ้างถึง</li>
+<li><b>สปอยเลอร์</b>: <code>"props": {"spoiler": true}</code> จะซ่อนข้อความและไฟล์ของโพสต์จนกว่าผ้อ่านจะเลือกท่ีจะดู</li>
+<li><b>การเพิกเฉยและการบล็อก</b> เป็นความชอบส่วนตัว: หมวดหมู่ <code>user_block</code>, ท่ีตั้งช่อดวย ID ของอีกฝายหนึ่ง ดวยค่า <code>ignore</code> หรือ <code>block</code>. ท่ีท่ีข้อความส่วนตัวจะรอเป็นคำขออนุญาตอยู่ใน <code>notify_props.dm_request</code> ของสมาชิกช่องของคุณ (<code>pending</code>, <code>accepted</code> หรือ <code>dismissed</code>).</li>
+<li><b>ไฟล์แนบของข้อความ</b> สามารถมมี <code>stages</code> และ <code>chart</code> ได้: ดู <a href="{{root}}docs/developers/webhooks.html#cards">Cards</a>.</li>
+</ul>

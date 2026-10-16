@@ -1,0 +1,122 @@
+title: Perintah Garis Miring
+description: Perintah garis miring kustom di Antimatter: cara membuatnya, permintaan yang diterima layanan Anda, format respons, jawaban sementara dan di kanal, jawaban tertunda, dan autocomplete.
+guide: developers
+order: 4
+nav: Perintah Garis Miring
+lead: Perintah garis miring kustom memungkinkan pengguna mengetik /sesuatu di kotak pesan untuk memanggil layanan Anda. Antimatter mengirim perintah ke URL Anda dan menampilkan jawaban Anda, baik hanya untuk orang tersebut maupun untuk seluruh kanal.
+source: 24dbc9730e62
+---
+<h2 id="how">Cara kerja perintah garis miring</h2>
+<ol>
+<li>Seseorang mengetik <code>/weather Paris</code> dan mengirimnya. Teks tersebut tidak dipublikasikan.</li>
+<li>Antimatter mengirim permintaan HTTP ke URL perintah, beserta informasi siapa yang mengetik, di mana, dan teks setelah kata pemicu.</li>
+<li>Layanan Anda merespons dalam batas waktu permintaan (30 detik secara bawaan) dengan sebuah pesan.</li>
+<li>Antimatter menampilkan jawaban: hanya untuk orang tersebut (ephemeral) atau di kanal untuk semua orang.</li>
+</ol>
+<p>Perintah dimiliki oleh komunitas, dan kata pemicu bersifat unik di dalamnya. Perintah bawaan seperti <code>/join</code>, <code>/msg</code>, atau <code>/away</code> tidak dapat diganti. Aplikasi (plugin) juga dapat mendaftarkan perintah; lihat <a href="{{root}}docs/developers/apps.html#server">Bagian server</a>.</p>
+
+<h2 id="create">Buat perintah</h2>
+<p>Perintah Garis Miring kustom diaktifkan secara bawaan (<b>Aktifkan Perintah Garis Miring Kustom</b> di <b>Konsol Sistem › Integrasi › Manajemen Integrasi</b>, <code>ServiceSettings.EnableCommands</code>). Admin komunitas dan admin sistem dapat membuatnya secara bawaan.</p>
+<ol>
+<li>Buka avatar Anda di kanan atas, lalu <b>Integrasi › Perintah Garis Miring</b>, lalu <b>Tambah Perintah Garis Miring</b>.</li>
+<li>Isi <b>Judul</b> dan <b>Deskripsi</b> (ditampilkan di halaman integrasi).</li>
+<li>Masukkan <b>Kata Pemicu Perintah</b>, tanpa garis miring dan tanpa spasi, misalnya <code>weather</code>.</li>
+<li>Masukkan <b>URL Permintaan</b> dan pilih <b>Metode Permintaan</b>: <b>POST</b> (bawaan) atau <b>GET</b>.</li>
+<li>Secara opsional, atur <b>Nama Pengguna Respons</b> dan <b>Ikon Respons</b>. Keduanya hanya digunakan jika server mengizinkan integrasi untuk menimpa nama dan ikon (lihat <a href="{{root}}docs/developers/webhooks.html#identity">Nama dan ikon</a>).</li>
+<li>Centang <b>Penyelesaian Otomatis</b> untuk menampilkan perintah saat orang mengetik <code>/</code>, lengkap dengan <b>Petunjuk Autocomplete</b> (argumennya, seperti <code>[city]</code>) dan <b>Deskripsi Autocomplete</b>.</li>
+<li>Pilih <b>Simpan</b>, lalu salin token yang ditampilkan. Layanan Anda menggunakannya untuk memastikan bahwa permintaan berasal dari server Anda.</li>
+</ol>
+<p>Dengan API: <code>POST /api/v4/commands</code> dengan <code>{"team_id", "trigger", "url", "method": "P", "display_name", "description", "auto_complete": true, "auto_complete_hint", "auto_complete_desc", "username", "icon_url"}</code>. Metode adalah <code>P</code> untuk POST atau <code>G</code> untuk GET. <code>PUT /api/v4/commands/{command_id}/regen_token</code> menerbitkan token baru.</p>
+
+<h2 id="request">Permintaan yang diterima layanan Anda</h2>
+<p>Perintah POST mengirim tubuh form-encoded (<code>application/x-www-form-urlencoded</code>); perintah GET mengirim bidang yang sama dalam string kueri. Token juga ada di header <code>Authorization: Token &lt;token&gt;</code>.</p>
+<table>
+<thead><tr><th>Bidang</th><th>Nilai</th></tr></thead>
+<tbody>
+<tr><td><code>token</code></td><td>Token perintah. Periksa ini di setiap permintaan.</td></tr>
+<tr><td><code>command</code></td><td>Pemicu dengan garis miringnya, misalnya <code>/weather</code>.</td></tr>
+<tr><td><code>text</code></td><td>Semua yang ada setelah pemicu, misalnya <code>Paris</code>.</td></tr>
+<tr><td><code>user_id</code>, <code>user_name</code></td><td>Siapa yang menjalankannya.</td></tr>
+<tr><td><code>channel_id</code>, <code>channel_name</code></td><td>Di mana itu dijalankan.</td></tr>
+<tr><td><code>team_id</code>, <code>team_domain</code></td><td>ID dan nama URL komunitas.</td></tr>
+<tr><td><code>root_id</code></td><td>Utas, jika dijalankan di kotak balas utas.</td></tr>
+<tr><td><code>trigger_id</code></td><td>Memungkinkan jawaban Anda membuka dialog (lihat <a href="{{root}}docs/developers/bots.html#dialogs">Dialogs</a>). Ini hanya berlaku untuk waktu yang singkat.</td></tr>
+<tr><td><code>response_url</code></td><td>URL untuk memposting lebih banyak jawaban nanti (lihat <a href="#delayed">Jawaban tertunda</a>).</td></tr>
+<tr><td><code>user_mentions</code>, <code>user_mentions_ids</code>, <code>channel_mentions</code>, <code>channel_mentions_ids</code></td><td>Orang dan kanal publik yang disebut dalam teks, jika ada.</td></tr>
+</tbody>
+</table>
+<div class="callout"><b>URL Situs</b> server harus diatur agar perintah kustom dapat dijalankan: Antimatter membangun <code>response_url</code> darinya.</div>
+
+<h2 id="response">Respons</h2>
+<p>Jawab dengan <code>200</code> menggunakan JSON (<code>Content-Type: application/json</code>):</p>
+<pre><code>{
+  "response_type": "in_channel",
+  "text": "Paris: 18 °C, light rain",
+  "attachments": []
+}</code></pre>
+<table>
+<thead><tr><th>Bidang</th><th>Arti</th></tr></thead>
+<tbody>
+<tr><td><code>response_type</code></td><td><code>ephemeral</code> (default): hanya orang yang menjalankan perintah yang melihat jawabannya, dan tidak disimpan setelah dimuat ulang. <code>in_channel</code>: jawaban diposting di kanal.</td></tr>
+<tr><td><code>text</code>, <code>attachments</code></td><td>Pesan, seperti untuk webhook: teks Markdown dan <a href="{{root}}docs/developers/webhooks.html#attachments">lampiran</a>, termasuk tombol dan menu.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code></td><td>Nama dan gambar yang akan ditampilkan, jika penggantian diizinkan. Pengaturan perintah itu sendiri menang atas ini.</td></tr>
+<tr><td><code>channel_id</code></td><td>Posting jawaban di kanal lain, yang orang tersebut harus menjadi anggotanya.</td></tr>
+<tr><td><code>goto_location</code></td><td>URL untuk dibuka setelah perintah dijalankan.</td></tr>
+<tr><td><code>props</code>, <code>type</code></td><td>Properti tambahan dan jenis posting kustom, seperti untuk webhook.</td></tr>
+<tr><td><code>extra_responses</code></td><td>Jawaban lebih lanjut, masing-masing dengan bidang yang sama, diposting setelah yang pertama.</td></tr>
+<tr><td><code>skip_slack_parsing</code></td><td><code>true</code> mempertahankan teks apa adanya, tanpa mengonversi tautan dan sebutan bergaya Slack.</td></tr>
+</tbody>
+</table>
+<p>Respons yang bukan JSON ditampilkan sebagai pesan ephemeral dengan tubuh sebagai teksnya. <code>204 No Content</code> tidak menampilkan apa pun. Status apa pun di luar 200–299 menampilkan kesalahan kepada orang tersebut.</p>
+
+<h2 id="example">Layanan contoh</h2>
+<p>Layanan perintah minimal dalam Python, hanya dengan pustaka standar:</p>
+<pre><code>import hmac
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
+
+TOKEN = "the token shown when you saved the command"
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        form = {key: values[0] for key, values in parse_qs(body).items()}
+        if not hmac.compare_digest(form.get("token", ""), TOKEN):
+            self.send_response(401)
+            self.end_headers()
+            return
+        answer = {
+            "response_type": "ephemeral",
+            "text": f"Hello @{form['user_name']}, you asked for: {form.get('text', '')}",
+        }
+        data = json.dumps(answer).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(data)
+
+HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()</code></pre>
+<p>Jika layanan berjalan di alamat jaringan privat, admin sistem harus mengizinkannya di <b>Izinkan koneksi internal yang tidak tepercaya ke</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>).</p>
+
+<h2 id="delayed">Jawaban tertunda</h2>
+<p>Untuk pekerjaan yang memakan waktu lebih lama dari batas waktu, jawab segera (misalnya dengan pesan sementara "Sedang diproses…"), lalu POST jawaban sebenarnya ke <code>response_url</code>. Ini menerima JSON yang sama dengan respons, dan berfungsi hingga 5 kali dalam 30 menit setelah perintah.</p>
+<pre><code>curl -X POST "$RESPONSE_URL" -H 'Content-Type: application/json' \
+  -d '{"response_type": "in_channel", "text": "Report ready: https://reports.example.com/42"}'</code></pre>
+
+<h2 id="run">Jalankan perintah dengan API</h2>
+<p>Skrip dan bot dapat menjalankan perintah apa pun, bawaan atau kustom, seolah-olah mereka mengetikkannya:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/commands/execute \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "command": "/weather Paris"}'</code></pre>
+<p><code>GET /api/v4/teams/{team_id}/commands/autocomplete</code> mendaftar perintah yang dapat dilengkapi otomatis oleh pengguna dalam komunitas.</p>
+
+<h2 id="autocomplete">Pelengkapan Otomatis</h2>
+<p>Perintah yang dibuat di halaman integrasi dilengkapi otomatis dengan pemicu, petunjuk, dan deskripsinya. Perintah yang didaftarkan oleh aplikasi dapat menjelaskan subperintah dan argumennya secara detail dengan <code>AutocompleteData</code>, dari <code>model.NewAutocompleteData(trigger, hint, helpText)</code>:</p>
+<ul>
+<li><code>AddCommand(sub)</code> menambahkan subperintah, yang juga merupakan <code>AutocompleteData</code>.</li>
+<li><code>AddTextArgument(helpText, hint, pattern)</code> menambahkan teks bebas.</li>
+<li><code>AddStaticListArgument(helpText, required, items)</code> menawarkan daftar tetap <code>AutocompleteListItem{Item, Hint, HelpText}</code>.</li>
+<li><code>AddDynamicListArgument(helpText, url, required)</code> meminta saran dari aplikasi Anda saat pengguna mengetik. URL adalah rute aplikasi Anda, seperti <code>/plugins/com.example.weather/cities</code>. Ini menerima pengguna, kanal, dan komunitas, serta mengembalikan daftar JSON <code>{"Item", "Hint", "HelpText"}</code>.</li>
+</ul>
+<p>Varian <code>Named…</code> (<code>AddNamedTextArgument</code> dan lainnya) menambahkan bendera <code>--name value</code>. Kedua antarmuka web menampilkan saran-saran ini.</p>

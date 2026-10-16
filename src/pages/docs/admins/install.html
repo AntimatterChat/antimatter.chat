@@ -1,0 +1,167 @@
+title: Installing Antimatter
+description: Install Antimatter with Docker Compose or from a release archive, choose an image, start it for the first time and create the first system administrator.
+guide: admins
+order: 2
+nav: Installing
+lead: Install Antimatter with the ready-made compose file, choose the right image, or run the server from a release archive. Then create the first administrator account.
+---
+<h2 id="compose">Install with Docker Compose</h2>
+<p>This is the recommended way. One compose file runs Antimatter, PostgreSQL, the file storage and the GIF service. You need a Linux server with Docker Engine and its Compose plugin (<code>docker compose</code>), 2 CPU cores and 4 GB of memory or more.</p>
+
+<h3>1. Download the compose file</h3>
+<pre><code>mkdir antimatter &amp;&amp; cd antimatter
+curl -fsSLO https://antimatter.chat/compose.yaml</code></pre>
+
+<h3>2. Create the .env file</h3>
+<p>The compose file reads its settings from a <code>.env</code> file in the same directory. Create it with random secrets:</p>
+<pre><code>cat &gt; .env &lt;&lt;EOF
+SITE_URL=http://localhost:8065
+POSTGRES_PASSWORD=$(openssl rand -hex 24)
+S3_SECRET_KEY=$(openssl rand -hex 24)
+GIFS_API_KEY=$(openssl rand -hex 24)
+EOF
+chmod 600 .env</code></pre>
+<p>Set <code>SITE_URL</code> to the address people will type in their browser, for example <code>http://192.168.1.20:8065</code> on a local network or <code>https://chat.example.com</code> with a domain. Keep the <code>.env</code> file: the database and the storage use these passwords from the first start, and you need the same file to restore a backup.</p>
+
+<h3>3. Start it</h3>
+<pre><code>docker compose up -d
+docker compose ps</code></pre>
+<p>The first start takes a minute or two: PostgreSQL creates the database, a one-shot <code>bucket</code> service creates the storage bucket, a one-shot <code>gifs-stickers</code> service imports the starter sticker pack, and Antimatter creates its tables. Follow it with <code>docker compose logs -f antimatter</code>.</p>
+<p>To use a domain name and HTTPS from the start, see <a href="{{root}}docs/admins/https.html">Domain and HTTPS</a>: with the compose file it is two more lines in <code>.env</code> and the <code>https</code> profile.</p>
+
+<h3>The .env variables</h3>
+<table>
+<thead><tr><th>Variable</th><th>Default</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>SITE_URL</code></td><td>required</td><td>The public address of Antimatter (<code>ServiceSettings.SiteURL</code>).</td></tr>
+<tr><td><code>POSTGRES_PASSWORD</code></td><td>required</td><td>Password of the <code>antimatter</code> database user.</td></tr>
+<tr><td><code>S3_SECRET_KEY</code></td><td>required</td><td>Secret key of the file storage.</td></tr>
+<tr><td><code>GIFS_API_KEY</code></td><td>required</td><td>Key Antimatter uses to call the GIF service.</td></tr>
+<tr><td><code>GIFS_UPLOAD_KEY</code></td><td>empty</td><td>Lets people add their own GIFs and stickers from the picker. Empty turns uploads off.</td></tr>
+<tr><td><code>DOMAIN</code></td><td>empty</td><td>Your domain name, for the <code>https</code> profile.</td></tr>
+<tr><td><code>HTTP_PORT</code></td><td><code>8065</code></td><td>Host port of Antimatter's web server.</td></tr>
+<tr><td><code>CALLS_PORT</code></td><td><code>8443</code></td><td>UDP and TCP port of call audio and video.</td></tr>
+<tr><td><code>EDGE_SUBNET</code></td><td><code>172.29.71.0/28</code></td><td>Subnet of the network between Caddy and Antimatter. Change it if it overlaps one of your networks.</td></tr>
+<tr><td><code>TZ</code></td><td><code>UTC</code></td><td>Time zone of the containers.</td></tr>
+<tr><td><code>ANTIMATTER_IMAGE</code></td><td><code>ghcr.io/antimatterchat/antimatter-next:latest</code></td><td>The Antimatter image to run (see below).</td></tr>
+</tbody>
+</table>
+
+<h3>What runs</h3>
+<table>
+<thead><tr><th>Service</th><th>Image</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>The server, the web app and the bundled apps. Publishes <code>HTTP_PORT</code> and <code>CALLS_PORT</code>.</td></tr>
+<tr><td><code>postgres</code></td><td><code>postgres:17-alpine</code></td><td>The database, in the <code>postgres</code> volume.</td></tr>
+<tr><td><code>files</code></td><td><code>rustfs/rustfs</code></td><td>S3-compatible storage for uploaded files and installed apps, in the <code>files</code> volume.</td></tr>
+<tr><td><code>bucket</code></td><td><code>amazon/aws-cli</code></td><td>Creates the <code>antimatter</code> bucket, then exits.</td></tr>
+<tr><td><code>gifs</code></td><td><code>ghcr.io/antimatterchat/gifs-server</code></td><td>The GIF and sticker service, in the <code>gifs</code> volume.</td></tr>
+<tr><td><code>gifs-stickers</code></td><td><code>ghcr.io/antimatterchat/gifs-server</code></td><td>Imports the starter sticker pack the first time, then exits.</td></tr>
+<tr><td><code>https</code></td><td><code>caddy:2-alpine</code></td><td>Only with the <code>https</code> profile: HTTPS on ports 80 and 443.</td></tr>
+</tbody>
+</table>
+<p>PostgreSQL, the storage and the GIF service are on an internal network (<code>private</code>) with no Internet access, which only Antimatter joins. None of them publishes a port.</p>
+<p>The Antimatter container keeps nothing on disk: its settings are in the database (<code>AM_CONFIG</code> points at it) and its files and apps are in the storage service. You can remove and recreate the container at any time. Everything to back up is in the <code>postgres</code>, <code>files</code> and <code>gifs</code> volumes, plus your <code>.env</code>.</p>
+
+<h2 id="images">Choose an image</h2>
+<p>Two Antimatter images are published, both for <code>linux/amd64</code> and <code>linux/arm64</code>, and both built from the <code>main</code> branch of every repository:</p>
+<table>
+<thead><tr><th>Image</th><th>Bundled apps</th><th>Tags</th></tr></thead>
+<tbody>
+<tr><td><code>ghcr.io/antimatterchat/antimatter</code></td><td>Agents, Calls, GitHub, GitLab, Jira, Kanban, Metrics and Playbooks.</td><td><code>latest</code>, <code>X.Y.Z</code> for releases, <code>sha-&lt;commit&gt;</code></td></tr>
+<tr><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>The same, plus Voice channels, Polls, Mail, Calendar, Notes, Whiteboard, GIFs, Todo and Memes. Rebuilt every night.</td><td><code>latest</code>, <code>nightly</code>, <code>nightly-&lt;YYYYMMDD&gt;</code>, <code>sha-&lt;commit&gt;</code></td></tr>
+</tbody>
+</table>
+<p>The site's compose file uses <code>antimatter-next</code>, because the GIF service and most of the apps described on this site are only in that image. To change image, set <code>ANTIMATTER_IMAGE</code> in <code>.env</code> and run <code>docker compose up -d</code>.</p>
+<div class="callout warn"><code>latest</code> changes under you. In production, pin a tag such as <code>nightly-20261015</code> or <code>sha-&lt;commit&gt;</code>, and change it on purpose when you upgrade. The server upgrades its database when it starts, so you can't go back to an older image, or from <code>antimatter-next</code> to <code>antimatter</code>, without restoring a backup taken before. See <a href="{{root}}docs/admins/backups-upgrades.html">Backups and upgrades</a>.</div>
+
+<h3>Inside the image</h3>
+<ul>
+<li>The server lives in <code>/antimatter</code>, with the binaries <code>antimatter</code> and <code>amctl</code> in <code>/antimatter/bin</code> (on the <code>PATH</code>).</li>
+<li>It runs as the unprivileged user <code>antimatter</code> (uid 2000) on a minimal distroless base, with no shell.</li>
+<li>Ports: 8065 (web and API), 8067 (metrics), 8074 (cluster), 8443 UDP and TCP (calls).</li>
+<li>Local mode (<code>ServiceSettings.EnableLocalMode</code>) is on, so <code>amctl --local</code> works inside the container. The health check runs <code>amctl system status --local</code>.</li>
+<li>The bundled apps are in <code>/antimatter/prepackaged_plugins</code>, signed with the Antimatter app signing key.</li>
+<li>Text extraction tools (<code>pdftotext</code>, <code>wvText</code>, <code>unrtf</code>, <code>tidy</code>) are included, so the content of uploaded documents can be searched.</li>
+</ul>
+
+<h3>Other compose files</h3>
+<p>The <a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> repository has a production setup in <code>deploy/compose/</code>: nginx with your own certificates or Let's Encrypt (certbot), PostgreSQL, the optional GIF service (profile <code>gifs</code>) and named volumes for the server's configuration, data and logs, documented in its README. It uses the stable image by default and stores files on a local volume instead of S3 storage. Use it if you prefer nginx to Caddy, or already have certificates.</p>
+
+<h2 id="first-admin">Create the first administrator</h2>
+<p>Open <code>SITE_URL</code> in your browser and create an account. <b>The first account created on a new server becomes the system administrator</b>, and the setup then guides you through creating your first community (Antimatter's name for a team or workspace).</p>
+<p>Do it right after the first start: until then, anyone who reaches the server first becomes its administrator. To create the account from the command line instead, before the server is reachable from outside:</p>
+<pre><code>docker compose exec antimatter amctl --local user create --system-admin --email-verified \
+    --email admin@example.com --username admin --password 'a-long-password'
+docker compose exec antimatter amctl --local team create --name main --display-name "Main"
+docker compose exec antimatter amctl --local team users add main admin</code></pre>
+<p>Then sign in at <code>SITE_URL</code>. Start the command with a space to keep the password out of your shell history (with <code>HISTCONTROL=ignorespace</code>), or change the password once signed in.</p>
+<p>Next steps once you are in:</p>
+<ol>
+<li>Decide who can create accounts: <a href="{{root}}docs/admins/authentication.html">Sign-in and accounts</a>.</li>
+<li>Configure email, so invitations and password resets work: <a href="{{root}}docs/admins/email-push.html">Email and push notifications</a>.</li>
+<li>Open the calls port in your firewall: <a href="{{root}}docs/admins/calls.html">Calls and voice</a>.</li>
+<li>Check which apps are on: <a href="{{root}}docs/admins/apps.html">Bundled apps</a>.</li>
+</ol>
+
+<h2 id="archive">Install from a release archive</h2>
+<p>Without Docker, the server runs from an archive named <code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code> (for example <code>antimatter-linux-amd64.tar.gz</code>). It contains a single <code>antimatter/</code> directory with <code>bin/antimatter</code>, <code>bin/amctl</code>, <code>config/config.json</code>, the web apps (<code>client/</code> and <code>client-fusion/</code>), the email templates and the translations.</p>
+
+<h3>1. Prepare PostgreSQL</h3>
+<p>Antimatter only supports PostgreSQL, version 15 or newer (older versions start, with an error in the log). Create a user and a database:</p>
+<pre><code>sudo -u postgres psql &lt;&lt;'EOF'
+CREATE USER antimatter WITH PASSWORD 'a-long-password';
+CREATE DATABASE antimatter OWNER antimatter;
+EOF</code></pre>
+
+<h3>2. Unpack and configure</h3>
+<pre><code>sudo tar -xzf antimatter-linux-amd64.tar.gz -C /opt
+sudo useradd --system --user-group antimatter
+sudo mkdir -p /opt/antimatter/data
+sudo chown -R antimatter:antimatter /opt/antimatter</code></pre>
+<p>Point the server at the database, either in <code>/opt/antimatter/config/config.json</code> (<code>SqlSettings.DataSource</code>) or with environment variables, and set the site URL:</p>
+<pre><code>AM_SQLSETTINGS_DRIVERNAME=postgres
+AM_SQLSETTINGS_DATASOURCE=postgres://antimatter:a-long-password@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10
+AM_SERVICESETTINGS_SITEURL=https://chat.example.com</code></pre>
+<p>The archive's <code>config.json</code> is a complete default configuration: settings you change in the System Console are saved back to it. To keep the configuration in the database instead, see <a href="{{root}}docs/admins/configuration.html">Configuration</a>.</p>
+
+<h3>3. Run it as a service</h3>
+<p>A systemd unit, in <code>/etc/systemd/system/antimatter.service</code>:</p>
+<pre><code>[Unit]
+Description=Antimatter
+After=network.target postgresql.service
+
+[Service]
+Type=notify
+User=antimatter
+Group=antimatter
+WorkingDirectory=/opt/antimatter
+ExecStart=/opt/antimatter/bin/antimatter
+EnvironmentFile=-/etc/antimatter.env
+TimeoutStartSec=3600
+Restart=always
+RestartSec=10
+LimitNOFILE=49152
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+<p>Put your <code>AM_</code> variables in <code>/etc/antimatter.env</code> (readable by root only), then:</p>
+<pre><code>sudo systemctl daemon-reload
+sudo systemctl enable --now antimatter
+journalctl -u antimatter -f</code></pre>
+<p>The server listens on port 8065. Open <code>http://&lt;server&gt;:8065</code>, or your domain once a reverse proxy is in place (see <a href="{{root}}docs/admins/https.html">Domain and HTTPS</a>), and create the first account: it becomes the system administrator.</p>
+<p><code>bin/amctl</code> manages the running server from the command line. On the server itself, it works without signing in through local mode: set <code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>, then run <code>sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code>.</p>
+
+<h2 id="other-commands">Other server commands</h2>
+<p>Besides running the server (<code>antimatter</code>, or <code>antimatter server</code>), the binary has a few maintenance commands. They read the same configuration as the server.</p>
+<table>
+<thead><tr><th>Command</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>antimatter version</code></td><td>Prints the version, build number, build date and build hash.</td></tr>
+<tr><td><code>antimatter db ping</code></td><td>Checks that the database is reachable.</td></tr>
+<tr><td><code>antimatter db init</code></td><td>Creates the configuration in the database (with <code>AM_CONFIG</code> set to a <code>postgres://</code> URL).</td></tr>
+<tr><td><code>antimatter db migrate</code></td><td>Applies the database migrations without starting the server.</td></tr>
+<tr><td><code>antimatter db version</code></td><td>Prints the last migration applied to the database.</td></tr>
+<tr><td><code>antimatter import bulk</code>, <code>antimatter export bulk</code></td><td>Imports or exports data in the bulk format (see <a href="{{root}}docs/admins/backups-upgrades.html">Backups and upgrades</a>).</td></tr>
+</tbody>
+</table>

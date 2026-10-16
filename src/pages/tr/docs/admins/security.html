@@ -1,0 +1,107 @@
+title: Güvenlik
+description: Bir Antimatter sunucusunu güçlendirme: hangi portların açılacağı, gizli anahtarlar, hız sınırlaması, IP filtreleme, yükleme sınırları, gizlilik ayarları ve kullanıcı engelleme, oturumlar, sunucunun dış hizmetlere yaptığı bağlantılar ve bir güvenlik açığının nasıl bildirileceği.
+guide: admins
+order: 12
+nav: Güvenlik
+lead: Bir Antimatter sunucusunu güçlendirmek için bir kontrol listesi: nelerin açılacağı, gözden geçirilmesi gereken sınırlar ve gizlilik ayarları, sunucunun iletişim kurduğu dış hizmetler ve bir güvenlik sorununun nasıl bildirileceği.
+source: dbe2371ecf30
+---
+<h2 id="exposure">Nelerin açılacağı</h2>
+<table>
+<thead><tr><th>Port</th><th>Hizmet</th><th>Erişim</th></tr></thead>
+<tbody>
+<tr><td>443/tcp, 443/udp, 80/tcp</td><td>HTTPS vekiliniz (Caddy veya nginx)</td><td>Herkese açık: İnsanlar Antimatter'a bu yolla erişir.</td></tr>
+<tr><td>8443/udp ve 8443/tcp</td><td>Arama medyası</td><td>Ağınızın dışından arama kullanılıyorsa herkese açık.</td></tr>
+<tr><td>8065/tcp</td><td>Antimatter'ın web sunucusu</td><td>Yalnızca vekile: <code>127.0.0.1</code> üzerinde yayınlayın (<code>HTTP_PORT=127.0.0.1:8065</code>).</td></tr>
+<tr><td>8067/tcp</td><td>Metrikler</td><td>Etkinleştirildiğinde yalnızca özel ağda. Giriş yapılmaz.</td></tr>
+<tr><td>8074/tcp ve udp</td><td>Küme sohbeti (gossip)</td><td>Yalnızca küme düğümleri arasında.</td></tr>
+<tr><td>5432, 9000, 8080, 8066</td><td>PostgreSQL, dosya depolama, GIF hizmeti, itme vekili</td><td>Asla. Compose dosyaları bunları yayınlanmış portu olmayan iç ağlarda tutar.</td></tr>
+</tbody>
+</table>
+<p>Sitein compose dosyası ayrıca her konteyneri <code>no-new-privileges</code> ile çalıştırır, Antimatter'ı distroless bir görüntü üzerinde ayrıcalıksız bir kullanıcıyla çalıştırır ve GIF hizmetini salt okunur bir dosya sistemiyle çalıştırır. Veritabanı, depolama ve GIF hizmeti, İnternet erişimi olmayan bir ağda bulunur.</p>
+
+<h2 id="checklist">Kurulumdan sonra kontrol listesi</h2>
+<ol>
+<li>Sunucuya başka birinin erişmesinden önce ilk yönetici hesabını oluşturun (<a href="{{root}}docs/admins/install.html#first-admin">Kurulum</a>).</li>
+<li>Antimatter'ı yalnızca HTTPS üzerinden sunun ve site URL'ini <code>https://</code> adresine ayarlayın (<a href="{{root}}docs/admins/https.html">Alan adı ve HTTPS</a>).</li>
+<li><code>.env</code>, <code>config.json</code> ve TLS anahtarlarını yalnızca root (veya sunucunun kullanıcısı) tarafından okunabilir tutun: <code>chmod 600 .env</code>.</li>
+<li>Hesap oluşturabilecek kişileri belirleyin, topluluk herkese açık değilse <b>Açık sunucu kullanılsın</b> seçeneğini kapalı bırakın ve e-posta çalışmaya başlayınca <b>E-posta adresinin doğrulanması istensin</b> seçeneğini açın (<a href="{{root}}docs/admins/authentication.html">Oturum açma ve hesaplar</a>).</li>
+<li>Çok faktörlü kimlik doğrulamayı etkinleştirin ve en azından yönetici hesapları için zorunlu kılın veya kimlik sağlayıcınızınkini kullanın.</li>
+<li>Aşağıdaki dış bağlantıları gözden geçirin, özellikle Arama'nın varsayılan olarak kullandığı STUN sunucusunu.</li>
+<li>Yedek alın ve bir geri yükleme testi yapın (<a href="{{root}}docs/admins/backups-upgrades.html">Yedekler ve yükseltmeler</a>).</li>
+<li>Görüntüleri güncel tutun: güvenlik düzeltmeleri yeni görüntülerle gelir.</li>
+</ol>
+
+<h2 id="rate-limiting">Hız sınırlaması</h2>
+<p>Sunucu, her istemcinin yapabileceği API istek sayısını sınırlayabilir. Bu özellik varsayılan olarak kapalıdır. <b>Sistem Konsolu › Ortam › Hız sınırlaması</b> bölümünde:</p>
+<table>
+<thead><tr><th>Ayar</th><th>Anahtar</th><th>Varsayılan</th></tr></thead>
+<tbody>
+<tr><td><b>Hız sınırlaması kullanılsın</b></td><td><code>RateLimitSettings.Enable</code></td><td>kapalı</td></tr>
+<tr><td><b>Bir saniyedeki en fazla sorgu sayısı</b></td><td><code>RateLimitSettings.PerSec</code></td><td>10</td></tr>
+<tr><td><b>En fazla art arda istek sayısı</b></td><td><code>RateLimitSettings.MaxBurst</code></td><td>100</td></tr>
+<tr><td><b>Bellek depolama alanı boyutu</b></td><td><code>RateLimitSettings.MemoryStoreSize</code></td><td>10000 istemci izlenir</td></tr>
+<tr><td><b>Hız sınırlaması uzak adrese göre belirlensin</b></td><td><code>RateLimitSettings.VaryByRemoteAddr</code></td><td>açık</td></tr>
+<tr><td><b>Hız sınırlaması kullanıcıya göre belirlensin</b></td><td><code>RateLimitSettings.VaryByUser</code></td><td>kapalı</td></tr>
+<tr><td><b>HTTP üst bilgisine göre hız sınırlaması</b></td><td><code>RateLimitSettings.VaryByHeader</code></td><td>boş</td></tr>
+</tbody>
+</table>
+<p>Bir vekilin arkasında, adres bazlı sınırlar yalnızca sunucunun her istemcinin adresini bildiği durumlarda (<code>ServiceSettings.TrustedProxyIPHeader</code> ve <code>ServiceSettings.TrustedProxyIPs</code>, bkz. <a href="{{root}}docs/admins/https.html#client-address">Vekil arkasındaki istemci adresleri</a>) çalışır. Aksi halde tüm istekler vekilden geliyormuş gibi görünür ve herkes tek bir sınırı paylaşır. IP filtreleme ve denetim günlüklerindeki adresler için de aynı durum geçerlidir.</p>
+<p>Oturum açma girişimleri ayrı olarak sınırlanır: <b>En fazla oturum açma girişimi</b> (10) değeri, bu kadar başarısız şifre denemesinden sonra hesabı kilitler.</p>
+
+<h2 id="ip-filtering">IP filtreleme</h2>
+<p><b>Sistem Konsolu › Site yapılandırması › IP süzme</b> bölümü, IP adreslerine göre sunucuya erişimi izin ve engelleme kurallarıyla (her biri bir adres veya CIDR aralığı) sınırlar. <b>IP süzmeyi aç</b> seçeneği açıkken, engelleme kuralına uyan veya izin kuralları varken hiçbir izin kuralına uymayan kişiler sunucuya erişemez. Sayfa, kendi adresinizi engelleyecek kuralları reddeder. Bir vekil sunucunun arkasındaysanız, önce istemci adreslerini yapılandırın (<a href="{{root}}docs/admins/https.html#client-address">Vekil sunucu arkasındaki istemci adresleri</a>); aksi halde tüm istekler vekil sunucudan geliyormuş gibi görünür.</p>
+
+<h2 id="uploads">Yükleme ve dosya paylaşımı</h2>
+<table>
+<thead><tr><th>Ayar</th><th>Nerede</th><th>Varsayılan</th></tr></thead>
+<tbody>
+<tr><td><b>En büyük dosya boyutu</b> (<code>FileSettings.MaxFileSize</code>)</td><td>Ortam › Dosya Depolama</td><td>100 MB. Vekilin istek boyutu sınırını en az bu değerde tutun.</td></tr>
+<tr><td><b>En büyük yük boyutu (Bayt)</b> (<code>ServiceSettings.MaximumPayloadSizeBytes</code>)</td><td>Ortam › Web Sunucusu</td><td>300000: dosya yüklemeleri dışındaki en büyük API isteği</td></tr>
+<tr><td><b>Dosya paylaşılabilsin</b> (<code>FileSettings.EnableFileAttachments</code>)</td><td>Site Yapılandırması › Dosya Paylaşımı ve İndirme</td><td>açık</td></tr>
+<tr><td><b>Mobil uygulamalardan dosya yüklenebilsin</b>, <b>Mobil uygulamalardan dosya indirilebilsin</b></td><td>Site Yapılandırması › Dosya Paylaşımı ve İndirme</td><td>açık</td></tr>
+<tr><td><b>Herkese açık dosya bağlantıları kullanılsın</b> (<code>FileSettings.EnablePublicLink</code>)</td><td>Site Yapılandırması › Herkese Açık Bağlantılar</td><td>kapalı: açıkken, kullanıcılar dosyayı giriş yapmadan çalışan bir bağlantıyla paylaşabilir</td></tr>
+<tr><td><b>SVG dosyaları görüntülensin</b> (<code>ServiceSettings.EnableSVGs</code>)</td><td>Site Yapılandırması › Gönderiler</td><td>yeni bir sunucuda kapalı: açıkken, SVG görüntüleri satır içi gösterilir</td></tr>
+</tbody>
+</table>
+<p>Antimatter, yüklemeleri kötü amaçlı yazılım açısından taramaz.</p>
+
+<h2 id="privacy">Gizlilik ayarları</h2>
+<p><b>Sistem Konsolu › Site yapılandırması › Kullanıcılar ve takımlar</b> bölümünde:</p>
+<table>
+<thead><tr><th>Ayar</th><th>Anahtar</th><th>Varsayılan</th><th>Ne işe yarar</th></tr></thead>
+<tbody>
+<tr><td><b>E-posta adresi görüntülensin</b></td><td><code>PrivacySettings.ShowEmailAddress</code></td><td>açık</td><td>Kapalı olduğunda, üyelerin e-posta adresleri yöneticiler hariç herkes tarafından gizlenir. Halka açık sunucularda kapalı tutun.</td></tr>
+<tr><td><b>Tam ad görüntülensin</b></td><td><code>PrivacySettings.ShowFullName</code></td><td>açık</td><td>Kapalı olduğunda, tam adlar gizlenir ve bunun yerine kullanıcı adları gösterilir.</td></tr>
+<tr><td><b>Yok sayma, engelleme ve iletme isteklerini etkinleştir</b></td><td><code>PrivacySettings.EnableUserBlocking</code></td><td>açık</td><td>Aşağıya bakın.</td></tr>
+<tr><td><b>Kullanıcılar şununla doğrudan ileti kanalı açabilsin</b></td><td><code>TeamSettings.RestrictDirectMessage</code></td><td>Antimatter sunucusundaki herhangi bir kullanıcı</td><td>Ya da <b>Takımdaki herhangi bir kullanıcı</b>: yalnızca aynı topluluğu paylaşan kişiler.</td></tr>
+</tbody>
+</table>
+<h3>Yoksayma, engelleme ve iletme istekleri</h3>
+<p><b>Yok sayma, engelleme ve iletme isteklerini etkinleştir</b> seçeneği açıkken (varsayılan), kullanıcılar birbirini yok sayabilir ve engelleyebilir; tanımadıkları kişilerden gelen doğrudan iletileri, kabul edilene kadar bildirim göndermeyen iletme istekleri olarak almayı seçebilirler. Bu, herkese açık topluluklar için uygundur. Meslektaşların birbirine her zaman ulaşabilmesi gereken bir iş yerindeyse bu seçeneği kapatın (<code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING=false</code>): bu durumda hiçbir kural zorunlu olarak uygulanmaz, ancak kullanıcıların oluşturduğu listeler ve yaptıkları seçimler saklanır ve seçeneği tekrar açtığınızda yeniden devreye girer.</p>
+
+<h2 id="sessions">Oturumlar ve jetonlar</h2>
+<ul>
+<li>Oturum süreleri ve boşta kalma zaman aşımı: <a href="{{root}}docs/admins/authentication.html#sessions">Oturum açma ve hesaplar</a> bölümüne bakın. Daha kısa oturumlar, kaybolan bir dizüstü bilgisayarın veya telefonun daha az süreyle oturum açılmış kalması anlamına gelir.</li>
+<li><b>Kişisel erişim kodları kullanılsın</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, kapalı) seçeneği, kullanıcıların API jetonları oluşturmasına olanak tanır; <b>Maksimum Kişisel Erişim Jetonu Geçerlilik Süresi (gün)</b> bu jetonların ömrünü sınırlar. Her ikisi de <b>Sistem Konsolu › Bütünleştirmeler › Bütünleştirme yönetimi</b> bölümünde bulunur.</li>
+<li>Örneğin şüpheli bir güvenlik ihlali sonrasında herkesi aynı anda oturumdan çıkarmak için: <b>Sistem Konsolu › Kullanıcı yönetimi › Kullanıcılar</b> bölümündeki <b>Tüm oturumları kapat</b> seçeneğini kullanın.</li>
+</ul>
+
+<h2 id="outbound">Dış hizmetlere bağlantılar</h2>
+<p>Antimatter, Mattermost, Inc. tarafından işletilen hiçbir hizmetle iletişim kurmaz. Telemetri, çökme raporları veya güvenlik güncelleme denetimleri göndermez ve ürün bildirimlerini çekmez. Mattermost'tan devralınan ve Mattermost'un hizmetlerinden birini (itme hizmetleri, uygulama mağazası, bildirimleri veya aramalar için STUN sunucusu) adlandıran bir yapılandırma, sunucunun bu hizmetlerle iletişim kurmasına neden olmaz: bu adresler yok sayılır.</p>
+<p>Sunucu ve uygulamalar, yalnızca buna ihtiyaç duyan özellikler için ve yapılandırdığınız hizmetlere dış hizmetlerle bağlantı kurar:</p>
+<table>
+<thead><tr><th>Özellik</th><th>İletişimler</th><th>Varsayılan olarak</th></tr></thead>
+<tbody>
+<tr><td>Aramalar: STUN ile herkese açık adreslerin bulunması. Sunucu ve aramaya katılan her kişi, IP adresini ve portunu STUN sunucusuna gösteren bir istek gönderir.</td><td>Cloudflare'ın herkese açık STUN sunucusu, <code>stun.cloudflare.com</code></td><td>açık, Calls uygulaması etkinleştirildiğinde. Değiştirmek için bkz. <a href="{{root}}docs/admins/calls.html#network">Calls</a>.</td></tr>
+<tr><td>Bağlantı ön izlemeleri: sunucu, iletilerdeki bağlantılara karşılık gelen sayfaları alır (<b>Bağlantı ön izlemeleri kullanılsın</b>, <code>ServiceSettings.EnableLinkPreviews</code>)</td><td>kullanıcıların bağlantı verdiği web siteleri</td><td>açık. <code>AM_SERVICESETTINGS_ENABLELINKPREVIEWS=false</code> ile kapatın.</td></tr>
+<tr><td>Mobil uygulamaya itme bildirimleri</td><td>kendi itme vekil sunucunuz (<a href="{{root}}docs/admins/email-push.html#push">Push notifications</a>)</td><td>adresi ayarlayana kadar kapalı</td></tr>
+<tr><td>Uzaktan uygulama mağazası (<code>PluginSettings.EnableRemoteMarketplace</code>)</td><td>ayarladığınız <b>Mağaza adresi</b></td><td>kapalı ve adres yok</td></tr>
+<tr><td>E-posta</td><td>SMTP sunucunuz</td><td>varsayılan sunucu <code>localhost</code></td></tr>
+<tr><td>Tek oturum açma, yapay zekâ modelleri, ses metne çevirme ve çeviri, giden webhook'lar ve Mail, Calendar, GitHub, GitLab veya Jira gibi uygulamalar</td><td>yapılandırdığınız hizmetler</td><td>yapılandırana kadar kapalı</td></tr>
+</tbody>
+</table>
+<p>Varsayılan olarak sunucu, bu tür istekler (bağlantı ön izlemeleri, webhook'lar, uygulamalar) için özel ve döngüsel (loopback) adreslere bağlanmayı reddeder; böylece bir ileti veya bütünleştirme, dahili ağınıza erişmek için kullanılamaz. Sunucunun erişmesine izin verilecek dahili ana bilgisayarları <b>Şuraya yapılan güvenilmemiş iç bağlantılara izin verilsin</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>, <b>Sistem Konsolu › Ortam › Geliştirici</b>) alanına ekleyin; sitenin compose dosyasında bu alana <code>gifs</code> değeri eklenmiştir.</p>
+
+<h2 id="report">Güvenlik açığı bildirme</h2>
+<p>Güvenlik sorunlarını, <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">Antimatter güvenlik politikasında</a> açıklandığı gibi özel olarak bildirin, herkese açık sorunlarda değil.</p>

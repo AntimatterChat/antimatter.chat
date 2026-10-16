@@ -1,0 +1,168 @@
+title: Antimatter'ın Kurulumu
+description: Antimatter'ı Docker Compose ile veya bir sürüm arşivinden yükleyin, bir görüntü seçin, ilk kez başlatın ve ilk sistem yöneticisini oluşturun.
+guide: admins
+order: 2
+nav: Kurulum
+lead: Antimatter'ı hazır compose dosyasıyla yükleyin, doğru görüntüyü seçin veya sunucuyu bir sürüm arşivinden çalıştırın. Ardından ilk yönetici hesabını oluşturun.
+source: 64cd522c4946
+---
+<h2 id="compose">Docker Compose ile Kurulum</h2>
+<p>Bu, önerilen yöntemdir. Tek bir compose dosyası Antimatter'ı, PostgreSQL'i, dosya depolamayı ve GIF hizmetini çalıştırır. Docker Engine ve Compose eklentisi (<code>docker compose</code>) olan, 2 CPU çekirdeği ve 4 GB veya daha fazla belleğe sahip bir Linux sunucuya ihtiyacınız var.</p>
+
+<h3>1. Compose dosyasını indirin</h3>
+<pre><code>mkdir antimatter &amp;&amp; cd antimatter
+curl -fsSLO https://antimatter.chat/compose.yaml</code></pre>
+
+<h3>2. .env dosyasını oluşturun</h3>
+<p>Compose dosyası ayarlarını aynı dizindeki <code>.env</code> dosyasından okur. Rastgele gizli anahtarlarla oluşturun:</p>
+<pre><code>cat &gt; .env &lt;&lt;EOF
+SITE_URL=http://localhost:8065
+POSTGRES_PASSWORD=$(openssl rand -hex 24)
+S3_SECRET_KEY=$(openssl rand -hex 24)
+GIFS_API_KEY=$(openssl rand -hex 24)
+EOF
+chmod 600 .env</code></pre>
+<p><code>SITE_URL</code> değerini, insanların tarayıcısına yazacağı adrese ayarlayın; örneğin yerel ağda <code>http://192.168.1.20:8065</code> veya bir alan adı ile <code>https://chat.example.com</code>. <code>.env</code> dosyasını saklayın: veritabanı ve depolama, ilk başlatmada bu şifreleri kullanır ve bir yedeği geri yüklemek için aynı dosyaya ihtiyacınız olur.</p>
+
+<h3>3. Başlatın</h3>
+<pre><code>docker compose up -d
+docker compose ps</code></pre>
+<p>İlk başlatma bir-iki dakika sürer: PostgreSQL veritabanını oluşturur, tek seferlik <code>bucket</code> hizmeti depolama kovasını oluşturur, tek seferlik <code>gifs-stickers</code> hizmeti başlangıç çıkartma paketini içe aktarır ve Antimatter tablolarını oluşturur. <code>docker compose logs -f antimatter</code> komutuyla ilerlemeyi izleyin.</p>
+<p>Baştan bir alan adı ve HTTPS kullanmak için <a href="{{root}}docs/admins/https.html">Alan Adı ve HTTPS</a> bölümüne bakın: compose dosyasıyla bu, <code>.env</code> dosyasına iki satır daha eklemek ve <code>https</code> profilini kullanmaktan ibarettir.</p>
+
+<h3>.env değişkenleri</h3>
+<table>
+<thead><tr><th>Değişken</th><th>Varsayılan</th><th>Ne işe yarar</th></tr></thead>
+<tbody>
+<tr><td><code>SITE_URL</code></td><td>zorunlu</td><td>Antimatter'ın herkese açık adresi (<code>ServiceSettings.SiteURL</code>).</td></tr>
+<tr><td><code>POSTGRES_PASSWORD</code></td><td>zorunlu</td><td><code>antimatter</code> veritabanı kullanıcısının şifresi.</td></tr>
+<tr><td><code>S3_SECRET_KEY</code></td><td>zorunlu</td><td>Dosya depolamanın gizli anahtarı.</td></tr>
+<tr><td><code>GIFS_API_KEY</code></td><td>zorunlu</td><td>Antimatter'ın GIF hizmetini çağırmak için kullandığı anahtar.</td></tr>
+<tr><td><code>GIFS_UPLOAD_KEY</code></td><td>boş</td><td>Kişilerin seçiciden kendi GIF'lerini ve çıkartmalarını eklemelerine olanak tanır. Boş bırakılırsa yüklemeler devre dışı kalır.</td></tr>
+<tr><td><code>DOMAIN</code></td><td>boş</td><td><code>https</code> profili için alan adınız.</td></tr>
+<tr><td><code>HTTP_PORT</code></td><td><code>8065</code></td><td>Antimatter'ın web sunucusunun ana makine portu.</td></tr>
+<tr><td><code>CALLS_PORT</code></td><td><code>8443</code></td><td>Arama ses ve görüntüsünün UDP ve TCP portu.</td></tr>
+<tr><td><code>EDGE_SUBNET</code></td><td><code>172.29.71.0/28</code></td><td>Caddy ve Antimatter arasındaki ağın alt ağı. Kendi ağlarınızdan biriyle örtüşüyorsa değiştirin.</td></tr>
+<tr><td><code>TZ</code></td><td><code>UTC</code></td><td>Konteynerlerin saat dilimi.</td></tr>
+<tr><td><code>ANTIMATTER_IMAGE</code></td><td><code>ghcr.io/antimatterchat/antimatter-next:latest</code></td><td>Çalıştırılacak Antimatter görüntüsü (aşağıya bakın).</td></tr>
+</tbody>
+</table>
+
+<h3>Ne çalışıyor</h3>
+<table>
+<thead><tr><th>Hizmet</th><th>Görüntü</th><th>Rol</th></tr></thead>
+<tbody>
+<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>Sunucu, web uygulaması ve dahili uygulamalar. <code>HTTP_PORT</code> ve <code>CALLS_PORT</code> değerlerini yayınlar.</td></tr>
+<tr><td><code>postgres</code></td><td><code>postgres:17-alpine</code></td><td><code>postgres</code> hacmindeki veritabanı.</td></tr>
+<tr><td><code>files</code></td><td><code>rustfs/rustfs</code></td><td>Yüklenen dosyalar ve kurulan uygulamalar için S3 uyumlu depolama, <code>files</code> hacminde.</td></tr>
+<tr><td><code>bucket</code></td><td><code>amazon/aws-cli</code></td><td><code>antimatter</code> kovasını oluşturur, ardından çıkar.</td></tr>
+<tr><td><code>gifs</code></td><td><code>ghcr.io/antimatterchat/gifs-server</code></td><td>GIF ve çıkartma servisi, <code>gifs</code> hacminde.</td></tr>
+<tr><td><code>gifs-stickers</code></td><td><code>ghcr.io/antimatterchat/gifs-server</code></td><td>İlk çalıştırmada başlangıç çıkartma paketini içe aktarır, ardından çıkar.</td></tr>
+<tr><td><code>https</code></td><td><code>caddy:2-alpine</code></td><td>Yalnızca <code>https</code> profiliyle: 80 ve 443 portlarında HTTPS.</td></tr>
+</tbody>
+</table>
+<p>PostgreSQL, depolama ve GIF servisi, yalnızca Antimatter'in katıldığı, internet erişimi olmayan dahili bir ağda (<code>private</code>) bulunur. Bunların hiçbiri port yayınlamaz.</p>
+<p>Antimatter konteyneri diske hiçbir şey kaydetmez: ayarları veritabanındadır (<code>AM_CONFIG</code> buna işaret eder) ve dosyaları ile uygulamaları depolama servisinde bulunur. Konteyneri istediğiniz zaman kaldırıp yeniden oluşturabilirsiniz. Yedeklemeniz gereken her şey <code>postgres</code>, <code>files</code> ve <code>gifs</code> hacimlerinde, ayrıca <code>.env</code> dosyanızda bulunur.</p>
+
+<h2 id="images">Bir görüntü seçin</h2>
+<p>İki Antimatter görüntüsü yayınlanmaktadır; her ikisi de <code>linux/amd64</code> ve <code>linux/arm64</code> için, her iki de her deponun <code>main</code> dalından derlenmiştir:</p>
+<table>
+<thead><tr><th>Görüntü</th><th>Paketlenmiş uygulamalar</th><th>Etiketler</th></tr></thead>
+<tbody>
+<tr><td><code>ghcr.io/antimatterchat/antimatter</code></td><td>Ajanlar, Aramalar, GitHub, GitLab, Jira, Kanban, Metrikler ve Playbook'lar.</td><td><code>latest</code>, sürümler için <code>X.Y.Z</code>, <code>sha-&lt;commit&gt;</code></td></tr>
+<tr><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>Bunlara ek olarak Ses kanalları, Anketler, E-posta, Takvim, Notlar, Beyaz tahta, GIF'ler, Yapılacaklar ve Memeler. Her gece yeniden derlenir.</td><td><code>latest</code>, <code>nightly</code>, <code>nightly-&lt;YYYYMMDD&gt;</code>, <code>sha-&lt;commit&gt;</code></td></tr>
+</tbody>
+</table>
+<p>Web sitesinin compose dosyası <code>antimatter-next</code> kullanır, çünkü GIF servisi ve bu sitede anlatılan uygulamaların çoğu yalnızca bu görüntüde mevcuttur. Görüntüyü değiştirmek için <code>.env</code> içinde <code>ANTIMATTER_IMAGE</code> değerini ayarlayın ve <code>docker compose up -d</code> komutunu çalıştırın.</p>
+<div class="callout warn"><code>latest</code> etiketi sizin altında değişir. Üretim ortamında, <code>nightly-20261015</code> veya <code>sha-&lt;commit&gt;</code> gibi bir etiketi sabitleyin ve yükseltme yaptığınızda bunu bilinçli olarak değiştirin. Sunucu başlatıldığında veritabanını yükseltir; bu nedenle, daha önce alınmış bir yedeği geri yüklemeden, daha eski bir görüntüye veya <code>antimatter-next</code>'ten <code>antimatter</code>'e geri dönemezsiniz. <a href="{{root}}docs/admins/backups-upgrades.html">Yedeklemeler ve yükseltmeler</a> bölümüne bakın.</div>
+
+<h3>Görüntünün içinde</h3>
+<ul>
+<li>Sunucu <code>/antimatter</code> dizininde bulunur; <code>antimatter</code> ve <code>amctl</code> ikili dosyaları <code>/antimatter/bin</code> dizininde yer alır (<code>PATH</code> üzerinde).</li>
+<li>Yalıtılmış bir kullanıcı olarak (<code>antimatter</code>, uid 2000) kabuk içermeyen, minimal bir distroless taban üzerinde çalışır.</li>
+<li>Portlar: 8065 (web ve API), 8067 (metrikler), 8074 (küme), 8443 UDP ve TCP (aramalar).</li>
+<li>Yerel mod (<code>ServiceSettings.EnableLocalMode</code>) etkin olduğundan, konteyner içinde <code>amctl --local</code> çalışır. Sağlık denetimi <code>amctl system status --local</code> komutunu çalıştırır.</li>
+<li>Paketle gelen uygulamalar <code>/antimatter/prepackaged_plugins</code> dizininde bulunur ve Antimatter uygulama imzalama anahtarıyla imzalanmıştır.</li>
+<li>Metin çıkarma araçları (<code>pdftotext</code>, <code>wvText</code>, <code>unrtf</code>, <code>tidy</code>) dahildir; böylece yüklenen belgelerin içeriği aranabilir.</li>
+</ul>
+
+<h3>Diğer compose dosyaları</h3>
+<p><a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> deposunda, <code>deploy/compose/</code> dizininde bir üretim kurulumu bulunur: kendi sertifikalarınız veya Let's Encrypt (certbot) ile nginx, PostgreSQL, isteğe bağlı GIF servisi (<code>gifs</code> profili) ve sunucunun yapılandırması, verileri ve günlükleri için adlandırılmış hacimler; bunlar README'de belgelenmiştir. Varsayılan olarak kararlı (stable) görüntüyü kullanır ve dosyaları S3 depolama yerine yerel bir hacimde saklar. Caddy yerine nginx tercih ediyorsanız veya zaten sertifikanız varsa bunu kullanın.</p>
+
+<h2 id="first-admin">İlk yöneticiyi oluşturun</h2>
+<p>Tarayıcınızda <code>SITE_URL</code> adresini açın ve bir hesap oluşturun. <b>Yeni bir sunucuda oluşturulan ilk hesap sistem yöneticisi olur</b>; ardından kurulum, ilk topluluğunuzu (Antimatter'ın takım veya çalışma alanı için kullandığı ad) oluşturma sürecinde size rehberlik eder.</p>
+<p>Bunu ilk başlatmadan hemen sonra yapın; o zamana kadar sunucuya ilk ulaşan kişi onun yöneticisi olur. Hesabı komut satırından oluşturmak isterseniz, sunucuya dışarıdan erişilebilir hale gelmeden önce şunu yapın:</p>
+<pre><code>docker compose exec antimatter amctl --local user create --system-admin --email-verified \
+    --email admin@example.com --username admin --password 'a-long-password'
+docker compose exec antimatter amctl --local team create --name main --display-name "Main"
+docker compose exec antimatter amctl --local team users add main admin</code></pre>
+<p>Ardından <code>SITE_URL</code> adresinde oturum açın. Komutu bir boşlukla başlatarak şifrenizin kabuk geçmişinize (shell history) kaydedilmesini önleyin (<code>HISTCONTROL=ignorespace</code> ile) veya oturum açtıktan sonra şifrenizi değiştirin.</p>
+<p>İçeride olduğunuzda sonraki adımlar:</p>
+<ol>
+<li>Kimlerin hesap oluşturabileceğine karar verin: <a href="{{root}}docs/admins/authentication.html">Oturum açma ve hesaplar</a>.</li>
+<li>Davetlerin ve şifre sıfırlamaların çalışması için e-postayı yapılandırın: <a href="{{root}}docs/admins/email-push.html">E-posta ve push bildirimleri</a>.</li>
+<li>Arama portunu güvenlik duvarınızda açın: <a href="{{root}}docs/admins/calls.html">Aramalar ve ses</a>.</li>
+<li>Hangi uygulamaların etkin olduğunu kontrol edin: <a href="{{root}}docs/admins/apps.html">Paketle gelen uygulamalar</a>.</li>
+</ol>
+
+<h2 id="archive">Sürüm arşivinden yükleyin</h2>
+<p>Docker olmadan, sunucu <code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code> adlı bir arşivden çalışır (örneğin <code>antimatter-linux-amd64.tar.gz</code>). Bu arşiv, <code>bin/antimatter</code>, <code>bin/amctl</code>, <code>config/config.json</code>, web uygulamaları (<code>client/</code> ve <code>client-fusion/</code>), e-posta şablonları ve çevirileri içeren tek bir <code>antimatter/</code> dizini içerir.</p>
+
+<h3>1. PostgreSQL'i hazırlayın</h3>
+<p>Antimatter yalnızca PostgreSQL'i destekler, sürüm 15 veya daha yeni (daha eski sürümler, logda bir hata ile başlar). Bir kullanıcı ve bir veritabanı oluşturun:</p>
+<pre><code>sudo -u postgres psql &lt;&lt;'EOF'
+CREATE USER antimatter WITH PASSWORD 'a-long-password';
+CREATE DATABASE antimatter OWNER antimatter;
+EOF</code></pre>
+
+<h3>2. Arşivi açın ve yapılandırın</h3>
+<pre><code>sudo tar -xzf antimatter-linux-amd64.tar.gz -C /opt
+sudo useradd --system --user-group antimatter
+sudo mkdir -p /opt/antimatter/data
+sudo chown -R antimatter:antimatter /opt/antimatter</code></pre>
+<p>Sunucuyu veritabanına yönlendirin, bunun için <code>/opt/antimatter/config/config.json</code> dosyasını (<code>SqlSettings.DataSource</code>) veya ortam değişkenlerini kullanın ve site URL'ini ayarlayın:</p>
+<pre><code>AM_SQLSETTINGS_DRIVERNAME=postgres
+AM_SQLSETTINGS_DATASOURCE=postgres://antimatter:a-long-password@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10
+AM_SERVICESETTINGS_SITEURL=https://chat.example.com</code></pre>
+<p>Arşivdeki <code>config.json</code> dosyası eksiksiz bir varsayılan yapılandırmadır; Sistem Konsolu'nda yaptığınız değişiklikler bu dosyaya geri kaydedilir. Yapılandırmayı veritabanında tutmak için bkz. <a href="{{root}}docs/admins/configuration.html">Yapılandırma</a>.</p>
+
+<h3>3. Hizmet olarak çalıştırın</h3>
+<p><code>/etc/systemd/system/antimatter.service</code> içindeki bir systemd birimi:</p>
+<pre><code>[Unit]
+Description=Antimatter
+After=network.target postgresql.service
+
+[Service]
+Type=notify
+User=antimatter
+Group=antimatter
+WorkingDirectory=/opt/antimatter
+ExecStart=/opt/antimatter/bin/antimatter
+EnvironmentFile=-/etc/antimatter.env
+TimeoutStartSec=3600
+Restart=always
+RestartSec=10
+LimitNOFILE=49152
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+<p><code>AM_</code> değişkenlerinizi <code>/etc/antimatter.env</code> dosyasına (yalnızca root tarafından okunabilir) yerleştirin, ardından:</p>
+<pre><code>sudo systemctl daemon-reload
+sudo systemctl enable --now antimatter
+journalctl -u antimatter -f</code></pre>
+<p>Sunucu 8065 portunu dinler. <code>http://&lt;server&gt;:8065</code> adresini açın veya ters bir proxy yerleştirildikten sonra alan adınızı kullanın (bkz. <a href="{{root}}docs/admins/https.html">Alan adı ve HTTPS</a>) ve ilk hesabı oluşturun: bu hesap sistem yöneticisi olur.</p>
+<p><code>bin/amctl</code>, çalışan sunucuyu komut satırından yönetir. Sunucunun kendisinde, yerel mod aracılığıyla oturum açmadan çalışır: <code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code> değerini ayarlayın, ardından <code>sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code> komutunu çalıştırın.</p>
+
+<h2 id="other-commands">Diğer sunucu komutları</h2>
+<p>Sunucuyu çalıştırmak (<code>antimatter</code> veya <code>antimatter server</code>) dışında, ikili dosyasının birkaç bakım komutu vardır. Bu komutlar sunucuyla aynı yapılandırmayı okur.</p>
+<table>
+<thead><tr><th>Komut</th><th>Ne işe yarar</th></tr></thead>
+<tbody>
+<tr><td><code>antimatter version</code></td><td>Sürümü, derleme numarasını, derleme tarihini ve derleme özetini (hash) yazdırır.</td></tr>
+<tr><td><code>antimatter db ping</code></td><td>Veritabanına erişilebilir olduğunu denetler.</td></tr>
+<tr><td><code>antimatter db init</code></td><td>Veritabanındaki yapılandırmayı oluşturur (<code>AM_CONFIG</code> değeri bir <code>postgres://</code> URL'si olarak ayarlanmalıdır).</td></tr>
+<tr><td><code>antimatter db migrate</code></td><td>Sunucuyu başlatmadan veritabanı geçişlerini (migrations) uygular.</td></tr>
+<tr><td><code>antimatter db version</code></td><td>Veritabanına uygulanan son geçişi (migration) yazdırır.</td></tr>
+<tr><td><code>antimatter import bulk</code>, <code>antimatter export bulk</code></td><td>Toplu (bulk) biçiminde verileri içe veya dışa aktarır (bkz. <a href="{{root}}docs/admins/backups-upgrades.html">Yedeklemeler ve yükseltmeler</a>).</td></tr>
+</tbody>
+</table>

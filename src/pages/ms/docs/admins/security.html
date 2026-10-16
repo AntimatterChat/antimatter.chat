@@ -1,0 +1,107 @@
+title: Keselamatan
+description: Perkukuh pelayan Antimatter: port yang perlu didedahkan, rahsia, had kadar, penapisan IP, had muat naik, tetapan privasi dan penyekat pengguna, sesi, sambungan yang dibuat oleh pelayan ke perkhidmatan luar, dan cara melaporkan kerentanan.
+guide: admins
+order: 12
+nav: Keselamatan
+lead: Senarai semak untuk memperkukuh pelayan Antimatter: apa yang perlu didedahkan, had dan tetapan privasi yang perlu disemak, perkhidmatan luar yang dihubungi oleh pelayan, dan cara melaporkan masalah keselamatan.
+source: dbe2371ecf30
+---
+<h2 id="exposure">Apa yang perlu didedahkan</h2>
+<table>
+<thead><tr><th>Port</th><th>Perkhidmatan</th><th>Pendedahan</th></tr></thead>
+<tbody>
+<tr><td>443/tcp, 443/udp, 80/tcp</td><td>Proksi HTTPS anda (Caddy atau nginx)</td><td>Awam: ini cara orang mengakses Antimatter.</td></tr>
+<tr><td>8443/udp dan 8443/tcp</td><td>Media Panggilan</td><td>Awam, jika orang menggunakan panggilan dari luar rangkaian anda.</td></tr>
+<tr><td>8065/tcp</td><td>Pelayan web Antimatter</td><td>Hanya ke proksi: terbitkannya pada <code>127.0.0.1</code> (<code>HTTP_PORT=127.0.0.1:8065</code>).</td></tr>
+<tr><td>8067/tcp</td><td>Metrik</td><td>Rangkaian peribadi sahaja, jika diaktifkan. Tiada log masuk.</td></tr>
+<tr><td>8074/tcp dan udp</td><td>Gosip kluster</td><td>Antara nod kluster sahaja.</td></tr>
+<tr><td>5432, 9000, 8080, 8066</td><td>PostgreSQL, storan fail, perkhidmatan GIF, proksi tolakan</td><td>Tidak pernah. Fail compose menyimpannya pada rangkaian dalaman tanpa port yang diterbitkan.</td></tr>
+</tbody>
+</table>
+<p>Fail compose laman web juga menjalankan setiap kontena dengan <code>no-new-privileges</code>, menjalankan Antimatter sebagai pengguna tidak berkeistimewaan pada imej distroless, dan menjalankan perkhidmatan GIF dengan sistem fail sahaja-baca. Pangkalan data, storan dan perkhidmatan GIF terletak pada rangkaian tanpa akses Internet.</p>
+
+<h2 id="checklist">Senarai semak selepas pemasangan</h2>
+<ol>
+<li>Cipta akaun pentadbir pertama sebelum sesiapa lain dapat mengakses pelayan (<a href="{{root}}docs/admins/install.html#first-admin">Pemasangan</a>).</li>
+<li>Sajikan Antimatter melalui HTTPS sahaja, dan tetapkan URL laman web ke alamat <code>https://</code> (<a href="{{root}}docs/admins/https.html">Domain dan HTTPS</a>).</li>
+<li>Simpan <code>.env</code>, <code>config.json</code> dan kunci TLS boleh dibaca oleh root (atau pengguna pelayan) sahaja: <code>chmod 600 .env</code>.</li>
+<li>Tentukan siapa yang boleh mencipta akaun, biarkan <b>Aktifkan Pelayan Terbuka</b> tidak diaktifkan melainkan komuniti adalah awam, dan aktifkan <b>Wajibkan Pengesahan E-mel</b> sebaik sahaja e-mel berfungsi (<a href="{{root}}docs/admins/authentication.html">Log masuk dan akaun</a>).</li>
+<li>Aktifkan pengesahan dua faktor, dan wajibkannya sekurang-kurangnya untuk akaun pentadbir, atau gunakan perkhidmatan pengenal pasti anda.</li>
+<li>Semak sambungan luar di bawah, terutamanya pelayan STUN yang digunakan oleh Panggilan secara lalai.</li>
+<li>Buat sandaran, dan uji pemulihan (<a href="{{root}}docs/admins/backups-upgrades.html">Sandaran dan kemas kini</a>).</li>
+<li>Kemas kini imej: pembaikan keselamatan tiba bersama imej baharu.</li>
+</ol>
+
+<h2 id="rate-limiting">Had kadar</h2>
+<p>Pelayan boleh mengehadkan bilangan permintaan API yang dibuat oleh setiap klien. Ia dimatikan secara lalai. Dalam <b>Konsol Sistem › Persekitaran › Had Kadar</b>:</p>
+<table>
+<thead><tr><th>Tetapan</th><th>Kunci</th><th>Lalai</th></tr></thead>
+<tbody>
+<tr><td><b>Bilakah Had Kadar</b></td><td><code>RateLimitSettings.Enable</code></td><td>Tutup</td></tr>
+<tr><td><b>Pertanyaan Maksimum per Saat</b></td><td><code>RateLimitSettings.PerSec</code></td><td>10</td></tr>
+<tr><td><b>Saiz Pecah Maksimum</b></td><td><code>RateLimitSettings.MaxBurst</code></td><td>100</td></tr>
+<tr><td><b>Saiz Simpanan Memori</b></td><td><code>RateLimitSettings.MemoryStoreSize</code></td><td>10000 klien dipantau</td></tr>
+<tr><td><b>Ubah had kadar mengikut alamat jauh</b></td><td><code>RateLimitSettings.VaryByRemoteAddr</code></td><td>hidup</td></tr>
+<tr><td><b>Ubah had kadar mengikut pengguna</b></td><td><code>RateLimitSettings.VaryByUser</code></td><td>Tutup</td></tr>
+<tr><td><b>Ubah had kadar mengikut pengepal HTTP</b></td><td><code>RateLimitSettings.VaryByHeader</code></td><td>kosong</td></tr>
+</tbody>
+</table>
+<p>Di belakang proksi, had mengikut alamat sahaja berfungsi jika pelayar mengetahui alamat setiap klien (<code>ServiceSettings.TrustedProxyIPHeader</code> dan <code>ServiceSettings.TrustedProxyIPs</code>, lihat <a href="{{root}}docs/admins/https.html#client-address">Alamat klien di belakang proksi</a>). Jika tidak, setiap permintaan kelihatan datang dari proksi, dan semua orang berkongsi satu had. Perkara yang sama berlaku untuk penapisan IP dan untuk alamat dalam log audit.</p>
+<p>Percubaan log masuk dihadkan secara berasingan: <b>Bilangan Percubaan Log Masuk Maksimum</b> (10) mengunci akaun selepas bilangan kata laluan yang gagal tersebut.</p>
+
+<h2 id="ip-filtering">Penapisan IP</h2>
+<p><b>Konsol Sistem › Konfigurasi Laman › Penapisan IP</b> mengehadkan akses ke pelayan mengikut alamat IP, dengan peraturan benarkan dan tolak (setiap satu ialah alamat atau julat CIDR). Dengan <b>Dayakan Penapisan IP</b> dihidupkan, orang yang alamatnya sepadan dengan peraturan tolak, atau tiada peraturan benarkan apabila terdapat peraturan benarkan, tidak dapat mencapai pelayan. Laman ini menolak peraturan yang akan memblokir alamat anda sendiri. Di belakang proksi, tetapkan alamat klien dahulu (<a href="{{root}}docs/admins/https.html#client-address">Alamat klien di belakang proksi</a>): jika tidak, setiap permintaan kelihatan datang dari proksi.</p>
+
+<h2 id="uploads">Muat naik dan perkongsian fail</h2>
+<table>
+<thead><tr><th>Tetapan</th><th>Di mana</th><th>Lalai</th></tr></thead>
+<tbody>
+<tr><td><b>Saiz Fail Maksimum</b> (<code>FileSettings.MaxFileSize</code>)</td><td>Persekitaran › Simpanan Fail</td><td>100 MB. Kekalkan had saiz permintaan proksi sekurang-kurangnya ini.</td></tr>
+<tr><td><b>Saiz Beban Maksimum (Bait)</b> (<code>ServiceSettings.MaximumPayloadSizeBytes</code>)</td><td>Persekitaran › Pelayan Web</td><td>300000: permintaan API terbesar selain muat naik fail</td></tr>
+<tr><td><b>Benarkan Perkongsian Fail</b> (<code>FileSettings.EnableFileAttachments</code>)</td><td>Konfigurasi Laman › Perkongsian dan Muat Turun Fail</td><td>hidup</td></tr>
+<tr><td><b>Benarkan Muat Naik Fail pada Peranti Mudah Alih</b>, <b>Benarkan Muat Turun Fail pada Mudah Alih</b></td><td>Konfigurasi Laman › Perkongsian dan Muat Turun Fail</td><td>hidup</td></tr>
+<tr><td><b>Aktifkan Pautan Fail Awam</b> (<code>FileSettings.EnablePublicLink</code>)</td><td>Konfigurasi Laman › Pautan Awam</td><td>dimatikan: apabila dihidupkan, orang boleh berkongsi fail dengan pautan yang berfungsi tanpa log masuk</td></tr>
+<tr><td><b>Aktifkan SVG</b> (<code>ServiceSettings.EnableSVGs</code>)</td><td>Konfigurasi Laman › Hantaran</td><td>dimatikan pada pelayan baharu: apabila dihidupkan, imej SVG dipaparkan secara dalam baris</td></tr>
+</tbody>
+</table>
+<p>Antimatter tidak mengimbas muat naik untuk perisian rosak.</p>
+
+<h2 id="privacy">Tetapan privasi</h2>
+<p>Di <b>Konsol Sistem › Konfigurasi Laman › Pengguna dan Pasukan</b>:</p>
+<table>
+<thead><tr><th>Tetapan</th><th>Kunci</th><th>Lalai</th><th>Fungsinya</th></tr></thead>
+<tbody>
+<tr><td><b>Tunjuk Alamat E-mel</b></td><td><code>PrivacySettings.ShowEmailAddress</code></td><td>hidup</td><td>Luar, alamat e-mel ahli disembunyikan daripada semua orang kecuali pentadbir. Matikan pada pelayan awam.</td></tr>
+<tr><td><b>Tunjuk Nama Penuh</b></td><td><code>PrivacySettings.ShowFullName</code></td><td>hidup</td><td>Luar, nama penuh disembunyikan dan nama pengguna dipaparkan sebagai gantinya.</td></tr>
+<tr><td><b>Aktifkan pengabaian, penyekatan dan permintaan mesej</b></td><td><code>PrivacySettings.EnableUserBlocking</code></td><td>hidup</td><td>Lihat di bawah.</td></tr>
+<tr><td><b>Benarkan pengguna membuka saluran Mesej Terus dengan</b></td><td><code>TeamSettings.RestrictDirectMessage</code></td><td>Mana-mana pengguna pada pelayan Antimatter</td><td>Atau <b>Mana-mana ahli pasukan</b>: hanya orang yang berkongsi komuniti.</td></tr>
+</tbody>
+</table>
+<h3>Pengabaian, penyekatan dan permintaan mesej</h3>
+<p>Dengan <b>Aktifkan pengabaian, penyekatan dan permintaan mesej</b> dihidupkan (lalai), orang boleh mengabaikan dan menyekat antara satu sama lain, dan boleh memilih untuk menerima mesej terus daripada orang yang tidak mereka kenali sebagai permintaan mesej, yang tidak memberi pemberitahuan sehingga diterima. Ini sesuai untuk komuniti awam. Di tempat kerja di mana rakan sekerja mesti sentiasa dapat menghubungi antara satu sama lain, matikan (<code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING=false</code>): tiada satu pun lagi dikuatkuasakan, tetapi senarai dan pilihan yang dibuat oleh orang disimpan, dan terpakai semula jika anda menghidupkannya semula.</p>
+
+<h2 id="sessions">Sesi dan token</h2>
+<ul>
+<li>Panjang sesi dan tamat masa tidak aktif: lihat <a href="{{root}}docs/admins/authentication.html#sessions">Log masuk dan akaun</a>. Sesi yang lebih singkat bermaksud laptop atau telefon yang hilang kekal log masuk untuk masa yang lebih singkat.</li>
+<li><b>Dayakan Token Akses Peribadi</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, luar) membolehkan orang mencipta token API; <b>Tempoh Hayat Maksimum Token Akses Peribadi (hari)</b> mengehadkannya. Kedua-duanya berada di <b>Konsol Sistem › Integrasi › Pengurusan Integrasi</b>.</li>
+<li>Untuk melog keluar semua orang sekaligus, contohnya selepas pelanggaran yang disyaki: <b>Batal Semua Sesi</b> di <b>Konsol Sistem › Pengurusan Pengguna › Pengguna</b>.</li>
+</ul>
+
+<h2 id="outbound">Sambungan ke perkhidmatan luar</h2>
+<p>Antimatter tidak menghubungi mana-mana perkhidmatan yang dikendalikan oleh Mattermost, Inc. Ia tidak menghantar telemetri, laporan kerosakan atau semakan kemas kini keselamatan, dan tidak mengambil notis produk. Konfigurasi yang dibawa dari Mattermost yang masih menamakan salah satu perkhidmatan Mattermost (perkhidmatan tolakan, kedai aplikasi, notis atau pelayan STUN untuk panggilan) tidak menyebabkan pelayan menghubungi mereka: alamat-alamat itu diabaikan.</p>
+<p>Pelayan dan aplikasi bersambung ke perkhidmatan luar lain hanya untuk ciri yang memakainya, dan kepada perkhidmatan yang anda konfigurasi:</p>
+<table>
+<thead><tr><th>Ciri</th><th>Hubungan</th><th>Secara lalai</th></tr></thead>
+<tbody>
+<tr><td>Panggilan: mencari alamat awam dengan STUN. Pelayan dan setiap orang yang menyertai panggilan menghantar permintaan, yang menunjukkan pelayan STUN alamat IP dan port mereka.</td><td>Pelayan STUN awam Cloudflare, <code>stun.cloudflare.com</code></td><td>aktif, selagi aplikasi Panggilan diaktifkan. Untuk mengubahnya, lihat <a href="{{root}}docs/admins/calls.html#network">Panggilan</a>.</td></tr>
+<tr><td>Pratonton pautan: pelayan mengambil halaman yang dipautkan dalam mesej (<b>Aktifkan pratonton pautan laman web</b>, <code>ServiceSettings.EnableLinkPreviews</code>)</td><td>laman web yang dipautkan oleh pengguna</td><td>aktif. Matikan dengan <code>AM_SERVICESETTINGS_ENABLELINKPREVIEWS=false</code>.</td></tr>
+<tr><td>Pemberitahuan push ke aplikasi mudah alih</td><td>proksi push anda sendiri (<a href="{{root}}docs/admins/email-push.html#push">Pemberitahuan push</a>)</td><td>nonaktif sehingga anda menetapkan alamatnya</td></tr>
+<tr><td>pasaran aplikasi jarak jauh (<code>PluginSettings.EnableRemoteMarketplace</code>)</td><td><b>URL Pasaran</b> yang anda tetapkan</td><td>nonaktif, dan tiada alamat</td></tr>
+<tr><td>E-mel</td><td>pelayan SMTP anda</td><td>pelayan lalai ialah <code>localhost</code></td></tr>
+<tr><td>Log masuk tunggal, model AI, suara-ke-teks dan penterjemahan, webhook keluar, dan aplikasi seperti Mail, Kalendar, GitHub, GitLab atau Jira</td><td>perkhidmatan yang anda konfigurasi</td><td>nonaktif sehingga anda mengkonfigurasikannya</td></tr>
+</tbody>
+</table>
+<p>Secara lalai, pelayan enggan menyambung ke alamat peribadi dan loopback untuk ini (pratonton pautan, webhook, aplikasi), supaya mesej atau integrasi tidak boleh digunakan untuk mencapai rangkaian dalaman anda. Senaraikan hos dalaman yang boleh dicapai dalam <b>Benarkan sambungan dalaman tidak dipercayai kepada</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>, dalam <b>Konsol Sistem › Persekitaran › Pembangun</b>); fail komposisi tapak ini menyenaraikan <code>gifs</code> di sana.</p>
+
+<h2 id="report">Melaporkan kerentanan</h2>
+<p>Laporkan masalah keselamatan secara peribadi, seperti yang diterangkan dalam <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">dasar keselamatan Antimatter</a>, bukan dalam isu awam.</p>

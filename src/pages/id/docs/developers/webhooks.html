@@ -1,0 +1,170 @@
+title: Webhook
+description: Webhook masuk dan keluar Antimatter: cara membuatnya, payload dan responsnya, lampiran pesan dan kartu, penggantian nama dan ikon, beserta contoh.
+guide: developers
+order: 3
+nav: Webhook
+lead: Webhook masuk memungkinkan sistem lain mengirim pesan ke sebuah kanal dengan cara mengirim JSON ke URL rahasia. Webhook keluar melakukan kebalikannya: ia mengirim pesan yang diawali dengan kata pemicu ke URL Anda, lalu memposting jawaban Anda.
+source: ecd698619944
+---
+<h2 id="where">Lokasi untuk mengelola webhook</h2>
+<p>Buka avatar Anda di kanan atas, lalu pilih <b>Integrasi</b>. Halaman integrasi komunitas saat ini mencantumkan <b>Webhook Masuk</b> dan <b>Webhook Keluar</b>. Setiap webhook terhubung ke satu komunitas.</p>
+<p>Secara bawaan, admin komunitas dan admin sistem dapat membuat webhook. Admin sistem dapat memberikan hak ini ke peran lain melalui pengaturan izin di Konsol Sistem. Admin sistem juga dapat menonaktifkan masing-masing jenis webhook di <b>Konsol Sistem › Integrasi › Manajemen Integrasi</b>: <b>Aktifkan Webhook Masuk</b> dan <b>Aktifkan Webhook Keluar</b> keduanya aktif secara bawaan.</p>
+<figure><img src="{{root}}assets/img/shots/integrations.webp" alt="A channel with messages from a CI bot and from GitHub, shown as cards with fields, pipeline stages and a button"><figcaption>Pesan integrasi yang digambar sebagai kartu: bidang, tahap pipeline, dan tombol aksi.</figcaption></figure>
+
+<h2 id="incoming">Buat webhook masuk</h2>
+<ol>
+<li>Di <b>Integrasi</b>, pilih <b>Webhook Masuk</b>, lalu <b>Tambah Webhook Masuk</b>.</li>
+<li>Isi <b>Judul</b> dan <b>Deskripsi</b>: keduanya hanya ditampilkan di halaman integrasi.</li>
+<li>Pilih <b>Kanal</b> tempat pesan akan dikirim secara bawaan. Untuk kanal privat, Anda harus menjadi anggota kanal tersebut.</li>
+<li>Centang <b>Kunci ke kanal ini</b> jika pengirim tidak boleh memposting ke tempat lain.</li>
+<li>Secara opsional, atur <b>Nama Pengguna</b> dan URL <b>Gambar Profil</b> untuk pesan webhook (lihat <a href="#identity">Nama dan ikon</a>).</li>
+<li>Pilih <b>Simpan</b>. Salin URL yang ditampilkan: <code>https://chat.example.com/hooks/&lt;key&gt;</code>.</li>
+</ol>
+<div class="callout warn">URL adalah satu-satunya rahasia: siapa pun yang memilikinya dapat mengirim pesan di kanal tersebut. Jauhkan dari repositori publik, dan hapus webhook jika bocor.</div>
+<p>Melalui API: <code>POST /api/v4/hooks/incoming</code> dengan <code>{"channel_id", "display_name", "description", "username", "icon_url", "channel_locked"}</code>; <code>id</code> dari respons adalah kuncinya. Dari baris perintah: <code>amctl webhook create-incoming --channel &lt;channel id&gt; --user &lt;user&gt; --display-name "CI"</code>.</p>
+
+<h2 id="incoming-send">Kirim pesan ke webhook masuk</h2>
+<pre><code>curl -X POST https://chat.example.com/hooks/xgh5ycrx1jf7mbs9w8z4c8e7ho \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Deploy of **api 2.4.0** finished :white_check_mark:"}'</code></pre>
+<p>Server merespons dengan <code>200</code> dan isi <code>ok</code>. Ia juga menerima <code>application/x-www-form-urlencoded</code> dengan JSON di bidang <code>payload</code>, seperti webhook Slack, sehingga alat yang dibuat untuk Slack biasanya berfungsi tanpa perubahan.</p>
+<table>
+<thead><tr><th>Bidang</th><th>Arti</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>Pesan dalam format Markdown. Wajib diisi kecuali ada <code>attachments</code>. Teks yang melebihi batas pesan server akan dipecah menjadi beberapa pesan.</td></tr>
+<tr><td><code>channel</code></td><td>Kanal lain dari komunitas webhook, berdasarkan nama (<code>ops-alerts</code> atau <code>#ops-alerts</code>), atau <code>@username</code> untuk Pesan Langsung dari pemilik webhook. Ditolak jika webhook dikunci ke kanalnya.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code>, <code>icon_emoji</code></td><td>Nama dan gambar yang akan ditampilkan, jika server mengizinkan penggantian.</td></tr>
+<tr><td><code>attachments</code></td><td>Lampiran pesan, yang ditampilkan sebagai kartu (di bawah).</td></tr>
+<tr><td><code>props</code></td><td>Properti tambahan yang disimpan pada pesan, untuk aplikasi yang membacanya.</td></tr>
+<tr><td><code>type</code></td><td>Jenis pesan khusus, seperti <code>custom_poll</code>, untuk aplikasi yang menampilkannya. Jenis yang diawali dengan <code>system_</code> akan ditolak.</td></tr>
+<tr><td><code>root_id</code></td><td>ID pesan pertama dari sebuah Utas, untuk membalas di utas tersebut.</td></tr>
+<tr><td><code>priority</code></td><td>Prioritas pesan, misalnya <code>{"priority": "urgent"}</code>.</td></tr>
+<tr><td><code>silent</code></td><td><code>true</code> mengirim pesan tanpa notifikasi push.</td></tr>
+</tbody>
+</table>
+<p>Pesan yang ditampilkan dengan nama yang diganti memiliki tag <b>BOT</b> di sampingnya, sehingga orang dapat membedakannya dari akun asli. Pesan webhook tidak pernah memicu webhook keluar.</p>
+
+<h2 id="identity">Nama dan ikon</h2>
+<p>Webhook memposting sebagai orang yang membuatnya, kecuali server mengizinkan penimpaan. Dua pengaturan di <b>Konsol Sistem › Integrasi › Manajemen Integrasi</b>, keduanya nonaktif secara bawaan, mengubah hal tersebut:</p>
+<ul>
+<li><b>Aktifkan integrasi untuk menimpa nama pengguna</b> (<code>ServiceSettings.EnablePostUsernameOverride</code>): <b>Nama Pengguna</b> webhook atau <code>username</code> dari permintaan ditampilkan sebagai gantinya; jika keduanya tidak ada, nama yang ditampilkan adalah <code>webhook</code>.</li>
+<li><b>Aktifkan integrasi untuk menimpa ikon foto profil</b> (<code>ServiceSettings.EnablePostIconOverride</code>): <b>Gambar Profil</b> webhook, atau <code>icon_url</code> atau <code>icon_emoji</code> dari permintaan, ditampilkan.</li>
+</ul>
+<p>Nilai dalam permintaan mengungguli nilai yang disimpan pada webhook.</p>
+
+<h2 id="attachments">Lampiran</h2>
+<p>Lampiran menambahkan konten terstruktur di bawah teks. Lampiran mengikuti format lampiran pesan Slack:</p>
+<pre><code>{
+  "text": "Build failed on `main`",
+  "attachments": [{
+    "fallback": "main #1902 failed",
+    "color": "#d24b4e",
+    "author_name": "GitHub Actions",
+    "author_icon": "https://chat.example.com/static/ci.png",
+    "title": "main #1902 failed",
+    "title_link": "https://ci.example.com/runs/1902",
+    "text": "Commit `0f4d8e2` by Jonas Weber",
+    "fields": [
+      {"title": "Branch", "value": "zephyr-3.7", "short": true},
+      {"title": "Duration", "value": "3m 40s", "short": true}
+    ],
+    "footer": "Lumen CI",
+    "ts": 1760000000
+  }]
+}</code></pre>
+<table>
+<thead><tr><th>Bidang</th><th>Arti</th></tr></thead>
+<tbody>
+<tr><td><code>fallback</code></td><td>Teks polos untuk tempat yang tidak dapat menampilkan kartu, seperti notifikasi.</td></tr>
+<tr><td><code>color</code></td><td>Bilah warna: warna heksadesimal, atau <code>good</code>, <code>warning</code>, <code>danger</code>.</td></tr>
+<tr><td><code>pretext</code></td><td>Teks di atas kartu.</td></tr>
+<tr><td><code>author_name</code>, <code>author_link</code>, <code>author_icon</code></td><td>Baris judul kecil.</td></tr>
+<tr><td><code>title</code>, <code>title_link</code></td><td>Judul kartu, opsional berupa tautan.</td></tr>
+<tr><td><code>text</code></td><td>Isi kartu, dalam format Markdown.</td></tr>
+<tr><td><code>fields</code></td><td>Daftar <code>{"title", "value", "short"}</code>; kolom <code>short</code> diletakkan berdampingan.</td></tr>
+<tr><td><code>image_url</code>, <code>thumb_url</code></td><td>Gambar besar di bawah, atau gambar kecil di samping.</td></tr>
+<tr><td><code>footer</code>, <code>footer_icon</code>, <code>ts</code></td><td>Baris footer dan waktu (detik Unix).</td></tr>
+<tr><td><code>actions</code></td><td>Tombol dan menu: lihat <a href="{{root}}docs/developers/bots.html#interactive">Pesan interaktif</a>.</td></tr>
+</tbody>
+</table>
+
+<h2 id="cards">Kartu: tahapan dan grafik</h2>
+<p>Antimatter menambahkan dua bidang ke lampiran, yang ditampilkan oleh antarmuka bawaan:</p>
+<ul>
+<li><code>stages</code>: langkah-langkah pipeline sebagai pil, hingga 20. Masing-masing berisi <code>{"name", "status"}</code>, dengan status <code>passed</code>, <code>failed</code>, <code>running</code>, <code>pending</code>, <code>skipped</code>, atau <code>canceled</code>.</li>
+<li><code>chart</code>: grafik garis kecil dari nilai-nilai terbaru, <code>{"values": [2 to 200 numbers], "threshold": number, "label": "…"}</code>. Ambang batas digambar sebagai garis putus-putus, untuk batas peringatan.</li>
+</ul>
+<pre><code>{
+  "attachments": [{
+    "color": "danger",
+    "title": "main #1902 failed",
+    "stages": [
+      {"name": "build", "status": "failed"},
+      {"name": "unit", "status": "skipped"},
+      {"name": "publish", "status": "skipped"}
+    ]
+  }, {
+    "color": "warning",
+    "title": "API latency above 400 ms",
+    "chart": {"values": [210, 230, 260, 390, 450, 470], "threshold": 400, "label": "p95 latency, ms"}
+  }]
+}</code></pre>
+<p>Antarmuka klasik dan klien lain mengabaikan dua bidang ini, jadi sertakan juga hal-hal penting di <code>text</code> atau <code>fields</code>.</p>
+
+<h2 id="outgoing">Buat webhook keluar</h2>
+<p>Webhook keluar memantau kanal <b>publik</b> komunitas. Ketika kata pertama pesan cocok dengan salah satu kata pemicunya, Antimatter mengirim pesan tersebut ke URL Anda.</p>
+<ol>
+<li>Di <b>Integrasi</b>, pilih <b>Webhook Keluar</b>, lalu <b>Tambahkan Webhook Keluar</b>.</li>
+<li>Isi <b>Judul</b> dan <b>Deskripsi</b>.</li>
+<li>Pilih <b>Jenis Konten</b> dari permintaan: <code>application/x-www-form-urlencoded</code> atau <code>application/json</code>.</li>
+<li>Pilih <b>Kanal</b>, masukkan <b>Kata Pemicu (Satu per Baris)</b>, atau keduanya. Dengan kanal dan tanpa kata pemicu, setiap pesan di kanal tersebut akan dikirim. Dengan keduanya, pesan harus cocok dengan keduanya.</li>
+<li>Di bawah <b>Pemicu Saat</b>, pilih <b>Kata pertama cocok persis dengan kata pemicu</b> atau <b>Kata pertama diawali dengan kata pemicu</b>.</li>
+<li>Masukkan <b>URL Callback (Satu per Baris)</b>. Setiap URL menerima semua pesan yang cocok.</li>
+<li>Secara opsional, atur <b>Nama Pengguna</b> dan <b>Gambar Profil</b> yang digunakan untuk balasan.</li>
+<li>Pilih <b>Simpan</b> dan salin token yang ditampilkan. Layanan Anda menggunakannya untuk memverifikasi bahwa permintaan berasal dari server Anda.</li>
+</ol>
+<p>Dengan API: <code>POST /api/v4/hooks/outgoing</code> dengan <code>{"team_id", "channel_id", "trigger_words", "trigger_when", "callback_urls", "content_type", "display_name"}</code> (<code>trigger_when</code>: 0 untuk kecocokan persis, 1 untuk "diawali dengan").</p>
+<div class="callout">Jika layanan Anda berada di jaringan privat, admin sistem harus mengizinkan alamatnya di <b>Izinkan koneksi internal yang tidak tepercaya ke</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>). Server tidak akan memanggil alamat privat jika tidak.</div>
+
+<h2 id="outgoing-request">Permintaan keluar</h2>
+<p>Antimatter mengirim POST dengan bidang-bidang berikut, sebagai JSON atau form-encoded tergantung pada tipe konten:</p>
+<pre><code>{
+  "token": "6kd1ofo5ojr5zgu5ipfipybgnc",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "channel_id": "…",
+  "channel_name": "ops-alerts",
+  "timestamp": 1760010000000,
+  "user_id": "…",
+  "user_name": "priya",
+  "post_id": "…",
+  "text": "deploy api 2.4.0",
+  "trigger_word": "deploy",
+  "file_ids": ""
+}</code></pre>
+<p>Bandingkan <code>token</code> dengan token webhook sebelum melakukan apa pun. Dalam versi form-encoded, <code>timestamp</code> dalam satuan detik, bukan milidetik. Server menunggu jawaban Anda selama yang diizinkan oleh <b>Timeout permintaan integrasi</b> (30 detik secara default, <code>ServiceSettings.OutgoingIntegrationRequestsTimeout</code>).</p>
+
+<h2 id="outgoing-response">Balas webhook keluar</h2>
+<p>Untuk memposting balasan, jawab dengan JSON. Untuk tidak memposting apa pun, jawab dengan body kosong.</p>
+<pre><code>{
+  "text": "Deploying **api 2.4.0** to staging…",
+  "response_type": "comment",
+  "username": "deploy-bot",
+  "icon_url": "https://chat.example.com/static/deploy.png"
+}</code></pre>
+<ul>
+<li><code>text</code> dan <code>attachments</code>: isi balasan. Tanpa salah satu dari keduanya, tidak ada yang diposting.</li>
+<li><code>response_type</code>: <code>comment</code> memposting balasan di utas pesan pemicu; selain itu, balasan masuk ke kanal.</li>
+<li><code>username</code>, <code>icon_url</code>: ditampilkan jika server mengizinkan penggantian nilai; jika tidak, nilai milik webhook itu sendiri yang digunakan.</li>
+<li><code>props</code>, <code>type</code>, <code>priority</code>: sama seperti pada webhook masuk.</li>
+</ul>
+<p>Balasan diposting atas nama pembuat webhook, dengan nama yang diganti jika ada. Untuk konten yang lebih panjang dari sekadar jawaban singkat, jawab segera dan posting kemudian menggunakan webhook masuk atau API.</p>
+
+<h2 id="troubleshooting">Ketika webhook tidak berfungsi</h2>
+<ul>
+<li><b>501 dari URL hook</b>: webhook masuk dimatikan di server.</li>
+<li><b>400 "Failed to decode the payload…"</b>: JSON tidak valid, atau field form tidak bernama <code>payload</code>. <b>"No text specified."</b> berarti permintaan tidak memiliki <code>text</code> maupun <code>attachments</code>.</li>
+<li><b>403</b>: webhook terkunci ke kanal lain, atau pemiliknya tidak lagi dapat membaca kanal tersebut.</li>
+<li><b>Webhook keluar tidak pernah terpicu</b>: kanalnya privat, pemicu bukan kata pertama, atau pesan berasal dari webhook.</li>
+<li><b>Log</b>: dengan <b>Aktifkan Debugging Webhook</b> diaktifkan (<code>LogSettings.EnableWebhookDebugging</code>), dan tingkat log pada <code>DEBUG</code>, server akan mencatat payload dari permintaan masuk yang gagal. Panggilan keluar yang gagal dicatat sebagai <code>Outgoing Webhook POST failed</code>.</li>
+</ul>

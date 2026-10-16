@@ -1,0 +1,77 @@
+title: البناء على Antimatter
+description: دليل موجّه للمطورين الذين يدمجون Antimatter أو يوسّعون إمكانياته: واجهة برمجة التطبيقات REST، خطوط الويب، أوامر الشرطة المائلة، البوتات، التطبيقات (الإضافات)، البناء من الشيفرة المصدرية، والمساهمة في المشروع.
+guide: developers
+order: 1
+nav: نظرة عامة
+lead: هذا الدليل مخصص للمطورين. يتناول السكربتات والبوتات التي تستخدم واجهة برمجة التطبيقات، والتكاملات المبنية على خطوط الويب وأوامر الشرطة المائلة، والتطبيقات (الإضافات) التي تضيف ميزات إلى الخادم وتطبيق الويب، فضلاً عن بناء Antimatter من الشيفرة المصدرية للمساهمة في تطويره.
+source: b60d529f2c61
+---
+<h2 id="ways">طرق توسيع إمكانيات Antimatter</h2>
+<p>اختر الأداة الأخفّ التي تنجز المهمة. الأدوات الأربع الأولى لا تتطلب أي وصول إلى الخادم نفسه، بينما تعمل التطبيقات داخله.</p>
+<table>
+<thead><tr><th>الأداة</th><th>وظيفته</th><th>مناسبة لـ</th></tr></thead>
+<tbody>
+<tr><td><a href="{{root}}docs/developers/api.html">واجهة برمجة التطبيقات REST</a></td><td>كل ما تنجزه التطبيقات: الرسائل، القنوات، الأشخاص، الملفات، الإعدادات. يرسل WebSocket الأحداث فور حدوثها.</td><td>السكربتات، المزامنة مع أنظمة أخرى، العملاء المخصصون.</td></tr>
+<tr><td><a href="{{root}}docs/developers/webhooks.html">خطوات الويب الواردة</a></td><td>رابط سري يرسل رسالة إلى قناة عند إرسال بيانات JSON إليه.</td><td>التنبيهات، نتائج أنظمة البناء والتكامل المستمر، المراقبة، الإشعارات من أدوات أخرى.</td></tr>
+<tr><td><a href="{{root}}docs/developers/webhooks.html#outgoing">خطوات الويب الصادرة</a></td><td>يستدعي Antimatter رابطك عندما تبدأ رسالة في قناة عامة بكلمة محفّزة، ثم ينشر ردّك.</td><td>الأتمتة البسيطة المبنية على المحادثة.</td></tr>
+<tr><td><a href="{{root}}docs/developers/commands.html">أوامر الشرطة المائلة</a></td><td>يكتب المستخدمون <code>/something</code>؛ يستدعي Antimatter رابطك ويعرض إجابتهم لهم أو للقناة.</td><td>الاستعلامات، الإجراءات التي تبدأ من المحادثة.</td></tr>
+<tr><td><a href="{{root}}docs/developers/bots.html">البوتات</a></td><td>حسابات مخصصة للبرامج، مع رموزها الخاصة، ووسم <b>BOT</b>، ورسائل وتفاعلات حوارية.</td><td>المساعدون، المنبّهون، وكل ما يتواصل مع الأشخاص.</td></tr>
+<tr><td><a href="{{root}}docs/developers/apps.html">التطبيقات (الإضافات)</a></td><td>كود يعمل داخل الخادم (Go) وفي تطبيق الويب (React): خطافات لكل رسالة، قوائم جديدة، لوحات، أنواع رسائل، صفحات.</td><td>ميزات: استطلاعات، ملاحظات، تقويمات، تكاملات تتطلب واجهة المستخدم.</td></tr>
+</tbody>
+</table>
+<p>في واجهة المستخدم، يسمي المستخدمون الإضافات «تطبيقات». يستخدم هذا الدليل عبارة «تطبيقات (إضافات)» حيثما تساعد الكلمتان معاً، لأن الكود وواجهة برمجة التطبيقات والإعدادات لا تزال تستخدم كلمة «إضافة».</p>
+
+<h2 id="compatibility">التوافق مع Mattermost</h2>
+<p>Antimatter هو فرع (fork) من Mattermost. معظم ما يعمل مع خادم Mattermost يعمل مع Antimatter.</p>
+<h3>ما هو متطابق</h3>
+<ul>
+<li><b>واجهة برمجة التطبيقات REST</b> تحت <code>/api/v4</code>، ومصادقتها، وWebSocket، وصيغة أخطائها. يبلغ الخادم عن إصداره <code>12.0.0</code>، لذا ترى العملاء والتطبيقات التي تفحص إصدار الخادم إصداراً حديثاً من Mattermost.</li>
+<li><b>خطافات الويب وأوامر الشرطة المائلة</b>، بما في ذلك حمولاتها المتوافقة مع Slack.</li>
+<li><b>واجهة برمجة التطبيقات (API) والخطافات الخاصة بالخادم</b>: لم يغيّر Antimatter شيئًا فيها. تُبنى أكواد الخادم على وحدة Go نفسها، <code>github.com/mattermost/mattermost/server/public</code>.</li>
+<li><b>سجل إضافات تطبيق الويب</b>: جميع طرق <code>register…</code> في سجل Mattermost موجودة في كلا واجهتي Antimatter للويب.</li>
+<li><b>مكتبات العملاء</b>: عميل Go <code>model.Client4</code> وعميل TypeScript <code>@mattermost/client</code> (راجع <a href="{{root}}docs/developers/api.html#clients">مكتبات العملاء</a>).</li>
+<li><b>حزم الإضافات</b>: ملف <code>.tar.gz</code> يحتوي على بيان <code>plugin.json</code>. تُثبَّت الإضافات الموقّعة بمفتاح Mattermost، وكذلك تلك الموقّعة بمفتاح Antimatter.</li>
+</ul>
+<h3>ما الذي يختلف</h3>
+<ul>
+<li><b>واجهتا ويب.</b> الواجهة الجديدة، Fusion، هي الافتراضية؛ ما زالت الواجهة الكلاسيكية لـ Mattermost متاحة. تُصيِّر Fusion معظم مكوّنات الإضافات، لكنها تضع بعضها في أماكن مختلفة وتُغفل بعضها الآخر. يمكن للتطبيق معرفة الواجهة قيد التشغيل. راجع <a href="{{root}}docs/developers/apps.html#fusion">دعم واجهة Fusion</a>.</li>
+<li><b>واجهة برمجة تطبيقات إضافية.</b> يضيف Antimatter نقاط نهاية (endpoints) لميزات خاصة به: سمات المجتمع، فترات انتهاء الصلاحية، الرسائل العلوية، طلبات الرسائل، تجاوزات القنوات والتصنيفات، تصدير القنوات، وحقول جديدة للمجتمعات. راجع <a href="{{root}}docs/developers/api.html#antimatter">ما يضيفه Antimatter إلى واجهة برمجة التطبيقات</a>.</li>
+<li><b>ميزات رسائل إضافية.</b> يمكن لمرفقات الرسائل عرض مراحل خط الإنتاج ومخططًا صغيرًا؛ ويمكن أن تكون المنشورات ردودًا مضمّنة أو إخفاءات (spoilers).</li>
+<li><b>خطافات إضافية لتطبيق الويب</b> للتطبيقات: عنصر في قائمة "+" في محرر الرسائل، تبويبات في منتقي الرموز التعبيرية، لوحة في عرض القناة، تذييل أسفل القنوات في الشريط الجانبي، ودخول في صفحات التكاملات. راجع <a href="{{root}}docs/developers/apps.html#antimatter-hooks">الخطافات التي يملكها Antimatter فقط</a>.</li>
+<li><b>لا تراخيص.</b> جميع الميزات متاحة دون مفتاح ترخيص. نقاط نهاية الترخيص، التجربة، والترقية إلى الإصدار المؤسسي لم تعد موجودة؛ يبقى <code>GET /api/v4/license/client</code> للعملاء الذين يطلبونه. بعض التطبيقات المبنية لإصدارات Mattermost المدفوعة تتحقق من الترخيص بنفسها وترفض التشغيل.</li>
+<li><b>الأسماء.</b> تُسمّى الفرق مجتمعات في الواجهة، لكن واجهة برمجة التطبيقات والكود ما زالا يستخدمان <code>team</code>. متغيرات البيئة تستخدم بادئة <code>AM_</code>، وأداة سطر الأوامر هي <code>amctl</code> وملف الخادم هو <code>antimatter</code>.</li>
+</ul>
+
+<h2 id="code">أين يوجد الكود</h2>
+<p>كل شيء متاح كمصدر مفتوح في منظمة <a href="https://github.com/AntimatterChat">AntimatterChat</a> على GitHub. كل مستودع يعمل على فرع <code>main</code> الخاص به.</p>
+<table>
+<thead><tr><th>المستودع</th><th>محتواها</th></tr></thead>
+<tbody>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter">antimatter</a></td><td>الخادم (مكتوب بلغة Go، في <code>server/</code>)، وكلا الواجهتين الويب (<code>webapp/fusion</code> و<code>webapp/channels</code>)، وعميل TypeScript والأداة <code>amctl</code>.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a></td><td>صور Docker، مع التطبيقات المدمجة، وملفات compose.</td></tr>
+<tr><td><code>antimatter-plugin-*</code></td><td>مستودع واحد لكل تطبيق مدمج: <a href="https://github.com/AntimatterChat/antimatter-plugin-polls">polls</a>، <a href="https://github.com/AntimatterChat/antimatter-plugin-todo">todo</a>، <a href="https://github.com/AntimatterChat/antimatter-plugin-notes">notes</a>، <a href="https://github.com/AntimatterChat/antimatter-plugin-whiteboard">whiteboard</a>، <a href="https://github.com/AntimatterChat/antimatter-plugin-calendar">calendar</a>، <a href="https://github.com/AntimatterChat/antimatter-plugin-mail">mail</a>، <a href="https://github.com/AntimatterChat/antimatter-plugin-gifs">gifs</a>، <a href="https://github.com/AntimatterChat/antimatter-plugin-memes">memes</a>، <a href="https://github.com/AntimatterChat/antimatter-plugin-voice-channels">voice-channels</a>، <a href="https://github.com/AntimatterChat/antimatter-plugin-calls">calls</a>، <a href="https://github.com/AntimatterChat/antimatter-plugin-boards">boards</a> (Kanban)، <a href="https://github.com/AntimatterChat/antimatter-plugin-playbooks">playbooks</a>، <a href="https://github.com/AntimatterChat/antimatter-plugin-agents">agents</a> و<a href="https://github.com/AntimatterChat/antimatter-plugin-metrics">metrics</a>.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/gifs-server">gifs-server</a></td><td>خدمة GIF والملصقات ذاتية الاستضافة التي يستخدمها تطبيق GIF.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/desktop-app">desktop-app</a>، <a href="https://github.com/AntimatterChat/mobile-app">mobile-app</a>، <a href="https://github.com/AntimatterChat/push-proxy">push-proxy</a></td><td>تطبيقات سطح المكتب والجوال، والخدمة التي تعيد توجيه الإشعارات الفورية إلى الهواتف.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/antimatter.chat">antimatter.chat</a></td><td>هذا الموقع وتوثيقه.</td></tr>
+<tr><td><a href="https://github.com/AntimatterChat/community">community</a></td><td>المشكلات والمناقشات لكل جزء من Antimatter.</td></tr>
+</tbody>
+</table>
+
+<h2 id="first-steps">قبل أن تبدأ</h2>
+<ul>
+<li><b>احصل على خادم تجريبي.</b> الأسرع هو صورة Docker: راجع <a href="{{root}}docs/admins/install.html">تثبيت Antimatter</a>. للعمل على Antimatter نفسه، راجع <a href="{{root}}docs/developers/building.html">البناء من الشيفرة المصدرية</a>.</li>
+<li><b>تحقق مما يسمح به الخادم.</b> بعض ميزات التكامل معطلة افتراضيًا وتتطلب مدير نظام: رموز الوصول الشخصية، حسابات البوتات، تجاوزات اسم المستخدم والأيقونة، ورفع التطبيقات. كل صفحة توضح الإعداد المطلوب.</li>
+<li><b>اعرف عنوان موقعك.</b> تستخدم الأمثلة <code>https://chat.example.com</code>. استبدله بعنوان خادمك.</li>
+</ul>
+
+<h2 id="in-this-guide">في هذا الدليل</h2>
+<ul>
+<li><a href="{{root}}docs/developers/api.html">واجهة REST API</a>: المصادقة، الموارد الرئيسية، ترقيم الصفحات، الأخطاء، حدود المعدل، WebSocket، مكتبات العملاء، وإضافات Antimatter.</li>
+<li><a href="{{root}}docs/developers/webhooks.html">خطافات الويب</a>: خطافات الويب الواردة والصادرة، الأحمال، المرفقات والبطاقات.</li>
+<li><a href="{{root}}docs/developers/commands.html">أوامر الشرطة المائلة</a>: أوامر مخصصة، طلباتها واستجاباتها، واكتمال الكتابة التلقائي.</li>
+<li><a href="{{root}}docs/developers/bots.html">البوتات والرسائل التفاعلية</a>: حسابات البوتات، الأزرار، القوائم والحوارات.</li>
+<li><a href="{{root}}docs/developers/apps.html">كتابة التطبيقات</a>: بنية الإضافة، خطافات الخادم، سجل تطبيق الويب، Fusion، الإعدادات، التخزين، الترجمات والتغليف.</li>
+<li><a href="{{root}}docs/developers/building.html">البناء من الشيفرة المصدرية</a>: الخادم، واجهات الويب، صورة Docker، والتطبيقات.</li>
+<li><a href="{{root}}docs/developers/contributing.html">المساهمة</a>: المشكلات، طلبات الدمج، الأسلوب، الترجمات، الأمان والتراخيص.</li>
+</ul>
+<div class="callout">نرحب بأسئلتكم في <a href="https://github.com/AntimatterChat/community/discussions">مناقشات المجتمع</a>. أبلغوا عن الأخطاء في <a href="https://github.com/AntimatterChat/community/issues">مشكلات المجتمع</a>.</div>

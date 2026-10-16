@@ -1,0 +1,170 @@
+title: Webhooks
+description: Inkomende en uitgaande webhooks van Antimatter: hoe u ze aanmaakt, hun payloads en antwoorden, bijlagen en kaarten in berichten, het overschrijven van de naam en het pictogram, met voorbeelden.
+guide: developers
+order: 3
+nav: Webhooks
+lead: Een inkomende webhook stelt een ander systeem in staat berichten in een kanaal te plaatsen door JSON naar een geheime URL te sturen. Een uitgaande webhook doet het tegenovergestelde: het stuurt berichten die beginnen met een triggerwoord naar uw URL en plaatst wat u als antwoord terugstuurt.
+source: ecd698619944
+---
+<h2 id="where">Webhooks beheren</h2>
+<p>Klik op uw avatar rechtsboven en ga daarna naar <b>Integraties</b>. De integratiepagina's van de huidige community tonen <b>Inkomende webhooks</b> en <b>Uitgaande webhooks</b>. Elke webhook is gekoppeld aan één community.</p>
+<p>Standaard kunnen communitybeheerders en systeembeheerders webhooks aanmaken. Een systeembeheerder kan dit recht toekennen aan andere rollen in de machtigingsinstellingen van de Systeemconsole. Een systeembeheerder kan ook elk type webhook uitschakelen in <b>Systeemconsole › Integraties › Integratiebeheer</b>: <b>Inschakelen inkomende webhooks</b> en <b>Inschakelen uitgaande webhooks</b> zijn beide standaard ingeschakeld.</p>
+<figure><img src="{{root}}assets/img/shots/integrations.webp" alt="A channel with messages from a CI bot and from GitHub, shown as cards with fields, pipeline stages and a button"><figcaption>Integratieberichten weergegeven als kaarten: velden, pijplijnfasen en een actieknop.</figcaption></figure>
+
+<h2 id="incoming">Een inkomende webhook aanmaken</h2>
+<ol>
+<li>Ga in <b>Integraties</b> naar <b>Inkomende webhooks</b> en klik op <b>Inkomende webhook toevoegen</b>.</li>
+<li>Vul een <b>Titel</b> en een <b>Omschrijving</b> in: deze worden alleen weergegeven op de integratiepagina's.</li>
+<li>Kies het <b>Kanaal</b> waar de berichten standaard naartoe gaan. Voor een privé-kanaal moet u lid zijn van dat kanaal.</li>
+<li>Vink <b>Vergrendel aan dit kanaal</b> aan als afzenders nergens anders berichten mogen plaatsen.</li>
+<li>Stel optioneel een <b>Gebruikersnaam</b> en een URL voor een <b>Profiel afbeelding</b> in voor de berichten (zie <a href="#identity">Naam en pictogram</a>).</li>
+<li>Klik op <b>Opslaan</b>. Kopieer de weergegeven URL: <code>https://chat.example.com/hooks/&lt;key&gt;</code>.</li>
+</ol>
+<div class="callout warn">De URL is het enige geheim: iedereen die deze heeft, kan berichten plaatsen in het kanaal. Houd de URL buiten openbare repositories en verwijder de webhook als deze gelekt is.</div>
+<p>Met de API: <code>POST /api/v4/hooks/incoming</code> met <code>{"channel_id", "display_name", "description", "username", "icon_url", "channel_locked"}</code>; het <code>id</code>-veld in het antwoord is de sleutel. Vanuit de opdrachtregel: <code>amctl webhook create-incoming --channel &lt;channel id&gt; --user &lt;user&gt; --display-name "CI"</code>.</p>
+
+<h2 id="incoming-send">Een bericht naar een inkomende webhook sturen</h2>
+<pre><code>curl -X POST https://chat.example.com/hooks/xgh5ycrx1jf7mbs9w8z4c8e7ho \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Deploy of **api 2.4.0** finished :white_check_mark:"}'</code></pre>
+<p>De server antwoordt met <code>200</code> en het body <code>ok</code>. Het accepteert ook <code>application/x-www-form-urlencoded</code> met de JSON in een <code>payload</code>-veld, zoals de webhooks van Slack, zodat tools die voor Slack zijn gemaakt, meestal ongewijzigd werken.</p>
+<table>
+<thead><tr><th>Veld</th><th>Betekenis</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>Het bericht, in Markdown. Verplicht, tenzij er <code>attachments</code> zijn. Een tekst die langer is dan de berichtlimiet van de server, wordt opgesplitst in meerdere berichten.</td></tr>
+<tr><td><code>channel</code></td><td>Een ander kanaal van de community van de webhook, op naam (<code>ops-alerts</code> of <code>#ops-alerts</code>), of <code>@username</code> voor een privébericht van de eigenaar van de webhook. Wordt geweigerd als de webhook is vergrendeld op zijn kanaal.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code>, <code>icon_emoji</code></td><td>De naam en afbeelding die getoond moeten worden, wanneer de server overschrijvingen toelaat.</td></tr>
+<tr><td><code>attachments</code></td><td>Bijlagen bij het bericht, getoond als kaarten (hieronder).</td></tr>
+<tr><td><code>props</code></td><td>Extra eigenschappen die op het bericht worden opgeslagen, voor apps die ze lezen.</td></tr>
+<tr><td><code>type</code></td><td>Een aangepast berichttype, zoals <code>custom_poll</code>, voor een app die het weergeeft. Typen die beginnen met <code>system_</code> worden geweigerd.</td></tr>
+<tr><td><code>root_id</code></td><td>De ID van het eerste bericht van een draadje, om in dat draadje te antwoorden.</td></tr>
+<tr><td><code>priority</code></td><td>Prioriteit van het bericht, bijvoorbeeld <code>{"priority": "urgent"}</code>.</td></tr>
+<tr><td><code>silent</code></td><td><code>true</code> stuurt het bericht zonder pushmeldingen.</td></tr>
+</tbody>
+</table>
+<p>Berichten die onder een overschreven naam worden getoond, hebben een <b>BOT</b>-label ernaast, zodat mensen ze kunnen onderscheiden van echte accounts. Webhookberichten triggeren nooit uitgaande webhooks.</p>
+
+<h2 id="identity">Naam en pictogram</h2>
+<p>Een webhook post als de persoon die het heeft aangemaakt, tenzij de server overrides toestaat. Twee instellingen in <b>Systeemconsole › Integraties › Integratiebeheer</b>, beide standaard uitgeschakeld, veranderen dat:</p>
+<ul>
+<li><b>Aanzetten van integraties die overschrijven van gebruikersnaam mogelijk maakt</b> (<code>ServiceSettings.EnablePostUsernameOverride</code>): de <b>Gebruikersnaam</b> van de webhook of de <code>username</code> in de aanvraag wordt getoond; zonder beide is de naam <code>webhook</code>.</li>
+<li><b>Aanzetten van integraties die overschrijven van profiel afbeeldingen mogelijk maakt</b> (<code>ServiceSettings.EnablePostIconOverride</code>): de <b>Profiel afbeelding</b> van de webhook, of de <code>icon_url</code> of <code>icon_emoji</code> in de aanvraag, wordt getoond.</li>
+</ul>
+<p>Een waarde in de aanvraag heeft voorrang op de waarde die op de webhook is opgeslagen.</p>
+
+<h2 id="attachments">Bijlagen</h2>
+<p>Bijlagen voegen gestructureerde inhoud toe onder de tekst. Ze volgen het berichtbijlatformaat van Slack:</p>
+<pre><code>{
+  "text": "Build failed on `main`",
+  "attachments": [{
+    "fallback": "main #1902 failed",
+    "color": "#d24b4e",
+    "author_name": "GitHub Actions",
+    "author_icon": "https://chat.example.com/static/ci.png",
+    "title": "main #1902 failed",
+    "title_link": "https://ci.example.com/runs/1902",
+    "text": "Commit `0f4d8e2` by Jonas Weber",
+    "fields": [
+      {"title": "Branch", "value": "zephyr-3.7", "short": true},
+      {"title": "Duration", "value": "3m 40s", "short": true}
+    ],
+    "footer": "Lumen CI",
+    "ts": 1760000000
+  }]
+}</code></pre>
+<table>
+<thead><tr><th>Veld</th><th>Betekenis</th></tr></thead>
+<tbody>
+<tr><td><code>fallback</code></td><td>Gewone tekst voor plekken waar de kaart niet kan worden getoond, zoals meldingen.</td></tr>
+<tr><td><code>color</code></td><td>De kleurstrip: een hexkleur, of <code>good</code>, <code>warning</code>, <code>danger</code>.</td></tr>
+<tr><td><code>pretext</code></td><td>Tekst boven de kaart.</td></tr>
+<tr><td><code>author_name</code>, <code>author_link</code>, <code>author_icon</code></td><td>Een kleine koptekstregel.</td></tr>
+<tr><td><code>title</code>, <code>title_link</code></td><td>De titel van de kaart, optioneel een link.</td></tr>
+<tr><td><code>text</code></td><td>De inhoud van de kaart, in Markdown.</td></tr>
+<tr><td><code>fields</code></td><td>Een lijst van <code>{"title", "value", "short"}</code>; <code>short</code>-velden staan naast elkaar.</td></tr>
+<tr><td><code>image_url</code>, <code>thumb_url</code></td><td>Een grote afbeelding onderaan, of een kleine aan de zijkant.</td></tr>
+<tr><td><code>footer</code>, <code>footer_icon</code>, <code>ts</code></td><td>Een voettekstregel en een tijd (Unix seconden).</td></tr>
+<tr><td><code>actions</code></td><td>Knoppen en menu's: zie <a href="{{root}}docs/developers/bots.html#interactive">Interactieve berichten</a>.</td></tr>
+</tbody>
+</table>
+
+<h2 id="cards">Kaarten: fasen en grafieken</h2>
+<p>Antimatter voegt twee velden toe aan bijlagen, die door de standaardinterface worden weergegeven:</p>
+<ul>
+<li><code>stages</code>: de stappen van een pipeline als pills, tot 20. Elke stap is <code>{"name", "status"}</code>, met een status van <code>passed</code>, <code>failed</code>, <code>running</code>, <code>pending</code>, <code>skipped</code> of <code>canceled</code>.</li>
+<li><code>chart</code>: een kleine lijngrafiek met recente waarden, <code>{"values": [2 to 200 numbers], "threshold": number, "label": "…"}</code>. De drempelwaarde wordt weergegeven als een gestreepte lijn, voor de limiet van een melding.</li>
+</ul>
+<pre><code>{
+  "attachments": [{
+    "color": "danger",
+    "title": "main #1902 failed",
+    "stages": [
+      {"name": "build", "status": "failed"},
+      {"name": "unit", "status": "skipped"},
+      {"name": "publish", "status": "skipped"}
+    ]
+  }, {
+    "color": "warning",
+    "title": "API latency above 400 ms",
+    "chart": {"values": [210, 230, 260, 390, 450, 470], "threshold": 400, "label": "p95 latency, ms"}
+  }]
+}</code></pre>
+<p>De klassieke interface en andere clients negeren deze twee velden, dus voeg de essentiële informatie ook toe aan <code>text</code> of <code>fields</code>.</p>
+
+<h2 id="outgoing">Een uitgaande webhook aanmaken</h2>
+<p>Een uitgaande webhook bewaakt de <b>Publiek</b> kanalen van een community. Wanneer het eerste woord van een bericht overeenkomt met een van de activeringswoorden, stuurt Antimatter het bericht naar uw URL.</p>
+<ol>
+<li>Ga naar <b>Integraties</b>, kies <b>Uitgaande webhooks</b> en klik vervolgens op <b>Uitgaande webhook toevoegen</b>.</li>
+<li>Vul de <b>Titel</b> en de <b>Omschrijving</b> in.</li>
+<li>Kies de <b>Content Type</b> van de aanvraag: <code>application/x-www-form-urlencoded</code> of <code>application/json</code>.</li>
+<li>Kies een <b>Kanaal</b>, voer <b>Activeer woorden (één per regel)</b> in, of doe beide. Met een kanaal en geen activeringswoorden wordt elk bericht van dat kanaal verzonden. Met beide moet het bericht aan beide voorwaarden voldoen.</li>
+<li>Onder <b>Activatiewoord</b>, kies <b>Eerste trigger woord komt exact overeen</b> of <b>Eerste woord start met een trigger woord</b>.</li>
+<li>Voer de <b>Callback URL's (Een per regel)</b> in. Elke URL ontvangt elk overeenkomend bericht.</li>
+<li>Stel optioneel de <b>Gebruikersnaam</b> en de <b>Profiel afbeelding</b> in die worden gebruikt voor antwoorden.</li>
+<li>Kies <b>Opslaan</b> en kopieer het weergegeven token. Uw service gebruikt dit om te controleren of aanvragen van uw server komen.</li>
+</ol>
+<p>Met de API: <code>POST /api/v4/hooks/outgoing</code> met <code>{"team_id", "channel_id", "trigger_words", "trigger_when", "callback_urls", "content_type", "display_name"}</code> (<code>trigger_when</code>: 0 voor een exacte overeenkomst, 1 voor "start met").</p>
+<div class="callout">Als uw service op een privénetwerk staat, moet een systeembeheerder het adres toestaan in <b>Niet-vertrouwde interne verbindingen toestaan naar</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>). De server roept anders geen privé-adressen aan.</div>
+
+<h2 id="outgoing-request">De uitgaande aanvraag</h2>
+<p>Antimatter stuurt een POST met deze velden, als JSON of form-encoded, afhankelijk van de content type:</p>
+<pre><code>{
+  "token": "6kd1ofo5ojr5zgu5ipfipybgnc",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "channel_id": "…",
+  "channel_name": "ops-alerts",
+  "timestamp": 1760010000000,
+  "user_id": "…",
+  "user_name": "priya",
+  "post_id": "…",
+  "text": "deploy api 2.4.0",
+  "trigger_word": "deploy",
+  "file_ids": ""
+}</code></pre>
+<p>Vergelijk <code>token</code> met de token van de webhook voordat u iets doet. In de versie met formuliercodering is <code>timestamp</code> in seconden in plaats van milliseconden. De server wacht op uw antwoord zolang <b>Time-out integratieverzoek</b> toestaat (standaard 30 seconden, <code>ServiceSettings.OutgoingIntegrationRequestsTimeout</code>).</p>
+
+<h2 id="outgoing-response">Antwoorden op een uitgaande webhook</h2>
+<p>Om een antwoord te plaatsen, antwoordt u met JSON. Om niets te plaatsen, antwoordt u met een leeg body.</p>
+<pre><code>{
+  "text": "Deploying **api 2.4.0** to staging…",
+  "response_type": "comment",
+  "username": "deploy-bot",
+  "icon_url": "https://chat.example.com/static/deploy.png"
+}</code></pre>
+<ul>
+<li><code>text</code> en <code>attachments</code>: het antwoord. Zonder een van beide wordt er niets geplaatst.</li>
+<li><code>response_type</code>: <code>comment</code> plaatst het antwoord in het draadje van het triggerende bericht; anders gaat het naar het kanaal.</li>
+<li><code>username</code>, <code>icon_url</code>: worden weergegeven wanneer de server overrides toestaat; anders worden de eigen waarden van de webhook gebruikt.</li>
+<li><code>props</code>, <code>type</code>, <code>priority</code>: zoals bij ingaande webhooks.</li>
+</ul>
+<p>Het antwoord wordt geplaatst door de maker van de webhook, onder de overriden naam wanneer er een is. Voor iets langer dan een kort antwoord, antwoordt u onmiddellijk en plaatst u later met een ingaande webhook of de API.</p>
+
+<h2 id="troubleshooting">Wanneer een webhook niet werkt</h2>
+<ul>
+<li><b>501 van de hook URL</b>: ingaande webhooks zijn uitgeschakeld op de server.</li>
+<li><b>400 "Failed to decode the payload…"</b>: de JSON is ongeldig, of het veld in het formulier heet niet <code>payload</code>. <b>"No text specified."</b> betekent dat het verzoek noch <code>text</code> noch <code>attachments</code> bevat.</li>
+<li><b>403</b>: de webhook is vergrendeld aan een ander kanaal, of de eigenaar kan het kanaal niet meer lezen.</li>
+<li><b>Een uitgaande webhook wordt nooit afgevuurd</b>: het kanaal is privé, de trigger is niet het eerste woord, of het bericht kwam van een webhook.</li>
+<li><b>Logboeken</b>: met <b>Webhook debugging inschakelen</b> aan (<code>LogSettings.EnableWebhookDebugging</code>), en het logniveau op <code>DEBUG</code>, logt de server de payloads van mislukte ingaande verzoeken. Mislukte uitgaande oproepen worden gelogd als <code>Outgoing Webhook POST failed</code>.</li>
+</ul>

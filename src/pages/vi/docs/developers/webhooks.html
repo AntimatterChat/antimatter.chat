@@ -1,0 +1,170 @@
+title: Webhook
+description: Webhook đến và đi của Antimatter: cách tạo, cấu trúc dữ liệu và phản hồi, tệp đính kèm và thẻ trong tin nhắn, ghi đè tên và biểu tượng, kèm ví dụ.
+guide: developers
+order: 3
+nav: Webhook
+lead: Webhook đến cho phép một hệ thống khác đăng bài vào kênh bằng cách gửi JSON đến một URL bí mật. Webhook đi làm điều ngược lại: nó gửi các tin nhắn bắt đầu bằng từ kích hoạt đến URL của bạn, và đăng lại nội dung bạn trả về.
+source: ecd698619944
+---
+<h2 id="where">Quản lý webhook ở đâu</h2>
+<p>Mở hồ sơ của bạn ở góc trên bên phải, sau đó chọn <b>Tích Hợp</b>. Các trang tích hợp của cộng đồng hiện tại liệt kê <b>Webhooks đến</b> và <b>Webhook đi</b>. Mỗi webhook thuộc về một cộng đồng.</p>
+<p>By default, community admins and system admins can create webhooks. A system admin can give the right to other roles in the permission settings of the System Console. A system admin can also turn each kind off in <b>System Console › Integrations › Integration Management</b>: <b>Enable Incoming Webhooks</b> and <b>Enable Outgoing Webhooks</b> are both on by default.</p>
+<figure><img src="{{root}}assets/img/shots/integrations.webp" alt="A channel with messages from a CI bot and from GitHub, shown as cards with fields, pipeline stages and a button"><figcaption>Tin nhắn tích hợp hiển thị dưới dạng thẻ: các trường, giai đoạn pipeline và nút thao tác.</figcaption></figure>
+
+<h2 id="incoming">Tạo webhook đến</h2>
+<ol>
+<li>Trong <b>Tích Hợp</b>, chọn <b>Webhooks đến</b>, sau đó chọn <b>Webhooks đến</b>.</li>
+<li>Điền <b>Tiêu đề</b> và <b>Mô tả</b>: chúng chỉ hiển thị trên các trang tích hợp.</li>
+<li>Chọn <b>Kênh</b> mà tin nhắn sẽ gửi đến theo mặc định. Đối với kênh riêng tư, bạn phải là thành viên của kênh đó.</li>
+<li>Đánh dấu <b>Khóa kênh này</b> nếu người gửi không được phép đăng bài ở nơi khác.</li>
+<li>Tùy chọn: đặt <b>Tên người dùng</b> và URL <b>Hình ảnh hồ sơ</b> cho tin nhắn của nó (xem <a href="#identity">Tên và biểu tượng</a>).</li>
+<li>Chọn <b>Lưu</b>. Sao chép URL hiển thị: <code>https://chat.example.com/hooks/&lt;key&gt;</code>.</li>
+</ol>
+<div class="callout warn">URL là bí mật duy nhất: bất kỳ ai có nó đều có thể đăng bài trong kênh. Không công khai nó trong các kho mã nguồn, và xóa webhook nếu nó bị lộ.</div>
+<p>Dùng API: <code>POST /api/v4/hooks/incoming</code> với <code>{"channel_id", "display_name", "description", "username", "icon_url", "channel_locked"}</code>; trường <code>id</code> trong phản hồi là khóa. Từ dòng lệnh: <code>amctl webhook create-incoming --channel &lt;channel id&gt; --user &lt;user&gt; --display-name "CI"</code>.</p>
+
+<h2 id="incoming-send">Gửi tin nhắn đến webhook đến</h2>
+<pre><code>curl -X POST https://chat.example.com/hooks/xgh5ycrx1jf7mbs9w8z4c8e7ho \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Deploy of **api 2.4.0** finished :white_check_mark:"}'</code></pre>
+<p>Máy chủ trả về <code>200</code> với nội dung <code>ok</code>. Nó cũng chấp nhận <code>application/x-www-form-urlencoded</code> với JSON trong trường <code>payload</code>, giống như webhook của Slack, nên các công cụ làm cho Slack thường hoạt động không cần thay đổi.</p>
+<table>
+<thead><tr><th>Trường</th><th>Ý nghĩa</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>Tin nhắn, ở định dạng Markdown. Bắt buộc trừ khi có <code>attachments</code>. Tin nhắn dài hơn giới hạn tin nhắn của máy chủ sẽ được chia thành nhiều tin nhắn.</td></tr>
+<tr><td><code>channel</code></td><td>Một kênh khác của cộng đồng webhook, theo tên (<code>ops-alerts</code> hoặc <code>#ops-alerts</code>), hoặc <code>@username</code> cho một tin nhắn trực tiếp từ chủ sở hữu của webhook. Từ chối khi webhook bị khóa vào kênh của nó.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code>, <code>icon_emoji</code></td><td>Tên và hình ảnh để hiển thị, khi máy chủ cho phép ghi đè.</td></tr>
+<tr><td><code>attachments</code></td><td>Tệp đính kèm của tin nhắn, hiển thị dưới dạng thẻ (phía dưới).</td></tr>
+<tr><td><code>props</code></td><td>Các thuộc tính bổ sung được lưu trên tin nhắn, dành cho các ứng dụng đọc chúng.</td></tr>
+<tr><td><code>type</code></td><td>Một loại bài đăng tùy chỉnh, chẳng hạn như <code>custom_poll</code>, cho một ứng dụng hiển thị nó. Các loại bắt đầu bằng <code>system_</code> sẽ bị từ chối.</td></tr>
+<tr><td><code>root_id</code></td><td>ID của tin nhắn đầu tiên của một chủ đề, để trả lời trong chủ đề đó.</td></tr>
+<tr><td><code>priority</code></td><td>Độ ưu tiên của tin nhắn, ví dụ <code>{"priority": "urgent"}</code>.</td></tr>
+<tr><td><code>silent</code></td><td><code>true</code> gửi tin nhắn mà không có thông báo đẩy.</td></tr>
+</tbody>
+</table>
+<p>Các tin nhắn hiển thị dưới một tên đã ghi đè sẽ có thẻ <b>BOT</b> bên cạnh, để mọi người có thể phân biệt chúng với các tài khoản thực. Tin nhắn webhook không bao giờ kích hoạt webhook đi ra.</p>
+
+<h2 id="identity">Tên và biểu tượng</h2>
+<p>Webhook đăng bài dưới danh tính của người đã tạo nó, trừ khi máy chủ cho phép ghi đè. Hai cài đặt trong <b>Bảng điều khiển Hệ thống › Tích hợp › Quản lý tích hợp</b>, cả hai đều tắt theo mặc định, thay đổi điều đó:</p>
+<ul>
+<li><b>Bật tích hợp để ghi đè tên người dùng</b> (<code>ServiceSettings.EnablePostUsernameOverride</code>): <b>Tên người dùng</b> của webhook hoặc <code>username</code> trong yêu cầu sẽ được hiển thị; nếu không có cả hai, tên sẽ là <code>webhook</code>.</li>
+<li><b>Bật tích hợp để ghi đè các biểu tượng ảnh hồ sơ</b> (<code>ServiceSettings.EnablePostIconOverride</code>): <b>Ảnh hồ sơ</b> của webhook, hoặc <code>icon_url</code> hoặc <code>icon_emoji</code> trong yêu cầu, sẽ được hiển thị.</li>
+</ul>
+<p>Giá trị trong yêu cầu sẽ ưu tiên hơn giá trị đã lưu trên webhook.</p>
+
+<h2 id="attachments">Tệp đính kèm</h2>
+<p>Tệp đính kèm thêm nội dung có cấu trúc bên dưới văn bản. Chúng tuân theo định dạng tệp đính kèm tin nhắn của Slack:</p>
+<pre><code>{
+  "text": "Build failed on `main`",
+  "attachments": [{
+    "fallback": "main #1902 failed",
+    "color": "#d24b4e",
+    "author_name": "GitHub Actions",
+    "author_icon": "https://chat.example.com/static/ci.png",
+    "title": "main #1902 failed",
+    "title_link": "https://ci.example.com/runs/1902",
+    "text": "Commit `0f4d8e2` by Jonas Weber",
+    "fields": [
+      {"title": "Branch", "value": "zephyr-3.7", "short": true},
+      {"title": "Duration", "value": "3m 40s", "short": true}
+    ],
+    "footer": "Lumen CI",
+    "ts": 1760000000
+  }]
+}</code></pre>
+<table>
+<thead><tr><th>Trường</th><th>Ý nghĩa</th></tr></thead>
+<tbody>
+<tr><td><code>fallback</code></td><td>Văn bản thuần túy cho các nơi không thể hiển thị thẻ, chẳng hạn như thông báo.</td></tr>
+<tr><td><code>color</code></td><td>Thanh màu: một màu hex, hoặc <code>good</code>, <code>warning</code>, <code>danger</code>.</td></tr>
+<tr><td><code>pretext</code></td><td>Văn bản phía trên thẻ.</td></tr>
+<tr><td><code>author_name</code>, <code>author_link</code>, <code>author_icon</code></td><td>Một dòng tiêu đề nhỏ.</td></tr>
+<tr><td><code>title</code>, <code>title_link</code></td><td>Tiêu đề của thẻ, tùy chọn là một liên kết.</td></tr>
+<tr><td><code>text</code></td><td>Nội dung chính của thẻ, ở định dạng Markdown.</td></tr>
+<tr><td><code>fields</code></td><td>Một danh sách <code>{"title", "value", "short"}</code>; các trường <code>short</code> nằm cạnh nhau.</td></tr>
+<tr><td><code>image_url</code>, <code>thumb_url</code></td><td>Một hình ảnh lớn bên dưới, hoặc một hình ảnh nhỏ ở bên cạnh.</td></tr>
+<tr><td><code>footer</code>, <code>footer_icon</code>, <code>ts</code></td><td>Một dòng chân và một thời gian (giây Unix).</td></tr>
+<tr><td><code>actions</code></td><td>Nút và menu: xem <a href="{{root}}docs/developers/bots.html#interactive">Tin nhắn tương tác</a>.</td></tr>
+</tbody>
+</table>
+
+<h2 id="cards">Thẻ: giai đoạn và biểu đồ</h2>
+<p>Antimatter thêm hai trường vào tệp đính kèm, được hiển thị bởi giao diện mặc định:</p>
+<ul>
+<li><code>stages</code>: các bước của một quy trình dưới dạng nhãn, tối đa 20. Mỗi nhãn có dạng <code>{"name", "status"}</code>, với trạng thái là <code>passed</code>, <code>failed</code>, <code>running</code>, <code>pending</code>, <code>skipped</code> hoặc <code>canceled</code>.</li>
+<li><code>chart</code>: một biểu đồ đường nhỏ hiển thị các giá trị gần đây, <code>{"values": [2 to 200 numbers], "threshold": number, "label": "…"}</code>. Ngưỡng được vẽ bằng đường đứt đoạn, đại diện cho giới hạn của cảnh báo.</li>
+</ul>
+<pre><code>{
+  "attachments": [{
+    "color": "danger",
+    "title": "main #1902 failed",
+    "stages": [
+      {"name": "build", "status": "failed"},
+      {"name": "unit", "status": "skipped"},
+      {"name": "publish", "status": "skipped"}
+    ]
+  }, {
+    "color": "warning",
+    "title": "API latency above 400 ms",
+    "chart": {"values": [210, 230, 260, 390, 450, 470], "threshold": 400, "label": "p95 latency, ms"}
+  }]
+}</code></pre>
+<p>Giao diện cổ điển và các client khác sẽ bỏ qua hai trường này, vì vậy hãy đưa các thông tin quan trọng vào <code>text</code> hoặc <code>fields</code>.</p>
+
+<h2 id="outgoing">Tạo webhook đi ra</h2>
+<p>Webhook đi ra theo dõi các <b>Kênh công khai</b> của cộng đồng. Khi từ đầu tiên của một tin nhắn khớp với một trong các từ kích hoạt, Antimatter sẽ gửi tin nhắn đó đến URL của bạn.</p>
+<ol>
+<li>Trong <b>Tích Hợp</b>, chọn <b>Webhook đi</b>, sau đó chọn <b>Thêm Webhook đi</b>.</li>
+<li>Điền <b>Tiêu đề</b> và <b>Mô tả</b>.</li>
+<li>Chọn <b>Loại Nội dung</b> của yêu cầu: <code>application/x-www-form-urlencoded</code> hoặc <code>application/json</code>.</li>
+<li>Chọn một <b>Kênh</b>, nhập <b>Các từ kích hoạt (Mỗi từ một dòng)</b>, hoặc cả hai. Nếu có kênh và không có từ kích hoạt, mọi tin nhắn của kênh đó sẽ được gửi. Nếu có cả hai, tin nhắn phải khớp cả hai.</li>
+<li>Dưới <b>Kích hoạt Khi nào</b>, chọn <b>Từ đầu tiên đối sánh chính xác với từ kích hoạt</b> hoặc <b>Từ đầu tiên bắt đầu bằng một từ kích hoạt</b>.</li>
+<li>Nhập <b>Callback URLs (Mỗi dòng 1 liên kết)</b>. Mỗi URL sẽ nhận mọi tin nhắn khớp.</li>
+<li>Tùy chọn, đặt <b>Tên người dùng</b> và <b>Ảnh hồ sơ</b> được sử dụng cho các phản hồi.</li>
+<li>Chọn <b>Lưu</b> và sao chép token được hiển thị. Dịch vụ của bạn sẽ sử dụng nó để kiểm tra rằng các yêu cầu đến từ máy chủ của bạn.</li>
+</ol>
+<p>Thông qua API: <code>POST /api/v4/hooks/outgoing</code> với <code>{"team_id", "channel_id", "trigger_words", "trigger_when", "callback_urls", "content_type", "display_name"}</code> (<code>trigger_when</code>: 0 cho khớp chính xác, 1 cho "bắt đầu bằng").</p>
+<div class="callout">Nếu dịch vụ của bạn nằm trên mạng riêng, quản trị viên hệ thống phải cho phép địa chỉ của nó trong <b>Cho phép các kết nối nội bộ không đáng tin cậy vào</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>). Nếu không, máy chủ sẽ không gọi các địa chỉ riêng.</div>
+
+<h2 id="outgoing-request">Yêu cầu đi ra</h2>
+<p>Antimatter gửi một POST với các trường sau, dưới dạng JSON hoặc form-encoded tùy theo loại nội dung:</p>
+<pre><code>{
+  "token": "6kd1ofo5ojr5zgu5ipfipybgnc",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "channel_id": "…",
+  "channel_name": "ops-alerts",
+  "timestamp": 1760010000000,
+  "user_id": "…",
+  "user_name": "priya",
+  "post_id": "…",
+  "text": "deploy api 2.4.0",
+  "trigger_word": "deploy",
+  "file_ids": ""
+}</code></pre>
+<p>So sánh <code>token</code> với token của webhook trước khi thực hiện bất kỳ thao tác nào. Trong phiên bản form-encoded, <code>timestamp</code> được tính bằng giây thay vì mili giây. Máy chủ sẽ chờ câu trả lời của bạn trong khoảng thời gian cho phép bởi <b>Thời gian chờ yêu cầu tích hợp</b> (mặc định là 30 giây, <code>ServiceSettings.OutgoingIntegrationRequestsTimeout</code>).</p>
+
+<h2 id="outgoing-response">Trả lời một webhook đi</h2>
+<p>Để đăng một phản hồi, hãy trả lời bằng JSON. Để không đăng gì, hãy trả lời với một body rỗng.</p>
+<pre><code>{
+  "text": "Deploying **api 2.4.0** to staging…",
+  "response_type": "comment",
+  "username": "deploy-bot",
+  "icon_url": "https://chat.example.com/static/deploy.png"
+}</code></pre>
+<ul>
+<li><code>text</code> và <code>attachments</code>: nội dung phản hồi. Nếu không có cả hai, sẽ không có gì được đăng.</li>
+<li><code>response_type</code>: <code>comment</code> sẽ đăng phản hồi vào chủ đề của tin nhắn kích hoạt; nếu không, nó sẽ được đăng vào kênh.</li>
+<li><code>username</code>, <code>icon_url</code>: được hiển thị khi máy chủ cho phép ghi đè; nếu không, giá trị của chính webhook sẽ được sử dụng.</li>
+<li><code>props</code>, <code>type</code>, <code>priority</code>: giống như với webhook đến.</li>
+</ul>
+<p>Phản hồi sẽ được đăng dưới danh tính của người tạo webhook, dưới tên đã ghi đè nếu có. Đối với nội dung dài hơn một câu trả lời ngắn, hãy trả lời ngay lập tức và đăng sau đó bằng webhook đến hoặc API.</p>
+
+<h2 id="troubleshooting">Khi một webhook không hoạt động</h2>
+<ul>
+<li><b>501 từ hook URL</b>: webhook đến đã bị tắt trên máy chủ.</li>
+<li><b>400 "Failed to decode the payload…"</b>: JSON không hợp lệ, hoặc trường form không có tên là <code>payload</code>. <b>"No text specified."</b> có nghĩa là yêu cầu không có cả <code>text</code> lẫn <code>attachments</code>.</li>
+<li><b>403</b>: webhook bị khóa cho một kênh khác, hoặc chủ sở hữu của nó không còn có thể đọc kênh đó.</li>
+<li><b>Một webhook đi không bao giờ được kích hoạt</b>: kênh là kênh riêng tư, từ kích hoạt không phải là từ đầu tiên, hoặc tin nhắn đến từ một webhook.</li>
+<li><b>Logs</b>: khi bật <b>Bật Webhook Debugging</b> (<code>LogSettings.EnableWebhookDebugging</code>) và đặt mức log ở <code>DEBUG</code>, máy chủ sẽ ghi log các payload của các yêu cầu đến thất bại. Các cuộc gọi đi thất bại sẽ được ghi log là <code>Outgoing Webhook POST failed</code>.</li>
+</ul>

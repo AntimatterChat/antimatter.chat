@@ -1,0 +1,121 @@
+title: Slash commands
+description: Custom slash commands in Antimatter: creating them, the request your service receives, the response format, ephemeral and in-channel answers, delayed answers and autocomplete.
+guide: developers
+order: 4
+nav: Slash commands
+lead: A custom slash command lets people type /something in the message box to call your service. Antimatter sends the command to your URL and shows your answer, either to the person alone or to the whole channel.
+---
+<h2 id="how">How a slash command works</h2>
+<ol>
+<li>Someone types <code>/weather Paris</code> and sends it. The text is not posted.</li>
+<li>Antimatter sends an HTTP request to the command's URL, with who typed it, where, and the text after the trigger.</li>
+<li>Your service answers within the request timeout (30 seconds by default) with a message.</li>
+<li>Antimatter shows the answer: only to that person (ephemeral) or in the channel for everyone.</li>
+</ol>
+<p>Commands belong to a community, and a trigger word is unique within it. Built-in commands such as <code>/join</code>, <code>/msg</code> or <code>/away</code> can't be replaced. Apps (plugins) can register commands too; see <a href="{{root}}docs/developers/apps.html#server">The server part</a>.</p>
+
+<h2 id="create">Create a command</h2>
+<p>Custom slash commands are on by default (<b>Enable Custom Slash Commands</b> in <b>System Console › Integrations › Integration Management</b>, <code>ServiceSettings.EnableCommands</code>). Community admins and system admins can create them by default.</p>
+<ol>
+<li>Open your avatar at the top right, then <b>Integrations › Slash commands</b>, then <b>Add Slash Command</b>.</li>
+<li>Fill in the <b>Title</b> and <b>Description</b> (shown on the integrations pages).</li>
+<li>Enter the <b>Command Trigger Word</b>, without the slash and without spaces, for example <code>weather</code>.</li>
+<li>Enter the <b>Request URL</b> and choose the <b>Request Method</b>: <b>POST</b> (the default) or <b>GET</b>.</li>
+<li>Optionally set a <b>Response Username</b> and a <b>Response Icon</b>. They are used only when the server allows integrations to override names and icons (see <a href="{{root}}docs/developers/webhooks.html#identity">Name and icon</a>).</li>
+<li>Tick <b>Autocomplete</b> to list the command when people type <code>/</code>, with an <b>Autocomplete Hint</b> (its arguments, such as <code>[city]</code>) and an <b>Autocomplete Description</b>.</li>
+<li>Choose <b>Save</b>, and copy the token shown. Your service uses it to check that requests come from your server.</li>
+</ol>
+<p>With the API: <code>POST /api/v4/commands</code> with <code>{"team_id", "trigger", "url", "method": "P", "display_name", "description", "auto_complete": true, "auto_complete_hint", "auto_complete_desc", "username", "icon_url"}</code>. The method is <code>P</code> for POST or <code>G</code> for GET. <code>PUT /api/v4/commands/{command_id}/regen_token</code> issues a new token.</p>
+
+<h2 id="request">The request your service receives</h2>
+<p>A POST command sends a form-encoded body (<code>application/x-www-form-urlencoded</code>); a GET command sends the same fields in the query string. The token is also in the <code>Authorization: Token &lt;token&gt;</code> header.</p>
+<table>
+<thead><tr><th>Field</th><th>Value</th></tr></thead>
+<tbody>
+<tr><td><code>token</code></td><td>The command's token. Check it on every request.</td></tr>
+<tr><td><code>command</code></td><td>The trigger with its slash, for example <code>/weather</code>.</td></tr>
+<tr><td><code>text</code></td><td>Everything after the trigger, for example <code>Paris</code>.</td></tr>
+<tr><td><code>user_id</code>, <code>user_name</code></td><td>Who ran it.</td></tr>
+<tr><td><code>channel_id</code>, <code>channel_name</code></td><td>Where it was run.</td></tr>
+<tr><td><code>team_id</code>, <code>team_domain</code></td><td>The community's ID and URL name.</td></tr>
+<tr><td><code>root_id</code></td><td>The thread, when it was run in a thread's reply box.</td></tr>
+<tr><td><code>trigger_id</code></td><td>Lets your answer open a dialog (see <a href="{{root}}docs/developers/bots.html#dialogs">Dialogs</a>). It is valid for a short time only.</td></tr>
+<tr><td><code>response_url</code></td><td>A URL to post more answers later (see <a href="#delayed">Delayed answers</a>).</td></tr>
+<tr><td><code>user_mentions</code>, <code>user_mentions_ids</code>, <code>channel_mentions</code>, <code>channel_mentions_ids</code></td><td>The people and public channels mentioned in the text, when there are any.</td></tr>
+</tbody>
+</table>
+<div class="callout">The server's <b>Site URL</b> must be set for custom commands to run: Antimatter builds <code>response_url</code> from it.</div>
+
+<h2 id="response">The response</h2>
+<p>Answer <code>200</code> with JSON (<code>Content-Type: application/json</code>):</p>
+<pre><code>{
+  "response_type": "in_channel",
+  "text": "Paris: 18 °C, light rain",
+  "attachments": []
+}</code></pre>
+<table>
+<thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>response_type</code></td><td><code>ephemeral</code> (the default): only the person who ran the command sees the answer, and it isn't kept after a reload. <code>in_channel</code>: the answer is posted in the channel.</td></tr>
+<tr><td><code>text</code>, <code>attachments</code></td><td>The message, as for webhooks: Markdown text and <a href="{{root}}docs/developers/webhooks.html#attachments">attachments</a>, buttons and menus included.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code></td><td>The name and picture to show, when overrides are allowed. The command's own settings win over these.</td></tr>
+<tr><td><code>channel_id</code></td><td>Post the answer in another channel, which the person must be a member of.</td></tr>
+<tr><td><code>goto_location</code></td><td>A URL to open once the command has run.</td></tr>
+<tr><td><code>props</code>, <code>type</code></td><td>Extra properties and a custom post type, as for webhooks.</td></tr>
+<tr><td><code>extra_responses</code></td><td>More answers, each with the same fields, posted after the first.</td></tr>
+<tr><td><code>skip_slack_parsing</code></td><td><code>true</code> keeps the text as it is, without converting Slack-style links and mentions.</td></tr>
+</tbody>
+</table>
+<p>A response that isn't JSON is shown as an ephemeral message with the body as its text. <code>204 No Content</code> shows nothing. Any status outside 200–299 shows the person an error.</p>
+
+<h2 id="example">Example service</h2>
+<p>A minimal command service in Python, with only the standard library:</p>
+<pre><code>import hmac
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
+
+TOKEN = "the token shown when you saved the command"
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        form = {key: values[0] for key, values in parse_qs(body).items()}
+        if not hmac.compare_digest(form.get("token", ""), TOKEN):
+            self.send_response(401)
+            self.end_headers()
+            return
+        answer = {
+            "response_type": "ephemeral",
+            "text": f"Hello @{form['user_name']}, you asked for: {form.get('text', '')}",
+        }
+        data = json.dumps(answer).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(data)
+
+HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()</code></pre>
+<p>If the service runs on a private network address, a system admin must allow it in <b>Allow untrusted internal connections to</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>).</p>
+
+<h2 id="delayed">Delayed answers</h2>
+<p>For work that takes longer than the timeout, answer at once (for example with an ephemeral "Working on it…"), then POST the real answer to <code>response_url</code>. It takes the same JSON as the response, and works up to 5 times within 30 minutes of the command.</p>
+<pre><code>curl -X POST "$RESPONSE_URL" -H 'Content-Type: application/json' \
+  -d '{"response_type": "in_channel", "text": "Report ready: https://reports.example.com/42"}'</code></pre>
+
+<h2 id="run">Run a command with the API</h2>
+<p>Scripts and bots can run any command, built-in or custom, as if they had typed it:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/commands/execute \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "command": "/weather Paris"}'</code></pre>
+<p><code>GET /api/v4/teams/{team_id}/commands/autocomplete</code> lists the commands people can autocomplete in a community.</p>
+
+<h2 id="autocomplete">Autocomplete</h2>
+<p>Commands created on the integrations pages autocomplete with their trigger, hint and description. Commands registered by apps can describe their subcommands and arguments in detail with <code>AutocompleteData</code>, from <code>model.NewAutocompleteData(trigger, hint, helpText)</code>:</p>
+<ul>
+<li><code>AddCommand(sub)</code> adds a subcommand, itself an <code>AutocompleteData</code>.</li>
+<li><code>AddTextArgument(helpText, hint, pattern)</code> adds free text.</li>
+<li><code>AddStaticListArgument(helpText, required, items)</code> offers a fixed list of <code>AutocompleteListItem{Item, Hint, HelpText}</code>.</li>
+<li><code>AddDynamicListArgument(helpText, url, required)</code> asks your app for suggestions as people type. The URL is a route of your app, such as <code>/plugins/com.example.weather/cities</code>. It receives the user, channel and community, and returns a JSON list of <code>{"Item", "Hint", "HelpText"}</code>.</li>
+</ul>
+<p>The <code>Named…</code> variants (<code>AddNamedTextArgument</code> and others) add <code>--name value</code> flags. Both web interfaces show these suggestions.</p>

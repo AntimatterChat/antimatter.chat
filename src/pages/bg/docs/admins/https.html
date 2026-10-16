@@ -1,0 +1,161 @@
+title: Домен, HTTPS и обратни прокси
+description: Сервирайте Antimatter на собствен домен чрез HTTPS, с включения профил на Caddy или собствен nginx обратен прокси, и задайте правилно адреса на сайта и клиентските адреси.
+guide: admins
+order: 4
+nav: Домен и HTTPS
+lead: Поставете Antimatter на доменно име с HTTPS, използвайки профила на Caddy от compose файла или собствен обратен прокси, и задайте правилно адреса на сайта и клиентските адреси.
+source: 69e8779d356e
+---
+<h2 id="site-url">Адресът на сайта</h2>
+<p>Адресът на сайта (<code>ServiceSettings.SiteURL</code>) е адресът, който хората използват, за да стигнат до Antimatter, например <code>https://chat.example.com</code>. Сервърът го използва в линковете в имейли и известия, в пренасочванията при вход (OAuth, OpenID Connect, SAML), за мобилните и десктоп приложенията, както и за проверка откъде идват заявките. Задайте го точно на адреса в адресната лента на браузъра: схема, домен и порт, ако не е по подразбиране, без коса черта в края.</p>
+<ul>
+<li>С compose файла на сайта: <code>SITE_URL</code> в <code>.env</code>.</li>
+<li>На друго място: <code>AM_SERVICESETTINGS_SITEURL</code> или <b>Системна конзола › Обкръжение › Уеб сървър › URL адрес на сайта</b>.</li>
+</ul>
+<p>Ако адресът на сайта е грешен, входът с идентификационен доставчик ще се провали, линковете в имейлите ще водят на грешно място, а приложенията може да не се свържат. След смяна на домена, актуализирайте го тук и в адресите за пренасочване на всеки идентификационен доставчик.</p>
+
+<h2 id="caddy">HTTPS с включения профил на Caddy</h2>
+<p>Файлът <code>compose.yaml</code> на сайта включва услуга <a href="https://caddyserver.com">Caddy</a> в профила <code>https</code>. Тя получава сертификат от Let's Encrypt, го подновява автоматично, пренасочва HTTP към HTTPS и препраща всичко, включително websocket-и, към Antimatter.</p>
+<ol>
+<li>Посочете DNS запис (A, и AAAA за IPv6) на вашия домен към сървъра.</li>
+<li>Отворете портове 80/tcp, 443/tcp и 443/udp (HTTP/3) във firewall-а. Let's Encrypt трябва да има достъп до порт 80 или 443 от интернет.</li>
+<li>Добавете домена в <code>.env</code> и задайте адреса на сайта:
+<pre><code>echo "DOMAIN=chat.example.com" &gt;&gt; .env
+sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env</code></pre></li>
+<li>Стартирайте с профила:
+<pre><code>docker compose --profile https up -d</code></pre></li>
+</ol>
+<p>Добавете <code>--profile https</code> към всяко по-късно <code>docker compose up</code>, или поставете <code>COMPOSE_PROFILES=https</code> в <code>.env</code>, за да се включи и при обикновено <code>docker compose up -d</code>. Caddy пази сертификатите си в обема <code>https</code>.</p>
+<p>Собственият порт на Antimatter остава публикуван на хоста (<code>HTTP_PORT</code>, по подразбиране 8065). С Caddy отпред, оставете го само за самия сървър:</p>
+<pre><code>echo "HTTP_PORT=127.0.0.1:8065" &gt;&gt; .env
+docker compose --profile https up -d</code></pre>
+<p>Caddy достъпва Antimatter през вътрешната мрежа <code>edge</code>, а не през този порт, така че това не променя нищо за вашите потребители.</p>
+
+<h2 id="nginx">С собствен обратен прокси (nginx)</h2>
+<p>Ако сървърът вече изпълнява nginx или друг прокси, изключете профила <code>https</code> и насочете прокси-я към порт 8065 на Antimatter. Прокси-ят трябва да:</p>
+<ul>
+<li>пропуска надграждането на websocket (уеб приложението и мобилните приложения поддържат отворен websocket на <code>/api/v4/websocket</code>, а някои приложения отварят собствени);</li>
+<li>приема тела на заявки, поне толкова големи, колкото е най-големият файл за качване (<b>Максимален размер на файла</b>, по подразбиране 100 MB);</li>
+<li>поддържа отворени дълготрайни връзки (websockets, големи качвания и изтегляния);</li>
+<li>пропуска заглавието <code>Host</code> и адреса на клиента.</li>
+</ul>
+<p>Пълен блок на сървъра, адаптиран от производствения шаблон в antimatter-docker. Заменете домейна и пътищата към сертификатите:</p>
+<pre><code>upstream antimatter {
+    server 127.0.0.1:8065;
+    keepalive 64;
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+proxy_cache_path /var/cache/nginx/antimatter levels=1:2 keys_zone=antimatter_cache:10m
+                 max_size=3g inactive=120m use_temp_path=off;
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name chat.example.com;
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name chat.example.com;
+
+    ssl_certificate     /etc/ssl/chat.example.com/fullchain.pem;
+    ssl_certificate_key /etc/ssl/chat.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:AntimatterSSL:10m;
+    ssl_session_tickets off;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # At least FileSettings.MaxFileSize (100 MB by default).
+    client_max_body_size 100M;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade           $http_upgrade;
+    proxy_set_header Connection        $connection_upgrade;
+    proxy_buffers 256 16k;
+    proxy_buffer_size 16k;
+
+    location ~ ^/api/v[0-9]+/(users/)?websocket$ {
+        client_body_timeout 60s;
+        send_timeout 300s;
+        lingering_timeout 5s;
+        proxy_connect_timeout 90s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 90s;
+        proxy_pass http://antimatter;
+    }
+
+    location / {
+        proxy_read_timeout 600s;
+        proxy_cache antimatter_cache;
+        proxy_cache_revalidate on;
+        proxy_cache_min_uses 2;
+        proxy_cache_use_stale timeout;
+        proxy_cache_lock on;
+        proxy_pass http://antimatter;
+    }
+}</code></pre>
+<p>Проверете файла с <code>nginx -t</code> и го приложете с <code>systemctl reload nginx</code>. Сървърът сам изпраща <code>X-Content-Type-Options</code>, <code>Referrer-Policy</code>, <code>Permissions-Policy</code> и <code>X-Frame-Options</code>; само HSTS е отговорност на прокси-я. Повишете неговия <code>max-age</code>, след като HTTPS работи, и добавете <code>includeSubDomains</code> само ако всеки поддомейн използва HTTPS.</p>
+<p>При Docker Compose и nginx на хоста, <code>upstream</code> по-горе сочи към публикувания порт 8065. Публикувайте го само на <code>127.0.0.1</code> (<code>HTTP_PORT=127.0.0.1:8065</code>), за да не може никой да заобиколи прокси-я.</p>
+<p>Репозиторията antimatter-docker съдържа пълна конфигурация с nginx в контейнер и Let's Encrypt чрез certbot, в <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">deploy/compose</a>.</p>
+
+<h3>Други прокси-и</h3>
+<p>Всеки прокси ще работи, ако отговаря на четирите точки по-горе. Аудио и видео обикновено не минават през прокси-я: те използват собствен порт, вижте <a href="{{root}}docs/admins/calls.html">Обаждания и глас</a>.</p>
+
+<h2 id="client-address">Адреси на клиенти зад прокси</h2>
+<p>Зад прокси всяка заявка изглежда, че идва от прокси-я. За да се записва реалният адрес на клиента, да се прилагат ограничения на скоростта на клиент и да се използва филтриране по IP, кажете на сървъра кое заглавие носи адреса и на кои прокси-и може да вярва. Нито едно от тези настройки няма поле в Системната конзола: задайте ги в <code>config.json</code> или с променливи.</p>
+<table>
+<thead><tr><th>Ключ и променлива</th><th>По подразбиране</th><th>Какво прави</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.TrustedProxyIPHeader</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER</code></td><td>празно: сървърът използва адреса на връзката</td><td>Заглавията, които носят адреса на клиента, например <code>X-Forwarded-For</code>. Използва се първото, присъстващо в заявката.</td></tr>
+<tr><td><code>ServiceSettings.TrustedProxyIPs</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code></td><td>празно</td><td>Адресите или CIDR обхватите на вашите прокси-и, например <code>172.29.71.0/28</code>. Заглавията се вземат предвид само за заявки, идващи от един от тях.</td></tr>
+</tbody>
+</table>
+<p>В променлива отделете няколко стойности с интервали: <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>. Сервърът отхвърля конфигурация, в която <code>TrustedProxyIPs</code> съдържа елемент, който не е нито IP адрес, нито CIDR обхват.</p>
+<h3>Как сервърът намира адреса на клиента</h3>
+<p>Всяка прокси добавя адреса, от който е получил заявката, в дясната част на <code>X-Forwarded-For</code>. Каквото клиентът е изпратил в самата заглавна част остава вляво. Така сервърът чете заглавната част от дясно, пропуска адресите на доверените прокси и взима първия друг адрес като този на клиента. Клиентът не може да избере свой адрес, като изпрати собствена заглавна част.</p>
+<ul>
+<li>Зад една прокси, <code>TrustedProxyIPHeader</code> сам по себе си дава правилния адрес: сервърът взима най-десния адрес от заглавната част. При стартиране той записва предупреждение, докато не зададете и <code>TrustedProxyIPs</code>. Без него всеки, който достигне порт 8065 директно, може да зададе заглавната част, така че публикувайте този порт само на <code>127.0.0.1</code> или в частна мрежа.</li>
+<li>Зад няколко прокси, например CDN или балансир на натоварването пред собствената ви прокси, изредете всички в <code>TrustedProxyIPs</code>. В противен случай сервърът ще приеме адреса на външната прокси за този на клиента.</li>
+<li>Прокси може да замени заглавната част с адреса, който вижда, както в примера с nginx по-горе (<code>X-Forwarded-For $remote_addr</code>), или да добави към нея (nginx <code>$proxy_add_x_forwarded_for</code>). И двата варианта работят.</li>
+</ul>
+<h3>Кои адреси да изредете</h3>
+<p>Изредете адреса, от който заявките на прокси идват, както Antimatter го вижда.</p>
+<ul>
+<li>С compose файла на сайта и Caddy това вече е направено: Caddy достига Antimatter през мрежата <code>edge</code>, а compose файла задава <code>TrustedProxyIPHeader</code> на <code>X-Forwarded-For</code> и <code>TrustedProxyIPs</code> на обхвата на тази мрежа, <code>EDGE_SUBNET</code> (<code>172.29.71.0/28</code>, освен ако не го промените в <code>.env</code>). Променете <code>EDGE_SUBNET</code>, ако се припокрива с някоя от вашите мрежи.</li>
+<li>Продукционната конфигурация в antimatter-docker прави същото за контейнера с nginx, използвайки <code>FRONTEND_SUBNET</code>.</li>
+<li>С nginx на хоста и Antimatter в Docker, заявките достигат Antimatter през публикувания порт, обикновено от адрес на гейтуея на мрежата на compose проекта (<code>docker network inspect</code> го показва). Задайте <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code> на този адрес в <code>compose.override.yaml</code>.</li>
+<li>Без Docker, с nginx на същия хост, стойността е <code>127.0.0.1</code> (и <code>::1</code>, ако nginx се свързва през IPv6).</li>
+</ul>
+
+<h2 id="builtin-tls">TLS без прокси</h2>
+<p>Сървърът може сам да обслужва HTTPS в <b>Системна конзола › Обкръжение › Уеб сървър</b>: <b>Защита на връзката</b> е зададена на TLS (<code>ServiceSettings.ConnectionSecurity</code>), с <b>Файл за TLS сертификат</b> и <b>Файл с ключове на TLS</b> (<code>ServiceSettings.TLSCertFile</code>, <code>ServiceSettings.TLSKeyFile</code>) или <b>Използвай Let's Encrypt</b> (<code>ServiceSettings.UseLetsEncrypt</code>). Тогава сървърът трябва да слуша на порт 443 (<b>Адрес на слушане</b>, <code>ServiceSettings.ListenAddress</code>, по подразбиране <code>:8065</code>), а <code>ServiceSettings.Forward80To443</code> пренасочва порт 80. Обърнатият прокси е по-лесен за поддръжка и обновяване и е предпоставката на това ръководство.</p>
+
+<h2 id="timeouts">Изчаквания и размер на заявките на сървъра</h2>
+<p>Настройки на собствения уеб сървър, в <b>Системна конзола › Обкръжение › Уеб сървър</b>:</p>
+<table>
+<thead><tr><th>Настройка</th><th>Ключ</th><th>По подразбиране</th></tr></thead>
+<tbody>
+<tr><td><b>Адрес на слушане</b></td><td><code>ServiceSettings.ListenAddress</code></td><td><code>:8065</code></td></tr>
+<tr><td><b>Време на изчакване при четене</b></td><td><code>ServiceSettings.ReadTimeout</code></td><td>300 секунди</td></tr>
+<tr><td><b>Време на изчакване при запис</b></td><td><code>ServiceSettings.WriteTimeout</code></td><td>300 секунди</td></tr>
+<tr><td>Изчакване при бездействие (няма поле в Системната конзола)</td><td><code>ServiceSettings.IdleTimeout</code></td><td>60 секунди</td></tr>
+<tr><td><b>Максимален размер на полезния товар (байтове)</b></td><td><code>ServiceSettings.MaximumPayloadSizeBytes</code></td><td>вижте <a href="{{root}}docs/admins/security.html">Сигурност</a></td></tr>
+</tbody>
+</table>
+<p>Задръжте собствените времена на изчакване на прокси-то поне толкова дълго, колкото тези, за обикновени заявки, а размера на тялото поне <b>Максимален размер на файла</b>.</p>

@@ -1,0 +1,105 @@
+title: Sao lưu và nâng cấp
+description: Sao lưu và khôi phục máy chủ Antimatter (cơ sở dữ liệu, lưu trữ tệp, cấu hình), nâng cấp một cách an toàn, di chuyển máy chủ Mattermost sang Antimatter, và xuất hoặc nhập dữ liệu.
+guide: admins
+order: 10
+nav: Sao lưu và nâng cấp
+lead: Những gì cần sao lưu, cách khôi phục trên máy chủ mới, cách nâng cấp, và cách di chuyển máy chủ Mattermost hoặc một cộng đồng riêng lẻ sang Antimatter.
+source: b0797af8b6e7
+---
+<h2 id="what">Những gì cần sao lưu</h2>
+<table>
+<thead><tr><th>Nội dung</th><th>Với tệp compose của trang web</th><th>Với một tệp lưu trữ phát hành</th></tr></thead>
+<tbody>
+<tr><td>Cơ sở dữ liệu: tin nhắn, người dùng, cộng đồng, kênh và, với tệp compose của trang web, cấu hình</td><td>thể tích <code>antimatter_postgres</code>, thông qua <code>pg_dump</code></td><td>cơ sở dữ liệu PostgreSQL của bạn</td></tr>
+<tr><td>Tệp đã tải lên, hình ảnh và các ứng dụng đã cài đặt</td><td>thể tích <code>antimatter_files</code> (lưu trữ S3)</td><td><code>FileSettings.Directory</code>, mặc định là <code>./data/</code></td></tr>
+<tr><td>Tệp cấu hình</td><td>(trong cơ sở dữ liệu)</td><td><code>config/config.json</code></td></tr>
+<tr><td>GIF và sticker</td><td>thể tích <code>antimatter_gifs</code></td><td>thư mục dữ liệu của dịch vụ GIF</td></tr>
+<tr><td>Thông tin bí mật</td><td><code>.env</code> (và <code>compose.override.yaml</code>)</td><td>tệp môi trường của bạn</td></tr>
+</tbody>
+</table>
+<p>Cơ sở dữ liệu và tệp phải đi cùng nhau: hãy sao lưu chúng cùng một lúc và giữ các bản sao ngoài máy chủ. Tên thể tích bắt đầu bằng tên dự án compose, <code>antimatter</code> (<code>docker volume ls</code> liệt kê chúng).</p>
+
+<h2 id="backup">Sao lưu</h2>
+<p>Từ thư mục của <code>compose.yaml</code>. Việc dừng Antimatter trước đó sẽ cho bản sao hoàn toàn nhất quán; bản sao lưu được thực hiện trong khi nó đang chạy thường là ổn, nhưng các tệp được tải lên trong quá trình sao lưu có thể bị thiếu trong đó.</p>
+<pre><code>stamp=$(date +%Y%m%d-%H%M%S)
+mkdir -p backups
+docker compose stop antimatter
+# Database
+docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
+    &gt; "backups/antimatter-db-$stamp.dump"
+# File storage and GIF service
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
+        alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
+done
+docker compose start antimatter
+# Secrets
+cp .env "backups/env-$stamp"</code></pre>
+<p>Chạy nó từ cron để sao lưu hàng ngày và sao chép thư mục <code>backups/</code> sang máy khác. Giữ các bản sao của <code>.env</code> an toàn như máy chủ: chúng chứa mật khẩu của nó.</p>
+<p>Để sao chép các tệp đã tải lên từng đối tượng (ví dụ sang lưu trữ S3 khác), hãy sử dụng công cụ dòng lệnh AWS của dịch vụ <code>bucket</code>:</p>
+<pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
+    "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
+<p>Với tệp lưu trữ phát hành, hãy sao lưu cơ sở dữ liệu bằng <code>pg_dump -Fc</code>, và các thư mục <code>data/</code> và <code>config/</code> bằng các công cụ thông thường của bạn.</p>
+
+<h2 id="restore">Khôi phục trên máy chủ mới</h2>
+<p>Đặt <code>compose.yaml</code>, <code>.env</code> đã lưu và các bản sao lưu vào một thư mục mới, sau đó:</p>
+<pre><code>stamp=20261016-030000          # the backup to restore
+docker compose create           # creates the volumes, starts nothing
+docker compose up -d postgres
+docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
+    &lt; "backups/antimatter-db-$stamp.dump"
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
+        alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
+done
+docker compose up -d</code></pre>
+<p>Sử dụng cùng một <code>.env</code>: lưu trữ và cơ sở dữ liệu phải giữ nguyên mật khẩu mà chúng đã có. Nếu máy chủ mới có địa chỉ khác, hãy cập nhật <code>SITE_URL</code> (và <code>DOMAIN</code>).</p>
+<p>Kiểm tra các bản sao lưu của bạn bằng cách khôi phục chúng trên máy khác theo thời gian.</p>
+
+<h2 id="upgrade">Nâng cấp</h2>
+<ol>
+<li>Thực hiện sao lưu.</li>
+<li>Thay đổi thẻ hình ảnh trong <code>.env</code> (<code>ANTIMATTER_IMAGE</code>), nếu bạn cố định một thẻ, như được khuyến nghị.</li>
+<li>Kéo và khởi động lại:
+<pre><code>docker compose pull
+docker compose up -d
+docker compose logs -f antimatter</code></pre></li>
+</ol>
+<p>Khi khởi động, máy chủ sẽ nâng cấp lược đồ cơ sở dữ liệu (theo dõi tiến trình trong nhật ký; máy chủ lớn có thể mất vài phút) và cài đặt các phiên bản mới hơn của các ứng dụng được đóng gói từ ảnh. Với bản phát hành dạng lưu trữ: dừng máy chủ, thay thế mọi thứ ngoại trừ <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> và <code>client/plugins/</code> bằng nội dung của lưu trữ mới, sau đó khởi động lại.</p>
+<div class="callout warn">Nâng cấp chỉ diễn ra theo một chiều. Một khi máy chủ mới hơn đã nâng cấp cơ sở dữ liệu, phiên bản cũ hơn sẽ không thể sử dụng nó: để quay lại, hãy khôi phục bản sao lưu được tạo trước khi nâng cấp. Điều tương tự cũng áp dụng khi chuyển từ <code>antimatter-next</code> trở lại <code>antimatter</code>.</div>
+<h3>Phiên bản</h3>
+<p>Máy chủ Antimatter báo cáo phiên bản của dòng Mattermost mà nó dựa trên (hiện tại là 12.0.0). Các ảnh được xây dựng lại từ các nhánh <code>main</code>: <code>antimatter-next</code> mỗi đêm (thẻ <code>nightly-&lt;YYYYMMDD&gt;</code>), và cả hai ảnh cho mỗi thay đổi (thẻ <code>sha-&lt;commit&gt;</code>). Hãy cố định một trong những thẻ này, nâng cấp một cách có chủ đích và ghi chú lại thẻ trước đó để bạn biết bản sao lưu nào tương ứng với nó.</p>
+<h3>Các phiên bản chính của PostgreSQL</h3>
+<p>Tệp compose sử dụng <code>postgres:17-alpine</code>. Antimatter yêu cầu PostgreSQL 15 hoặc mới hơn. Một phiên bản chính mới của PostgreSQL không thể đọc thư mục dữ liệu của phiên bản trước đó: để chuyển sang phiên bản mới, hãy xuất (dump) cơ sở dữ liệu, khởi động phiên bản mới trên một volume mới và khôi phục bản dump vào đó.</p>
+
+<h2 id="mattermost">Chuyển từ Mattermost</h2>
+<p>Antimatter sử dụng lược đồ cơ sở dữ liệu của Mattermost và thêm các bảng của riêng nó, do đó nó có thể tiếp quản cơ sở dữ liệu PostgreSQL và tệp của máy chủ Mattermost. Hãy thử trên một bản sao trước:</p>
+<ol>
+<li>Sao lưu cơ sở dữ liệu Mattermost, bộ lưu trữ tệp của nó (<code>data/</code> hoặc bucket S3) và <code>config.json</code>, sau đó dừng Mattermost.</li>
+<li>Khôi phục cơ sở dữ liệu vào PostgreSQL của Antimatter, hoặc trỏ Antimatter đến một bản sao của nó (<code>AM_SQLSETTINGS_DATASOURCE</code>).</li>
+<li>Sao chép các tệp vào bộ lưu trữ của Antimatter, giữ nguyên đường dẫn của chúng: vào bucket <code>antimatter</code> bằng công cụ S3, hoặc vào <code>data/</code> bằng bản phát hành dạng lưu trữ.</li>
+<li>Tái sử dụng cài đặt của bạn: sao chép <code>config.json</code>, hoặc di chuyển nó vào cơ sở dữ liệu bằng <code>amctl --local config migrate</code> (xem <a href="{{root}}docs/admins/configuration.html">Cấu hình</a>). Các biến môi trường <code>MM_</code> của bạn vẫn hoạt động; đổi tên chúng thành <code>AM_</code> khi thuận tiện.</li>
+<li>Khởi động Antimatter và theo dõi nhật ký trong khi nó nâng cấp cơ sở dữ liệu. Sau đó, kiểm tra <b>Bảng điều khiển Hệ thống › Các plugin › Quản lý Plugin</b>. Antimatter sẽ tự cài đặt các bản dựng riêng của mình cho Calls, Playbooks, Kanban (Boards), Agents và các tích hợp khi chúng mới hơn phiên bản đã cài đặt. Nếu Mattermost có phiên bản mới hơn của một trong những ứng dụng này, hãy xóa ứng dụng đó và khởi động lại Antimatter để bản dựng của Antimatter được cài đặt.</li>
+<li>Thiết lập lại thông báo đẩy bằng máy chủ proxy thông báo đẩy của riêng bạn: Antimatter không bao giờ gửi thông báo đến các dịch vụ thông báo đẩy của Mattermost, dù là thử nghiệm hay có sẵn, vì chúng chỉ phân phối đến các ứng dụng của chính Mattermost. Cho đến khi bạn thay đổi <b>Máy chủ thông báo đẩy</b>, máy chủ sẽ không gửi bất kỳ thông báo đẩy nào (xem <a href="{{root}}docs/admins/email-push.html#push">Thông báo đẩy</a>).</li>
+</ol>
+<p>Antimatter không liên lạc với bất kỳ dịch vụ nào do Mattermost, Inc. vận hành (xem <a href="{{root}}docs/admins/security.html#outbound">Kết nối đến các dịch vụ bên ngoài</a>), ngay cả khi cấu hình của bạn vẫn đề cập đến một trong số đó:</p>
+<ul>
+<li>máy chủ thông báo đẩy của Mattermost được giữ trong cài đặt nhưng không bao giờ được sử dụng;</li>
+<li>các địa chỉ của Mattermost cho thị trường ứng dụng (<b>URL thị trường</b>) và cho thông báo sản phẩm bị để trống;</li>
+<li>ứng dụng Calls sử dụng máy chủ STUN công khai của Cloudflare thay vì của Mattermost, mà không thay đổi cài đặt đã lưu (xem <a href="{{root}}docs/admins/calls.html#network">Cuộc gọi</a>);</li>
+<li>kiểm tra cập nhật bảo mật và báo cáo sự cố đã bị loại bỏ, cùng với các cài đặt Bảng điều khiển Hệ thống tương ứng (<b>Bật Cảnh báo Bảo mật</b>, <b>Bật Báo cáo Chẩn đoán và Lỗi</b>) và trang <b>Thông báo</b>.</li>
+</ul>
+<p>Socket chế độ cục bộ hiện là <code>/var/tmp/antimatter_local.socket</code>; <code>amctl</code> cũng sẽ thử socket cũ <code>/var/tmp/mattermost_local.socket</code>. Mattermost chỉ hỗ trợ PostgreSQL trong các phiên bản gần đây, và Antimatter cũng vậy: hãy di chuyển cơ sở dữ liệu MySQL sang PostgreSQL trước. Quay lại Mattermost sau khi Antimatter đã nâng cấp cơ sở dữ liệu có nghĩa là khôi phục bản sao lưu Mattermost của bạn.</p>
+
+<h2 id="export-import">Xuất và nhập dữ liệu</h2>
+<p>Định dạng xuất hàng loạt cho phép di chuyển dữ liệu giữa các máy chủ: toàn bộ máy chủ, một số cộng đồng, hoặc một số kênh, kèm theo tệp đính kèm, ảnh hồ sơ và biểu tượng cảm xúc tùy chỉnh nếu bạn muốn.</p>
+<pre><code># on the source server
+amctl export create --team-name design --include-profile-pictures
+amctl export list
+amctl export download &lt;export file&gt; design.zip
+# on the destination server
+amctl import upload design.zip
+amctl import list available
+amctl import process &lt;uploaded file&gt; --imported-users active</code></pre>
+<p>Theo dõi các tác vụ bằng <code>amctl export job list</code> và <code>amctl import job list</code>. Đối với xuất hoặc nhập một cộng đồng hoặc kênh, tham số <code>--imported-users</code> là bắt buộc: dùng <code>active</code> khi người dùng chuyển sang máy chủ này, và <code>inactive</code> khi nhập vào máy chủ mà họ đã có tài khoản, để các tài khoản được tạo từ các khớp không chắc chắn sẽ ở trạng thái tắt cho đến khi quản trị viên kiểm tra. Tham số <code>--destination-team-name</code> dùng để nhập vào một cộng đồng hiện có. Các tệp xuất và nhập được lưu trên bộ nhớ của máy chủ (<code>ExportSettings.Directory</code>, <code>ImportSettings.Directory</code>) trong 30 ngày theo mặc định.</p>
+<p>Trên chính máy chủ, lệnh <code>antimatter export bulk</code> và <code>antimatter import bulk --apply</code> thực hiện các thao tác tương tự từ tệp, mà không cần dùng API.</p>

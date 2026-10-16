@@ -1,0 +1,164 @@
+title: Interfejs REST API
+description: Interfejs REST API Antimatter: adres URL bazowy, osobiste tokeny dostępu, tokeny sesji i OAuth, główne zasoby, paginacja, błędy, limity żądań, strumień zdarzeń WebSocket oraz biblioteki klienckie.
+guide: developers
+order: 2
+nav: Interfejs REST API
+lead: Wszystkie operacje wykonywane w aplikacjach Antimatter przechodzą przez ten sam interfejs HTTP, więc mogą je wykonywać również Twoje skrypty. Ta strona wyjaśnia, jak się uwierzytelniać, jakie zasoby będziesz używać najczęściej, jak wyglądają odpowiedzi i błędy oraz jak śledzić zdarzenia na żywo za pomocą WebSocket.
+source: f4b8c83efdba
+---
+<h2 id="basics">Podstawy</h2>
+<ul>
+<li><b>Adres URL bazowy</b>: <code>https://chat.example.com/api/v4</code>. Wszystkie poniższe punkty końcowe są względne wobec tego adresu.</li>
+<li><b>Format</b>: dane wejściowe i wyjściowe w formacie JSON, z wyjątkiem przesyłania plików (multipart). Wysłanie nagłówka <code>Content-Type: application/json</code> jest wymagane.</li>
+<li><b>Identyfikatory</b>: każdy obiekt ma 26-znakowy <code>id</code>. Czas jest wyrażony w milisekundach od epoki Unix (<code>create_at</code>, <code>update_at</code>, <code>delete_at</code>; wartość 0 oznacza „nie usunięto”).</li>
+<li><b>Wspólnoty to zespoły</b>: interfejs API nazywa je <code>teams</code> i używa identyfikatora <code>team_id</code>.</li>
+<li><b>sam</b>: wszędzie tam, gdzie ścieżka przyjmuje <code>user_id</code>, <code>me</code> oznacza zalogowanego użytkownika, np. <code>GET /users/me</code>.</li>
+</ul>
+<p>Pełna lista punktów końcowych znajduje się w kodzie serwera: trasy są zadeklarowane w <code>server/channels/api4/*.go</code>, a typy w <code>server/public/model</code>. Opis OpenAPI w folderze <code>api/v4/source</code> w repozytorium obejmuje punkty końcowe dziedziczone z Mattermost, a nie dodatki Antimatter.</p>
+
+<h2 id="auth">Uwierzytelnianie</h2>
+<p>Każde żądanie, z wyjątkiem logowania i kilku publicznych punktów końcowych, wymaga tokena w nagłówku <code>Authorization</code>:</p>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" https://chat.example.com/api/v4/users/me</code></pre>
+<p>Akceptowane są trzy rodzaje tokenów: osobiste tokeny dostępu, tokeny sesji i tokeny dostępu OAuth. Akceptowany jest również format <code>Authorization: Token …</code>. Tokeny w parametrach zapytania (<code>?access_token=</code>) są akceptowane wyłącznie dla tokenów dostępu OAuth.</p>
+
+<h3>Osobiste tokeny dostępu (zalecane dla skryptów)</h3>
+<p>Osobisty token dostępu działa w Twoim imieniu, nie wygasa, chyba że ustawisz dla niego datę wygaśnięcia, i może zostać odwołany w dowolnym momencie. Osobiste tokeny dostępu są domyślnie wyłączone:</p>
+<ol>
+<li>Administrator systemu włącza <b>Włącz osobiste tokeny dostępu</b> w <b>Konsola systemu › Integracje › Zarządzanie Integracjami</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, <code>AM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS</code>).</li>
+<li>Dla każdej osoby, która może tworzyć tokeny, administrator systemu otwiera <b>Konsola systemu › Zarządzanie użytkownikiem › Użytkownicy</b>, wybiera <b>Zarządzanie rolami</b> w menu danej osoby i zaznacza <b>Allow this account to generate personal access tokens</b>. Administratorzy systemu mogą zawsze je tworzyć.</li>
+<li>Osoba otwiera swój awatar w prawym górnym rogu, a następnie <b>Profil i ustawienia › Bezpieczeństwo</b>. W sekcji <b>Personalne tokeny dostępu</b> opisuje, do czego służy token, i wybiera <b>Utwórz nowy token</b>. Token jest wyświetlany tylko raz: skopiuj go.</li>
+</ol>
+<p>Z użyciem API: <code>POST /users/{user_id}/tokens</code> z <code>{"description": "backup script", "expires_at": 0}</code> (<code>expires_at</code> w milisekundach; 0 oznacza brak wygaśnięcia). Pole <code>token</code> w odpowiedzi to sekret; jego <code>id</code> służy do odwołania tokena (<code>POST /users/tokens/revoke</code> z <code>{"token_id": "…"}</code>). Z wiersza poleceń: <code>amctl token generate &lt;user&gt; &lt;description&gt;</code>.</p>
+<p>Administrator systemu może ustawić limit czasu ważności tokenów za pomocą <b>Maksymalny okres ważności osobistego tokenu dostępu (dni)</b> na tej samej stronie Konsoli systemu.</p>
+
+<h3>Tokeny sesji</h3>
+<p>Logowanie hasłem zwraca token sesji w nagłówku odpowiedzi <code>Token</code>, będący tego samego rodzaju sesją, której używają aplikacje:</p>
+<pre><code>curl -i -X POST https://chat.example.com/api/v4/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login_id": "maya", "password": "…"}'</code></pre>
+<p>Dodaj <code>"token": "123456"</code> dla konta z uwierzytelnianiem wieloskładnikowym. Sesje wygaszają zgodnie z ustawieniami sesji serwera, a punkt końcowy logowania jest ograniczany (5 żądań na sekundę). <code>POST /users/logout</code> kończy sesję.</p>
+<div class="callout">Przeglądarki uwierzytelniają się za pomocą ciasteczka. Żądanie uwierzytelnione za pomocą ciasteczka musi również wysyłać nagłówek <code>X-CSRF-Token</code> dla wszystkich metod innych niż GET; token w nagłówku <code>Authorization</code> nie wymaga nagłówka CSRF.</div>
+
+<h3>Aplikacje OAuth 2.0</h3>
+<p>Aby umożliwić użytkownikom logowanie do Twojej aplikacji za pomocą konta Antimatter, zarejestruj aplikację OAuth 2.0. Antimatter staje się wtedy dostawcą OAuth:</p>
+<ol>
+<li>Opcja <b>Włącz dostawcę usługi OAuth 2.0</b> musi być włączona (<b>Konsola systemu › Integracje › Zarządzanie integracjami</b>, <code>ServiceSettings.EnableOAuthServiceProvider</code>, domyślnie włączona).</li>
+<li>Osoba z odpowiednimi uprawnieniami do zarządzania aplikacjami OAuth (domyślnie administratorzy systemu) otwiera swój awatar, a następnie <b>Integracje › Aplikacje OAuth 2.0</b> i dodaje aplikację wraz z adresami URL wywołań zwrotnych. Otrzymuje identyfikator klienta (client ID) i sekret klienta (client secret).</li>
+<li>Twoja aplikacja przekierowuje użytkowników na <code>https://chat.example.com/oauth/authorize</code> z parametrami <code>response_type=code</code>, <code>client_id</code>, <code>redirect_uri</code> oraz <code>state</code>. Obsługiwane jest PKCE z <code>code_challenge_method=S256</code>.</li>
+<li>Wymienia kod na <code>POST https://chat.example.com/oauth/access_token</code> (najpierw <code>grant_type=authorization_code</code>, a następnie <code>refresh_token</code> do odnowienia) i wywołuje API z nagłówkiem <code>Authorization: Bearer &lt;access token&gt;</code>.</li>
+</ol>
+<p>Użytkownicy mogą zobaczyć aplikacje, którym udzielili dostępu, w sekcji <b>Profil i ustawienia › Bezpieczeństwo › Autoryzowane aplikacje</b>.</p>
+
+<h2 id="resources">Główne zasoby</h2>
+<table>
+<thead><tr><th>Co</th><th>Punkty końcowe</th></tr></thead>
+<tbody>
+<tr><td>Ty i inni użytkownicy</td><td><code>GET /users/me</code>, <code>GET /users/{user_id}</code>, <code>GET /users/username/{username}</code>, <code>POST /users/ids</code> (lista identyfikatorów), <code>POST /users/search</code>, <code>GET /users?in_team=…&amp;in_channel=…</code></td></tr>
+<tr><td>Społeczności</td><td><code>GET /users/me/teams</code>, <code>GET /teams/{team_id}</code>, <code>GET /teams/name/{name}</code>, <code>PUT /teams/{team_id}/patch</code>, <code>GET /teams/{team_id}/members</code>, <code>POST /teams/{team_id}/members</code></td></tr>
+<tr><td>Kanały</td><td><code>GET /users/me/teams/{team_id}/channels</code>, <code>GET /teams/name/{team}/channels/name/{channel}</code>, <code>POST /channels</code>, <code>POST /channels/direct</code> (dwa identyfikatory użytkowników), <code>POST /channels/group</code>, <code>POST /channels/{channel_id}/members</code></td></tr>
+<tr><td>Wiadomości (posty)</td><td><code>POST /posts</code>, <code>GET /posts/{post_id}</code>, <code>PUT /posts/{post_id}/patch</code>, <code>DELETE /posts/{post_id}</code>, <code>GET /channels/{channel_id}/posts</code>, <code>GET /posts/{post_id}/thread</code>, <code>POST /teams/{team_id}/posts/search</code></td></tr>
+<tr><td>Reakcje</td><td><code>POST /reactions</code> z ciałem <code>{"user_id", "post_id", "emoji_name"}</code>, <code>DELETE /users/{user_id}/posts/{post_id}/reactions/{emoji_name}</code></td></tr>
+<tr><td>Pliki</td><td><code>POST /files</code> (multipart: <code>channel_id</code> i <code>files</code>), a następnie umieszczenie zwróconych identyfikatorów w polu <code>file_ids</code> wiadomości; <code>GET /files/{file_id}</code></td></tr>
+<tr><td>Preferencje</td><td><code>GET /users/me/preferences</code>, <code>PUT /users/me/preferences</code></td></tr>
+<tr><td>Integracje</td><td><code>/hooks/incoming</code>, <code>/hooks/outgoing</code>, <code>/commands</code>, <code>/bots</code>, <code>/oauth/apps</code> (patrz kolejne strony)</td></tr>
+<tr><td>Serwer</td><td><code>GET /system/ping</code> (stan zdrowia, bez tokena), <code>GET /config/client?format=old</code> (ustawienia widoczne dla klientów)</td></tr>
+</tbody>
+</table>
+
+<h3>Odesłanie wiadomości</h3>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "message": "Backup finished: **42 GB** in 3 min"}'</code></pre>
+<p>Wiadomości są formatowane w Markdown. Aby odpowiedzieć w wątku, dodaj <code>"root_id"</code> (identyfikator pierwszej wiadomości wątku), <code>"file_ids"</code> dla plików oraz <code>"props"</code> dla załączników i innych dodatków (patrz <a href="{{root}}docs/developers/webhooks.html#attachments">Załączniki</a>).</p>
+
+<h3>Znajdowanie identyfikatora kanału</h3>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" \
+  https://chat.example.com/api/v4/teams/name/lumen-labs/channels/name/ops-alerts</code></pre>
+<p>Nazwy to te z linku do kanału: <code>/lumen-labs/channels/ops-alerts</code>.</p>
+
+<h2 id="pagination">Paginacja</h2>
+<p>Punkty końcowe zwracające listy akceptują parametry <code>page</code> (od 0) i <code>per_page</code> (domyślnie 60, maksymalnie 200). Kontynuuj żądanie kolejnych stron, dopóki zwrócona strona nie będzie krótsza niż <code>per_page</code>.</p>
+<p>Wiadomości w kanale (<code>GET /channels/{channel_id}/posts</code>) akceptują również <code>since</code> (czas: wszystko zmienione od tego momentu) lub <code>before</code> i <code>after</code> (ID wiadomości). Zwracane są jako lista wiadomości: <code>{"order": [IDs, newest first], "posts": {ID: post}, "next_post_id", "prev_post_id"}</code>.</p>
+
+<h2 id="errors">Błędy</h2>
+<p>Błędy używają standardowych kodów statusu HTTP (400 błędne dane wejściowe, 401 brak zalogowania, 403 brak uprawnień, 404 nie znaleziono, 501 funkcja wyłączona) oraz treści JSON:</p>
+<pre><code>{
+  "id": "api.context.permissions.app_error",
+  "message": "You do not have the appropriate permissions.",
+  "detailed_error": "",
+  "request_id": "jz8zm5nunpbt8f3gpqsz5dq6so",
+  "status_code": 403
+}</code></pre>
+<p>Używaj <code>id</code> w swoim kodzie: <code>message</code> jest tłumaczone na język użytkownika. <code>detailed_error</code> jest puste, chyba że serwer działa w trybie deweloperskim (<code>ServiceSettings.EnableDeveloper</code>). Podaj <code>request_id</code> administratorowi serwera: znajduje się on w logach.</p>
+
+<h2 id="rate-limits">Ograniczenia przepustowości</h2>
+<p>Ograniczenia prędkości są domyślnie wyłączone. Gdy administrator systemu je włączy (<b>Konsola systemu › Środowisko › Ograniczenia Prędkości</b>), każdy klient otrzymuje domyślnie 10 żądań na sekundę z limitami do 100, liczonymi według adresu IP lub użytkownika. Odpowiedzi zawierają <code>X-RateLimit-Limit</code>, <code>X-RateLimit-Remaining</code> i <code>X-RateLimit-Reset</code>; przy przekroczeniu limitu serwer zwraca <code>429</code> z nagłówkiem <code>Retry-After</code> w sekundach. Niektóre punkty końcowe, takie jak logowanie, mają własne limity niezależnie od ustawień.</p>
+<p>Pisz skrypty, które czekają i ponawiają żądania przy 429, oraz unikaj odpytywania: korzystaj z WebSocket.</p>
+
+<h2 id="websocket">Strumień zdarzeń WebSocket</h2>
+<p>Połącz się z <code>wss://chat.example.com/api/v4/websocket</code>. Uwierzytelnij się za pomocą nagłówka <code>Authorization: Bearer</code> w żądaniu połączenia lub wysyłając to jako pierwsze wiadomość:</p>
+<pre><code>{"seq": 1, "action": "authentication_challenge", "data": {"token": "…"}}</code></pre>
+<p>Serwer wysyła zdarzenie <code>hello</code>, a następnie zdarzenia dla wszystkiego, co masz uprawnienie zobaczyć:</p>
+<pre><code>{
+  "event": "posted",
+  "data": {"channel_id": "…", "channel_type": "O", "post": "{\"id\":\"…\",\"message\":\"Hello\",…}"},
+  "broadcast": {"channel_id": "…", "team_id": "", "user_id": "", "omit_users": null},
+  "seq": 4
+}</code></pre>
+<p>Zauważ, że <code>data.post</code> to post jako ciąg JSON. Częste zdarzenia: <code>posted</code>, <code>post_edited</code>, <code>post_deleted</code>, <code>reaction_added</code>, <code>reaction_removed</code>, <code>typing</code>, <code>status_change</code>, <code>user_added</code>, <code>direct_added</code>. Aplikacje wysyłają własne zdarzenia, nazwane <code>custom_&lt;app id&gt;_&lt;event&gt;</code>.</p>
+<p>Możesz również wysyłać akcje, każda z rosnącym <code>seq</code>: <code>user_typing</code> z <code>{"channel_id", "parent_id"}</code> lub <code>get_statuses</code>. Połącz się ponownie, gdy połączenie się zerwie, i pobierz to, co przegapiłeś, za pomocą <code>since</code> (patrz <a href="#pagination">Paginacja</a>).</p>
+<p>Antimatter dodaje te zdarzenia: <code>community_attributes_updated</code>, <code>member_timeouts_updated</code>, <code>post_put_on_top</code>, <code>post_removed_from_top</code>, <code>server_categories_updated</code>, <code>channel_overrides_updated</code> oraz <code>category_overrides_updated</code>.</p>
+
+<h2 id="clients">Biblioteki klienckie</h2>
+<ul>
+<li><b>Przejdź</b>: <code>model.Client4</code> w <code>server/public/model</code> (import <code>github.com/mattermost/mattermost/server/public/model</code>). <code>model.NewAPIv4Client(url)</code>, a następnie <code>client.SetToken(token)</code>; <code>model.NewWebSocketClient4(wsURL, token)</code> śledzi zdarzenia. Kopia Antimattera dodaje metody dla własnych punktów końcowych, takich jak <code>UpdateMessageRequest</code>, <code>PutPostOnTop</code> i <code>ExportChannel</code>.</li>
+<li><b>TypeScript</b>: klasa <code>Client4</code> pakietu <code>@mattermost/client</code> w <code>webapp/platform/client</code>, z typami w <code>webapp/platform/types</code>. Kopia w repozytorium Antimattera zawiera punkty końcowe Antimattera; pakiet opublikowany na npm przez Mattermosta ich nie zawiera.</li>
+</ul>
+<pre><code>package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/mattermost/mattermost/server/public/model"
+)
+
+func main() {
+	client := model.NewAPIv4Client("https://chat.example.com")
+	client.SetToken("…")
+	post, _, err := client.CreatePost(context.Background(), &amp;model.Post{
+		ChannelId: "…",
+		Message:   "Hello from Go",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("posted", post.Id)
+}</code></pre>
+
+<h2 id="antimatter">Co Antimatter dodaje do API</h2>
+<p>Te punkty końcowe i pola nie istnieją na serwerze Mattermost. Wszystkie wymagają sesji.</p>
+<table>
+<thead><tr><th>Punkt końcowy</th><th>Opis</th></tr></thead>
+<tbody>
+<tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> na tej samej ścieżce<br><code>PATCH</code>, <code>DELETE …/fields/{field_id}</code></td><td>Atrybuty społeczności: pola profilu, które administratorzy społeczności definiują dla jej członków (do 20). Członkowie mogą je odczytywać; administratorzy społeczności je tworzą i modyfikują.</td></tr>
+<tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> na tej samej ścieżce<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>Wartości atrybutów członka, w formacie <code>{field_id: value}</code>. Członkowie ustawiają własne (z wyjątkiem zarządzanych przez administratorów); administratorzy mogą ustawiać wartości dla dowolnego użytkownika. Wyszukiwanie przyjmuje <code>{"user_ids": [...]}</code> (do 200).</td></tr>
+<tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>Bloki czasowe: <code>{"until": time, "reason": "…"}</code> uniemożliwia użytkownikowi publikowanie, reagowanie i przesyłanie plików w społeczności do podanego czasu (maksymalnie 28 dni); <code>"until": 0</code> usuwa blok. Widok moderacji pokazuje, kiedy użytkownik dołączył i jak dużo ostatnio opublikował.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Wiadomości przypięte na górze kanału (do 10). <code>{"duration": ms}</code>, maksymalnie 30 dni; 0 oznacza, że pozostaje do usunięcia. Wymaga uprawnień do publikowania w kanale.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>Działa na własnym żądaniu wiadomości: <code>{"action": "accept"}</code>, <code>"dismiss"</code> lub <code>"request"</code>, aby przywrócić konwersję do listy żądań. Zwraca członka kanału.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>Określa, co rola lub osoba może wykonywać w kanale, oraz które role mają dostęp do kanału z ograniczeniami ról.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>Wspólne kategorie kanałów społeczności oraz nadpisanie ustawień, które mają zastosowanie do wszystkich kanałów w danej kategorii.</td></tr>
+<tr><td><code>GET /groups/{group_id}/team_role</code><br><code>PUT …/team_role/permissions</code></td><td>Uprawnienia przyznawane przez rolę społeczności.</td></tr>
+<tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>Testuje reguły automatycznych linków społeczności na podanym tekście.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>Pobiera wiadomości z kanału w formacie CSV (do 50 000) dla osób, które mają uprawnienia do odczytu tego kanału.</td></tr>
+<tr><td><code>GET /posts/{post_id}/speech</code></td><td>Wiadomość odczytana na głos jako plik audio, gdy skonfigurowano funkcję konwersji tekstu na mowę.</td></tr>
+</tbody>
+</table>
+<h3>Nowe pola</h3>
+<ul>
+<li><b>Społeczności</b> (<code>Team</code>, oraz <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (każdy jest członkiem każdego kanału, do którego ma dostęp, podobnie jak w Discord), <code>default_channel_id</code> (miejsce, w którym lądują nowi użytkownicy; puste oznacza Town Square), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> oraz <code>autolinks</code> (oba jako ciągi JSON).</li>
+<li><b>Odpowiedzi inline</b>: wiadomość z <code>"props": {"reply_to": "&lt;post id&gt;"}</code> cytuje wskazaną wiadomość z tego samego kanału. Dodaj <code>"reply_to_mention": false</code>, aby nie powiadamiać autora cytowanej wiadomości. Serwer wypełnia pole <code>metadata.reply_to</code> krótkim opisem cytowanej wiadomości.</li>
+<li><b>Ujawnienia (spoilers)</b>: <code>"props": {"spoiler": true}</code> ukrywa tekst i pliki wiadomości, aż czytelnik zdecyduje się je wyświetlić.</li>
+<li><b>Ignorowanie i blokowanie</b> to preferencje: kategoria <code>user_block</code>, nazwana według identyfikatora drugiej osoby, z wartością <code>ignore</code> lub <code>block</code>. Czy wiadomość bezpośrednia czeka jako żądanie, zależy od pola <code>notify_props.dm_request</code> w profilu członka kanału (<code>pending</code>, <code>accepted</code> lub <code>dismissed</code>).</li>
+<li><b>Załączniki do wiadomości</b> mogą zawierać <code>stages</code> oraz <code>chart</code>: zobacz <a href="{{root}}docs/developers/webhooks.html#cards">Karty</a>.</li>
+</ul>

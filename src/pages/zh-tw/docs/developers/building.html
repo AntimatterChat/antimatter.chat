@@ -1,0 +1,102 @@
+title: 從原始碼建置
+description: 如何從原始碼建置 Antimatter：Go 伺服器、Fusion 與經典網頁介面、開發伺服器、測試、發行版檔案、Docker 映像檔，以及桌面與行動端應用程式。
+guide: developers
+order: 7
+nav: 從原始碼建置
+lead: 本頁說明如何從原始碼建置並執行 Antimatter，以便進行開發或製作自訂版本。內容涵蓋位於同一個儲存庫中的伺服器與網頁介面，以及 Docker 映像檔與應用程式。
+source: dfdf67f34f6e
+---
+<h2 id="requirements">所需條件</h2>
+<ul>
+<li><b>前往</b>，版本為 <code>server/go.mod</code> 中所列（撰寫本文時為 1.26.7）。</li>
+<li><b>Node.js 與 npm</b>，版本需與 <code>.nvmrc</code> 和 <code>webapp/package.json</code> 中指定的一致（Node 24.11.1 搭配 npm 11.6.2）。若使用 <a href="https://mise.jdx.dev">mise</a>，儲存庫中的 <code>mise.toml</code> 會安裝正確的 Node 版本。</li>
+<li><b>Docker</b> 與 Compose：開發環境會在容器中執行 PostgreSQL 及其他幾項服務。</li>
+<li><b>make</b>、<b>git</b>，以及一台 Linux 或 macOS 電腦。</li>
+<li><b>記憶體</b>：建置網頁介面是最耗資源的部分。建議規劃 16 GB 的 RAM；請參閱 <a href="#memory">建置與記憶體</a>。</li>
+</ul>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter.git
+cd antimatter</code></pre>
+<p>儲存庫包含位於 <code>server/</code> 的伺服器、位於 <code>webapp/</code> 的網頁介面（Fusion 位於 <code>webapp/fusion</code>，經典介面位於 <code>webapp/channels</code>，共用套件位於 <code>webapp/platform</code>），以及位於 <code>e2e-tests/</code> 的端對端測試。</p>
+
+<h2 id="dev-server">執行開發伺服器</h2>
+<pre><code>cd server
+make run</code></pre>
+<p><code>make run</code> 會啟動開發容器（PostgreSQL、Redis、郵件攔截器與監控工具），將網頁應用程式的建置檔連結到正確位置，在背景使用 <code>go run</code> 啟動伺服器，並啟動網頁應用程式的觀察器（watcher），在您編輯時重新建置經典介面。開啟 <code>http://localhost:8065</code> 並建立帳號：第一個建立的帳號將成為系統管理員。</p>
+<table>
+<thead><tr><th>指令（位於 <code>server/</code>）</th><th>功能說明</th></tr></thead>
+<tbody>
+<tr><td><code>make run-server</code>, <code>make run-client</code></td><td>僅啟動伺服器，或僅啟動網頁應用程式觀察器。</td></tr>
+<tr><td><code>make restart-server</code></td><td>在修改 Go 程式碼後重新啟動伺服器。</td></tr>
+<tr><td><code>make stop</code></td><td>停止伺服器、觀察器與容器。</td></tr>
+<tr><td><code>make debug-server</code></td><td>在 Delve 除錯器下執行伺服器。</td></tr>
+<tr><td><code>make run-cli ARGS="-version"</code></td><td>執行伺服器指令。</td></tr>
+<tr><td><code>make config-reset</code></td><td>將 <code>config/config.json</code> 重設為預設值。</td></tr>
+<tr><td><code>make clean</code>, <code>make nuke</code></td><td>移除建置檔；<code>nuke</code> 也會刪除開發資料。</td></tr>
+</tbody>
+</table>
+<p>開發資料庫為 <code>postgres://mmuser:mostest_password@localhost/mattermost_test</code>，這是伺服器的預設資料來源。您可以透過 <code>ENABLED_DOCKER_SERVICES</code> 選擇要啟動哪些容器，設定方式為在 <code>server/config.override.mk</code> 檔案中或您的環境變數中（請參閱 <code>server/config.mk</code>）。</p>
+
+<h2 id="webapp">網頁介面</h2>
+<p>位於 <code>webapp/</code> 中：</p>
+<pre><code>npm install      # also builds the shared packages
+npm run build    # the classic interface, then Fusion</code></pre>
+<p>建置結果會輸出至 <code>webapp/channels/dist</code>（經典版）和 <code>webapp/fusion/dist</code>（Fusion）。在 <code>server/</code> 中執行 <code>make client</code> 會將它們連結為 <code>server/client</code> 和 <code>server/client-fusion</code>，供伺服器提供服務：經典版位於 <code>/static/</code>，Fusion 位於 <code>/static/fusion/</code>。</p>
+<ul>
+<li><code>npm run run</code>（或在 <code>webapp/</code> 中執行 <code>make run</code>）會監視並重新建置經典介面。加上 <code>WATCH_FUSION=true</code> 即可同時重新建置 Fusion。</li>
+<li><code>npm run dev-server</code>（<code>make dev</code>）會改用 webpack 開發伺服器：經典版使用埠 9005，Fusion 使用埠 9006。</li>
+<li>要在瀏覽器中檢視其中一個介面，請在任意頁面的網址後加上 <code>?webui=fusion</code> 或 <code>?webui=classic</code>。</li>
+</ul>
+
+<h2 id="tests">測試與檢查</h2>
+<table>
+<thead><tr><th>指令</th><th>位置</th><th>功能說明</th></tr></thead>
+<tbody>
+<tr><td><code>make test-server</code></td><td><code>server/</code></td><td>針對開發容器執行伺服器的測試套件。此過程耗時較長。</td></tr>
+<tr><td><code>make test-server-quick</code></td><td><code>server/</code></td><td>僅執行快速測試。</td></tr>
+<tr><td><code>go test ./channels/app/... -run TestName</code></td><td><code>server/</code></td><td>執行單一套件或測試，需先啟動容器（<code>make start-docker</code>）。</td></tr>
+<tr><td><code>make check-style</code></td><td><code>server/</code></td><td>go vet、golangci-lint 及其他 Go 檢查。</td></tr>
+<tr><td><code>make test</code></td><td><code>webapp/</code></td><td>Web 應用程式的單元測試（Jest），涵蓋所有套件。</td></tr>
+<tr><td><code>npm run test -- &lt;pattern&gt;</code></td><td><code>webapp/fusion</code></td><td>Fusion 的部分測試。</td></tr>
+<tr><td><code>make check-style</code>, <code>make check-types</code></td><td><code>webapp/</code></td><td>ESLint 和 TypeScript。</td></tr>
+<tr><td><code>make i18n-extract</code></td><td><code>server/</code> 和 <code>webapp/</code></td><td>在新增或變更字串後，更新英文字串檔案（請參閱 <a href="{{root}}docs/developers/contributing.html#translations">翻譯</a>）。</td></tr>
+</tbody>
+</table>
+<p>請在 <code>server/</code> 中執行 <code>make modules-tidy</code>，而非 <code>go mod tidy</code>。</p>
+
+<h2 id="release">發行版檔案</h2>
+<pre><code>cd webapp &amp;&amp; npm run build &amp;&amp; cd ..
+cd server
+make build-linux       # the antimatter and amctl binaries
+make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
+<p><code>make build</code> 會一次性建置 Web 介面和 Linux 二進位檔案。壓縮檔包含 <code>bin/antimatter</code>、<code>bin/amctl</code>、預設的 <code>config/config.json</code>、兩個 Web 介面、範本、字型及翻譯檔。其他平台：<code>make package-osx</code>、<code>make package-windows</code>、<code>make package-freebsd</code>。壓縮檔不包含內建應用程式；Docker 映像檔則包含。</p>
+
+<h2 id="docker">Docker 映像檔</h2>
+<p><a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> 儲存庫會在 Docker 內完整建置已發布的映像檔，包含伺服器及其應用程式：</p>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter-docker.git
+cd antimatter-docker
+scripts/build-all.sh                     # from the main branches on GitHub
+SOURCES=local scripts/build-all.sh       # from your checkouts next to this folder
+VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatter app</code></pre>
+<p>需要支援 buildx 的 Docker、Python 3、git 和 gpg，約 16 GB 的 RAM 和 30 GB 的磁碟空間。結果會載入為 <code>ghcr.io/antimatterchat/antimatter:dev</code>；可使用 <code>ANTIMATTER_IMAGE=ghcr.io/antimatterchat/antimatter:dev docker compose -f compose.local.yml up -d</code> 進行測試。<code>plugins.json</code> 列出已建置的應用程式及其版本，儲存庫的 README 則說明各種變體。</p>
+<div class="callout warn"><code>build-all.sh</code> 會使用 Antimatter 簽章金鑰對隨附的應用程式進行簽章，而映像檔建置會拒絕未簽章的應用程式。若沒有該私鑰（僅維護者持有），請單獨執行前幾個步驟：<code>scripts/fetch-sources.sh</code>、<code>scripts/build-plugins.sh</code>（應用程式套件位於 <code>out/plugins/</code>）以及 <code>scripts/build-server.sh</code>（伺服器壓縮檔位於 <code>out/server/</code>）。</div>
+
+<h2 id="memory">建置與記憶體</h2>
+<p>網頁介面是大型 webpack 建置，記憶體不足是最常見的建置失敗原因。</p>
+<ul>
+<li><code>npm run build</code> 會依序建置經典介面與 Fusion，而非同時進行，以降低峰值記憶體使用量。請勿自行並行執行。</li>
+<li>壓縮工具會為每個處理器核心啟動一個工作程序。在核心數多但記憶體少的機器上，請限制建置可見的處理器數量：<code>taskset -c 0-5 npm run build</code>。</li>
+<li>如果 Node 堆積空間不足，請提高其限制：<code>NODE_OPTIONS=--max-old-space-size=6144</code>。Docker 建置使用此值（位於 <code>build.env</code> 中的 <code>BUILD_NODE_OPTIONS</code>）。</li>
+<li>避免在小機器上同時執行伺服器的完整測試套件、網頁建置和 Docker 建置。</li>
+</ul>
+
+<h2 id="apps">應用程式</h2>
+<p>每個應用程式（外掛）都有各自的儲存庫和 Makefile；<code>make dist</code> 會建置其套件。請參閱 <a href="{{root}}docs/developers/apps.html#build">建置、安裝與除錯</a>。</p>
+<h3>桌面應用程式</h3>
+<p><a href="https://github.com/AntimatterChat/desktop-app">桌面應用程式</a> 是一個 Electron 應用程式。使用 Node.js 24 或更高版本：</p>
+<pre><code>npm install --allow-git=all
+npm run build          # development build, into dist/
+npm start              # run it
+npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
+<p>建置時設定（例如預先設定的伺服器）位於 <code>src/common/config/buildConfig.ts</code>。</p>
+<h3>行動應用程式</h3>
+<p><a href="https://github.com/AntimatterChat/mobile-app">行動應用程式</a> 是一個 React Native 應用程式；其 README 列出了指令（<code>npm run ios</code>、<code>npm run android</code>）。若要建置自己的副本，您還需要自己的簽章金鑰、用於 Android 通知的 Firebase 專案、用於 iOS 的 APNs 金鑰，以及一個持有這些憑證的 <a href="https://github.com/AntimatterChat/push-proxy">推送代理</a>。</p>

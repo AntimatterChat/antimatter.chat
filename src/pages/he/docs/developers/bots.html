@@ -1,0 +1,172 @@
+title: בוטים והודעות אינטראקטיביות
+description: חשבונות בוטים ב-Antimatter: יצירתם, האסימונים וההרשאות שלהם, שליחת הודעות בשם בוט, הודעות ישירות, כפתורים ותפריטים אינטראקטיביים, ודיאלוגים.
+guide: developers
+order: 5
+nav: בוטים
+lead: חשבון בוט הוא משתמש שנוצר עבור תוכנה. יש לו שם, תמונה ואסימונים משלו, ולצד שמו מופיע תגית BOT. עמוד זה מכסה גם את החלקים האינטראקטיביים של הודעות: כפתורים, תפריטים ודיאלוגים, שכל אינטגרציה יכולה להשתמש בהם.
+source: 45503666f647
+---
+<h2 id="why">למה חשבון בוט</h2>
+<ul>
+<li>ההודעות שלו מגיעות מזהות ברורה, עם תגית <b>בוט</b>, ולא מחשבון של עמית לעבודה.</li>
+<li>האסימונים שלו ממשיכים לפעול גם אם האדם שגייס אותו משנה תפקיד או עוזב (אלא אם כן השרת משבית בוטים של בעלים מושבתים, ראו להלן).</li>
+<li>בוטים אינם יכולים להתחבר עם סיסמה, והם לעולם אינם רואים את אפליקציית ה-Web.</li>
+</ul>
+<p>אפליקציות יוצרות בוטים משלהן, כגון בוטי Todo או Playbooks, באמצעות פליג'ין API (<code>EnsureBotUser</code>).</p>
+
+<h2 id="enable">הפעלת חשבונות בוטים</h2>
+<p>מנהל מערכת מפעיל את <b>הפעלת יצירת חשבונות בוטים</b> ב-<b>קונסולת מערכת › אינטגרציות › חשבונות בוטים</b> (<code>ServiceSettings.EnableBotAccountCreation</code>, <code>AM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION</code>). ברירת המחדל היא כבוי. רק מנהלי מערכת יכולים ליצור בוטים, אלא אם כן הם מעניקים את ההרשאה לתפקידים אחרים בהגדרות ההרשאות.</p>
+<p>באותו עמוד, <b>השבתת חשבונות בוט כאשר בעל החשבון מושבת</b> (<code>ServiceSettings.DisableBotsWhenOwnerIsDeactivated</code>, פעיל כברירת מחדל) משבית בוט כאשר חשבון הבעלים שלו מושבת.</p>
+
+<h2 id="create">יצירת בוט</h2>
+<ol>
+<li>פתחו את האווטאר שלכם בפינה הימנית העליונה, ואז <b>אינטגרציות › חשבונות בוטים</b>, ואז <b>הוספת חשבון בוט</b>.</li>
+<li>הזינו <b>שם משתמש</b> (אותיות קטנות, ספרות, נקודות, מקפים וקווים תחתונים), ובאופן אופציונלי <b>סמל בוט</b>, <b>שם תצוגה</b> ו<b>תיאור</b>.</li>
+<li>בחרו את ה<b>תפקיד</b>: <b>חבר</b>, או <b>מנהל מערכת</b> עבור בוט שמנהל את השרת. העניקו לבוט את המינימום הנדרש.</li>
+<li>סמנו <b>post:channels</b> כדי לאפשר לו לפרסם בכל ערוץ ציבורי, או <b>post:all</b> לכל הערוצים, כולל פרטיים והודעות ישירות, בלי להיות חבר בהם.</li>
+<li>קבעו מתי האסימון המוגדר כברירת מחדל יפוג, ואז בחרו <b>יצירת חשבון בוט</b>.</li>
+<li>העתקו את אסימון הגישה המוצג. הוא לא יוצג שוב.</li>
+</ol>
+<p>בהמשך, <b>יצירת אסימון חדש</b> בשורת הבוט מוסיפה אסימון, וכל אסימון יכול להיות מושבת או נמחק. אסימוני בוטים פועלים גם כאשר אסימוני גישה אישיים כבויים עבור אנשים.</p>
+<p>באמצעות API:</p>
+<pre><code># create the bot (you become its owner)
+curl -X POST https://chat.example.com/api/v4/bots \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username": "deploy-bot", "display_name": "Deploy", "description": "Posts deployments"}'
+
+# give it a token
+curl -X POST https://chat.example.com/api/v4/users/$BOT_USER_ID/tokens \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"description": "deploy pipeline"}'</code></pre>
+<p>מקומונד השורה, כשמתחברים כמנהל (לא במצב מקומי): <code>amctl bot create deploy-bot --display-name Deploy --with-token --expires-in 90d</code>. קצוות נוספים: <code>GET /api/v4/bots</code>, <code>PUT /api/v4/bots/{bot_user_id}</code>, <code>POST /api/v4/bots/{bot_user_id}/disable</code> ו-<code>/enable</code>, ו-<code>POST /api/v4/bots/{bot_user_id}/assign/{user_id}</code> כדי לשנות את בעל הבוט.</p>
+
+<h2 id="membership">הוספת הבוט לקהילות ולערוצים</h2>
+<p>בוט חדש אינו שייך לקהילה כלשהי. מוסיפים אותו כמו אדם, מניהול החברים של הקהילה או באמצעות ה-API:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/teams/$TEAM_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"team_id": "'$TEAM_ID'", "user_id": "'$BOT_USER_ID'"}'
+
+curl -X POST https://chat.example.com/api/v4/channels/$CHANNEL_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"user_id": "'$BOT_USER_ID'"}'</code></pre>
+<p>בוט עם <b>post:channels</b> או <b>post:all</b> יכול לפרסם בלי להיות חבר, אבל הוא מקבל אירועי WebSocket רק לערוצים שהוא שייך אליהם.</p>
+
+<h2 id="post">פרסום בשם הבוט</h2>
+<p>משתמשים בטוקן של הבוט בכל קריאת API; <code>POST /api/v4/posts</code> היא הנפוצה ביותר (ראו <a href="{{root}}docs/developers/api.html#resources">מאגרי מידע עיקריים</a>). כדי לכתוב ישירות לאדם, פותחים תחילה את ערוץ ההודעה הישירה:</p>
+<pre><code># returns the channel; use its "id" as channel_id
+curl -X POST https://chat.example.com/api/v4/channels/direct \
+  -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' \
+  -d '["'$BOT_USER_ID'", "'$USER_ID'"]'</code></pre>
+<p>כדי להגיב לדברים שאנשים אומרים, עוקבים אחרי <a href="{{root}}docs/developers/api.html#websocket">WebSocket</a> עם הטוקן של הבוט ומגיבים לאירועי <code>posted</code> שחשובים לכם. מתעלמים מההודעות של הבוט עצמו כדי למנוע לולאות.</p>
+<p>הודעה שאדם אחד בלבד יכול לראות (הודעה זמנית) נשלחת עם <code>POST /api/v4/posts/ephemeral</code> ו-<code>{"user_id", "post": {"channel_id", "message"}}</code>. נדרשת הרשאת <code>create_post_ephemeral</code>, שברירת המחדל יש לה רק למנהלי מערכת. אינטגרציות בדרך כלל שולחות הודעות זמניות כתשובות לפקודות לוכסן ולכפתורים.</p>
+
+<h2 id="interactive">הודעות אינטראקטיביות: כפתורים ותפריטים</h2>
+<p>כל הודעה עם קבצים מצורפים יכולה לשאת פעולות: כפתורים, ותפריטים לבחירה. הם עובדים בהודעות שפורסמו עם ה-API, Webhooks ותשובות לפקודות לוכסן. כשאדם משתמש באחת מהם, Antimatter קוראת לכתובת האינטגרציה שלכם.</p>
+<pre><code>{
+  "channel_id": "…",
+  "message": "Deploy **api 2.4.0** to production?",
+  "props": {
+    "attachments": [{
+      "actions": [
+        {
+          "id": "approve",
+          "type": "button",
+          "name": "Approve",
+          "style": "primary",
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "approve"}}
+        },
+        {
+          "id": "env",
+          "type": "select",
+          "name": "Pick an environment",
+          "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}],
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "env"}}
+        }
+      ]
+    }]
+  }
+}</code></pre>
+<ul>
+<li><code>type</code>: <code>button</code> או <code>select</code>.</li>
+<li><code>id</code>: אותיות, מספרים, מקפים וקווים תחתונים, שונים לכל פעולה בהודעה. נוצר אוטומטית אם משמיטים אותו.</li>
+<li><code>style</code> (כפתורים): <code>default</code>, <code>primary</code>, <code>success</code>, <code>good</code>, <code>warning</code>, <code>danger</code>, או צבע בשפה hex.</li>
+<li><code>options</code> (תפריטים), או <code>data_source</code>: <code>users</code> או <code>channels</code> לבחירת אדם או ערוץ. <code>default_option</code> בוחר מראש ערך.</li>
+<li><code>integration.url</code>: לכתובת ש אליה נשלחת ההקשה. אפליקציה (תוסף) יכולה להשתמש במסלול שלה, למשל <code>/plugins/com.example.deploy/actions</code>. <code>integration.context</code> הוא שלך: הוא חוזר יחד עם ההקשה, והלקוחות לעולם אינם רואים אותו.</li>
+</ul>
+<h3>הבקשה שהאינטגרציה שלך מקבלת</h3>
+<pre><code>{
+  "user_id": "…",
+  "user_name": "priya",
+  "channel_id": "…",
+  "channel_name": "releases",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "post_id": "…",
+  "trigger_id": "…",
+  "type": "button",
+  "context": {"release": "2.4.0", "action": "approve"}
+}</code></pre>
+<p>לגבי תפריט, <code>type</code> הוא <code>select</code> ו־<code>context.selected_option</code> מכיל את הערך שנבחר.</p>
+<h3>התשובה שלך</h3>
+<pre><code>{
+  "update": {"message": "Deploy of **api 2.4.0** approved by @priya", "props": {}},
+  "ephemeral_text": "Done. The deploy starts in a minute."
+}</code></pre>
+<ul>
+<li><code>update</code>: מחליף את הטקסט והמאפיינים של ההודעה, למשל כדי להסיר את הכפתורים לאחר השימוש (עם <code>props</code> ריק).</li>
+<li><code>ephemeral_text</code>: הודעה שרק האדם שהקיש רואה.</li>
+<li><code>goto_location</code>: כתובת URL לפתיחה.</li>
+<li>גוף ריק אינו משנה דבר.</li>
+</ul>
+<p>השרת ממתין כל עוד <b>תום זמן לבקשות אינטגרציה</b> מאפשר (30 שניות כברירת מחדל). כתובות אינטגרציה על כתובות רשת פרטיות חייבות להיות מאושרות על ידי מנהל מערכת, כפי שמקובל עבור Webhooks.</p>
+
+<h2 id="dialogs">תיבות דיאלוג</h2>
+<p>תיבת דיאלוג היא טופס שנפתח מעל השיחה. ניתן לפתוח אותה רק בתשובה למשהו שהאדם עשה עכשיו, פקודת לוכסן או כפתור, מכיוון שדורשת את <code>trigger_id</code> של הבקשה ההיא. <code>trigger_id</code> תקף כל עוד תום הזמן לבקשות אינטגרציה.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/actions/dialogs/open \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "trigger_id": "'$TRIGGER_ID'",
+    "url": "https://deploy.example.com/dialog",
+    "dialog": {
+      "callback_id": "new-release",
+      "title": "New release",
+      "introduction_text": "Fill in the release details.",
+      "submit_label": "Create",
+      "notify_on_cancel": false,
+      "state": "anything you want back",
+      "elements": [
+        {"display_name": "Version", "name": "version", "type": "text", "placeholder": "2.4.0"},
+        {"display_name": "Notes", "name": "notes", "type": "textarea", "optional": true},
+        {"display_name": "Environment", "name": "env", "type": "select",
+         "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}]},
+        {"display_name": "Owner", "name": "owner", "type": "select", "data_source": "users"},
+        {"display_name": "Notify the channel", "name": "notify", "type": "bool", "default": "true"}
+      ]
+    }
+  }'</code></pre>
+<table>
+<thead><tr><th>סוג האלמנט</th><th>מה הוא מציג</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>שדה בשורה אחת. <code>subtype</code>: <code>text</code>, <code>email</code>, <code>number</code>, <code>password</code>, <code>tel</code> או <code>url</code>. <code>min_length</code> ו־<code>max_length</code> מגבילים אותו.</td></tr>
+<tr><td><code>textarea</code></td><td>שדה בלשורות רבות.</td></tr>
+<tr><td><code>select</code></td><td>רשימה: <code>options</code>, או <code>data_source</code> <code>users</code>, <code>channels</code>, או <code>dynamic</code> עם <code>data_source_url</code>. <code>multiselect</code> מאפשר כמה ערכים.</td></tr>
+<tr><td><code>bool</code></td><td>תיבת בחירה.</td></tr>
+<tr><td><code>radio</code></td><td>בחירה אחת מתוך <code>options</code>.</td></tr>
+<tr><td><code>date</code>, <code>datetime</code></td><td>תאריך, או תאריך ושעה.</td></tr>
+</tbody>
+</table>
+<p>כל אלמנט מקבל <code>display_name</code>, <code>name</code>, <code>help_text</code>, <code>placeholder</code>, <code>default</code> ו־<code>optional</code>.</p>
+<p>כשהאדם שולח, Antimatter שולח בקשת POST ל־<code>url</code> של הדיאלוג:</p>
+<pre><code>{
+  "type": "dialog_submission",
+  "callback_id": "new-release",
+  "state": "anything you want back",
+  "user_id": "…",
+  "channel_id": "…",
+  "team_id": "…",
+  "submission": {"version": "2.4.0", "notes": "", "env": "staging", "owner": "…", "notify": true},
+  "cancelled": false
+}</code></pre>
+<p>ענה בגוף ריק כדי לסגור את הדיאלוג, או השאר אותו פתוח והצג מה לא בסדר:</p>
+<pre><code>{"errors": {"version": "This version already exists."}}</code></pre>
+<p><code>{"error": "…"}</code> מציג הודעה לכל הטופס. עם <code>notify_on_cancel</code>, סגירת הדיאלוג שולחת <code>"cancelled": true</code>. דיאלוגים עובדים באותו אופן באפליקציות: <code>OpenInteractiveDialog</code> של API התוספים מקבל את אותה בקשה.</p>

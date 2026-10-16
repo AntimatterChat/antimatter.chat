@@ -1,0 +1,126 @@
+title: 通话与语音
+description: 配置 Antimatter 的通话和语音频道：媒体端口、NAT 和 STUN、TURN、测试模式、视频、外部 rtcd 服务器、使用自有语音转文本模型的转录和实时字幕，以及录制。
+guide: admins
+order: 5
+nav: 通话与语音
+lead: 通话和语音频道会将音频、视频和屏幕共享直接发送到服务器的独立端口。本页介绍网络配置、安装后需检查的设置，以及使用自行运行的语音转文本模型进行转录的方法。
+source: 16057458346f
+---
+<h2 id="overview">通话的工作原理</h2>
+<p>通话由 <b>通话</b> 应用（id <code>com.mattermost.calls</code>）提供，该应用默认已安装并启用。语音频道（<b>语音频道</b> 应用，<code>antimatter-next</code> 镜像）是基于通话构建的永久通话房间：它们需要启用通话，并使用相同的设置、端口和服务器。</p>
+<p>通话应用会在 Antimatter 内部运行一个媒体服务器。Web 应用、桌面应用和移动应用通过 WebRTC 连接到它：</p>
+<ul>
+<li>信令通过常规 Web 连接（您的 HTTPS 代理）传输；</li>
+<li><b>媒体</b>（音频、视频、屏幕共享）则不经过代理：它直接通过通话端口发送到服务器，默认为 <b>8443 UDP 和 TCP</b>。</li>
+</ul>
+<p>设置位于 <b>系统控制台 › 插件 › 通话</b>。这些设置也可以通过 <code>antimatter</code> 服务上的 <code>AM_CALLS_</code> 环境变量进行设置，此时环境变量优先于系统控制台，并锁定该设置。旧版的 <code>MM_CALLS_</code> 名称也有效。</p>
+
+<h2 id="after-install">安装后请检查这些设置</h2>
+<ol>
+<li><b>开放通话端口。</b> 在服务器和云提供商的防火墙中允许 8443/udp 和 8443/tcp。</li>
+<li><b>关闭测试模式。</b> <b>测试模式</b>（<code>DefaultEnabled</code>）默认开启：只有系统管理员才能在频道中发起通话，以便在所有人使用之前检查通话是否正常工作。请在 <b>系统控制台 › 插件 › 通话</b> 中将其设置为 <b>关闭</b>，或设置 <code>AM_CALLS_DEFAULT_ENABLED=true</code>。</li>
+<li><b>决定视频设置。</b> <b>在私信中启用视频通话（实验性）</b>（<code>EnableVideo</code>，<code>AM_CALLS_ENABLE_VIDEO</code>）默认关闭。当它关闭时，任何人都无法开启摄像头，即使在语音频道中也是如此。当它开启时，摄像头可在私信通话和语音频道中使用（除非语音频道应用的 <b>允许在语音频道中使用视频</b> 设置为关闭）。</li>
+<li><b>在 NAT 后面，设置公共地址</b>（下一节）。</li>
+</ol>
+
+<h2 id="network">端口、NAT 和 STUN</h2>
+<table>
+<thead><tr><th>设置项</th><th>变量</th><th>默认值</th></tr></thead>
+<tbody>
+<tr><td><b>RTC 服务器端口 (UDP)</b></td><td><code>AM_CALLS_UDP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>RTC 服务器端口 (TCP)</b></td><td><code>AM_CALLS_TCP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>RTC 服务器地址 (UDP)</b>、<b>(TCP)</b></td><td><code>AM_CALLS_UDP_SERVER_ADDRESS</code>, <code>AM_CALLS_TCP_SERVER_ADDRESS</code></td><td>空：所有地址</td></tr>
+<tr><td><b>ICE 主机覆盖</b></td><td><code>AM_CALLS_ICE_HOST_OVERRIDE</code></td><td>空：通过 STUN 发现</td></tr>
+<tr><td><b>ICE 主机端口覆盖</b></td><td><code>AM_CALLS_ICE_HOST_PORT_OVERRIDE</code></td><td>空：服务器端口</td></tr>
+<tr><td><b>ICE 服务器配置</b></td><td><code>AM_CALLS_ICE_SERVERS_CONFIGS</code></td><td><code>[{"urls":["stun:stun.cloudflare.com:3478"]}]</code></td></tr>
+<tr><td><b>（实验性）启用 IPv6 支持</b></td><td>（系统控制台）</td><td>关闭</td></tr>
+</tbody>
+</table>
+<p>端口必须在 80 到 49151 之间。使用站点的 compose 文件时，请修改 <code>.env</code> 中的 <code>CALLS_PORT</code>：它会同时设置这两个变量并发布端口，主机和容器内使用相同的数字。客户端首先尝试 UDP，并在同一端口上回退到 TCP。</p>
+<h3>客户端发送媒体数据的地址</h3>
+<p>服务器会告知每个客户端发送媒体数据的地址（即其“主机候选”）。默认情况下，它会通过询问 STUN 服务器来查找其公网地址，STUN 是一种公共服务，会回复请求来源的地址和端口。默认使用 Cloudflare 的公共 STUN 服务器 <code>stun:stun.cloudflare.com:3478</code>。并非只有服务器会使用它：每个加入通话的客户端也会向它询问自己的公网地址。STUN 服务器只能看到 IP 地址和端口，绝不会看到通话的音频、视频或消息。</p>
+<p>例如，从 Mattermost 迁移过来的服务器，如果其 <b>ICE 服务器配置</b> 中仍保存着 Mattermost 的 STUN 服务器（<code>stun.global.calls.mattermost.com</code>），则会改用 Cloudflare 的。已保存的设置不会被修改。</p>
+<p>在以下情况下，请自行设置地址：</p>
+<ul>
+<li>服务器位于 NAT 之后，或拥有多个公网地址：将 <b>ICE 主机覆盖</b> 设置为公网 IP 地址（或解析到该地址的主机名）；</li>
+<li>NAT 将不同的公网端口映射到 8443：还需将 <b>ICE 主机端口覆盖</b> 设置为该公网端口；</li>
+<li>服务器没有互联网访问权限，或者您不希望服务器和客户端联系外部 STUN 服务器：设置 <b>ICE 主机覆盖</b>，并使用 <code>AM_CALLS_ICE_SERVERS_CONFIGS=[]</code> 清空 STUN 列表。设置 <b>ICE 主机覆盖</b> 后，服务器不再向 STUN 服务器询问其地址；空列表则阻止客户端进行询问。</li>
+</ul>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ICE_HOST_OVERRIDE: 203.0.113.10
+      AM_CALLS_ICE_SERVERS_CONFIGS: "[]"</code></pre>
+<p>若要保留 STUN 但不使用第三方服务，请运行您自己的 STUN 服务器（如 coturn 这样的 TURN 服务器也能响应 STUN 请求），并在 <b>ICE 服务器配置</b> 中列出它，如下方的 TURN 示例所示。</p>
+<p>仅在本地网络上使用时，请使用服务器的局域网地址。更改端口、地址或 ICE 设置后，请重启服务器，或禁用再启用 Calls 应用：媒体服务器在应用启动时进行配置。</p>
+
+<h2 id="turn">用于严格防火墙的 TURN</h2>
+<p>有些网络会同时阻止 UDP 和发往非标准 TCP 端口的出站连接。使用这些网络的用户需要 TURN 服务器，该服务器会通过他们可访问的端口（通常是 443）中继媒体流。Antimatter 不包含 TURN 服务器；请自行运行 coturn 等 TURN 服务器，并将其添加到 <b>ICE Servers Configurations</b>（一个 JSON 列表）中：</p>
+<pre><code>[
+  {"urls": ["stun:turn.example.com:3478"]},
+  {"urls": ["turn:turn.example.com:3478?transport=udp", "turns:turn.example.com:443?transport=tcp"]}
+]</code></pre>
+<ul>
+<li>如果使用共享密钥（coturn 的 <code>use-auth-secret</code>），请将相同的密钥填入 <b>TURN Static Auth Secret</b>（<code>AM_CALLS_TURN_STATIC_AUTH_SECRET</code>）：服务器会为每个客户端颁发短期凭证，有效期为 <b>TURN Credentials Expiration (minutes)</b>（默认为 240 分钟）。</li>
+<li>如果使用固定凭证，请在 TURN 条目中添加 <code>"username"</code> 和 <code>"credential"</code>。</li>
+<li><b>Server Side TURN</b>（默认关闭）也会使用 TURN 服务器来处理由服务器发起的连接。</li>
+</ul>
+
+<h2 id="general">其他通话设置</h2>
+<table>
+<thead><tr><th>设置项</th><th>变量</th><th>默认值</th><th>功能说明</th></tr></thead>
+<tbody>
+<tr><td><b>Max call participants</b></td><td><code>AM_CALLS_MAX_CALL_PARTICIPANTS</code></td><td>0（无限制）</td><td>单次通话中允许的最大人数。</td></tr>
+<tr><td><b>Allow screen sharing</b></td><td>（系统控制台）</td><td>开启</td><td>允许参与者共享屏幕。</td></tr>
+<tr><td><b>Enable call ringing</b></td><td><code>AM_CALLS_ENABLE_RINGING</code></td><td>开启</td><td>当在私信或群组消息中发起通话时，会向其他参与者发送铃声。</td></tr>
+<tr><td><b>Enable simulcast for screen sharing (Experimental)</b></td><td>（系统控制台）</td><td>关闭</td><td>以多种质量发送屏幕共享流。</td></tr>
+<tr><td><b>Enable AV1 codec for screen sharing (Experimental)</b></td><td>（系统控制台）</td><td>关闭</td><td>在启用 simulcast 时，此设置将被忽略。</td></tr>
+</tbody>
+</table>
+<p>语音频道应用有两个设置，位于 <b>系统控制台 › 插件 › Voice Channels</b> 中：<b>Join when opening a voice channel</b>（默认开启）和 <b>Allow video in voice channels</b>（默认开启，但请参阅上文关于视频的说明）。社区管理员可以在频道设置中将频道转换为语音频道。</p>
+<div class="callout">若要完全关闭通话功能，请在 <b>系统控制台 › 插件 › 插件管理</b> 中禁用 Calls 应用，或设置 <code>AM_CALLS_DISABLE=true</code>。此时语音频道也将停止工作。</div>
+
+<h2 id="rtcd">大型服务器：外部 rtcd</h2>
+<p>默认情况下，一个 Antimatter 服务器承载所有通话媒体。对于大量同时进行的通话，或者为了将媒体流量与聊天服务器隔离，Calls 应用可以将媒体交给 <b>rtcd</b>，这是一个独立的媒体服务器（Mattermost 的开源 <code>rtcd</code>，版本 0.17 或更高）。设置 <b>RTCD service URL</b>（<code>AM_CALLS_RTCD_SERVICE_URL</code>），例如 <code>https://rtcd.example.com</code>：之后所有通话都会通过它进行，客户端会将媒体发送到 rtcd 自己的端口，而不是 Antimatter 的端口。可以使用 <code>AM_CALLS_RTCD_CLIENT_ID</code> 和 <code>AM_CALLS_RTCD_AUTH_KEY</code> 提供凭据；如果不提供，应用会自行向 rtcd 注册。无需许可证。当服务器经常有超过 50 人同时通话时，Calls 应用会向管理员显示一条建议使用 rtcd 的警告。</p>
+
+<h2 id="transcription">转录与实时字幕</h2>
+<p>Antimatter 可以使用您自行运行的语音转文本模型对通话进行转录，并在人们说话时显示实时字幕。Antimatter 可以使用任何提供 OpenAI 兼容 <code>/v1/audio/transcriptions</code> 端点的服务器，例如您网络上的 Whisper 服务器。无需 Antimatter 提供额外服务。</p>
+<h3>工作原理</h3>
+<ul>
+<li>通话主持人通过通话控制中的 <b>转录通话</b> 开始转录。<b>正在转录</b> 徽章会通知所有人。</li>
+<li>每位参与者的应用都会监听自己的麦克风，将语音切分成短片段（最长 12 秒，静音时不会切分），并将其发送到 Antimatter，Antimatter 再将其转发到您的语音转文本服务器。</li>
+<li>开启实时字幕后，每个片段的文本会立即作为字幕显示给参与者。</li>
+<li>当转录停止或通话结束时，Calls 机器人会将转录内容作为文本文件和 WebVTT 字幕文件发布到通话的话题中（在语音频道中，则发布到频道中）。</li>
+<li>开启 <b>Summarize transcriptions</b> 后，Agents 应用的默认智能体也会在话题中发布摘要（参见 <a href="{{root}}docs/admins/ai.html">AI</a>）。</li>
+</ul>
+<figure><img src="{{root}}assets/img/shots/transcript.webp" alt="A call's thread: the Calls bot has posted the transcript as a text file, and an AI agent has posted a summary below it."><figcaption>通话结束后，通话话题中的转录内容及其摘要。</figcaption></figure>
+<h3>设置方法</h3>
+<p>在 <code>antimatter</code> 服务上设置以下项：</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ENABLE_TRANSCRIPTIONS: "true"
+      AM_CALLS_TRANSCRIBE_API: openai
+      AM_CALLS_TRANSCRIBE_API_OPEN_AIURL: http://stt.internal:8000/v1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL: whisper-1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY: ""
+      AM_CALLS_ENABLE_LIVE_CAPTIONS: "true"
+      AM_CALLS_LIVE_CAPTIONS_LANGUAGE: en</code></pre>
+<table>
+<thead><tr><th>设置项</th><th>变量</th><th>填写内容</th></tr></thead>
+<tbody>
+<tr><td><b>Enable call transcriptions (Beta)</b></td><td><code>AM_CALLS_ENABLE_TRANSCRIPTIONS</code></td><td><code>true</code></td></tr>
+<tr><td><b>Call transcriber API</b></td><td><code>AM_CALLS_TRANSCRIBE_API</code></td><td><code>openai</code>（显示为“OpenAI-compatible API (no job service)”）</td></tr>
+<tr><td><b>Speech-to-text API URL</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AIURL</code></td><td>API 的基础 URL，包含 <code>/v1</code> 在内。</td></tr>
+<tr><td><b>Speech-to-text model</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL</code></td><td>API 所识别的模型名称，例如 <code>whisper-1</code>。必填。</td></tr>
+<tr><td><b>Speech-to-text API key</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY</code></td><td>作为 bearer token 发送。如果 API 不需要密钥，请留空。</td></tr>
+<tr><td><b>Enable live captions (Beta)</b></td><td><code>AM_CALLS_ENABLE_LIVE_CAPTIONS</code></td><td>通话期间显示实时字幕时设为 <code>true</code>。</td></tr>
+<tr><td><b>实时字幕语言</b></td><td><code>AM_CALLS_LIVE_CAPTIONS_LANGUAGE</code></td><td>口语语言，使用两位字母代码表示（默认为 <code>en</code>）。该设置也会发送给语音转文字 API 用于生成转录文本，因此即使不启用字幕也应进行设置。</td></tr>
+<tr><td><b>总结转录内容</b></td><td><code>AM_CALLS_SUMMARIZE_TRANSCRIPTIONS</code></td><td>通话结束后生成 AI 摘要时设为 <code>true</code>。</td></tr>
+</tbody>
+</table>
+<div class="callout">在系统控制台中，只有开启 <b>启用通话录制</b> 后，转录设置才会显示，尽管这种转录方式并不需要录制。使用上述变量进行设置可以避免此问题。请勿将录制功能与 <code>openai</code> 转录器同时开启：否则，开始录制时会尝试启动 job-service 转录器并导致失败。</div>
+<p>当转录功能开启时，所有发言者的音频都会发送到您配置的语音转文字服务器，转录文本会发布在频道中，供频道内所有人阅读。请通知您的用户，如果通话内容涉及机密，请将该服务器保留在您自己的网络内。</p>
+
+<h2 id="recordings">录制</h2>
+<p>录制通话（以及使用内置的 <code>whisper.cpp</code> 或 Azure 转录器进行转录）会在由任务服务启动的独立容器中运行。该任务服务是 Mattermost 的开源项目 <code>calls-offloader</code>，需要您自行部署在 Antimatter 旁边。相关设置包括：<b>启用通话录制</b>（<code>AM_CALLS_ENABLE_RECORDINGS</code>，默认关闭）、<b>任务服务 URL</b>（<code>AM_CALLS_JOB_SERVICE_URL</code>）、<b>最大通话录制时长</b>（默认 60 分钟，范围 15 至 180 分钟）以及 <b>通话录制质量</b>（低、中或高；默认为中）。无需许可证。如果仅需转录和字幕，上述语音转文字设置更为简单：它不需要任务服务。</p>

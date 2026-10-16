@@ -1,0 +1,126 @@
+title: Chamadas e voz
+description: Configure as chamadas e os canais de voz do Antimatter: a porta de media, NAT e STUN, TURN, o modo de teste, o vídeo, um servidor rtcd externo, a transcrição e as legendas em direto com o seu próprio modelo de reconhecimento de voz, e as gravações.
+guide: admins
+order: 5
+nav: Chamadas e voz
+lead: As chamadas e os canais de voz enviam áudio, vídeo e partilha de ecrã diretamente para o servidor na respetiva porta. Esta página aborda a parte de rede, as definições a verificar após a instalação, e a transcrição com um modelo de reconhecimento de voz que executa por sua conta.
+source: 16057458346f
+---
+<h2 id="overview">Como funcionam as chamadas</h2>
+<p>As chamadas são fornecidas pela aplicação <b>Chamadas</b> (id <code>com.mattermost.calls</code>), que é instalada e ativada por omissão. Os canais de voz (a aplicação <b>Canais de voz</b>, imagem <code>antimatter-next</code>) são salas de chamada permanentes construídas sobre as Chamadas: necessitam que as Chamadas estejam ativadas e utilizam as mesmas definições, portas e servidores.</p>
+<p>A aplicação Chamadas executa um servidor de media dentro do Antimatter. A aplicação web, a aplicação de desktop e as aplicações móveis ligam-se a ele com WebRTC:</p>
+<ul>
+<li>a sinalização passa pela ligação web normal (o seu proxy HTTPS);</li>
+<li>o <b>media</b> (áudio, vídeo, partilha de ecrã) não: vai diretamente para o servidor na porta de chamadas, <b>8443 UDP e TCP</b> por omissão.</li>
+</ul>
+<p>As definições estão em <b>Consola do sistema › Plugins › Chamadas</b>. Cada uma delas também pode ser definida com uma variável de ambiente <code>AM_CALLS_</code> no serviço <code>antimatter</code>, que então tem prioridade sobre a Consola do sistema e bloqueia a definição lá. Os nomes legados <code>MM_CALLS_</code> também funcionam.</p>
+
+<h2 id="after-install">Verifique estas após a instalação</h2>
+<ol>
+<li><b>Abra a porta de chamadas.</b> Permita 8443/udp e 8443/tcp no firewall do servidor e do seu provedor de cloud.</li>
+<li><b>Desligue o modo de teste.</b> O <b>modo de teste</b> (<code>DefaultEnabled</code>) está ativado por omissão: apenas os administradores do sistema podem iniciar chamadas nos canais, pelo que pode verificar se as chamadas funcionam antes de as utilizarem todos. Defina-o como <b>Desligado</b> em <b>Consola do sistema › Plugins › Chamadas</b>, ou defina <code>AM_CALLS_DEFAULT_ENABLED=true</code>.</li>
+<li><b>Decida sobre o vídeo.</b> <b>Ativar chamadas de vídeo em mensagens diretas (Experimental)</b> (<code>EnableVideo</code>, <code>AM_CALLS_ENABLE_VIDEO</code>) está desativado por omissão. Enquanto estiver desativado, ninguém pode ligar uma câmara, nem mesmo nos canais de voz. Quando estiver ativado, as câmaras funcionam nas chamadas de mensagens diretas e nos canais de voz (a menos que <b>Permitir vídeo nos canais de voz</b> da aplicação Canais de voz esteja desativado).</li>
+<li><b>Por trás de NAT, defina o endereço público</b> (secção seguinte).</li>
+</ol>
+
+<h2 id="network">Portas, NAT e STUN</h2>
+<table>
+<thead><tr><th>Definição</th><th>Variável</th><th>Padrão</th></tr></thead>
+<tbody>
+<tr><td><b>Porta do servidor RTC (UDP)</b></td><td><code>AM_CALLS_UDP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>Porta do servidor RTC (TCP)</b></td><td><code>AM_CALLS_TCP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>Endereço do servidor RTC (UDP)</b>, <b>(TCP)</b></td><td><code>AM_CALLS_UDP_SERVER_ADDRESS</code>, <code>AM_CALLS_TCP_SERVER_ADDRESS</code></td><td>vazio: todos os endereços</td></tr>
+<tr><td><b>Sobrescrever o anfitrião ICE</b></td><td><code>AM_CALLS_ICE_HOST_OVERRIDE</code></td><td>vazio: encontrado através do STUN</td></tr>
+<tr><td><b>Sobrescrever a porta do anfitrião ICE</b></td><td><code>AM_CALLS_ICE_HOST_PORT_OVERRIDE</code></td><td>vazio: a porta do servidor</td></tr>
+<tr><td><b>Configurações dos servidores ICE</b></td><td><code>AM_CALLS_ICE_SERVERS_CONFIGS</code></td><td><code>[{"urls":["stun:stun.cloudflare.com:3478"]}]</code></td></tr>
+<tr><td><b>(Experimental) Ativar suporte IPv6</b></td><td>(Consola do sistema)</td><td>desativado</td></tr>
+</tbody>
+</table>
+<p>As portas devem estar entre 80 e 49151. Com o ficheiro compose do site, altere <code>CALLS_PORT</code> em <code>.env</code>: define ambas as variáveis e publica a porta, o mesmo número no anfitrião e no contentor. Os clientes tentam primeiro UDP e recorrem a TCP na mesma porta.</p>
+<h3>O endereço para onde os clientes enviam os dados multimédia</h3>
+<p>O servidor indica a cada cliente o endereço para onde enviar os dados multimédia (o seu "candidato de anfitrião"). Por omissão, encontra o seu endereço público ao perguntar a um servidor STUN, um serviço público que responde com o endereço e a porta de origem de uma solicitação. A omissão é o servidor STUN público da Cloudflare, <code>stun:stun.cloudflare.com:3478</code>. O servidor não é o único a usá-lo: cada cliente que entra numa chamada também lhe pergunta o seu próprio endereço público. O servidor STUN vê apenas endereços IP e portas, nunca áudio, vídeo ou mensagens da chamada.</p>
+<p>Um servidor que ainda tem o servidor STUN do Mattermost (<code>stun.global.calls.mattermost.com</code>) guardado em <b>Configurações dos servidores ICE</b>, por exemplo após uma migração do Mattermost, usa o da Cloudflare. A configuração guardada não é alterada.</p>
+<p>Defina o endereço manualmente quando:</p>
+<ul>
+<li>o servidor estiver atrás de NAT, ou tiver vários endereços públicos: defina <b>Sobrescrever o anfitrião ICE</b> com o endereço IP público (ou um nome de anfitrião que resolva para ele);</li>
+<li>o NAT mapear uma porta pública diferente para a 8443: defina também <b>Sobrescrever a porta do anfitrião ICE</b> com essa porta pública;</li>
+<li>o servidor não tiver acesso à Internet, ou não quiser que o servidor e os clientes contactem um servidor STUN externo: defina <b>Sobrescrever o anfitrião ICE</b> e esvazie a lista STUN com <code>AM_CALLS_ICE_SERVERS_CONFIGS=[]</code>. Com <b>Sobrescrever o anfitrião ICE</b> definido, o servidor deixa de perguntar a um servidor STUN o seu endereço; a lista vazia impede os clientes de o fazerem.</li>
+</ul>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ICE_HOST_OVERRIDE: 203.0.113.10
+      AM_CALLS_ICE_SERVERS_CONFIGS: "[]"</code></pre>
+<p>Para manter o STUN sem uma terceira parte, execute o seu próprio servidor STUN (um servidor TURN, como o coturn, também responde a pedidos STUN) e liste-o em <b>Configurações dos servidores ICE</b> em vez disso, como no exemplo de TURN abaixo.</p>
+<p>Numa rede local, use o endereço LAN do servidor. Reinicie o servidor após alterar portas, endereços ou configurações ICE, ou desative e ative a app de Chamadas: o servidor de dados multimédia é configurado quando a app inicia.</p>
+
+<h2 id="turn">TURN, para firewalls restritivos</h2>
+<p>Algumas redes bloqueiam tanto o UDP como as ligações de saída para portas TCP incomuns. As pessoas que as utilizam necessitam de um servidor TURN, que reencaminha os meios através de uma porta acessível (frequentemente a 443). O Antimatter não inclui um; execute um servidor TURN, como o coturn, e adicione-o a <b>Configurações dos Servidores ICE</b>, uma lista JSON:</p>
+<pre><code>[
+  {"urls": ["stun:turn.example.com:3478"]},
+  {"urls": ["turn:turn.example.com:3478?transport=udp", "turns:turn.example.com:443?transport=tcp"]}
+]</code></pre>
+<ul>
+<li>Com um segredo partilhado (o <code>use-auth-secret</code> do coturn), coloque o mesmo segredo em <b>Segredo de Autenticação Estática do TURN</b> (<code>AM_CALLS_TURN_STATIC_AUTH_SECRET</code>): o servidor fornece a cada cliente credenciais de curta duração, válidas durante o período definido em <b>Expiração das Credenciais do TURN (minutos)</b> (240 por omissão).</li>
+<li>Com credenciais fixas, adicione <code>"username"</code> e <code>"credential"</code> à entrada do TURN, em vez disso.</li>
+<li><b>TURN no Lado do Servidor</b> (desativado por omissão) também utiliza os servidores TURN para as ligações iniciadas pelo servidor.</li>
+</ul>
+
+<h2 id="general">Outras definições de chamadas</h2>
+<table>
+<thead><tr><th>Definição</th><th>Variável</th><th>Padrão</th><th>O que faz</th></tr></thead>
+<tbody>
+<tr><td><b>Máximo de participantes por chamada</b></td><td><code>AM_CALLS_MAX_CALL_PARTICIPANTS</code></td><td>0 (sem limite)</td><td>Número máximo de pessoas numa única chamada.</td></tr>
+<tr><td><b>Permitir partilha de ecrã</b></td><td>(Consola do sistema)</td><td>ligado</td><td>Permite aos participantes partilharem o seu ecrã.</td></tr>
+<tr><td><b>Ativar toque de chamada</b></td><td><code>AM_CALLS_ENABLE_RINGING</code></td><td>ligado</td><td>Faz tocar os outros participantes de uma mensagem direta ou de grupo quando uma chamada é iniciada.</td></tr>
+<tr><td><b>Ativar simulcast para partilha de ecrã (Experimental)</b></td><td>(Consola do sistema)</td><td>desativado</td><td>Envia as partilhas de ecrã em várias qualidades.</td></tr>
+<tr><td><b>Ativar o codec AV1 para partilha de ecrã (Experimental)</b></td><td>(Consola do sistema)</td><td>desativado</td><td>Ignorado enquanto o simulcast estiver ativado.</td></tr>
+</tbody>
+</table>
+<p>A aplicação Canais de Voz tem duas definições, em <b>Consola do Sistema › Plugins › Canais de Voz</b>: <b>Entrar ao abrir um canal de voz</b> (ativado por omissão) e <b>Permitir vídeo em canais de voz</b> (ativado por omissão, mas veja o vídeo acima). Os administradores da comunidade transformam um canal num canal de voz nas respetivas definições.</p>
+<div class="callout">Para desativar completamente as chamadas, desative a aplicação Chamadas em <b>Consola do Sistema › Plugins › Gestão de Plugins</b>, ou defina <code>AM_CALLS_DISABLE=true</code>. Os canais de voz também deixam de funcionar.</div>
+
+<h2 id="rtcd">Servidores maiores: um rtcd externo</h2>
+<p>Por omissão, um servidor Antimatter gere todos os dados de chamadas. Para muitas chamadas simultâneas, ou para manter os dados fora do servidor de chat, a app de Chamadas pode transferir os dados para o <b>rtcd</b>, um servidor de media separado (o <code>rtcd</code> de código aberto do Mattermost, versão 0.17 ou superior). Defina <b>URL do serviço RTCD</b> (<code>AM_CALLS_RTCD_SERVICE_URL</code>), por exemplo <code>https://rtcd.example.com</code>: todas as chamadas passam então por ele, e os clientes enviam os seus dados para a própria porta do rtcd em vez da do Antimatter. As credenciais podem ser fornecidas com <code>AM_CALLS_RTCD_CLIENT_ID</code> e <code>AM_CALLS_RTCD_AUTH_KEY</code>; sem elas, a app regista-se no rtcd. Não é necessária uma licença. A app de Chamadas mostra aos administradores um aviso recomendando o rtcd quando um servidor tem frequentemente mais de 50 pessoas em chamadas ao mesmo tempo.</p>
+
+<h2 id="transcription">Transcrição e legendas em direto</h2>
+<p>O Antimatter pode transcrever chamadas com um modelo de reconhecimento de voz que corre por sua conta, e mostrar legendas em direto enquanto as pessoas falam. O Antimatter utiliza qualquer servidor que ofereça um endpoint <code>/v1/audio/transcriptions</code> compatível com a OpenAI, como um servidor Whisper na sua rede. Não é necessário nenhum serviço adicional do Antimatter.</p>
+<h3>Como funciona</h3>
+<ul>
+<li>O anfitrião de uma chamada inicia a transcrição com <b>Transcrever a chamada</b> nos controlos da chamada. Um distintivo <b>A transcrever</b> informa todos.</li>
+<li>A app de cada participante ouve o seu próprio microfone, divide a fala em pedaços curtos (até 12 segundos, nunca quando está em silêncio) e envia-os para o Antimatter, que os reenvia para o seu servidor de reconhecimento de voz.</li>
+<li>Com as legendas em direto ativadas, o texto de cada pedaço é mostrado aos participantes como legenda de imediato.</li>
+<li>Quando a transcrição termina ou a chamada acaba, o bot de Chamadas publica a transcrição como um ficheiro de texto e um ficheiro de legendas WebVTT, no tópico da chamada (em canais de voz, no canal).</li>
+<li>Com <b>Resumir transcrições</b> ativado, o agente predefinido da app de Agentes também publica um resumo no tópico (ver <a href="{{root}}docs/admins/ai.html">IA</a>).</li>
+</ul>
+<figure><img src="{{root}}assets/img/shots/transcript.webp" alt="A call's thread: the Calls bot has posted the transcript as a text file, and an AI agent has posted a summary below it."><figcaption>Após a chamada, a transcrição e o seu resumo no tópico da chamada.</figcaption></figure>
+<h3>Configuração</h3>
+<p>Defina estes no serviço <code>antimatter</code>:</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ENABLE_TRANSCRIPTIONS: "true"
+      AM_CALLS_TRANSCRIBE_API: openai
+      AM_CALLS_TRANSCRIBE_API_OPEN_AIURL: http://stt.internal:8000/v1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL: whisper-1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY: ""
+      AM_CALLS_ENABLE_LIVE_CAPTIONS: "true"
+      AM_CALLS_LIVE_CAPTIONS_LANGUAGE: en</code></pre>
+<table>
+<thead><tr><th>Definição</th><th>Variável</th><th>O que introduzir</th></tr></thead>
+<tbody>
+<tr><td><b>Ativar transcrições de chamadas (Beta)</b></td><td><code>AM_CALLS_ENABLE_TRANSCRIPTIONS</code></td><td><code>true</code></td></tr>
+<tr><td><b>API do transcritor de chamadas</b></td><td><code>AM_CALLS_TRANSCRIBE_API</code></td><td><code>openai</code> (mostrado como "API compatível com OpenAI (sem serviço de tarefas)")</td></tr>
+<tr><td><b>URL da API de reconhecimento de voz</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AIURL</code></td><td>A URL base da API, até e incluindo <code>/v1</code>.</td></tr>
+<tr><td><b>Modelo de reconhecimento de voz</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL</code></td><td>O nome do modelo como a API o conhece, por exemplo <code>whisper-1</code>. Obrigatório.</td></tr>
+<tr><td><b>Chave da API de reconhecimento de voz</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY</code></td><td>Enviada como token de bearer. Deixe-a vazia se a API não necessitar de uma.</td></tr>
+<tr><td><b>Ativar legendas em direto (Beta)</b></td><td><code>AM_CALLS_ENABLE_LIVE_CAPTIONS</code></td><td><code>true</code> para legendas durante a chamada.</td></tr>
+<tr><td><b>Língua das legendas em direto</b></td><td><code>AM_CALLS_LIVE_CAPTIONS_LANGUAGE</code></td><td>A língua falada, como um código de duas letras (<code>en</code> por omissão). É enviada para a API de reconhecimento de voz para transcrições também, por isso defina-a mesmo sem legendas.</td></tr>
+<tr><td><b>Resumir transcrições</b></td><td><code>AM_CALLS_SUMMARIZE_TRANSCRIPTIONS</code></td><td><code>true</code> para um resumo por IA após a chamada.</td></tr>
+</tbody>
+</table>
+<div class="callout">Na Consola do sistema, as definições de transcrição só aparecem quando <b>Ativar gravações de chamadas</b> está ligado, embora este tipo de transcrição não necessite de gravação. Definir as variáveis acima evita isso. Não ligue as gravações em conjunto com o transcritor <code>openai</code>: iniciar uma gravação tentaria então iniciar o transcritor do serviço de tarefas e falharia.</div>
+<p>O áudio de todos os que falam enquanto a transcrição está ativa é enviado para o servidor de reconhecimento de voz que configurou, e a transcrição é publicada onde todos no canal a podem ler. Informe os seus utilizadores e mantenha esse servidor na sua própria rede se as chamadas forem confidenciais.</p>
+
+<h2 id="recordings">Gravações</h2>
+<p>Gravar chamadas (e transcrever com os transcritores integrados <code>whisper.cpp</code> ou Azure) é executado em contentores separados iniciados por um serviço de tarefas, o <code>calls-offloader</code> de código aberto do Mattermost, que é implantado por si junto do Antimatter. As definições são <b>Ativar gravações de chamadas</b> (<code>AM_CALLS_ENABLE_RECORDINGS</code>, desligado por omissão), <b>URL do serviço de tarefas</b> (<code>AM_CALLS_JOB_SERVICE_URL</code>), <b>Duração máxima da gravação de chamadas</b> (60 minutos por omissão, de 15 a 180) e <b>Qualidade da gravação de chamadas</b> (baixa, média ou alta; média por omissão). Não é necessária uma licença. Para transcrições e legendas apenas, a configuração de reconhecimento de voz acima é mais simples: não necessita de um serviço de tarefas.</p>

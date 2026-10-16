@@ -1,0 +1,85 @@
+title: Drift
+description: Drifta Antimatter i vardagen: hälsokontroller, metrik och övervakning, appen Metrics, supportpaket, sökning och skalning, hög tillgänglighet, databevarande, export för efterlevnad och revisionsloggar, samt lösningar för vanliga problem.
+guide: admins
+order: 11
+nav: Drift
+lead: Håll koll på servern, gör den klar för fler användare, avgör hur länge data ska bevaras och åtgärda de problem som administratörer oftast stöter på.
+source: 32577b38c3db
+---
+<h2 id="health">Hälsokontroller</h2>
+<ul>
+<li><code>amctl --local system status</code> (i containern: <code>docker compose exec antimatter amctl --local system status</code>). Docker-bildens hälsokontroll körs var 30:e sekund, så <code>docker compose ps</code> visar <code>healthy</code> eller <code>unhealthy</code>.</li>
+<li><code>GET /api/v4/system/ping</code> svarar utan inloggning, för en extern övervakare eller en lastbalanserare: <code>curl -fsS https://chat.example.com/api/v4/system/ping</code>.</li>
+<li><code>antimatter db ping</code> kontrollerar att databasen är nåbar med de konfigurerade inställningarna.</li>
+<li><b>Systemkonsol › Rapporter › Systemstatistik</b> visar antalet användare, inlägg och sessioner, och <b>Optimering av workspace</b> listar konfigurationsproblem som bör undersökas.</li>
+</ul>
+
+<h2 id="metrics">Metriker</h2>
+<p>Servern kan publicera Prometheus-mätvärden: anslutningshastigheter och varaktighet, websocket-anslutningar, databas- och cacheanvändning, jobb, plugin-hakar och mer. Aktivera dem i <b>Systemkonsol › Miljö › Prestandamonitorering</b>:</p>
+<table>
+<thead><tr><th>Inställning</th><th>Nyckel och variabel</th><th>Standard</th></tr></thead>
+<tbody>
+<tr><td><b>Aktiverar prestandamonitorering</b></td><td><code>MetricsSettings.Enable</code>, <code>AM_METRICSSETTINGS_ENABLE</code></td><td>Av</td></tr>
+<tr><td><b>Lyssnaradress</b></td><td><code>MetricsSettings.ListenAddress</code>, <code>AM_METRICSSETTINGS_LISTENADDRESS</code></td><td><code>:8067</code></td></tr>
+<tr><td><b>Aktivera monitorering av klientprestanda</b></td><td><code>MetricsSettings.EnableClientMetrics</code></td><td>på: webbläsare och appar rapporterar sina egna tider</td></tr>
+</tbody>
+</table>
+<p>Prometheus skrapar sedan <code>http://&lt;server&gt;:8067/metrics</code>. Varje metrik publiceras under sitt Mattermost-namn (<code>mattermost_…</code>) och sitt Antimatter-namn (<code>antimatter_…</code>), så befintliga Mattermost-dashboards fortsätter att fungera. Appar publicerar egna metrik, till exempel appen Agents på <code>/plugins/mattermost-ai/metrics</code>.</p>
+<p>Metrikporten kräver ingen inloggning: håll den på ett privat nätverk. Webbplatsens compose-fil publicerar den inte; för att skrapa den från värden, lägg till <code>"127.0.0.1:8067:8067"</code> i <code>ports</code> för tjänsten <code>antimatter</code>.</p>
+<h3>Appen Metrics</h3>
+<p>Utan en Prometheus-server samlar appen Metrics (avställd som standard, se <a href="{{root}}docs/admins/apps.html">Medföljande appar</a>) in samma mått i en liten tidsseriedatabas i Antimatter: varje 60:e sekund, med 15 dagars data. Den aktiverar måttändpunkten när den startar. Sidan i <b>Systemkonsol › Plugins</b> visar databasens storlek och gör det möjligt att ladda ner dumpar av datan, för egen analys eller för att bifoga till en buggrapport; den senaste dagens data läggs också till i supportpaket.</p>
+
+<h2 id="support-packet">Supportpaket</h2>
+<p>Ett supportpaket är en zip-fil med det som behövs för att diagnostisera ett problem: versioner, statistik, konfigurationen med dess hemligheter borttagna, listan över appar och jobb, databasschemat, den senaste loggen och prestandaprofiler. Generera ett med <code>amctl system supportpacket</code>, eller i Systemkonsolen från menyn högst upp i sidofältet (<b>Kommersiell support</b>, där du sedan kan välja vad som ska ingå). Läs igenom det innan du delar det: det innehåller inte meddelanden, men det innehåller namn på communityer, användare och inställningar.</p>
+
+<h2 id="scaling">Prestanda och skalbarhet</h2>
+<p>En server med 2 CPU-kärnor och 4 GB minne kan betjäna några hundra personer. Innan du lägger till fler servrar, se till:</p>
+<ul>
+<li><b>Databasen.</b> PostgreSQL gör det mesta av jobbet: ge den snabb lagring och minne. Läsreplikor kan ta hand om läslasten (<code>SqlSettings.DataSourceReplicas</code>, en lista med anslutnings-URL:er).</li>
+<li><b>Sök</b>. Meddelanden söks i databasen som standard. För stora serverar kan Elasticsearch eller OpenSearch ta över sökning och indexering: <b>Systemkonsol › Miljö › Elasticsearch</b> (<code>ElasticsearchSettings</code>: <b>Typ av backend</b> Elasticsearch eller OpenSearch, <b>Anslutningsadress för server</b>, autentiseringsuppgifter, aktivera sedan indexering, bygg indexet och aktivera sökning).</li>
+<li><b>Samtal.</b> Samtalsmedia är den tyngsta lasten. Flytta dem till en rtcd-server: se <a href="{{root}}docs/admins/calls.html#rtcd">Samtal och röst</a>.</li>
+<li><b>Öppna filer.</b> Varje ansluten person håller en websocket öppen. Produktionscompose-filen i antimatter-docker höjer gränsen till 49152 (<code>ulimits: nofile</code>); gör detsamma med systemd (<code>LimitNOFILE</code>).</li>
+<li><b>Loggar.</b> Sänk <code>LogSettings.ConsoleLevel</code> till <code>INFO</code> eller <code>WARN</code>: <code>DEBUG</code> loggar mycket på en travlig server.</li>
+</ul>
+<h3>Hög tillgänglighet</h3>
+<p>Flera Antimatter-servrar kan köra som ett kluster bakom en lastbalanserare, utan licens. De måste dela samma PostgreSQL-databas, samma S3-filförvaring och konfigurationen i databasen (<code>AM_CONFIG</code>). I <b>Systemkonsol › Miljö › High Availability</b> (<code>ClusterSettings</code>): aktivera <b>Aktivera Hög tillgänglighet</b> (<code>ClusterSettings.Enable</code>), ge varje nod samma <b>Klusternamn</b> (<code>ClusterSettings.ClusterName</code>) och låt noderna nå varandra på gossip-porten, <b>8074</b> TCP och UDP (<code>ClusterSettings.GossipPort</code>). Noderna hittar varandra genom databasen. Lastbalanseraren måste släppa igenom websockets. För samtal i ett kluster, använd rtcd.</p>
+
+<h2 id="retention">Databevarande</h2>
+<p>Som standard behåller Antimatter alla meddelanden och filer för alltid. För att automatiskt ta bort äldre, gå till <b>Systemkonsol › Efterlevnad › Gallringspolicys</b>:</p>
+<ul>
+<li>Den <b>Övergripande bevarandepolicyn</b> anger <b>Bevarande av kanaler och direktmeddelanden</b> samt <b>Bevarande av filer</b> för hela servern: <b>Spara för alltid</b>, eller ett antal timmar, dagar eller år (<code>DataRetentionSettings.EnableMessageDeletion</code>, <code>MessageRetentionHours</code>, <code>EnableFileDeletion</code>, <code>FileRetentionHours</code>).</li>
+<li><b>Anpassade gallringspolicys</b> anger en annan tidsperiod för utvalda communityer och kanaler.</li>
+<li>Raderingsjobbet körs varje dag vid den tidpunkt du väljer (<code>DataRetentionSettings.DeletionJobStartTime</code>, standardvärdet är <code>02:00</code> UTC). <b>Kör radering nu</b> startar jobbet omedelbart, och <b>Policy-loggen</b> visar vad varje körning raderade.</li>
+</ul>
+<div class="callout warn">Raderade meddelanden och filer är borta för alltid, från databasen och från filarkivet. Kontrollera tidsgränserna innan du aktiverar en policy, och kom ihåg att dina säkerhetskopior fortfarande innehåller raderade data tills de löper ut.</div>
+
+<h2 id="compliance">Compliance-export och revisionsloggar</h2>
+<ul>
+<li><b>Systemkonsol › Efterlevnad › Efterlevnadsexport</b> exporterar alla meddelanden och filer varje dag (<b>Aktivera efterlevnadsrapportexport</b>, <code>MessageExportSettings.EnableExport</code>, inaktiverad som standard; <b>Tidpunkt för export av efterlevnadsrapport</b>, <code>01:00</code> som standard) i ett av de format som arkiveringssystem läser: CSV, Actiance XML eller Global Relay (en zip-fil, eller EML som skickas via SMTP). <code>amctl compliance-export</code> startar och hämtar exporter från kommandoraden.</li>
+<li><b>Efterlevnadsmonitorering</b> (<code>ComplianceSettings</code>) skriver dagliga rapporter till en katalog. Det är den äldre mekanismen; använd hellre Efterlevnadsexport.</li>
+<li><b>Granskningsloggning</b> (beta, <code>ExperimentalAuditSettings</code>) loggar administrativa och säkerhetsrelaterade händelser (inloggningar, ändringar av behörigheter och inställningar) i en egen fil.</li>
+<li><b>Anpassade användarvillkor</b> ber alla att acceptera dina villkor innan de använder Antimatter, och igen efter att du har ändrat dem.</li>
+</ul>
+
+<h2 id="troubleshooting">Vanliga problem</h2>
+<h3>”Kan inte ansluta till servern”, eller meddelanden visas först efter en omladdning</h3>
+<p>Websocketen kommer inte igenom. Kontrollera att reverse proxyn vidarebefordrar <code>Upgrade</code>- och <code>Connection</code>-rubrikerna (se <a href="{{root}}docs/admins/https.html#nginx">nginx-exemplet</a>) och att webbadressen exakt matchar adressen i webbläsaren, inklusive <code>https</code>.</p>
+<h3>Uppladdningar misslyckas med ”413 Request Entity Too Large”</h3>
+<p>Proxyn nekar på grund av storleken. Öka dess gräns (nginx <code>client_max_body_size</code>) till minst <b>Maximal filstorlek</b> i <b>Systemkonsol › Miljö › Lagringsplats för filer</b> (<code>FileSettings.MaxFileSize</code>, 100 MB som standard).</p>
+<h3>Personer kan inte starta samtal, eller går med men hör inget</h3>
+<p>Om bara administratörer kan starta samtal, stäng av <b>Testläge</b> för Samtal. Om personer går med men inte hör något är mediaporten blockerad eller så anger servern fel adress: öppna 8443 UDP och TCP och ange <b>ICE Host Override</b> bakom NAT. Personer på nätverk som blockerar båda behöver en TURN-server. Se <a href="{{root}}docs/admins/calls.html">Samtal och röst</a>.</p>
+<h3>GIF-väljaren är tom</h3>
+<p>Kontrollera <b>GIF-tjänstens URL</b> (<code>http://gifs:8080/v2</code> i sajtens compose-fil) och <b>API-nyckel</b> (<code>GIFS_API_KEY</code> i <code>.env</code>) i <b>Systemkonsol › Plugin › GIF-bilder</b>, samt att tjänsten <code>gifs</code> körs: <code>docker compose ps gifs</code>.</p>
+<h3>Inga e-postmeddelanden kommer fram</h3>
+<p>Använd <b>Testa anslutningen</b> i <b>Systemkonsol › Miljö › SMTP</b>, kontrollera att <b>Meddelande från adress</b> inte längre är <code>test@example.com</code>, och sök i loggen efter <code>smtp</code> eller <code>mail</code>.</p>
+<h3>En app visar ”Misslyckades att starta”</h3>
+<p>Sök efter dess id i loggen (<code>docker compose logs antimatter | grep &lt;app id&gt;</code>). Inaktivera och aktivera den i Pluginhantering för att starta om den.</p>
+<h3>Servern startar inte</h3>
+<p>Läs slutet av dess logg. Oftast är databasen oåtkomlig (kontrollera <code>AM_SQLSETTINGS_DATASOURCE</code> med <code>antimatter db ping</code>), en databasmigration misslyckades (återställ säkerhetskopian som togs innan uppgraderingen och rapportera felet) eller så är lyssnande porten upptagen.</p>
+<h3>Låst ut från administratörskontot</h3>
+<p>Från servern kräver lokal läge inget lösenord:</p>
+<pre><code>docker compose exec antimatter amctl --local user change-password admin --password 'a-new-password'
+docker compose exec antimatter amctl --local user resetmfa admin
+docker compose exec antimatter amctl --local roles system-admin admin</code></pre>
+<h3>Rapportera ett fel</h3>
+<p>Öppna ett ärende i <a href="https://github.com/AntimatterChat/community/issues/new/choose">Antimatters community-repository</a> med version, hur du installerade, vad du gjorde och relevanta loggrader. Rapportera säkerhetsproblem privat, enligt <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">säkerhetspolicyn</a>.</p>

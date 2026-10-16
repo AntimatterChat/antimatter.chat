@@ -1,0 +1,85 @@
+title: 運用
+description: Antimatter の日常的な運用: ヘルスチェック、メトリクスとモニタリング、Metrics アプリ、サポートパケット、検索とスケーリング、高可用性、データ保持、コンプライアンスエクスポートと監査ログ、および一般的な問題の修正。
+guide: admins
+order: 11
+nav: 運用
+lead: サーバーの状態を確認し、より多くのユーザーを処理できるようにし、データの保持期間を決定し、管理者が最もよく遭遇する問題を修正します。
+source: 32577b38c3db
+---
+<h2 id="health">ヘルスチェック</h2>
+<ul>
+<li><code>amctl --local system status</code> (コンテナ内では: <code>docker compose exec antimatter amctl --local system status</code>)。Docker イメージのヘルスチェックはこれを 30 秒ごとに実行するため、<code>docker compose ps</code> で <code>healthy</code> または <code>unhealthy</code> が表示されます。</li>
+<li><code>GET /api/v4/system/ping</code> はサインインなしで応答するため、外部モニターやロードバランサーに使用できます: <code>curl -fsS https://chat.example.com/api/v4/system/ping</code>。</li>
+<li><code>antimatter db ping</code> は、設定された設定でデータベースに到達できることを確認します。</li>
+<li><b>システムコンソール › レポート › システムの使用統計</b> はユーザー数、投稿数、セッション数を表示し、<b>ワークスペースの最適化</b> は確認が必要な設定の問題をリストアップします。</li>
+</ul>
+
+<h2 id="metrics">メトリクス</h2>
+<p>サーバーは Prometheus メトリクスを公開できます: リクエストレートと所要時間、WebSocket 接続、データベースとキャッシュの使用量、ジョブ、プラグインフックなど。<b>システムコンソール › 環境 › パフォーマンスモニタリング</b> で有効にします:</p>
+<table>
+<thead><tr><th>設定項目</th><th>キーと変数</th><th>デフォルト値</th></tr></thead>
+<tbody>
+<tr><td><b>パフォーマンスモニタリングを有効にする</b></td><td><code>MetricsSettings.Enable</code>, <code>AM_METRICSSETTINGS_ENABLE</code></td><td>オフ</td></tr>
+<tr><td><b>接続待ちアドレス</b></td><td><code>MetricsSettings.ListenAddress</code>, <code>AM_METRICSSETTINGS_LISTENADDRESS</code></td><td><code>:8067</code></td></tr>
+<tr><td><b>クライアントパフォーマンスモニタリングの有効化</b></td><td><code>MetricsSettings.EnableClientMetrics</code></td><td>オン: ブラウザとアプリが独自のタイミングを報告します</td></tr>
+</tbody>
+</table>
+<p>Prometheus は <code>http://&lt;server&gt;:8067/metrics</code> をスクレイプします。各メトリクスは Mattermost 名 (<code>mattermost_…</code>) と Antimatter 名 (<code>antimatter_…</code>) の両方で公開されるため、既存の Mattermost ダッシュボードが引き続き動作します。アプリは独自のメトリクスを公開します。例えば Agents アプリは <code>/plugins/mattermost-ai/metrics</code> に公開します。</p>
+<p>メトリクスポートにはサインインは不要です: プライベートネットワーク内に保ってください。サイトの compose ファイルでは公開されていません。ホストからスクレイプするには、<code>antimatter</code> サービスの <code>ports</code> に <code>"127.0.0.1:8067:8067"</code> を追加します。</p>
+<h3>Metrics アプリ</h3>
+<p>Prometheusサーバーがない場合、Metricsアプリ(デフォルトでは無効。詳細は<a href="{{root}}docs/admins/apps.html">バンドルアプリ</a)を参照)は、Antimatter内の小型の時系列データベースに同じメトリクスを収集します。60秒ごとに収集され、15日間保持されます。アプリが起動すると、メトリクスエンドポイントが有効になります。<b>システムコンソール › プラグイン</b>のページには、データベースのサイズが表示され、データのダンプをダウンロードして独自の分析やバグレポートへの添付に使用できます。最新1日分のデータはサポートパケットにも含まれます。</p>
+
+<h2 id="support-packet">サポートパケット</h2>
+<p>サポートパケットは、問題の診断に必要な情報が含まれたzipファイルです。バージョン、統計情報、シークレットが除去された設定、アプリとジョブのリスト、データベーススキーマ、最近のログ、パフォーマンスプロファイルが含まれます。<code>amctl system supportpacket</code>コマンドで生成するか、システムコンソールのサイドバー上部のメニューから生成できます(<b>商用サポート</b>を選択すると、含める項目を選択できます)。共有する前に内容を確認してください。メッセージは含まれていませんが、コミュニティ、ユーザー、設定の名前は含まれています。</p>
+
+<h2 id="scaling">パフォーマンスとスケーリング</h2>
+<p>CPUコア2個、メモリ4GBの1台のサーバーで、数百人のユーザーを処理できます。サーバーを追加する前に、以下を確認してください:</p>
+<ul>
+<li><b>データベース。</b>PostgreSQLが大部分の処理を行います。高速なストレージとメモリを確保してください。リードレプリカを使用して読み取り負荷を分散できます(<code>SqlSettings.DataSourceReplicas</code>、接続URLのリスト)。</li>
+<li><b>検索。</b>デフォルトでは、メッセージはデータベース内で検索されます。大規模なサーバーでは、ElasticsearchまたはOpenSearchを使用して検索とインデックス作成を処理できます:<b>システムコンソール › 環境 › Elasticsearch</b>(<code>ElasticsearchSettings</code>: <b>バックエンドの種別</b> ElasticsearchまたはOpenSearch、<b>サーバー接続アドレス</b>、認証情報、その後インデックス作成を有効化し、インデックスを構築し、検索を有効化)。</li>
+<li><b>Calls。</b>通話メディアは最も重い負荷になります。rtcdサーバーに移行してください: <a href="{{root}}docs/admins/calls.html#rtcd">通話と音声</a>を参照。</li>
+<li><b>オープンファイル。</b>各接続ユーザーはwebsocketを開いた状態を保持します。antimatter-dockerの本番環境用composeファイルでは、上限を49152に引き上げています(<code>ulimits: nofile</code>)。systemdでも同様に設定してください(<code>LimitNOFILE</code>)。</li>
+<li><b>ログ。</b><code>LogSettings.ConsoleLevel</code>を<code>INFO</code>または<code>WARN</code>に下げてください: <code>DEBUG</code>は、忙しいサーバーでは大量のログを出力します。</li>
+</ul>
+<h3>高可用性</h3>
+<p>Antimatterサーバーは、ライセンスなしでロードバランサーの背後にクラスタとして複数実行できます。これには、同じPostgreSQLデータベース、同じS3ファイルストレージ、およびデータベース内の設定(<code>AM_CONFIG</code>)を共有する必要があります。<b>システムコンソール › 環境 › 高可用</b>(<code>ClusterSettings</code>)で、<b>高可用モードを有効にする</b>(<code>ClusterSettings.Enable</code>)をオンにし、すべてのノードに同じ<b>クラスター名</b>(<code>ClusterSettings.ClusterName</code>)を割り当て、ノード同士がgossipポート<b>8074</b> TCPおよびUDP(<code>ClusterSettings.GossipPort</code>)で相互に到達できるようにします。ノードはデータベースを介して互いを見つけます。ロードバランサーはWebSocketをパスする必要があります。クラスタでの通話にはrtcdを使用します。</p>
+
+<h2 id="retention">データ保持</h2>
+<p>デフォルトでは、Antimatterはすべてのメッセージとファイルをいつまでも保持します。古いデータを自動的に削除するには、<b>システムコンソール › コンプライアンス › データ保持ポリシー</b>に移動します:</p>
+<ul>
+<li><b>グローバル保持ポリシー</b>は、サーバー全体に対して<b>チャンネルおよびダイレクトメッセージの保持</b>と<b>ファイル保持期間</b>を設定します:<b>いつまでも</b>、または時間、日、年の数値を指定します(<code>DataRetentionSettings.EnableMessageDeletion</code>、<code>MessageRetentionHours</code>、<code>EnableFileDeletion</code>、<code>FileRetentionHours</code>)。</li>
+<li><b>カスタム保持ポリシー</b>は、選択したコミュニティとチャンネルに対して別の保持期間を設定します。</li>
+<li>削除ジョブは、指定した時刻（<code>DataRetentionSettings.DeletionJobStartTime</code>、デフォルトは UTC <code>02:00</code>）に毎日実行されます。<b>今すぐ削除ジョブを実行する</b>で即座に実行でき、<b>ポリシーログ</b>には各実行で削除された内容が記録されます。</li>
+</ul>
+<div class="callout warn">削除されたメッセージとファイルは、データベースおよびファイルストレージから完全に削除されます。ポリシーを有効にする前に保持期間を確認し、バックアップには期限が切れるまで削除されたデータが保持され続けることを覚えておいてください。</div>
+
+<h2 id="compliance">コンプライアンスエクスポートと監査ログ</h2>
+<ul>
+<li><b>システムコンソール › コンプライアンス › コンプライアンスエクスポート</b> は、アーカイブシステムが読み取れる形式（CSV、Actiance XML、または Global Relay（zip ファイル、または SMTP 経由で送信される EML））で、すべてのメッセージとファイルを毎日エクスポートします（<b>コンプライアンスエクスポートを有効にする</b>、<code>MessageExportSettings.EnableExport</code>、デフォルトでは無効；<b>コンプライアンスエクスポート時刻</b>、デフォルトは <code>01:00</code>）。<code>amctl compliance-export</code> を使用すると、コマンドラインからエクスポートを実行してダウンロードできます。</li>
+<li><b>コンプライアンスモニタリング</b>(<code>ComplianceSettings</code>)は、ディレクトリに日報を書き出します。これは古いメカニズムであり、コンプライアンスエクスポートの使用を推奨します。</li>
+<li><b>監査ログ</b>（ベータ版、<code>ExperimentalAuditSettings</code>）は、管理およびセキュリティ関連のイベント（サインイン、権限や設定の変更）を、専用のファイルに記録します。</li>
+<li><b>カスタム利用規約</b>は、Antimatterを使用する前に、また規約を変更した後に、すべてのユーザーに利用規約への同意を求めます。</li>
+</ul>
+
+<h2 id="troubleshooting">よくある問題</h2>
+<h3>「サーバーに接続できません」が表示されるか、リロード後にのみメッセージが表示される</h3>
+<p>WebSocketが通っていません。リバースプロキシが<code>Upgrade</code>ヘッダーと<code>Connection</code>ヘッダーを転送していることを確認してください（<a href="{{root}}docs/admins/https.html#nginx">nginxの例</a>を参照）。また、サイトURLがブラウザのアドレスと完全に一致していること（<code>https</code>を含む）を確認してください。</p>
+<h3>アップロードが「413 Request Entity Too Large」で失敗する</h3>
+<p>プロキシがサイズを拒否しています。<b>システムコンソール › 環境 › ファイルストレージ</b>の<b>最大ファイルサイズ</b>（<code>FileSettings.MaxFileSize</code>、デフォルト100 MB）以上にプロキシの制限を引き上げてください（nginxの場合は<code>client_max_body_size</code>）。</p>
+<h3>通話を開始できないか、参加しても音が聞こえない</h3>
+<p>管理者以外が通話を開始できない場合は、通話の<b>テストモード</b>をオフにしてください。参加しても音が聞こえない場合は、メディアポートがブロックされているか、サーバーが誤ったアドレスを通知しています。8443 UDPおよびTCPを開き、NATの背後では<b>ICE Host Override</b>を設定してください。両方がブロックされているネットワークのユーザーにはTURNサーバーが必要です。詳細は<a href="{{root}}docs/admins/calls.html">通話と音声</a>を参照してください。</p>
+<h3>GIFピッカーが空である</h3>
+<p><b>システムコンソール › プラグイン › GIF</b>で、<b>GIFサービスURL</b>（サイトのcomposeファイルでは<code>http://gifs:8080/v2</code>）と<b>APIキー</b>（<code>.env</code>の<code>GIFS_API_KEY</code>）を確認し、<code>gifs</code>サービスが実行されていることを確認してください：<code>docker compose ps gifs</code>。</p>
+<h3>メールが届かない</h3>
+<p><b>システムコンソール › 環境 › SMTP</b>で<b>テスト接続</b>を使用し、<b>通知の送信元電子メールアドレス</b>がまだ<code>test@example.com</code>のままになっていないことを確認してください。また、ログで<code>smtp</code>または<code>mail</code>を検索してください。</p>
+<h3>アプリに「Failed to start」が表示される</h3>
+<p>ログでそのIDを探してください（<code>docker compose logs antimatter | grep &lt;app id&gt;</code>）。プラグイン管理で無効化してから有効化し、再起動してください。</p>
+<h3>サーバーが起動しない</h3>
+<p>ログの末尾を確認してください。最も多い原因は、データベースに到達できないこと（<code>antimatter db ping</code>で<code>AM_SQLSETTINGS_DATASOURCE</code>を確認）、データベースマイグレーションの失敗（アップグレード前に取得したバックアップを復元し、エラーを報告）、またはリスニングポートが使用されていることです。</p>
+<h3>管理者アカウントにロックアウトされた</h3>
+<p>サーバーからローカルモードを使用する場合、パスワードは不要です：</p>
+<pre><code>docker compose exec antimatter amctl --local user change-password admin --password 'a-new-password'
+docker compose exec antimatter amctl --local user resetmfa admin
+docker compose exec antimatter amctl --local roles system-admin admin</code></pre>
+<h3>バグの報告</h3>
+<p><a href="https://github.com/AntimatterChat/community/issues/new/choose">Antimatterコミュニティリポジトリ</a>に、バージョン、インストール方法、実行した操作、関連するログ行を添えてIssueを作成してください。セキュリティ上の問題は、<a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">セキュリティポリシー</a>に従って非公開で報告してください。</p>

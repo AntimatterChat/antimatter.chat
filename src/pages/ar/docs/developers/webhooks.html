@@ -1,0 +1,170 @@
+title: خطافات الويب
+description: خطافات الويب الواردة والصادرة في Antimatter: كيفية إنشائها، وأحمالها واستجاباتها، والمرفقات والبطاقات في الرسائل، وتجاوز الاسم والأيقونة، مع أمثلة.
+guide: developers
+order: 3
+nav: خطافات الويب
+lead: يتيح خطاف الويب الوارد لنظام آخر النشر في قناة عبر إرسال JSON إلى عنوان URL سري. أما خطاف الويب الصادر فيقوم بالعكس: فهو يرسل الرسائل التي تبدأ بكلمة محفّزة إلى عنوان URL الخاص بك، ثم ينشر ما ترد به.
+source: ecd698619944
+---
+<h2 id="where">مكان إدارة خطافات الويب</h2>
+<p>افتح صورة الملف الشخصي في الزاوية العلوية اليمنى، ثم اختر <b>التكاملات</b>. تُدرج صفحات التكاملات الخاصة بالمجتمع الحالي <b>خطافات الويب الواردة</b> و<b>خطافات ويب صادرة</b>. ينتمي كل خطاف ويب إلى مجتمع واحد.</p>
+<p>افتراضيًا، يمكن لمديري المجتمع ومديري النظام إنشاء خطافات الويب. يمكن لمدير النظام منح هذا الحق لأدوار أخرى في إعدادات الأذونات الخاصة بوحدة التحكم بالنظام. كما يمكن لمدير النظام تعطيل كل نوع على حدة في <b>وحدة التحكم بالنظام › التكاملات › إدارة التكاملات</b>: تكون كلتا الخييارين <b>تفعيل خطافات الويب الواردة</b> و<b>تفعيل الخطافات الصادرة</b> مفعّلتين افتراضيًا.</p>
+<figure><img src="{{root}}assets/img/shots/integrations.webp" alt="A channel with messages from a CI bot and from GitHub, shown as cards with fields, pipeline stages and a button"><figcaption>رسائل التكامل معروضة على شكل بطاقات: حقول، ومراحل خط الإنتاج، وزر إجراء.</figcaption></figure>
+
+<h2 id="incoming">إنشاء خطاف ويب وارد</h2>
+<ol>
+<li>في <b>التكاملات</b>، اختر <b>خطافات الويب الواردة</b>، ثم <b>إضافة خطاف ويب وارد</b>.</li>
+<li>املأ <b>العنوان</b> و<b>الوصف</b>: فهما يظهران فقط في صفحات التكاملات.</li>
+<li>اختر <b>القناة</b> التي ستُرسَل إليها الرسائل افتراضياً. إذا كانت القناة خاصة، فيجب أن تكون عضواً فيها.</li>
+<li>حدد <b>تثبيت على هذه القناة</b> إذا كان يجب عدم السماح للمُرسلين بالنشر في مكان آخر.</li>
+<li>اختيارياً، اضبط <b>اسم المستخدم</b> وعنوان <b>صورة الملف الشخصي</b> لرسائله (انظر <a href="#identity">الاسم والأيقونة</a>).</li>
+<li>اختر <b>حفظ</b>. انسخ العنوان URL المعروض: <code>https://chat.example.com/hooks/&lt;key&gt;</code>.</li>
+</ol>
+<div class="callout warn">العنوان URL هو السر الوحيد: أي شخص يملكه يمكنه النشر في القناة. احفظه بعيداً عن المستودعات العامة، واحذف خطاف الويب إذا تسرّب.</div>
+<p>عبر واجهة برمجة التطبيقات: <code>POST /api/v4/hooks/incoming</code> مع <code>{"channel_id", "display_name", "description", "username", "icon_url", "channel_locked"}</code>؛ حيث يمثل <code>id</code> في الاستجابة المفتاح. من سطر الأوامر: <code>amctl webhook create-incoming --channel &lt;channel id&gt; --user &lt;user&gt; --display-name "CI"</code>.</p>
+
+<h2 id="incoming-send">إرسال رسالة إلى خطاف ويب وارد</h2>
+<pre><code>curl -X POST https://chat.example.com/hooks/xgh5ycrx1jf7mbs9w8z4c8e7ho \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Deploy of **api 2.4.0** finished :white_check_mark:"}'</code></pre>
+<p>يرد الخادم بـ <code>200</code> مع جسم <code>ok</code>. كما يقبل <code>application/x-www-form-urlencoded</code> مع JSON في حقل <code>payload</code>، كما تفعل خطافات الويب في Slack، لذا تعمل الأدوات المصممة لـ Slack عادةً دون تغيير.</p>
+<table>
+<thead><tr><th>الحقل</th><th>المعنى</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>الرسالة بصيغة Markdown. إلزامية ما لم تكن هناك <code>attachments</code>. يتم تقسيم النص الذي يتجاوز حد طول الرسالة الخاص بالخادم إلى عدة رسائل.</td></tr>
+<tr><td><code>channel</code></td><td>قناة أخرى ضمن مجتمع الخطاف، بالاسم (<code>ops-alerts</code> أو <code>#ops-alerts</code>)، أو <code>@username</code> لإرسال رسالة مباشرة من مالك الخطاف. يُرفض الطلب إذا كان الخطاف مقفلاً على قناته.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code>, <code>icon_emoji</code></td><td>الاسم والصورة المعروضة، عندما يسمح الخادم بالتجاوز.</td></tr>
+<tr><td><code>attachments</code></td><td>مرفقات الرسالة، المعروضة على شكل بطاقات (أدناه).</td></tr>
+<tr><td><code>props</code></td><td>خصائص إضافية مخزنة على الرسالة، تستخدمها التطبيقات التي تقرأها.</td></tr>
+<tr><td><code>type</code></td><td>نوع رسالة مخصص، مثل <code>custom_poll</code>، لتطبيق يعرضه. تُرفض الأنواع التي تبدأ بـ <code>system_</code>.</td></tr>
+<tr><td><code>root_id</code></td><td>المعرف (ID) لأول رسالة في سلسلة رسائل، للرد في تلك السلسلة.</td></tr>
+<tr><td><code>priority</code></td><td>أولوية الرسالة، على سبيل المثال <code>{"priority": "urgent"}</code>.</td></tr>
+<tr><td><code>silent</code></td><td>إرسال الرسالة دون إشعارات دفع عند تعيين القيمة إلى <code>true</code>.</td></tr>
+</tbody>
+</table>
+<p>تظهر الرسائل المعروضة باسم مُتجاوز بجانبه وسم <b>BOT</b>، حتى يتمكن المستخدمون من تمييزها عن الحسابات الحقيقية. لا تُطلق رسائل الخطاف خطوط ويب صادرة أبداً.</p>
+
+<h2 id="identity">الاسم والأيقونة</h2>
+<p>ينشر الخطاف باسم الشخص الذي أنشأه، ما لم يسمح الخادم بالتجاوز. يوجد إعدادان في <b>وحدة التحكم بالنظام › التكاملات › إدارة التكاملات</b>، كلاهما معطَّل افتراضياً، يغيّران ذلك:</p>
+<ul>
+<li><b>تفعيل التكاملات لتجاوز أسماء المستخدمين</b> (<code>ServiceSettings.EnablePostUsernameOverride</code>): يُعرض <b>اسم المستخدم</b> الخاص بخطاف الويب أو <code>username</code> الخاص بالطلب بدلاً من الاسم؛ وإذا لم يُحدد أي منهما، يكون الاسم <code>webhook</code>.</li>
+<li><b>تفعيل تجاوز التكاملات لأيقونات صور الملف الشخصي</b> (<code>ServiceSettings.EnablePostIconOverride</code>): تُعرض <b>صورة الملف الشخصي</b> الخاصة بخطاف الويب، أو <code>icon_url</code> أو <code>icon_emoji</code> الخاص بالطلب.</li>
+</ul>
+<p>تتفوق القيمة الموجودة في الطلب على القيمة المحفوظة على الخطاف.</p>
+
+<h2 id="attachments">المرفقات</h2>
+<p>تضيف المرفقات محتوى منسقاً أسفل النص. تتبع مرفقات الرسالة تنسيق مرفقات رسائل Slack:</p>
+<pre><code>{
+  "text": "Build failed on `main`",
+  "attachments": [{
+    "fallback": "main #1902 failed",
+    "color": "#d24b4e",
+    "author_name": "GitHub Actions",
+    "author_icon": "https://chat.example.com/static/ci.png",
+    "title": "main #1902 failed",
+    "title_link": "https://ci.example.com/runs/1902",
+    "text": "Commit `0f4d8e2` by Jonas Weber",
+    "fields": [
+      {"title": "Branch", "value": "zephyr-3.7", "short": true},
+      {"title": "Duration", "value": "3m 40s", "short": true}
+    ],
+    "footer": "Lumen CI",
+    "ts": 1760000000
+  }]
+}</code></pre>
+<table>
+<thead><tr><th>الحقل</th><th>المعنى</th></tr></thead>
+<tbody>
+<tr><td><code>fallback</code></td><td>نص عادي للأماكن التي لا يمكنها عرض البطاقة، مثل الإشعارات.</td></tr>
+<tr><td><code>color</code></td><td>الشريط الملوّن: لون بصيغة سداسية، أو <code>good</code>، <code>warning</code>، <code>danger</code>.</td></tr>
+<tr><td><code>pretext</code></td><td>نص أعلى البطاقة.</td></tr>
+<tr><td><code>author_name</code>, <code>author_link</code>, <code>author_icon</code></td><td>سطر ترويسة صغير.</td></tr>
+<tr><td><code>title</code>, <code>title_link</code></td><td>عنوان البطاقة، ويمكن أن يكون رابطاً اختياريًا.</td></tr>
+<tr><td><code>text</code></td><td>نص البطاقة، بصيغة Markdown.</td></tr>
+<tr><td><code>fields</code></td><td>قائمة من <code>{"title", "value", "short"}</code>؛ تُوضع حقول <code>short</code> جنباً إلى جنب.</td></tr>
+<tr><td><code>image_url</code>, <code>thumb_url</code></td><td>صورة كبيرة أسفل، أو صورة صغيرة على الجانب.</td></tr>
+<tr><td><code>footer</code>, <code>footer_icon</code>, <code>ts</code></td><td>سطر تذييل ووقت (بالثواني وفق Unix).</td></tr>
+<tr><td><code>actions</code></td><td>الأزرار والقوائم: راجع <a href="{{root}}docs/developers/bots.html#interactive">الرسائل التفاعلية</a>.</td></tr>
+</tbody>
+</table>
+
+<h2 id="cards">البطاقات: المراحل والمخططات</h2>
+<p>تضيف Antimatter حقلين إلى المرفقات، ترسمهما الواجهة الافتراضية:</p>
+<ul>
+<li><code>stages</code>: خطوات خط الأنابيب على شكل حبوب، بحد أقصى 20. كل خطوة هي <code>{"name", "status"}</code>، مع حالة تكون <code>passed</code> أو <code>failed</code> أو <code>running</code> أو <code>pending</code> أو <code>skipped</code> أو <code>canceled</code>.</li>
+<li><code>chart</code>: مخطط خطي صغير للقيم الأخيرة، <code>{"values": [2 to 200 numbers], "threshold": number, "label": "…"}</code>. يُرسم الحد كخط متقطع، وهو يمثل حد التنبيه.</li>
+</ul>
+<pre><code>{
+  "attachments": [{
+    "color": "danger",
+    "title": "main #1902 failed",
+    "stages": [
+      {"name": "build", "status": "failed"},
+      {"name": "unit", "status": "skipped"},
+      {"name": "publish", "status": "skipped"}
+    ]
+  }, {
+    "color": "warning",
+    "title": "API latency above 400 ms",
+    "chart": {"values": [210, 230, 260, 390, 450, 470], "threshold": 400, "label": "p95 latency, ms"}
+  }]
+}</code></pre>
+<p>تتجاهل الواجهة الكلاسيكية والعملاء الآخرون هذين الحقلين، لذا ضع المعلومات الأساسية في <code>text</code> أو <code>fields</code> أيضاً.</p>
+
+<h2 id="outgoing">إنشاء خطاف ويب خارجي</h2>
+<p>يراقب خطاف الويب الخارجي <b>القنوات العامة</b> في المجتمع. عندما يطابق أول كلمة في رسالة أحد كلمات التفعيل الخاصة به، ترسل Antimatter الرسالة إلى عنوان URL الخاص بك.</p>
+<ol>
+<li>في <b>التكاملات</b>، اختر <b>خطافات ويب صادرة</b>، ثم <b>إضافة خطاف ويب صادر</b>.</li>
+<li>املأ <b>العنوان</b> و<b>الوصف</b>.</li>
+<li>اختر <b>نوع المحتوى</b> للطلب: <code>application/x-www-form-urlencoded</code> أو <code>application/json</code>.</li>
+<li>اختر <b>القناة</b>، وأدخل <b>كلمات المحفز (كلمة في كل سطر)</b>، أو كلاهما. إذا حددت قناة دون كلمات محفز، تُرسل جميع رسائل تلك القناة. إذا حددت كلاهما، يجب أن تطابق الرسالة كلا الشرطين.</li>
+<li>تحت <b>المحفز عند</b>، اختر <b>يبدأ الكلمة الأولى بكلمة محفّزة مطابقة تمامًا</b> أو <b>يبدأ الكلمة الأولى بكلمة محفّزة</b>.</li>
+<li>أدخل <b>روابط الاستدعاء (رابط واحد في كل سطر)</b>. يحصل كل رابط على كل رسالة مطابقة.</li>
+<li>اختيارياً، اضبط <b>اسم المستخدم</b> و<b>صورة الملف الشخصي</b> المستخدمة للردود.</li>
+<li>اختر <b>حفظ</b> وانسخ الرمز المعروض. يستخدم خدمتك للتحقق من أن الطلبات تأتي من خادمك.</li>
+</ol>
+<p>عبر واجهة برمجة التطبيقات: <code>POST /api/v4/hooks/outgoing</code> مع <code>{"team_id", "channel_id", "trigger_words", "trigger_when", "callback_urls", "content_type", "display_name"}</code> (<code>trigger_when</code>: 0 لمطابقة تامة، 1 لـ"يبدأ بـ").</p>
+<div class="callout">إذا كان خدمتك على شبكة خاصة، يجب على مدير النظام السماح بعنوانه في <b>السماح باتصالات داخلية غير موثوقة إلى</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>). لا يستدعي الخادم العناوين الخاصة وإلا.</div>
+
+<h2 id="outgoing-request">الطلب الخارجي</h2>
+<p>ترسل Antimatter طلب POST مع هذه الحقول، كـ JSON أو مشفر كنموذج حسب نوع المحتوى:</p>
+<pre><code>{
+  "token": "6kd1ofo5ojr5zgu5ipfipybgnc",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "channel_id": "…",
+  "channel_name": "ops-alerts",
+  "timestamp": 1760010000000,
+  "user_id": "…",
+  "user_name": "priya",
+  "post_id": "…",
+  "text": "deploy api 2.4.0",
+  "trigger_word": "deploy",
+  "file_ids": ""
+}</code></pre>
+<p>قارن <code>token</code> برمز المصادقة الخاص بخطاف الويب قبل اتخاذ أي إجراء. في الإصدار المُرمّز كنموذج، يكون <code>timestamp</code> بالثواني بدلاً من المللي ثانية. ينتظر الخادم إجابتك لمدة تصل إلى <b>مهلة انتهاء طلبات التكامل</b> (30 ثانية افتراضيًا، <code>ServiceSettings.OutgoingIntegrationRequestsTimeout</code>).</p>
+
+<h2 id="outgoing-response">الرد على خطاف ويب صادر</h2>
+<p>لنشر رد، أجب باستخدام JSON. لعدم نشر أي شيء، أجب بجسم فارغ.</p>
+<pre><code>{
+  "text": "Deploying **api 2.4.0** to staging…",
+  "response_type": "comment",
+  "username": "deploy-bot",
+  "icon_url": "https://chat.example.com/static/deploy.png"
+}</code></pre>
+<ul>
+<li><code>text</code> و<code>attachments</code>: الرد. بدون أيٍّ منهما، لن يُنشر شيء.</li>
+<li><code>response_type</code>: <code>comment</code> ينشر الرد في سلسلة الرسائل الخاصة بالرسالة المحفِّزة؛ وإلا فسيُنشر في القناة.</li>
+<li><code>username</code>، <code>icon_url</code>: تُعرض عندما يسمح الخادم بالتجاوز؛ وإلا فسيُستخدم القيم الخاصة بخطاف الويب نفسه.</li>
+<li><code>props</code>، <code>type</code>، <code>priority</code>: كما هو الحال مع خطافات الويب الواردة.</li>
+</ul>
+<p>يُنشر الرد باسم منشئ خطاف الويب، وباسم التجاوز إن وُجد. لأي رد أطول من إجابة سريعة، أجب فوراً ثم انشر لاحقاً باستخدام خطاف ويب وارد أو واجهة برمجة التطبيقات.</p>
+
+<h2 id="troubleshooting">عندما لا يعمل خطاف الويب</h2>
+<ul>
+<li><b>501 من عنوان خطاف الويب</b>: خطافات الويب الواردة معطّلة على الخادم.</li>
+<li><b>400 "Failed to decode the payload…"</b>: JSON غير صالح، أو حقل النموذج ليس اسمه <code>payload</code>. <b>"No text specified."</b> تعني أن الطلب لا يحتوي على <code>text</code> ولا <code>attachments</code>.</li>
+<li><b>403</b>: خطاف الويب مقفل على قناة أخرى، أو لم يعد مالكه قادراً على قراءة القناة.</li>
+<li><b>خطاف ويب صادر لا يُطلق أبداً</b>: القناة خاصة، أو المحفِّز ليس الكلمة الأولى، أو جاءت الرسالة من خطاف ويب.</li>
+<li><b>السجلات</b>: عند تفعيل <b>تفعيل تصحيح أخطاء خطاف الويب</b> (<code>LogSettings.EnableWebhookDebugging</code>)، وتعيين مستوى السجلات إلى <code>DEBUG</code>، يسجّل الخادم حمولات الطلبات الواردة غير الناجحة. تُسجَّل المكالمات الصادرة غير الناجحة كـ <code>Outgoing Webhook POST failed</code>.</li>
+</ul>

@@ -1,0 +1,161 @@
+title: டொமைன், HTTPS மற்றும் ரிவர்ஸ் ப்ராக்ஸிகள்
+description: உங்கள் சொந்த டொமைனில் Antimatter-ஐ HTTPS மூலம் வழங்கவும்; இணைக்கப்பட்ட Caddy புரொஃபைல் அல்லது உங்கள் சொந்த nginx ரிவர்ஸ் ப்ராக்ஸியைப் பயன்படுத்தவும்; மேலும் சைட் URL மற்றும் கிளையன்ட் முகவரிகளைச் சரியாக அமைக்கவும்.
+guide: admins
+order: 4
+nav: டொமைன் மற்றும் HTTPS
+lead: Caddy புரொஃபைல் அல்லது உங்கள் சொந்த ரிவர்ஸ் ப்ராக்ஸியைப் பயன்படுத்தி, Antimatter-ஐ HTTPS உடன் ஒரு டொமைன் பெயரில் வைத்து, சைட் URL மற்றும் கிளையன்ட் முகவரிகளைச் சரியாக அமைக்கவும்.
+source: 69e8779d356e
+---
+<h2 id="site-url">சைட் URL</h2>
+<p>சைட் URL (<code>ServiceSettings.SiteURL</code>) என்பது Antimatter-ஐ அடையப் பயன்படுத்தப்படும் முகவரி, எடுத்துக்காட்டாக <code>https://chat.example.com</code>. சர்வர் இதை மின்னஞ்சல்கள் மற்றும் அறிவிப்புகளில் உள்ள இணைப்புகளில், உள்நுழைவு ரீடைரெக்ட்களில் (OAuth, OpenID Connect, SAML), மொபைல் மற்றும் டெஸ்க்டாப் செயலிகள், மற்றும் கோரிக்கைகள் எங்கிருந்து வருகின்றன என்பதைச் சரிபார்க்கப் பயன்படுத்துகிறது. இதை உங்கள் ப்ரவுசரின் முகவரிப் பட்டியில் உள்ளது போலவே, ஸ்கீம், டொமைன் மற்றும் டிஃபால்ட் அல்லாத போர்ட் (இருந்தால்), முடிவில் ஸ்லாஷ் இல்லாமல் அமைக்கவும்.</p>
+<ul>
+<li>சைட்டின் compose கோப்பு மூலம்: <code>.env</code> இல் <code>SITE_URL</code>.</li>
+<li>மற்ற எங்கும்: <code>AM_SERVICESETTINGS_SITEURL</code>, அல்லது <b>அமைப்பு கன்சோல் › சூழல் › வெப் சர்வர் › இணையதள URL</b>.</li>
+</ul>
+<p>சைட் URL தவறாக இருந்தால், அடையாள வழங்குநருடன் (identity provider) உள்நுழைவு தோல்வியடையும், மின்னஞ்சல்களில் உள்ள இணைப்புகள் தவறான இடத்தைக் குறிக்கும், மற்றும் செயலிகள் இணைக்காமல் போகலாம். டொமைனை மாற்றிய பிறகு, இங்கும் அனைத்து அடையாள வழங்குநர்களின் ரீடைரெக்ட் URL-களிலும் அதைப் புதுப்பிக்கவும்.</p>
+
+<h2 id="caddy">இணைக்கப்பட்ட Caddy புரொஃபைல் மூலம் HTTPS</h2>
+<p>சைட்டின் <code>compose.yaml</code> கோப்பில் <code>https</code> புரொஃபைலில் <a href="https://caddyserver.com">Caddy</a> சேவை உள்ளது. இது Let's Encrypt-இருந்து சான்றிதழைப் பெறுகிறது, அதைத் தானாகப் புதுப்பிக்கிறது, HTTP-ஐ HTTPS-க்கு ரீடைரெக்ட் செய்கிறது, மேலும் Antimatter-க்கு எல்லாவற்றையும் (websockets உட்பட) முன்னேற்றுகிறது.</p>
+<ol>
+<li>உங்கள் டொமைனின் DNS பதிவுகளை (A, மற்றும் IPv6-க்கு AAAA) சர்வரை நோக்கிச் சுட்டிக்காட்டவும்.</li>
+<li>ஃபயர்வாலில் 80/tcp, 443/tcp மற்றும் 443/udp (HTTP/3) போர்டுகளைத் திறக்கவும். Let's Encrypt இணையத்திலிருந்து 80 அல்லது 443 போர்டை அடைய வேண்டும்.</li>
+<li>டொமைனை <code>.env</code> இல் சேர்த்து, சைட் URL-ஐ அமைக்கவும்:
+<pre><code>echo "DOMAIN=chat.example.com" &gt;&gt; .env
+sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env</code></pre></li>
+<li>புரொஃபைல் மூலம் தொடங்கவும்:
+<pre><code>docker compose --profile https up -d</code></pre></li>
+</ol>
+<p>பின்வரும் அனைத்து <code>docker compose up</code> கட்டளைகளுக்கும் <code>--profile https</code> ஐச் சேர்க்கவும், அல்லது <code>.env</code> இல் <code>COMPOSE_PROFILES=https</code> ஐ வைத்து, சாதாரண <code>docker compose up -d</code> அதை உள்ளடக்கியிருக்கச் செய்யவும். Caddy தனது சான்றிதழ்களை <code>https</code> வாலியூமில் வைக்கிறது.</p>
+<p>Antimatter-இன் சொந்த போர்ட் ஹோஸ்ட்டில் வெளியிடப்படுகிறது (<code>HTTP_PORT</code>, டிஃபால்ட் 8065). Caddy முன்னால் இருக்கும்போது, அதை சர்வருக்காக மட்டுமே வைத்திருக்கவும்:</p>
+<pre><code>echo "HTTP_PORT=127.0.0.1:8065" &gt;&gt; .env
+docker compose --profile https up -d</code></pre>
+<p>Caddy Antimatter-ஐ அந்தப் போர்ட் மூலம் அல்லாமல், உள் <code>edge</code> நெட்வொர்க் மூலம் அடையுமானால், உங்கள் பயனர்களுக்கு இது எந்த மாற்றத்தையும் ஏற்படுத்தாது.</p>
+
+<h2 id="nginx">உங்கள் சொந்த ரிவர்ஸ் ப்ராக்ஸி (nginx) மூலம்</h2>
+<p>சர்வரில் ஏற்கனவே nginx அல்லது வேறு ஒரு proxy இயங்குகிறது என்றால், <code>https</code> profile-ஐ அணைக்கவும் (off) மற்றும் proxy-ஐ Antimatter-இன் 8065 port-க்கு இணைக்கவும். proxy இதுகளைச் செய்ய வேண்டும்:</p>
+<ul>
+<li>websocket upgrades-ஐ கடத்த வேண்டும் (web app மற்றும் mobile apps <code>/api/v4/websocket</code>-ல் ஒரு websocket-ஐ திறந்த நிலையில் வைத்திருக்கின்றன, சில apps தங்கள் சொந்த websocket-ஐ திறக்கின்றன);</li>
+<li>அதிகபட்ச கோப்பு அளவிற்கு (இயல்பாக 100 MB) சமமாக அல்லது அதை விட பெரிய கோப்பு அளவுகளை ஏற்குமம் (<b>அதிகபட்ச கோப்பு அளவு</b>);</li>
+<li>நீண்ட கால இணைப்புகளை (long-lived connections) திறந்த நிலையில் வைத்திருக்க வேண்டும் (websockets, பெரிய uploads மற்றும் downloads);</li>
+<li><code>Host</code> header-ஐ மற்றும் client-இன் address-ஐ கடத்த வேண்டும்.</li>
+</ul>
+<p>antimatter-docker-இல் உள்ள production template-இலிருந்து மாற்றப்பட்ட முழு server block. domain மற்றும் certificate paths-ஐ மாற்றவும்:</p>
+<pre><code>upstream antimatter {
+    server 127.0.0.1:8065;
+    keepalive 64;
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+proxy_cache_path /var/cache/nginx/antimatter levels=1:2 keys_zone=antimatter_cache:10m
+                 max_size=3g inactive=120m use_temp_path=off;
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name chat.example.com;
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name chat.example.com;
+
+    ssl_certificate     /etc/ssl/chat.example.com/fullchain.pem;
+    ssl_certificate_key /etc/ssl/chat.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:AntimatterSSL:10m;
+    ssl_session_tickets off;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # At least FileSettings.MaxFileSize (100 MB by default).
+    client_max_body_size 100M;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade           $http_upgrade;
+    proxy_set_header Connection        $connection_upgrade;
+    proxy_buffers 256 16k;
+    proxy_buffer_size 16k;
+
+    location ~ ^/api/v[0-9]+/(users/)?websocket$ {
+        client_body_timeout 60s;
+        send_timeout 300s;
+        lingering_timeout 5s;
+        proxy_connect_timeout 90s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 90s;
+        proxy_pass http://antimatter;
+    }
+
+    location / {
+        proxy_read_timeout 600s;
+        proxy_cache antimatter_cache;
+        proxy_cache_revalidate on;
+        proxy_cache_min_uses 2;
+        proxy_cache_use_stale timeout;
+        proxy_cache_lock on;
+        proxy_pass http://antimatter;
+    }
+}</code></pre>
+<p>கோப்பை <code>nginx -t</code> மூலம் சரிபார்த்து, <code>systemctl reload nginx</code> மூலம் பயன்படுத்தவும். சர்வர் <code>X-Content-Type-Options</code>, <code>Referrer-Policy</code>, <code>Permissions-Policy</code> மற்றும் <code>X-Frame-Options</code> ஆகியவற்றை தானாகவே அனுப்புகிறது; HSTS மட்டுமே proxy-க்கு உரியது. HTTPS வேலை செய்யத் தொடங்கிய பிறகு அதன் <code>max-age</code>-ஐ உயர்த்தவும், அனைத்து subdomains-களும் HTTPS-ஐப் பயன்படுத்துகின்றன என்றால் மட்டுமே <code>includeSubDomains</code>-ஐ சேர்க்கவும்.</p>
+<p>Docker Compose மற்றும் host-இல் nginx பயன்படுத்தும்போது, மேலே உள்ள <code>upstream</code> 8065 port-ஐக் குறிக்கிறது. அதை <code>127.0.0.1</code>-ல் மட்டுமே publish செய்யவும் (<code>HTTP_PORT=127.0.0.1:8065</code>), proxy-ஐ யாரும் தவிர்க்காமல் இருக்க.</p>
+<p>antimatter-docker repository-இல், container-இல் nginx மற்றும் certbot மூலம் Let's Encrypt உடன் முழுமைபட்ட அமைப்பு <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">deploy/compose</a>-இல் உள்ளது.</p>
+
+<h3>வேறு proxy-கள்</h3>
+<p>மேலே உள்ள நான்கு புள்ளிகளைப் பூர்த்தி செய்யும் எந்த proxy-யும் வேலை செய்யும். Call audio மற்றும் video proxy- வழியாகச் செல்லாது: அவை தங்கள் சொந்த port-ஐப் பயன்படுத்துகின்றன, <a href="{{root}}docs/admins/calls.html">Calls and voice</a> பக்கத்தைப் பார்க்கவும்.</p>
+
+<h2 id="client-address">proxy-இன் பின்னால் உள்ள client addresses</h2>
+<p>proxy-இன் பின்னால், ஒவ்வொரு request-மும் proxy-இலிருந்து வந்தது போல் தோன்றும். உண்மையான client address-ஐ log செய்ய, rate limits-ஐ client-க்கு ஏற்பப் பயன்படுத்தவும் மற்றும் IP filtering-ஐப் பயன்படுத்த, சர்வருக்கு address-ஐ எந்த header தாங்குகிறது என்பதையும், எந்த proxy-களை நம்பலாம் என்பதையும் தெரிவிக்கவும். இந்த அமைப்புகளுக்கு System Console-இல் field இல்லை: <code>config.json</code>-இல் அல்லது variables மூலம் அமைக்கவும்.</p>
+<table>
+<thead><tr><th>Key மற்றும் variable</th><th>இயல்பு</th><th>இது என்ன செய்கிறது</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.TrustedProxyIPHeader</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER</code></td><td>வெற்று: சர்வர் connection-இன் address-ஐப் பயன்படுத்தும்</td><td>client-இன் address-ஐ தாங்கும் headers, எடுத்துக்காட்டாக <code>X-Forwarded-For</code>. request-இல் முதலில் இருக்கும் header-ஐப் பயன்படுத்தும்.</td></tr>
+<tr><td><code>ServiceSettings.TrustedProxyIPs</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code></td><td>வெற்று</td><td>உங்கள் proxy-களின் addresses அல்லது CIDR ranges, எடுத்துக்காட்டாக <code>172.29.71.0/28</code>. இந்த headers, அவற்றில் ஒன்றிலிருந்து வரும் requests-களுக்கு மட்டுமே கணக்கிடப்படும்.</td></tr>
+</tbody>
+</table>
+<p>ஒரு மாறிக்குள், பல மதிப்புகளை இடையூறு (space) மூலம் பிரிக்கவும்: <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>. <code>TrustedProxyIPs</code> இல் உள்ள ஒரு நுழைவு IP முகவரியாகவோ அல்லது CIDR வரம்பாகவோ இல்லையெனில், சர்வர் அந்த அமைப்பை நிராகரிக்கும்.</p>
+<h3>சர்வர் கிளையண்டின் முகவரியை எவ்வாறு கண்டறிகிறது</h3>
+<p>ஒவ்வொரு புராக்ஸியும் (proxy) அது கோரிக்கையை (request) பெற்ற முகவரியை <code>X-Forwarded-For</code> தலைப்பின் (header) வலதுபுறம் சேர்க்கிறது. கிளையண்டால் தலைப்பில் அனுப்பப்பட்டது இடதுபுறத்தில் இருக்கும். எனவே, சர்வர் தலைப்பை வலதுபுறத்திலிருந்து படித்து, உங்கள் நம்பகமான புராக்ஸிகளின் முகவரிகளை தவிர்க்கிறது, மற்றும் முதல் மற்ற முகவரியை கிளையண்டின் முகவரியாக எடுத்துக்கொள்கிறது. தனியான தலைப்பை அனுப்புவதன் மூலம் கிளையண்டால் தனது முகவரியை தேர்ந்தெடுக்க முடியாது.</p>
+<ul>
+<li>ஒரு புராக்ஸியின் பின்னால், <code>TrustedProxyIPHeader</code> மட்டும் சரியான முகவரியை வழங்குகிறது: சர்வர் தலைப்பின் மிக வலதுபுற முகவரியை எடுத்துக்கொள்கிறது. நீங்கள் <code>TrustedProxyIPs</code> ஐயும் அமைக்கும் வரை, தொடக்கத்தில் எச்சரிக்கையை (warning) பதிவு செய்கிறது. இது இல்லாமல், 8065 போர்ட்டை நேரடியாக அணுகும் யாரும் தலைப்பை அமைக்க முடியும், எனவே அந்த போர்ட்டை <code>127.0.0.1</code> இல் அல்லது தனியார் நெட்வொர்க்கில் மட்டுமே வெளியிடவும்.</li>
+<li>பல புராக்ஸிகளின் பின்னால், உதாரணமாக உங்கள் சொந்த புராக்ஸியின் முன் CDN அல்லது லோட் பேலன்சர் (load balancer) இருந்தால், அவற்றை அனைத்தையும் <code>TrustedProxyIPs</code> இல் பட்டியலிடவும். இல்லையெனில், சர்வர் வெளிப்புற புராக்ஸியின் முகவரியை கிளையண்டின் முகவரியாக எடுத்துக்கொள்ளும்.</li>
+<li>புராக்ஸி தலைப்பை அது காணும் முகவரியால் மாற்றியமைக்கலாம் (மேலே உள்ள nginx உதாரணம் போல <code>X-Forwarded-For $remote_addr</code>), அல்லது அதில் சேர்க்கலாம் (nginx இன் <code>$proxy_add_x_forwarded_for</code>). இரண்டும் வேலை செய்கின்றன.</li>
+</ul>
+<h3>எந்த முகவரிகளை பட்டியலிட வேண்டும்</h3>
+<p>Antimatter காணும் விதமாக, புராக்ஸியின் கோரிக்கைகள் (requests) எந்த முகவரியிலிருந்து வருகின்றன என்பதை பட்டியலிடவும்.</p>
+<ul>
+<li>இதழின் compose கோப்பு மற்றும் Caddy மூலம், இது ஏற்கனவே செய்யப்பட்டுள்ளது: Caddy <code>edge</code> நெட்வொர்க்கின் மூலம் Antimatter ஐ அணுகுகிறது, மற்றும் compose கோப்பு <code>TrustedProxyIPHeader</code> ஐ <code>X-Forwarded-For</code> ஆகவும், <code>TrustedProxyIPs</code> ஐ அந்த நெட்வொர்க்கின் வரம்பாகவும் (<code>.env</code> இல் நீங்கள் மாற்றவில்லை என்றால் <code>EDGE_SUBNET</code> (<code>172.29.71.0/28</code>)) அமைக்கிறது. உங்கள் நெட்வொர்க்குகளில் ஒன்றோடு இது பொருந்தினால் <code>EDGE_SUBNET</code> ஐ மாற்றவும்.</li>
+<li>antimatter-docker இல் உள்ள உற்பத்தி அமைப்பு (production setup) அதன் nginx கண்டெய்னருக்காக <code>FRONTEND_SUBNET</code> மூலம் அதே செயலை செய்கிறது.</li>
+<li>ஹோஸ்ட்டில் (host) nginx மற்றும் Docker இல் Antimatter இருந்தால், கோரிக்கைகள் பொதுவாக compose திட்டத்தின் நெட்வொர்க்கின் கேட்வே முகவரியிலிருந்து (gateway address) (<code>docker network inspect</code> மூலம் காணலாம்) Antimatter ஐ அடைகின்றன. <code>compose.override.yaml</code> இல் <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code> ஐ அந்த முகவரியாக அமைக்கவும்.</li>
+<li>Docker இல்லாமல், அதே ஹோஸ்ட்டில் nginx இருந்தால், அது <code>127.0.0.1</code> (nginx IPv6 மூலம் இணைந்தால் <code>::1</code> ஆகவும்).</li>
+</ul>
+
+<h2 id="builtin-tls">புரொக்ஸி இல்லாமல் TLS</h2>
+<p>சரவரர் HTTPS-ஐ நேரடியாக வழங்கவும் முடியும், <b>அமைப்பு கன்சோல் › சூழல் › வெப் சர்வர்</b> இல்: <b>இணைப்பு பாதுகாப்பு</b> TLS-ஆக (<code>ServiceSettings.ConnectionSecurity</code>) அமைக்கப்படும், <b>TLS சான்றிதழ் கோப்பு</b> மற்றும் <b>TLS தனிப்பட்ட விசை கோப்பு</b> (<code>ServiceSettings.TLSCertFile</code>, <code>ServiceSettings.TLSKeyFile</code>) உடன், அல்லது <b>Let's Encrypt-ஐ பயன்படுத்து</b> (<code>ServiceSettings.UseLetsEncrypt</code>). அப்போது சரவரர் 443 போர்ட்டில் கேட்க வேண்டும் (<b>கேட்கும் முகவரி</b>, <code>ServiceSettings.ListenAddress</code>, இயல்பாக <code>:8065</code>), மற்றும் <code>ServiceSettings.Forward80To443</code> 80 போர்ட்டை 443-க்கு மாற்றும். ரிவர்ஸ் ப்ராக்ஸி இயக்கவும் புதுப்பிக்கவும் எளிதானது, இந்த வழிகாட்டி அதை அடிப்படையாகக் கொள்கிறது.</p>
+
+<h2 id="timeouts">சர்வர் நேரம் கடத்தல்கள் (timeouts) மற்றும் கோரிக்கை அளவு</h2>
+<p>சரவரரின் சொந்த வெப் சரவரரின் அமைப்புகள், <b>அமைப்பு கன்சோல் › சூழல் › வெப் சர்வர்</b> இல்:</p>
+<table>
+<thead><tr><th>அமைப்பு</th><th>விசை</th><th>இயல்பு</th></tr></thead>
+<tbody>
+<tr><td><b>கேட்கும் முகவரி</b></td><td><code>ServiceSettings.ListenAddress</code></td><td><code>:8065</code></td></tr>
+<tr><td><b>கூறு நேரம்</b></td><td><code>ServiceSettings.ReadTimeout</code></td><td>300 வினாடிகள்</td></tr>
+<tr><td><b>எழுதும் நேர எல்லை</b></td><td><code>ServiceSettings.WriteTimeout</code></td><td>300 வினாடிகள்</td></tr>
+<tr><td>இடைநிறுத்த நேரம் (System Console இல் புலம் இல்லை)</td><td><code>ServiceSettings.IdleTimeout</code></td><td>60 வினாடிகள்</td></tr>
+<tr><td><b>அதிகபட்ச Payload அளவு (பைட்டுகள்)</b></td><td><code>ServiceSettings.MaximumPayloadSizeBytes</code></td><td><a href="{{root}}docs/admins/security.html">பாதுகாப்பு</a> ஐ பார்க்கவும்</td></tr>
+</tbody>
+</table>
+<p>புழுவின் சொந்த நேர எல்களை இயல்பான கோரிக்கைகளுக்கு இந்த நேர எல்களுக்கு சமமாக அல்லது அதை விட நீளமாக வைக்கவும், மற்றும் அதன் கோப்பு அளவை <b>அதிகபட்ச கோப்பு அளவிற்கு</b> சமமாக அல்லது அதை விட பெரியதாக வைக்கவும்.</p>

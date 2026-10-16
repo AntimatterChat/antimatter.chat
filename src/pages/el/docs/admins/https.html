@@ -1,0 +1,161 @@
+title: Δομή, HTTPS και reverse proxies
+description: Προσφέρετε το Antimatter σε δική σας δομή μέσω HTTPS, χρησιμοποιώντας το συνημμένο προφίλ Caddy ή δικό σας reverse proxy nginx, και ρυθμίστε σωστά τη διεύθυνση του χώρου και τις διευθύνσεις των πελατών.
+guide: admins
+order: 4
+nav: Δομή και HTTPS
+lead: Τοποθετήστε το Antimatter σε ένα όνομα δομής με HTTPS, χρησιμοποιώντας το προφίλ Caddy του αρχείου compose ή δικό σας reverse proxy, και ρυθμίστε σωστά τη διεύθυνση του χώρου και τις διευθύνσεις των πελατών.
+source: 69e8779d356e
+---
+<h2 id="site-url">Η διεύθυνση του χώρου</h2>
+<p>Η διεύθυνση του χώρου (<code>ServiceSettings.SiteURL</code>) είναι η διεύθυνση που χρησιμοποιούν οι χρήστες για να φτάσουν στο Antimatter, όπως το <code>https://chat.example.com</code>. Ο διακομιστής τη χρησιμοποιεί σε συνδέσμους σε ηλεκτρονικά μηνύματα και ειδοποιήσεις, σε ανακατευθύνσεις σύνδεσης (OAuth, OpenID Connect, SAML), για τις εφαρμογές κινητών και υπολογιστή, και για να ελέγχει από πού προέρχονται τα αιτήματα. Ρυθμίστε την ακριβώς όπως εμφανίζεται στη γραμμή διευθύνσεων του περιηγητή: σχήμα, δομή και θύρα (αν δεν είναι η προεπιλεγμένη), χωρίς τελικό πλάκα.</p>
+<ul>
+<li>Με το αρχείο compose του χώρου: <code>SITE_URL</code> στο <code>.env</code>.</li>
+<li>Αλλού: <code>AM_SERVICESETTINGS_SITEURL</code>, ή <b>Κονσόλα συστήματος › Περιβάλλον › Διακομιστής Ιστού › URL τοποθεσίας</b>.</li>
+</ul>
+<p>Αν η διεύθυνση του χώρου είναι λανθασμένη, η σύνδεση με πάροχο ταυτότητας αποτυγχάνει, οι σύνδεσμοι στα ηλεκτρονικά μηνύματα οδηγούν σε λάθος διεύθυνση και οι εφαρμογές ενδέχεται να μην μπορούν να συνδεθούν. Μετά από αλλαγή δομής, ενημερώστε τη διεύθυνση εδώ και στις διευθύνσεις ανακατεύθυνσης κάθε παρόχου ταυτότητας.</p>
+
+<h2 id="caddy">HTTPS με το συνημμένο προφίλ Caddy</h2>
+<p>Το <code>compose.yaml</code> του χώρου περιλαμβάνει μια υπηρεσία <a href="https://caddyserver.com">Caddy</a> στο προφίλ <code>https</code>. Λαμβάνει πιστοποιητικό από το Let's Encrypt, το ανανεώνει αυτόματα, ανακατευθύνει το HTTP στο HTTPS και προωθεί όλα, συμπεριλαμβανομένων των websockets, στο Antimatter.</p>
+<ol>
+<li>Κατευθύνετε ένα DNS εγγραφή (A, και AAAA για IPv6) της δομής σας στον διακομιστή.</li>
+<li>Ανοίξτε τις θύρες 80/tcp, 443/tcp και 443/udp (HTTP/3) στο firewall. Το Let's Encrypt πρέπει να μπορεί να φτάσει τη θύρα 80 ή 443 από το Διαδίκτυο.</li>
+<li>Προσθέστε τη δομή στο <code>.env</code> και ρυθμίστε τη διεύθυνση του χώρου:
+<pre><code>echo "DOMAIN=chat.example.com" &gt;&gt; .env
+sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env</code></pre></li>
+<li>Ξεκινήστε με το προφίλ:
+<pre><code>docker compose --profile https up -d</code></pre></li>
+</ol>
+<p>Προσθέστε <code>--profile https</code> σε κάθε επόμενο <code>docker compose up</code>, ή τοποθετήστε <code>COMPOSE_PROFILES=https</code> στο <code>.env</code> ώστε το απλό <code>docker compose up -d</code> να το συμπεριλαμβάνει. Το Caddy διατηρεί τα πιστοποιητικά του στον όγκο <code>https</code>.</p>
+<p>Η δική του θύρα του Antimatter παραμένει εκτεθειμένη στον host (<code>HTTP_PORT</code>, 8065 ως προεπιλογή). Με το Caddy μπροστά, κρατήστε τη μόνο για τον ίδιο τον διακομιστή:</p>
+<pre><code>echo "HTTP_PORT=127.0.0.1:8065" &gt;&gt; .env
+docker compose --profile https up -d</code></pre>
+<p>Το Caddy φτάνει το Antimatter μέσω του εσωτερικού δικτύου <code>edge</code>, όχι μέσω αυτής της θύρας, οπότε αυτό δεν αλλάζει τίποτα για τους χρήστες σας.</p>
+
+<h2 id="nginx">Με δικό σας reverse proxy (nginx)</h2>
+<p>Αν ο διακομιστής εκτελεί ήδη nginx ή κάποιο άλλο proxy, απενεργοποιήστε το προφίλ <code>https</code> και κατευθύνετε το proxy στην θύρα 8065 του Antimatter. Το proxy πρέπει:</p>
+<ul>
+<li>να επιτρέπει αναβαθμίσεις websocket (η web εφαρμογή και οι κινητές εφαρμογές διατηρούν ανοιχτό ένα websocket στο <code>/api/v4/websocket</code>, ενώ ορισμένες εφαρμογές ανοίγουν τα δικά τους);</li>
+<li>δεχτείτε σώματα αιτήσεων τουλάχιστον τόσο μεγάλα όσο το μεγαλύτερο ανέβασμα (<b>Μέγιστο μέγεθος αρχείου</b>, 100 MB από προεπιλογή);</li>
+<li>να διατηρεί ανοιχτές τις μακροχρόνιες συνδέσεις (websockets, μεγάλα ανέβασματα και λήψεις);</li>
+<li>να μεταδίδει την κεφαλίδα <code>Host</code> και τη διεύθυνση του πελάτη.</li>
+</ul>
+<p>Ένας πλήρης μπλοκ διακομιστή, προσαρμοσμένος από το πρότυπο παραγωγής στο antimatter-docker. Αντικαταστήστε το domain και τις διαδρομές των πιστοποιητικών:</p>
+<pre><code>upstream antimatter {
+    server 127.0.0.1:8065;
+    keepalive 64;
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+proxy_cache_path /var/cache/nginx/antimatter levels=1:2 keys_zone=antimatter_cache:10m
+                 max_size=3g inactive=120m use_temp_path=off;
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name chat.example.com;
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name chat.example.com;
+
+    ssl_certificate     /etc/ssl/chat.example.com/fullchain.pem;
+    ssl_certificate_key /etc/ssl/chat.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:AntimatterSSL:10m;
+    ssl_session_tickets off;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # At least FileSettings.MaxFileSize (100 MB by default).
+    client_max_body_size 100M;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade           $http_upgrade;
+    proxy_set_header Connection        $connection_upgrade;
+    proxy_buffers 256 16k;
+    proxy_buffer_size 16k;
+
+    location ~ ^/api/v[0-9]+/(users/)?websocket$ {
+        client_body_timeout 60s;
+        send_timeout 300s;
+        lingering_timeout 5s;
+        proxy_connect_timeout 90s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 90s;
+        proxy_pass http://antimatter;
+    }
+
+    location / {
+        proxy_read_timeout 600s;
+        proxy_cache antimatter_cache;
+        proxy_cache_revalidate on;
+        proxy_cache_min_uses 2;
+        proxy_cache_use_stale timeout;
+        proxy_cache_lock on;
+        proxy_pass http://antimatter;
+    }
+}</code></pre>
+<p>Ελέγξτε το αρχείο με <code>nginx -t</code> και εφαρμόστε το με <code>systemctl reload nginx</code>. Ο διακομιστής στέλνει από μόνος του τις κεφαλίδες <code>X-Content-Type-Options</code>, <code>Referrer-Policy</code>, <code>Permissions-Policy</code> και <code>X-Frame-Options</code>; μόνο το HSTS είναι αρμοδιότητα του proxy. Αυξήστε το <code>max-age</code> μόλις λειτουργήσει το HTTPS και προσθέστε <code>includeSubDomains</code> μόνο αν όλα τα υποdomain χρησιμοποιούν HTTPS.</p>
+<p>Με Docker Compose και nginx στον host, το <code>upstream</code> παραπάνω δείχνει στην δημοσιευμένη θύρα 8065. Δημοσιεύστε την μόνο στο <code>127.0.0.1</code> (<code>HTTP_PORT=127.0.0.1:8065</code>), ώστε κανείς να μην παρακάμπτει το proxy.</p>
+<p>Το αποθετήριο antimatter-docker περιλαμβάνει μια πλήρη ρύθμιση με nginx σε container και Let's Encrypt μέσω certbot, στο <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">deploy/compose</a>.</p>
+
+<h3>Άλλα proxy</h3>
+<p>Κάθε proxy λειτουργεί αρκεί να ικανοποιεί τα τέσσερα σημεία παραπάνω. Η ήχος και το βίντεο σε κλήσεις δεν περνούν ποτέ από το proxy: χρησιμοποιούν τη δική τους θύρα, δείτε <a href="{{root}}docs/admins/calls.html">Κλήσεις και φωνή</a>.</p>
+
+<h2 id="client-address">Διευθύνσεις πελατών πίσω από proxy</h2>
+<p>Πίσω από ένα proxy, κάθε αίτημα φαίνεται να προέρχεται από το proxy. Για να καταγράφετε την πραγματική διεύθυνση του πελάτη, να εφαρμόζετε περιορισμούς ρυθμού ανά πελάτη και να χρησιμοποιείτε φιλτράρισμα IP, πείτε στον διακομιστή ποια κεφαλίδα μεταφέρει τη διεύθυνση και ποια proxy μπορεί να εμπιστευτεί. Καμία από αυτές τις ρυθμίσεις δεν έχει πεδίο στην Κονσόλα συστήματος: ρυθμίστε τις στο <code>config.json</code> ή με μεταβλητές.</p>
+<table>
+<thead><tr><th>Κλειδί και μεταβλητή</th><th>Προεπιλογή</th><th>Λειτουργία</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.TrustedProxyIPHeader</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER</code></td><td>κενό: ο διακομιστής χρησιμοποιεί τη διεύθυνση της σύνδεσης</td><td>Οι κεφαλίδες που μεταφέρουν τη διεύθυνση του πελάτη, για παράδειγμα <code>X-Forwarded-For</code>. Χρησιμοποιείται η πρώτη που υπάρχει σε ένα αίτημα.</td></tr>
+<tr><td><code>ServiceSettings.TrustedProxyIPs</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code></td><td>κενό</td><td>Οι διευθύνσεις ή τα CIDR εύρη των proxy σας, για παράδειγμα <code>172.29.71.0/28</code>. Οι κεφαλίδες μετρούν μόνο για αιτήματα που προέρχονται από ένα από αυτά.</td></tr>
+</tbody>
+</table>
+<p>Σε μια μεταβλητή, διαχωρίστε πολλαπλές τιμές με κενά: <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>. Ο διακομιστής απορρίπτει μια ρύθμιση που περιέχει στο <code>TrustedProxyIPs</code> μια τιμή που δεν είναι ούτε διεύθυνση IP ούτε εύρος CIDR.</p>
+<h3>Πώς ο διακομιστής εντοπίζει τη διεύθυνση του πελάτη</h3>
+<p>Κάθε proxy προσθέτει τη διεύθυνση από την οποία έλαβε το αίτημα στο δεξί μέρος του <code>X-Forwarded-For</code>. Ό,τι έστειλε ο πελάτης στο ίδιο το header παραμένει στο αριστερό μέρος. Επομένως, ο διακομιστής διαβάζει το header από δεξιά προς τα αριστερά, παραλείπει τις διευθύνσεις των αξιόπιστων proxy και λαμβάνει την πρώτη διαφορετική διεύθυνση ως τη διεύθυνση του πελάτη. Ένας πελάτης δεν μπορεί να επιλέξει τη διεύθυνσή του στέλνοντας το δικό του header.</p>
+<ul>
+<li>Πίσω από ένα proxy, μόνο το <code>TrustedProxyIPHeader</code> δίνει τη σωστή διεύθυνση: ο διακομιστής λαμβάνει τη δεξιότερη διεύθυνση του header. Καταγράφει μια προειδοποίηση κατά την εκκίνηση μέχρι να ορίσετε και το <code>TrustedProxyIPs</code>. Χωρίς αυτό, οποιονδήποτε μπορεί να φτάσει απευθείας στην θύρα 8065 και να ορίσει το header, οπότε δημοσιεύστε αυτή τη θύρα μόνο στο <code>127.0.0.1</code> ή σε ένα ιδιωτικό δίκτυο.</li>
+<li>Πίσω από πολλά proxy, για παράδειγμα ένα CDN ή έναν load balancer μπροστά από το δικό σας proxy, καταγράψτε τα όλα στο <code>TrustedProxyIPs</code>. Αλλιώς, ο διακομιστής θα λάβει τη διεύθυνση του εξωτερικού proxy ως τη διεύθυνση του πελάτη.</li>
+<li>Το proxy μπορεί να αντικαταστήσει το header με τη διεύθυνση που βλέπει, όπως κάνει το παράδειγμα nginx παραπάνω (<code>X-Forwarded-For $remote_addr</code>), ή να προσθέσει σε αυτό (το <code>$proxy_add_x_forwarded_for</code> του nginx). Και οι δύο μέθοδοι λειτουργούν.</li>
+</ul>
+<h3>Ποιες διευθύνσεις να καταγράψετε</h3>
+<p>Καταγράψτε τη διεύθυνση από την οποία προέρχονται τα αιτήματα του proxy, όπως τη βλέπει το Antimatter.</p>
+<ul>
+<li>Με το αρχείο compose του site και το Caddy, αυτό έχει ήδη γίνει: το Caddy φτάνει στο Antimatter μέσω του δικτύου <code>edge</code>, και το αρχείο compose ορίζει το <code>TrustedProxyIPHeader</code> στο <code>X-Forwarded-For</code> και το <code>TrustedProxyIPs</code> στο εύρος αυτού του δικτύου, <code>EDGE_SUBNET</code> (<code>172.29.71.0/28</code>, εκτός αν το αλλάξετε στο <code>.env</code>). Αλλάξτε το <code>EDGE_SUBNET</code> αν επικαλύπτεται με ένα από τα δίκτυά σας.</li>
+<li>Η παραγωγική ρύθμιση στο antimatter-docker κάνει το ίδιο για το container nginx, χρησιμοποιώντας το <code>FRONTEND_SUBNET</code>.</li>
+<li>Με nginx στον host και Antimatter σε Docker, τα αιτήματα φτάνουν στο Antimatter μέσω της δημοσιευμένης θύρας, συνήθως από τη διεύθυνση gateway του δικτύου του έργου compose (το <code>docker network inspect</code> τη δείχνει). Ορίστε το <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code> σε αυτή τη διεύθυνση στο <code>compose.override.yaml</code>.</li>
+<li>Χωρίς Docker, με nginx στον ίδιο υπολογιστή, είναι <code>127.0.0.1</code> (και <code>::1</code> αν ο nginx συνδέεται μέσω IPv6).</li>
+</ul>
+
+<h2 id="builtin-tls">TLS χωρίς proxy</h2>
+<p>Ο διακομιστής μπορεί επίσης να παρέχει HTTPS μόνος του, στη <b>Κονσόλα συστήματος › Περιβάλλον › Διακομιστής Ιστού</b>: <b>Ασφάλεια σύνδεσης</b> ρυθμισμένη σε TLS (<code>ServiceSettings.ConnectionSecurity</code>), με <b>Αρχείο πιστοποιητικού TLS</b> και <b>Αρχείο ιδιωτικού κλειδιού TLS</b> (<code>ServiceSettings.TLSCertFile</code>, <code>ServiceSettings.TLSKeyFile</code>), ή <b>Χρήση Let's Encrypt</b> (<code>ServiceSettings.UseLetsEncrypt</code>). Τότε ο διακομιστής πρέπει να ακούει στην θύρα 443 (<b>Διεύθυνση ακρόασης</b>, <code>ServiceSettings.ListenAddress</code>, <code>:8065</code> από προεπιλογή) και το <code>ServiceSettings.Forward80To443</code> να ανακατευθύνει την θύρα 80. Ένας reverse proxy είναι ευκολότερος στη λειτουργία και την ανανέωση, και είναι αυτό που υποθέτει ο παρών οδηγός.</p>
+
+<h2 id="timeouts">Χρονόρια διακομιστή και μέγεθος αιτήματος</h2>
+<p>Ρυθμίσεις του δικού του διακομιστή Ιστού, στο <b>Κονσόλα συστήματος › Περιβάλλον › Διακομιστής Ιστού</b>:</p>
+<table>
+<thead><tr><th>Ρύθμιση</th><th>Κλειδί</th><th>Προεπιλογή</th></tr></thead>
+<tbody>
+<tr><td><b>Διεύθυνση ακρόασης</b></td><td><code>ServiceSettings.ListenAddress</code></td><td><code>:8065</code></td></tr>
+<tr><td><b>Χρονικό όριο ανάγνωσης</b></td><td><code>ServiceSettings.ReadTimeout</code></td><td>300 δευτερόλεπτα</td></tr>
+<tr><td><b>Χρονικό όριο εγγραφής</b></td><td><code>ServiceSettings.WriteTimeout</code></td><td>300 δευτερόλεπτα</td></tr>
+<tr><td>Χρονόριο αδράνειας (χωρίς πεδίο στην Κονσόλα συστήματος)</td><td><code>ServiceSettings.IdleTimeout</code></td><td>60 δευτερόλεπτα</td></tr>
+<tr><td><b>Μέγιστο μέγεθος φορτίου (bytes)</b></td><td><code>ServiceSettings.MaximumPayloadSizeBytes</code></td><td>βλ. <a href="{{root}}docs/admins/security.html">Ασφάλεια</a></td></tr>
+</tbody>
+</table>
+<p>Κρατήστε τα χρονόρια του ίδιου του proxy τουλάχιστον τόσο μεγάλα όσο αυτά για τα κανονικά αιτήματα, και το μέγεθος σώματος τουλάχιστον <b>Μέγιστο μέγεθος αρχείου</b>.</p>

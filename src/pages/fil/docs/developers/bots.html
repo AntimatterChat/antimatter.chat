@@ -1,0 +1,172 @@
+title: Mga bot at interaktibong mensahe
+description: Mga bot account sa Antimatter: paglikha nito, mga token at pahintulot, pag-post bilang bot, mga Direct Message, interaktibong pindutan at menu, at mga dialog.
+guide: developers
+order: 5
+nav: Mga bot
+lead: Ang bot account ay isang user na ginawa para sa isang program. May sarili nitong pangalan, larawan, at tokens, at may BOT tag na nakalagay sa tabi ng pangalan nito. Tinatalakay din ng pahinang ito ang mga interaktibong bahagi ng mga mensahe: mga button, menu, at dialog, na maaaring gamitin ng anumang integration.
+source: 45503666f647
+---
+<h2 id="why">Bakit kailangan ng bot account</h2>
+<ul>
+<li>Ang mga mensahe nito ay mula sa malinaw na identidad, na may <b>BOT</b> tag, sa halip na mula sa account ng isang kapwa-kaibigan.</li>
+<li>Ang mga token nito ay patuloy na gagana kahit magbago ng role o umalis ang taong nag-set nito (maliban kung na-disable ng server ang mga bot ng mga na-deactivate na owner, tingnan sa ibaba).</li>
+<li>Hindi makapag-sign in ang mga bot gamit ang password, at hindi nila nakikita ang web app.</li>
+</ul>
+<p>Ang mga app ay lumilikha ng sarili nilang bot, tulad ng mga bot ng Todo o Playbooks, gamit ang plugin API (<code>EnsureBotUser</code>).</p>
+
+<h2 id="enable">Pahintulutan ang paggawa ng bot account</h2>
+<p>I-on ng isang system admin ang <b>Pahintulutan ang paggawa ng Bot Account</b> sa <b>System Console › Mga Integration › Mga bot account</b> (<code>ServiceSettings.EnableBotAccountCreation</code>, <code>AM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION</code>). Ito ay off sa default. Ang mga system admin lamang ang makakagawa ng bot, maliban kung ibibigay nila ang karapatan sa ibang role sa mga setting ng pahintulot.</p>
+<p>Sa parehong pahina, ang <b>I-disable ang mga bot account kapag na-deactivate ang owner</b> (<code>ServiceSettings.DisableBotsWhenOwnerIsDeactivated</code>, on sa default) ay nagpapahina ng bot kapag na-deactivate ang account ng owner nito.</p>
+
+<h2 id="create">Lumikha ng bot</h2>
+<ol>
+<li>Buksan ang avatar sa itaas na kanan, tapos <b>Mga Integration › Mga bot account</b>, tapos <b>Magdagdag ng Bot Account</b>.</li>
+<li>Ilagay ang <b>Username</b> (mga malaking titik, numero, tuldok, dash, at underscore), at opsyonal na <b>Bot Icon</b>, <b>Display Name</b>, at <b>Paglalarawan</b>.</li>
+<li>Piliin ang <b>Role</b>: <b>Miyembro</b>, o <b>System Admin</b> para sa bot na pamamahala sa server. Bigyan ang bot ng pinakamaliit na karapatan na kailangan lamang.</li>
+<li>Tikman ang <b>post:channels</b> para payagan itong mag-post sa bawat pampublikong channel, o <b>post:all</b> para sa lahat ng channel, kabilang ang mga pribadong channel at Direct Message, nang hindi miyembro.</li>
+<li>Itakda kailan mag-expire ang default token nito, tapos piliin ang <b>Lumikha ng Bot Account</b>.</li>
+<li>Kopyahin ang access token na ipinapakita. Hindi na ito ipapakita ulit.</li>
+</ol>
+<p>Hindi na, ang <b>Lumikha ng Bagong Token</b> sa hanay ng bot ay nagdadagdag ng token, at bawat token ay maaaring i-disable o burahin. Ang mga bot token ay gagana kahit na-off ang mga personal access token para sa mga tao.</p>
+<p>Gamit ang API:</p>
+<pre><code># create the bot (you become its owner)
+curl -X POST https://chat.example.com/api/v4/bots \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username": "deploy-bot", "display_name": "Deploy", "description": "Posts deployments"}'
+
+# give it a token
+curl -X POST https://chat.example.com/api/v4/users/$BOT_USER_ID/tokens \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"description": "deploy pipeline"}'</code></pre>
+<p>Mula sa command line, na naka-sign in bilang admin (hindi nasa local mode): <code>amctl bot create deploy-bot --display-name Deploy --with-token --expires-in 90d</code>. Iba pang endpoints: <code>GET /api/v4/bots</code>, <code>PUT /api/v4/bots/{bot_user_id}</code>, <code>POST /api/v4/bots/{bot_user_id}/disable</code> at <code>/enable</code>, <code>POST /api/v4/bots/{bot_user_id}/assign/{user_id}</code> upang palitan ang kanyang owner.</p>
+
+<h2 id="membership">Idagdag ang bot sa mga community at channel</h2>
+<p>Ang bagong bot ay hindi naka-join sa anumang community. Idagdag ito gaya ng tao, mula sa member management ng community o gamit ang API:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/teams/$TEAM_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"team_id": "'$TEAM_ID'", "user_id": "'$BOT_USER_ID'"}'
+
+curl -X POST https://chat.example.com/api/v4/channels/$CHANNEL_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"user_id": "'$BOT_USER_ID'"}'</code></pre>
+<p>Ang bot na may <b>post:channels</b> o <b>post:all</b> ay maaaring mag-post nang hindi miyembro, ngunit tinatanggap lamang nito ang mga WebSocket event para sa mga channel na kabilang dito.</p>
+
+<h2 id="post">Mag-post bilang bot</h2>
+<p>Gumamit ng token ng bot sa anumang API call; ang <code>POST /api/v4/posts</code> ang pinakakaraniwan (tingnan ang <a href="{{root}}docs/developers/api.html#resources">Mga pangunahing resource</a>). Para sumulat direkta sa isang tao, buksan muna ang direct message channel:</p>
+<pre><code># returns the channel; use its "id" as channel_id
+curl -X POST https://chat.example.com/api/v4/channels/direct \
+  -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' \
+  -d '["'$BOT_USER_ID'", "'$USER_ID'"]'</code></pre>
+<p>Para mag-react sa sinasabi ng mga tao, sundan ang <a href="{{root}}docs/developers/api.html#websocket">WebSocket</a> gamit ang token ng bot at sagutin ang mga <code>posted</code> event na interesado ka. Huwag pansinin ang mga mensahe ng sarili ng bot upang maiwasan ang loop.</p>
+<p>Ang mensahe na nakikita lamang ng isang tao (ephemeral message) ay ipinapadala gamit ang <code>POST /api/v4/posts/ephemeral</code> at <code>{"user_id", "post": {"channel_id", "message"}}</code>. Kailangan nito ng <code>create_post_ephemeral</code> permission, na mayroon lamang ang mga system admin sa default. Karaniwang ipinapadala ng mga integrations ang mga ephemeral message bilang sagot sa mga slash command at buttons.</p>
+
+<h2 id="interactive">Mga interactive na mensahe: buttons at menus</h2>
+<p>Ang anumang mensahe na may attachments ay maaaring magdala ng mga aksyon: buttons, at menus para pumili. Gumagana ito sa mga mensahe na ipinost gamit ang API, webhooks, at mga sagot ng slash command. Kapag gumamit ng isang tao, tinatawag ng Antimatter ang URL ng iyong integration.</p>
+<pre><code>{
+  "channel_id": "…",
+  "message": "Deploy **api 2.4.0** to production?",
+  "props": {
+    "attachments": [{
+      "actions": [
+        {
+          "id": "approve",
+          "type": "button",
+          "name": "Approve",
+          "style": "primary",
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "approve"}}
+        },
+        {
+          "id": "env",
+          "type": "select",
+          "name": "Pick an environment",
+          "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}],
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "env"}}
+        }
+      ]
+    }]
+  }
+}</code></pre>
+<ul>
+<li><code>type</code>: <code>button</code> o <code>select</code>.</li>
+<li><code>id</code>: mga letra, numero, dashes, at underscores, magkaiba para sa bawat aksyon ng mensahe. Ito ay ginagawa kapag hindi mo ito ilagay.</li>
+<li><code>style</code> (buttons): <code>default</code>, <code>primary</code>, <code>success</code>, <code>good</code>, <code>warning</code>, <code>danger</code>, o isang hex colour.</li>
+<li><code>options</code> (menus), o <code>data_source</code>: <code>users</code> o <code>channels</code> upang pumili ng tao o channel. Ang <code>default_option</code> ay nagpili na ng isang value.</li>
+<li><code>integration.url</code>: kung saan ipinapadala ang click. Maaaring gamitin ng isang app (plugin) ang sarili nitong route, tulad ng <code>/plugins/com.example.deploy/actions</code>. Ang <code>integration.context</code> ay para sa iyo: bumabalik ito kasama ang click, at hindi nakikita ng mga client.</li>
+</ul>
+<h3>Ang request na tinatanggap ng iyong integration</h3>
+<pre><code>{
+  "user_id": "…",
+  "user_name": "priya",
+  "channel_id": "…",
+  "channel_name": "releases",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "post_id": "…",
+  "trigger_id": "…",
+  "type": "button",
+  "context": {"release": "2.4.0", "action": "approve"}
+}</code></pre>
+<p>Para sa menu, ang <code>type</code> ay <code>select</code> at ang <code>context.selected_option</code> ang naglalaman ng napiling halaga.</p>
+<h3>Ang iyong sagot</h3>
+<pre><code>{
+  "update": {"message": "Deploy of **api 2.4.0** approved by @priya", "props": {}},
+  "ephemeral_text": "Done. The deploy starts in a minute."
+}</code></pre>
+<ul>
+<li><code>update</code>: pinapalit ang teksto at mga katangian ng mensahe, halimbawa upang alisin ang mga pindutan pagkatapos gamitin (isang walang laman na <code>props</code>).</li>
+<li><code>ephemeral_text</code>: isang mensahe na nakikita lamang ng taong nag-click.</li>
+<li><code>goto_location</code>: isang URL na buksan.</li>
+<li>Ang walang laman na body ay hindi nagbabago ng anumang bagay.</li>
+</ul>
+<p>Naghihintay ang server hangga't pinapayagan ng <b>Integration request timeout</b> (30 segundo ang default). Ang mga integration URL sa mga private network address ay dapat payagan ng isang system admin, katulad ng webhooks.</p>
+
+<h2 id="dialogs">Mga Dialog</h2>
+<p>Ang dialog ay isang form na bumubukas sa itaas ng chat. Maaari itong buksan lamang bilang sagot sa bagong ginawa ng tao, tulad ng slash command o pindutan, dahil nangangailangan ito ng <code>trigger_id</code> ng request na iyon. Ang <code>trigger_id</code> ay bida hangga't ang integration request timeout.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/actions/dialogs/open \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "trigger_id": "'$TRIGGER_ID'",
+    "url": "https://deploy.example.com/dialog",
+    "dialog": {
+      "callback_id": "new-release",
+      "title": "New release",
+      "introduction_text": "Fill in the release details.",
+      "submit_label": "Create",
+      "notify_on_cancel": false,
+      "state": "anything you want back",
+      "elements": [
+        {"display_name": "Version", "name": "version", "type": "text", "placeholder": "2.4.0"},
+        {"display_name": "Notes", "name": "notes", "type": "textarea", "optional": true},
+        {"display_name": "Environment", "name": "env", "type": "select",
+         "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}]},
+        {"display_name": "Owner", "name": "owner", "type": "select", "data_source": "users"},
+        {"display_name": "Notify the channel", "name": "notify", "type": "bool", "default": "true"}
+      ]
+    }
+  }'</code></pre>
+<table>
+<thead><tr><th>Uri ng element</th><th>Ang ipapakita nito</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>Isang field na isang linya. <code>subtype</code>: <code>text</code>, <code>email</code>, <code>number</code>, <code>password</code>, <code>tel</code> o <code>url</code>. Pinupuntahan nito ng <code>min_length</code> at <code>max_length</code>.</td></tr>
+<tr><td><code>textarea</code></td><td>Isang field na maraming linya.</td></tr>
+<tr><td><code>select</code></td><td>Isang listahan: <code>options</code>, o <code>data_source</code> na <code>users</code>, <code>channels</code>, o <code>dynamic</code> na may <code>data_source_url</code>. Ang <code>multiselect</code> ay nagpapahintulot ng maraming halaga.</td></tr>
+<tr><td><code>bool</code></td><td>Isang checkbox.</td></tr>
+<tr><td><code>radio</code></td><td>Isang pagpipilian mula sa <code>options</code>.</td></tr>
+<tr><td><code>date</code>, <code>datetime</code></td><td>Isang petsa, o isang petsa at oras.</td></tr>
+</tbody>
+</table>
+<p>Ang bawat element ay tumatanggap ng <code>display_name</code>, <code>name</code>, <code>help_text</code>, <code>placeholder</code>, <code>default</code> at <code>optional</code>.</p>
+<p>Kapag ipinasa ng tao, ipinapadala ng Antimatter ang POST sa <code>url</code> ng dialog:</p>
+<pre><code>{
+  "type": "dialog_submission",
+  "callback_id": "new-release",
+  "state": "anything you want back",
+  "user_id": "…",
+  "channel_id": "…",
+  "team_id": "…",
+  "submission": {"version": "2.4.0", "notes": "", "env": "staging", "owner": "…", "notify": true},
+  "cancelled": false
+}</code></pre>
+<p>Sagutin gamit ang walang laman na body upang isara ang dialog, o ituloy ang pagbukas nito at ipakita kung ano ang mali:</p>
+<pre><code>{"errors": {"version": "This version already exists."}}</code></pre>
+<p>Ang <code>{"error": "…"}</code> ay nagpapakita ng mensahe para sa buong form. Kasama ang <code>notify_on_cancel</code>, ang pagsara ng dialog ay nagpapadala ng <code>"cancelled": true</code>. Gumagana nang parehong paraan ang mga dialog sa mga app: ang <code>OpenInteractiveDialog</code> ng plugin API ay tumatanggap ng parehong request.</p>

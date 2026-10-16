@@ -1,0 +1,170 @@
+title: Webhookok
+description: Az Antimatter bejövő és kimenő webhookjai: létrehozásuk, terhelésük és válaszai, üzenet-csatolmányok és kártyák, név és ikon felülírása, példákkal.
+guide: developers
+order: 3
+nav: Webhookok
+lead: A bejövő webhook lehetővé teszi, hogy egy másik rendszer JSON-t küldjön egy titkos URL-re, és így üzenetet küldjön egy csatornába. A kimenő webhook a fordítottját csinálja: azokat az üzeneteket küldi a te URL-edre, amelyek egy kiváltó szóval kezdődnek, és a te válaszodat posztolja.
+source: ecd698619944
+---
+<h2 id="where">A webhookok kezelése</h2>
+<p>Nyisd meg az avatart a jobb felső sarokban, majd válaszd az <b>Integrációk</b> menüpontot. A jelenlegi közösség integrációs oldalaiban találod a <b>Bejövő webhookok</b> és a <b>Kimenő webhookok</b> listát. Minden webhook egyetlen közösséghez tartozik.</p>
+<p>Alapértelmezés szerint a közösségi adminisztrátorok és a rendszeradminisztrátorok hozhatnak létre webhorgokat. A rendszeradminisztrátor a Rendszerkonzol jogosultság-beállításai segítségével más szerepköröknek is adhat ehhez jogosultságot. A rendszeradminisztrátor a <b>Rendszerkonzol › Integrációk › Integrációkezelés</b> menüpontban kikapcsolhatja a webhorgok egyes típusait is: a <b>Bejövő webhorgok engedélyezése</b> és a <b>Kimenő webhorgok engedélyezése</b> beállítások alapértelmezés szerint be vannak kapcsolva.</p>
+<figure><img src="{{root}}assets/img/shots/integrations.webp" alt="A channel with messages from a CI bot and from GitHub, shown as cards with fields, pipeline stages and a button"><figcaption>Integrációs üzenetek kártyaként: mezők, csőszakaszok és egy műveletgomb.</figcaption></figure>
+
+<h2 id="incoming">Bejövő webhook létrehozása</h2>
+<ol>
+<li>Az <b>Integrációk</b> menüben válaszd a <b>Bejövő webhookok</b> lehetőséget, majd kattints az <b>Bejövő webhook hozzáadása</b> gombra.</li>
+<li>Töltsd ki a <b>Cím</b> és a <b>Leírás</b> mezőket: ezek csak az integrációs oldalakon jelennek meg.</li>
+<li>Válaszd ki azt a <b>Csatornát</b>, ahová az üzenetek alapértelmezés szerint kerülnek. Privát csatorna esetén annak tagjának kell lenned.</li>
+<li>Jelöld be a <b>Hozzákötés ehhez a csatornához</b> opciót, ha a küldők nem más csatornába is posztolhatnak.</li>
+<li>Opcionálisan állíts be egy <b>Felhasználónév</b>et és egy <b>Profilkép</b> URL-t az üzeneteihez (lásd: <a href="#identity">Név és ikon</a>).</li>
+<li>Válaszd a <b>Mentés</b> lehetőséget. Másold ki a megjelenített URL-t: <code>https://chat.example.com/hooks/&lt;key&gt;</code>.</li>
+</ol>
+<div class="callout warn">Az URL az egyetlen titok: bárki, aki birtokolja, posztolhat a csatornába. Ne tedd közzé nyilvános tárhelyeken, és töröld a webhookot, ha kiszivárog.</div>
+<p>API-val: <code>POST /api/v4/hooks/incoming</code> a következő testtel: <code>{"channel_id", "display_name", "description", "username", "icon_url", "channel_locked"}</code>; a válasz <code>id</code> mezője a kulcs. Parancssorból: <code>amctl webhook create-incoming --channel &lt;channel id&gt; --user &lt;user&gt; --display-name "CI"</code>.</p>
+
+<h2 id="incoming-send">Üzenet küldése egy bejövő webhookba</h2>
+<pre><code>curl -X POST https://chat.example.com/hooks/xgh5ycrx1jf7mbs9w8z4c8e7ho \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Deploy of **api 2.4.0** finished :white_check_mark:"}'</code></pre>
+<p>A szerver <code>200</code> státusszal és <code>ok</code> testtel válaszol. Elfogadja az <code>application/x-www-form-urlencoded</code> formátumot is, ahol a JSON egy <code>payload</code> mezőben van, ahogy a Slack webhookjai is teszik, így a Slackhoz készült eszközök általában változtatás nélkül működnek.</p>
+<table>
+<thead><tr><th>Mező</th><th>Jelentés</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>A Markdown formátumú üzenet. Kötelező, hacsak nincs <code>attachments</code>. A szerver üzenethossz-limite meghaladó szöveg több üzenetre bontva kerül elküldésre.</td></tr>
+<tr><td><code>channel</code></td><td>A webhook közösségének másik csatornája név szerint (<code>ops-alerts</code> vagy <code>#ops-alerts</code>), vagy <code>@username</code> a webhook tulajdonosától érkező közvetlen üzenethez. Ha a webhook a saját csatornájához van rögzítve, ez elutasításra kerül.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code>, <code>icon_emoji</code></td><td>A megjelenítendő név és kép, amennyiben a szerver engedi a felülírásokat.</td></tr>
+<tr><td><code>attachments</code></td><td>Üzenet-csatolmányok, kártyaként megjelenítve (lent).</td></tr>
+<tr><td><code>props</code></td><td>Az üzenethez tárolt további tulajdonságok, amelyeket az alkalmazások olvasnak.</td></tr>
+<tr><td><code>type</code></td><td>Egyéni bejegyzéstípus, például <code>custom_poll</code>, amelyet egy alkalmazás jelenít meg. A <code>system_</code> előtagú típusok elutasításra kerülnek.</td></tr>
+<tr><td><code>root_id</code></td><td>Egy üzenetszál első üzenetének azonosítója, ahhoz, hogy abban a szálban válaszoljunk.</td></tr>
+<tr><td><code>priority</code></td><td>Üzenet-prioritás, például <code>{"priority": "urgent"}</code>.</td></tr>
+<tr><td><code>silent</code></td><td>A <code>true</code> értékkel az üzenet push-értesítés nélkül kerül elküldésre.</td></tr>
+</tbody>
+</table>
+<p>A felülírt névvel megjelenített üzenetek mellett <b>BOT</b> jelzés látható, így megkülönböztethetők a valódi fiókoktól. A webhook-üzenetek soha nem indítanak kimenő webhookokat.</p>
+
+<h2 id="identity">Név és ikon</h2>
+<p>A webhook a létrehozója nevében publikál, hacsak a szerver nem engedi a felülírásokat. Két beállítás a <b>Rendszerkonzol › Integrációk › Integrációkezelés</b> menüpontban, mindkettő alapértelmezetten kikapcsolva, ezt módosítja:</p>
+<ul>
+<li><b>Engedélyezze az integrációkat a felhasználónevek felülírására</b> (<code>ServiceSettings.EnablePostUsernameOverride</code>): a webhook <b>Felhasználónév</b> vagy a kérés <code>username</code> értéke jelenik meg; ha egyik sem van megadva, a név <code>webhook</code>.</li>
+<li><b>Integrációk engedélyezése profilképek felülírásához</b> (<code>ServiceSettings.EnablePostIconOverride</code>): a webhook <b>Profilkép</b>-e, vagy a kérés <code>icon_url</code> vagy <code>icon_emoji</code> értéke jelenik meg.</li>
+</ul>
+<p>A kérésben megadott érték felülírja a webhookon tárolt értéket.</p>
+
+<h2 id="attachments">Csatolmányok</h2>
+<p>A csatolmányok strukturált tartalmat adnak a szöveg alá. A Slack üzenet-csatolmány-formátumát követik:</p>
+<pre><code>{
+  "text": "Build failed on `main`",
+  "attachments": [{
+    "fallback": "main #1902 failed",
+    "color": "#d24b4e",
+    "author_name": "GitHub Actions",
+    "author_icon": "https://chat.example.com/static/ci.png",
+    "title": "main #1902 failed",
+    "title_link": "https://ci.example.com/runs/1902",
+    "text": "Commit `0f4d8e2` by Jonas Weber",
+    "fields": [
+      {"title": "Branch", "value": "zephyr-3.7", "short": true},
+      {"title": "Duration", "value": "3m 40s", "short": true}
+    ],
+    "footer": "Lumen CI",
+    "ts": 1760000000
+  }]
+}</code></pre>
+<table>
+<thead><tr><th>Mező</th><th>Jelentés</th></tr></thead>
+<tbody>
+<tr><td><code>fallback</code></td><td>Egyszerű szöveg azokhoz a helyekhez, ahol a kártya nem jeleníthető meg, például az értesítésekhez.</td></tr>
+<tr><td><code>color</code></td><td>A színjelző sáv: hexadecimális szín, vagy <code>good</code>, <code>warning</code>, <code>danger</code>.</td></tr>
+<tr><td><code>pretext</code></td><td>Szöveg a kártya felett.</td></tr>
+<tr><td><code>author_name</code>, <code>author_link</code>, <code>author_icon</code></td><td>Egy kis fejléc-sor.</td></tr>
+<tr><td><code>title</code>, <code>title_link</code></td><td>A kártya címe, opcionálisan hivatkozásként.</td></tr>
+<tr><td><code>text</code></td><td>A kártya törzse, Markdown formátumban.</td></tr>
+<tr><td><code>fields</code></td><td>Egy <code>{"title", "value", "short"}</code> listát; a <code>short</code> mezők egymás mellett jelennek meg.</td></tr>
+<tr><td><code>image_url</code>, <code>thumb_url</code></td><td>Egy nagy kép alul, vagy egy kicsi a szélén.</td></tr>
+<tr><td><code>footer</code>, <code>footer_icon</code>, <code>ts</code></td><td>Lábléc-sor és idő (Unix másodpercekben).</td></tr>
+<tr><td><code>actions</code></td><td>Gombok és menük: lásd <a href="{{root}}docs/developers/bots.html#interactive">Interaktív üzenetek</a>.</td></tr>
+</tbody>
+</table>
+
+<h2 id="cards">Kártyák: fázisok és diagramok</h2>
+<p>Az Antimatter két mezőt ad hozzá a csatolmányokhoz, amelyeket az alapértelmezett felület megjelenít:</p>
+<ul>
+<li><code>stages</code>: egy pipeline lépései pill formában, legfeljebb 20 darab. Mindegyik <code>{"name", "status"}</code> formátumú, ahol a statusz értéke <code>passed</code>, <code>failed</code>, <code>running</code>, <code>pending</code>, <code>skipped</code> vagy <code>canceled</code> lehet.</li>
+<li><code>chart</code>: a közelmúlti értékeket ábrázoló kis vonaldiagram, <code>{"values": [2 to 200 numbers], "threshold": number, "label": "…"}</code>. A küszöbérték szaggatott vonalként jelenik meg, az riasztás határértékét jelölve.</li>
+</ul>
+<pre><code>{
+  "attachments": [{
+    "color": "danger",
+    "title": "main #1902 failed",
+    "stages": [
+      {"name": "build", "status": "failed"},
+      {"name": "unit", "status": "skipped"},
+      {"name": "publish", "status": "skipped"}
+    ]
+  }, {
+    "color": "warning",
+    "title": "API latency above 400 ms",
+    "chart": {"values": [210, 230, 260, 390, 450, 470], "threshold": 400, "label": "p95 latency, ms"}
+  }]
+}</code></pre>
+<p>A klasszikus felület és a többi kliens figyelmen kívül hagyja ezeket a két mezőt, ezért a lényeget a <code>text</code> vagy <code>fields</code> mezőbe is érdemes felvenni.</p>
+
+<h2 id="outgoing">Kimenő webhook létrehozása</h2>
+<p>A kimenő webhook figyel a közösség <b>Nyilvános</b> csatornáira. Amikor egy üzenet első szava megegyezik a webhook egyik kiváltószavával, az Antimatter elküldi az üzenetet a megadott URL-címre.</p>
+<ol>
+<li>Az <b>Integrációk</b> menüben válassza a <b>Kimenő webhookok</b> lehetőséget, majd kattintson a <b>Kimenő webhook hozzáadása</b> gombra.</li>
+<li>Töltsd ki a <b>Cím</b> és a <b>Leírás</b> mezőket.</li>
+<li>Válaszd ki a kérés <b>Tartalomtípusát</b>: <code>application/x-www-form-urlencoded</code> vagy <code>application/json</code>.</li>
+<li>Válassz egy <b>Csatorna</b>t, adj meg <b>Kulcsszavak (soronként egy)</b>-t, vagy mindkettőt. Ha csak csatornát adsz meg kulcsszavak nélkül, a csatorna minden üzenete elküldésre kerül. Ha mindkettőt megadod, az üzenetnek mindkettőnek meg kell felelnie.</li>
+<li>Az <b>Aktiválás amikor</b> alatt válaszd az <b>Az első szó pontosan megfelel egy kulcsszónak</b> vagy az <b>Az első szó egy kulcsszóval kezdődik</b> lehetőséget.</li>
+<li>Addja meg a <b>Visszahívás URL-ek (Soronként egy)</b> mezőt. Minden URL-t minden egyező üzenet eléri.</li>
+<li>Opcionálisan állítsa be a <b>Felhasználónév</b> és a <b>Profilkép</b> értékeket, amelyeket a válaszokhoz használni fog.</li>
+<li>Válaszd a <b>Mentés</b> lehetőséget, és másold ki a megjelenített tokent. A szolgáltatásod ezt használja annak ellenőrzésére, hogy a kérések a szerveredtől származnak.</li>
+</ol>
+<p>API-val: <code>POST /api/v4/hooks/outgoing</code> kérés, <code>{"team_id", "channel_id", "trigger_words", "trigger_when", "callback_urls", "content_type", "display_name"}</code> testtel (<code>trigger_when</code>: 0 pontos egyezéshez, 1 „kezdődik” egyezéshez).</p>
+<div class="callout">Ha a szolgáltatásod privát hálózaton fut, egy rendszeradminisztrátornak engedélyeznie kell a címét a <b>Nem megbízható belső kapcsolatok engedélyezése ide</b> beállításban (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>). Ellenkező esetben a szerver nem hívja meg a privát címeket.</div>
+
+<h2 id="outgoing-request">A kimenő kérés</h2>
+<p>Az Antimatter POST kérést küld az alábbi mezőkkel, JSON vagy form-encoded formátumban a tartalomtípus függvényében:</p>
+<pre><code>{
+  "token": "6kd1ofo5ojr5zgu5ipfipybgnc",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "channel_id": "…",
+  "channel_name": "ops-alerts",
+  "timestamp": 1760010000000,
+  "user_id": "…",
+  "user_name": "priya",
+  "post_id": "…",
+  "text": "deploy api 2.4.0",
+  "trigger_word": "deploy",
+  "file_ids": ""
+}</code></pre>
+<p>Minden más előtt hasonlítsd össze a <code>token</code> értékét a webhook tokenjével. A form-encoded verzióban a <code>timestamp</code> másodpercben, nem milliszekundumban van megadva. A szerver addig vár a válaszodra, amíg a <b>Integrációs kérés időtúllépési határa</b> beállítás megengedi (alapértelmezés szerint 30 másodperc, <code>ServiceSettings.OutgoingIntegrationRequestsTimeout</code>).</p>
+
+<h2 id="outgoing-response">Válasz küldése egy kimenő webhookra</h2>
+<p>Válasz küldéséhez JSON formátumban kell válaszolni. Ha nem szeretnél semmit sem küldeni, üres testtel válaszolj.</p>
+<pre><code>{
+  "text": "Deploying **api 2.4.0** to staging…",
+  "response_type": "comment",
+  "username": "deploy-bot",
+  "icon_url": "https://chat.example.com/static/deploy.png"
+}</code></pre>
+<ul>
+<li><code>text</code> és <code>attachments</code>: a válasz tartalma. Ha egyik sem van meg, nem kerül semmi publikálásra.</li>
+<li><code>response_type</code>: a <code>comment</code> értékkel a válasz a kiváltó üzenet üzenetszálába kerül; más esetben a csatornába.</li>
+<li><code>username</code>, <code>icon_url</code>: akkor jelennek meg, ha a szerver engedélyezi a felülírásokat; különben a webhook saját értékei kerülnek használatba.</li>
+<li><code>props</code>, <code>type</code>, <code>priority</code>: ugyanazok, mint a bejövő webhookoknál.</li>
+</ul>
+<p>A válasz a webhook létrehozójaként kerül publikálásra, a felülírt névvel, ha van ilyen. Ha a válasz hosszabb, mint egy rövid megjegyzés, azonnal küldd el, majd később publikáld bejövő webhookkal vagy az API-val.</p>
+
+<h2 id="troubleshooting">Ha egy webhook nem működik</h2>
+<ul>
+<li><b>501 hiba a webhook URL-jéből</b>: a bejövő webhookok kikapcsolva vannak a szerveren.</li>
+<li><b>400 "Failed to decode the payload…"</b>: a JSON érvénytelen, vagy a form mező neve nem <code>payload</code>. A <b>"No text specified."</b> hibaüzenet azt jelenti, hogy a kérésben nincs <code>text</code> és <code>attachments</code> mező sem.</li>
+<li><b>403</b>: a webhook egy másik csatornára van rögzítve, vagy a tulajdonosa már nem olvashatja a csatornát.</li>
+<li><b>Egy kimenő webhook soha nem indul el</b>: a csatorna privát, a kiváltó szó nem az első szó, vagy az üzenet egy webhooktól származott.</li>
+<li><b>Naplók</b>: ha bekapcsolod a <b>Webhook hibakeresés engedélyezése</b> beállítást (<code>LogSettings.EnableWebhookDebugging</code>), és a naplószintet <code>DEBUG</code>-ra állítod, a szerver naplózza a sikertelen bejövő kérések terhelését. A sikertelen kimenő hívások <code>Outgoing Webhook POST failed</code> néven kerülnek naplóba.</li>
+</ul>

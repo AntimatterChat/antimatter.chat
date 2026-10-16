@@ -1,0 +1,102 @@
+title: সোর্স থেকে বিল্ড করা
+description: Antimatter-কে সোর্স থেকে কীভাবে বিল্ড করবেন: Go সার্ভার, Fusion এবং ক্লাসিক ওয়েব ইন্টারফেস, ডেভেলপমেন্ট সার্ভার, টেস্ট, রিলিজ আর্কাইভ, Docker ইমেজ, এবং ডেস্কটপ ও মোবাইল অ্যাপস।
+guide: developers
+order: 7
+nav: সোর্স থেকে বিল্ড করা
+lead: এই পেজে ব্যাখ্যা করা হয়েছে কীভাবে Antimatter-কে এর সোর্স কোড থেকে বিল্ড এবং রান করবেন, যাতে আপনি এতে কাজ করতে পারেন বা নিজের বিল্ড তৈরি করতে পারেন। এতে সার্ভার এবং ওয়েব ইন্টারফেসের বিষয়বস্তু রয়েছে, যা একটি রিপোজিটরিতে থাকে, এরপর Docker ইমেজ এবং অ্যাপসের বিষয়বস্তু রয়েছে।
+source: dfdf67f34f6e
+---
+<h2 id="requirements">আপনার যা দরকার</h2>
+<ul>
+<li><b>Go</b>, <code>server/go.mod</code>-এ উল্লিখিত ভার্সনে (লিখার সময় 1.26.7)।</li>
+<li><b>Node.js এবং npm</b>, <code>.nvmrc</code> এবং <code>webapp/package.json</code>-এ উল্লিখিত ভার্সনে (Node 24.11.1 এবং npm 11.6.2)। <a href="https://mise.jdx.dev">mise</a> ব্যবহার করে রিপোজিটরির <code>mise.toml</code> সঠিক Node ইনস্টল করে।</li>
+<li><b>Docker</b> Compose সহ: ডেভেলপমেন্ট সেটআপে PostgreSQL এবং কয়েকটি অন্যান্য সার্ভিস কন্টেইনারে চলে।</li>
+<li><b>make</b>, <b>git</b>, এবং একটি Linux বা macOS মেশিন।</li>
+<li><b>মেমরি</b>: ওয়েব ইন্টারফেস বিল্ড করা হলো ভারী অংশ। 16 GB RAM-এর জন্য পরিকল্পনা করুন; <a href="#memory">বিল্ড এবং মেমরি</a> দেখুন।</li>
+</ul>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter.git
+cd antimatter</code></pre>
+<p>রিপোজিটরিতে সার্ভার <code>server/</code>-এ, ওয়েব ইন্টারফেস <code>webapp/</code>-এ (Fusion <code>webapp/fusion</code>-এ, ক্লাসিক <code>webapp/channels</code>-এ, শেয়ার্ড প্যাকেজ <code>webapp/platform</code>-এ), এবং এন্ড-টু-এন্ড টেস্ট <code>e2e-tests/</code>-এ রয়েছে।</p>
+
+<h2 id="dev-server">একটি ডেভেলপমেন্ট সার্ভার রান করুন</h2>
+<pre><code>cd server
+make run</code></pre>
+<p><code>make run</code> ডেভেলপমেন্ট কন্টেইনারগুলি (PostgreSQL, Redis, একটি মেইল ক্যাচার এবং মনিটরিং টুলস) শুরু করে, ওয়েব অ্যাপ বিল্ডগুলিকে সঠিক জায়গায় লিংক করে, ব্যাকগ্রাউন্ডে <code>go run</code> দিয়ে সার্ভার শুরু করে, এবং ওয়েব অ্যাপের ওয়াচার শুরু করে, যা আপনার এডিট করার সাথে সাথে ক্লাসিক ইন্টারফেস পুনরায় বিল্ড করে। <code>http://localhost:8065</code> খুলুন এবং একটি অ্যাকাউন্ট তৈরি করুন: প্রথম অ্যাকাউন্টটি সিস্টেম অ্যাডমিন হয়ে যাবে।</p>
+<table>
+<thead><tr><th>কমান্ড (<code>server/</code>-এ)</th><th>এটি কী করে</th></tr></thead>
+<tbody>
+<tr><td><code>make run-server</code>, <code>make run-client</code></td><td>শুধুমাত্র সার্ভার, বা শুধুমাত্র ওয়েব অ্যাপ ওয়াচার শুরু করুন।</td></tr>
+<tr><td><code>make restart-server</code></td><td>Go কোড পরিবর্তনের পর সার্ভার পুনরায় শুরু করুন।</td></tr>
+<tr><td><code>make stop</code></td><td>সার্ভার, ওয়াচার এবং কন্টেইনারগুলি বন্ধ করুন।</td></tr>
+<tr><td><code>make debug-server</code></td><td>Delve ডিবাগারের নিচে সার্ভার রান করুন।</td></tr>
+<tr><td><code>make run-cli ARGS="-version"</code></td><td>একটি সার্ভার কমান্ড রান করুন।</td></tr>
+<tr><td><code>make config-reset</code></td><td><code>config/config.json</code>-কে ডিফল্ট মানগুলিতে রিসেট করুন।</td></tr>
+<tr><td><code>make clean</code>, <code>make nuke</code></td><td>বিল্ড ফাইলগুলি মুছে ফেলুন; <code>nuke</code> ডেভেলপমেন্ট ডেটাও মুছে ফেলে।</td></tr>
+</tbody>
+</table>
+<p>ডেভেলপমেন্ট ডেটাবেস হলো <code>postgres://mmuser:mostest_password@localhost/mattermost_test</code>, যা সার্ভারের ডিফল্ট ডেটা সোর্স। <code>ENABLED_DOCKER_SERVICES</code> দিয়ে নির্ধারণ করুন কোন কন্টেইনারগুলি শুরু হবে, <code>server/config.override.mk</code> ফাইলে বা আপনার এনভায়রনমেন্টে (দেখুন <code>server/config.mk</code>)।</p>
+
+<h2 id="webapp">ওয়েব ইন্টারফেস</h2>
+<p><code>webapp/</code>-এ:</p>
+<pre><code>npm install      # also builds the shared packages
+npm run build    # the classic interface, then Fusion</code></pre>
+<p>বিল্ডগুলো <code>webapp/channels/dist</code> (ক্লাসিক) এবং <code>webapp/fusion/dist</code> (Fusion)-এ জমা হয়। <code>server/</code>-এ <code>make client</code> চালালে সেগুলো <code>server/client</code> এবং <code>server/client-fusion</code> হিসেবে লিংক হয়, যেখান থেকে সার্ভার সেগুলো পরিবেশন করে: ক্লাসিক <code>/static/</code>-এর নিচে, Fusion <code>/static/fusion/</code>-এর নিচে।</p>
+<ul>
+<li><code>npm run run</code> (অথবা <code>webapp/</code>-এ <code>make run</code>) ক্লাসিক ইন্টারফেসটি ওয়াচ করে এবং পুনরায় বিল্ড করে। Fusion-ও পুনরায় বিল্ড করতে <code>WATCH_FUSION=true</code> যোগ করুন।</li>
+<li><code>npm run dev-server</code> (<code>make dev</code>) webpack-এর ডেভেলপমেন্ট সার্ভারটি চালায়: ক্লাসিক পোর্ট 9005-এ, Fusion পোর্ট 9006-এ।</li>
+<li>ব্রাউজারে একটি ইন্টারফেস অথবা অন্যটি দেখতে যেকোনো পেজের ঠিকানায় <code>?webui=fusion</code> অথবা <code>?webui=classic</code> যোগ করুন।</li>
+</ul>
+
+<h2 id="tests">টেস্ট এবং চেক</h2>
+<table>
+<thead><tr><th>কমান্ড</th><th>কোথায়</th><th>এটি কী করে</th></tr></thead>
+<tbody>
+<tr><td><code>make test-server</code></td><td><code>server/</code></td><td>ডেভেলপমেন্ট কন্টেইনারগুলোর বিরুদ্ধে সার্ভারের টেস্ট স্যুট। এতে বেশি সময় লাগে।</td></tr>
+<tr><td><code>make test-server-quick</code></td><td><code>server/</code></td><td>শুধু ছোট টেস্টগুলো।</td></tr>
+<tr><td><code>go test ./channels/app/... -run TestName</code></td><td><code>server/</code></td><td>কন্টেইনারগুলো চালু থাকাকালীন (<code>make start-docker</code>) একটি প্যাকেজ বা টেস্ট।</td></tr>
+<tr><td><code>make check-style</code></td><td><code>server/</code></td><td>go vet, golangci-lint এবং অন্যান্য Go চেক।</td></tr>
+<tr><td><code>make test</code></td><td><code>webapp/</code></td><td>ওয়েব অ্যাপের ইউনিট টেস্ট (Jest), প্রতিটি প্যাকেজে।</td></tr>
+<tr><td><code>npm run test -- &lt;pattern&gt;</code></td><td><code>webapp/fusion</code></td><td>Fusion-এর কিছু টেস্ট।</td></tr>
+<tr><td><code>make check-style</code>, <code>make check-types</code></td><td><code>webapp/</code></td><td>ESLint এবং TypeScript।</td></tr>
+<tr><td><code>make i18n-extract</code></td><td><code>server/</code> এবং <code>webapp/</code></td><td>আপনি যখন স্ট্রিং যোগ করেন বা পরিবর্তন করেন, তখন ইংরেজি স্ট্রিং ফাইলগুলো আপডেট করে (দেখুন <a href="{{root}}docs/developers/contributing.html#translations">অনুবাদ</a>)।</td></tr>
+</tbody>
+</table>
+<p><code>server/</code>-এ <code>go mod tidy</code>-এর বদলে <code>make modules-tidy</code> চালান।</p>
+
+<h2 id="release">রিলিজ আর্কাইভ</h2>
+<pre><code>cd webapp &amp;&amp; npm run build &amp;&amp; cd ..
+cd server
+make build-linux       # the antimatter and amctl binaries
+make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
+<p><code>make build</code> একসাথে ওয়েব ইন্টারফেস এবং লিনাক্স বাইনারি বিল্ড করে। আর্কাইভে থাকে <code>bin/antimatter</code>, <code>bin/amctl</code>, ডিফল্ট <code>config/config.json</code>, দুটি ওয়েব ইন্টারফেস, টেমপ্লেট, ফন্ট এবং অনুবাদ। অন্যান্য প্ল্যাটফর্ম: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>। আর্কাইভে বান্ডল করা অ্যাপগুলো থাকে না; Docker ইমেজে থাকে।</p>
+
+<h2 id="docker">Docker ইমেজ</h2>
+<p><a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> রিপোজিটরিটি প্রকাশিত ইমেজগুলো বিল্ড করে, অ্যাপসহ সার্ভার সম্পূর্ণরূপে Docker-এর ভেতরে:</p>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter-docker.git
+cd antimatter-docker
+scripts/build-all.sh                     # from the main branches on GitHub
+SOURCES=local scripts/build-all.sh       # from your checkouts next to this folder
+VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatter app</code></pre>
+<p>এর জন্য buildx সহ Docker, Python 3, git এবং gpg, প্রায় 16 GB RAM এবং 30 GB ডিস্ক দরকার। ফলাফলটি <code>ghcr.io/antimatterchat/antimatter:dev</code> হিসেবে লোড হয়; <code>ANTIMATTER_IMAGE=ghcr.io/antimatterchat/antimatter:dev docker compose -f compose.local.yml up -d</code> দিয়ে এটি পরীক্ষা করুন। <code>plugins.json</code>-এ অ্যাপ এবং বিল্ড করা ভার্সনগুলোর তালিকা রয়েছে, এবং রিপোজিটরির README-তে ভ্যারিয়েন্টগুলোর ব্যাখ্যা দেওয়া আছে।</p>
+<div class="callout warn"><code>build-all.sh</code> Antimatter-এর সাইনিং কী দিয়ে বান্ডল করা অ্যাপগুলো সাইন করে, আর ইমেজ বিল্ডে অসাইনড অ্যাপ গ্রহণ করা হয় না। যেহেতু এই প্রাইভেট কীটি শুধুমাত্র মেইটেইনারদের কাছে আছে, তাই প্রথম ধাপগুলো আলাদাভাবে চালাতে হবে: <code>scripts/fetch-sources.sh</code>, <code>scripts/build-plugins.sh</code> (অ্যাপ বান্ডেল <code>out/plugins/</code>-এ) এবং <code>scripts/build-server.sh</code> (সার্ভার আর্কাইভ <code>out/server/</code>-এ)।</div>
+
+<h2 id="memory">বিল্ড এবং মেমরি</h2>
+<p>ওয়েব ইন্টারফেসগুলো বড় webpack বিল্ড, আর মেমরি শেষ হয়ে যাওয়াই সবচেয়ে সাধারণ বিল্ড ব্যর্থতা।</p>
+<ul>
+<li><code>npm run build</code> ক্লাসিক ইন্টারফেস এবং Fusion-কে একটার পর অন্যটা বিল্ড করে, একসাথে নয়, যাতে পিক লোড কম থাকে। নিজে এগুলো প্যারালাল রানে চালাবেন না।</li>
+<li>মিনিফায়ার প্রতিটি প্রসেসরের জন্য একটি করে ওয়ার্কার শুরু করে। বেশি কোর কিন্তু কম মেমরিওয়ালা মেশিনে বিল্ডের জন্য প্রসেসরের সংখ্যা সীমাবদ্ধ করুন: <code>taskset -c 0-5 npm run build</code>।</li>
+<li>যদি Node-এর হিপ মেমরি শেষ হয়ে যায়, তবে তার সীমা বাড়ান: <code>NODE_OPTIONS=--max-old-space-size=6144</code>। Docker বিল্ড এই মানটি ব্যবহার করে (<code>build.env</code>-এ <code>BUILD_NODE_OPTIONS</code>)।</li>
+<li>ছোট মেশিনে সার্ভারের পুরো টেস্ট স্যুট, ওয়েব বিল্ড এবং Docker বিল্ড একসাথে চালাবেন না।</li>
+</ul>
+
+<h2 id="apps">অ্যাপসমূহ</h2>
+<p>প্রতিটি অ্যাপ (প্লাগইন)-এর নিজস্ব রিপোজিটরি এবং Makefile আছে; <code>make dist</code> দিয়ে তার বান্ডেল বিল্ড হয়। বিস্তারিত দেখুন <a href="{{root}}docs/developers/apps.html#build">বিল্ড, ইনস্টল এবং ডিবাগ</a>।</p>
+<h3>ডেস্কটপ অ্যাপ</h3>
+<p><a href="https://github.com/AntimatterChat/desktop-app">ডেস্কটপ অ্যাপ</a>টি একটি Electron অ্যাপ। Node.js 24 বা তার পরের ভার্সন ব্যবহার করে:</p>
+<pre><code>npm install --allow-git=all
+npm run build          # development build, into dist/
+npm start              # run it
+npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
+<p>বিল্ড-টাইম সেটিংস, যেমন প্রি-কনফিগার করতে হবে কোন সার্ভারগুলো, সেগুলো <code>src/common/config/buildConfig.ts</code>-এ আছে।</p>
+<h3>মোবাইল অ্যাপ</h3>
+<p><a href="https://github.com/AntimatterChat/mobile-app">মোবাইল অ্যাপ</a>টি একটি React Native অ্যাপ; এর README-তে কমান্ডগুলো (<code>npm run ios</code>, <code>npm run android</code>) দেওয়া আছে। নিজের কপি বিল্ড করতে নিজের সাইনিং কী, Android নোটিফিকেশনের জন্য একটি Firebase প্রজেক্ট, iOS-এর জন্য একটি APNs কী এবং সেই ক্রেডেনশিয়াল ধরে রাখার জন্য একটি <a href="https://github.com/AntimatterChat/push-proxy">পুশ প্রক্সি</a> দরকার।</p>

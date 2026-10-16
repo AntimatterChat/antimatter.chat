@@ -1,0 +1,120 @@
+title: Конфигурация
+description: Как работи конфигурацията на Antimatter: настройки в базата данни или в config.json, променливи на околната среда AM_, Системната конзола, командният инструмент amctl и къде се намират логовете.
+guide: admins
+order: 3
+nav: Конфигурация
+lead: Къде Antimatter съхранява настройките си, трите начина за тяхното променяне (Системна конзола, променливи на околната среда, amctl) и къде отиват логовете.
+source: e2d6546121d3
+---
+<h2 id="where">Къде се намират настройките</h2>
+<p>Всяка настройка на сървъра има име, състоящо се от секция и ключ, например <code>ServiceSettings.SiteURL</code> или <code>EmailSettings.SMTPServer</code>. Заедно те образуват една конфигурация, съхранявана на едно от две места:</p>
+<ul>
+<li><b>В базата данни.</b> Файлът за композиране на сайта задава <code>AM_CONFIG</code> на URL за връзка с PostgreSQL, така че конфигурацията е ред в базата данни и контейнерът не съхранява нищо на диска. Няколко сървъра, споделящи една база данни, споделят и конфигурацията си.</li>
+<li><b>В файл.</b> Без <code>AM_CONFIG</code> сървърът чете <code>config/config.json</code> до <code>bin/</code> директорията си (<code>/antimatter/config/config.json</code> в Docker образа). Архивът за освобождаване и продуктивните файлове за композиране на antimatter-docker работят по този начин. Пазете този файл четим само за потребителя на сървъра: той съдържа пароли и ключове.</li>
+</ul>
+<p><code>AM_CONFIG</code> (или флага <code>--config</code> на командата <code>antimatter</code>) приема или път до файл, или <code>postgres://</code> URL. Настройките, които оставите извън обхвата, вземат стойност по подразбиране.</p>
+<p>За да преместите съществуваща конфигурация от файл в базата данни, изпълнете това на сървъра, след което стартирайте сървъра с <code>AM_CONFIG</code>, зададен на същия URL:</p>
+<pre><code>amctl --local config migrate /opt/antimatter/config/config.json \
+    "postgres://antimatter:PASSWORD@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10"</code></pre>
+
+<h2 id="environment">Променливи на околната среда</h2>
+<p>Всяка настройка може да се зададе и като променлива на околната среда. Променливите имат предимство пред съхранената конфигурация, което ги прави подходящи за това, което принадлежи на разполагането: базата данни, URL на сайта, хранилището за файлове, портовете.</p>
+<h3>Правило за именуване</h3>
+<p>Пишете <code>AM_</code>, след това секцията, след това ключа, с главни букви и разделени с подчертавания. Думите в името на секция или ключ не се разделят:</p>
+<table>
+<thead><tr><th>Настройка</th><th>Променлива</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.SiteURL</code></td><td><code>AM_SERVICESETTINGS_SITEURL</code></td></tr>
+<tr><td><code>SqlSettings.DataSource</code></td><td><code>AM_SQLSETTINGS_DATASOURCE</code></td></tr>
+<tr><td><code>EmailSettings.SMTPServer</code></td><td><code>AM_EMAILSETTINGS_SMTPSERVER</code></td></tr>
+<tr><td><code>PrivacySettings.EnableUserBlocking</code></td><td><code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li>Настройките true и false вземат <code>true</code> или <code>false</code>; числата са обикновени числа.</li>
+<li>Настройките от списък вземат стойности, разделени с интервали, например <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>.</li>
+<li>Настройките, които са обекти, вземат JSON. Единствената такава променлива за приложенията е <code>AM_PLUGINSETTINGS_PLUGINS</code>, и тя замества настройките на <em>всички</em> приложения едновременно: задавайте настройките на приложенията в Системната конзола или с <code>amctl</code> вместо това (вижте по-долу).</li>
+<li>По-стари инсталации на Mattermost използват префикса <code>MM_</code>, например <code>MM_SQLSETTINGS_DATASOURCE</code>. Той все още действа като наследен алиас. Ако са зададени и двете, променливата <code>AM_</code> има предимство.</li>
+</ul>
+<p>Настройка, зададена чрез променлива, е блокирана в Системната конзола с бележка: „Тази настройка е зададена чрез променлива на околната среда. Не може да се променя чрез Системната конзола.“ Тя не се записва в запазената конфигурация: премахнете променливата и запазената стойност отново ще се прилага.</p>
+<h3>С Docker Compose</h3>
+<p>Добавете променливи под <code>environment:</code> на услугата <code>antimatter</code>, или в <code>compose.override.yaml</code> до <code>compose.yaml</code> (Compose го чете автоматично и то оцелява при актуализации на изтегения файл):</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_LOGSETTINGS_CONSOLELEVEL: INFO</code></pre>
+<p>Приложете промените с <code>docker compose up -d</code>, което създава контейнера отново.</p>
+<h3>Променливи, четени от приложенията</h3>
+<p>Няколко приложения четат собствените си променливи, зададени на услугата <code>antimatter</code>: приложението Calls чете <code>AM_CALLS_*</code> (вижте <a href="{{root}}docs/admins/calls.html">Обаждания и глас</a>), а приложението GIFs чете <code>AM_GIFS_SERVICE_URL</code>, <code>AM_GIFS_API_KEY</code> и <code>AM_GIFS_UPLOAD_KEY</code> (вижте <a href="{{root}}docs/admins/apps.html">Вградени приложения</a>).</p>
+
+<h2 id="console">Системната конзола</h2>
+<p>Системната конзола е административната зона на уеб приложението, предназначена за системни администратори. За да я отворите, щракнете върху профила си и изберете <b>Системна конзола</b>, или отидете на <code>https://chat.example.com/admin_console</code>. В страничната ѝ лента има поле <b>Намерете настройки</b>, което търси във всички страници.</p>
+<figure><img src="{{root}}assets/img/shots/admin.webp" alt="The System Console, with its sidebar of sections on the left and the SAML 2.0 settings page on the right."><figcaption>Системната конзола. Страничната лента групира страниците в секции като Докладване, Управление на потребители и Обкръжение.</figcaption></figure>
+<p>Секциите ѝ са:</p>
+<ul>
+<li><b>Докладване</b>: статистика и системни дневници.</li>
+<li><b>Управление на потребители</b>: потребители, групи, общности (изброени като Екипи), канали, права и делегирано администриране.</li>
+<li><b>Системни атрибути</b>: персонализирани атрибути на профила и достъп на базата на атрибути.</li>
+<li><b>Обкръжение</b>: уеб сървър, база данни, файлово хранилище, прокси за изображения, SMTP, пуш известия, ограничаване на честотата, журналиране, продължителност на сесии, мониторинг на производителността.</li>
+<li><b>Конфигурация на сайта</b>: брандиране, потребители и екипи, известия, публикации, споделяне на файлове и други сървърни поведения.</li>
+<li><b>Удостоверяване</b>: регистрация, вход с имейл и парола, MFA, AD/LDAP, SAML 2.0, OAuth 2.0, OpenID Connect и гостен достъп.</li>
+<li><b>Приставка</b>: управление на приложения и настройките на всяко инсталирано приложение.</li>
+<li><b>Интеграции</b>: webhooks, команди с наклонена черта, ботови акаунти, GIFs, текст в реч, CORS.</li>
+<li><b>Съгласие</b>: задържане на данни, експорт за съответствие и мониторинг, журнал на одита, персонализирани условия за ползване.</li>
+<li><b>Експериментално</b>: функции, които могат да се променят.</li>
+</ul>
+<p>В това ръководство настройката се записва като пътят ѝ в Системната конзола, след това етикетът ѝ, а след това ключът за конфигурация, например <b>Системна конзола › Конфигурация на сайта › Потребители и екипи › Активиране на игнориране, блокиране и заявки за съобщения</b> (<code>PrivacySettings.EnableUserBlocking</code>).</p>
+<p>Повечето промени се прилагат веднага щом щракнете върху <b>Запиши</b>. Няколко (адресът за слушане, някои настройки на базата данни и кеша) изискват рестарт, а страницата го посочва.</p>
+
+<h2 id="amctl">Командният инструмент amctl</h2>
+<p><code>amctl</code> управлява сървъра от командния ред: потребители, общности, канали, приложения, конфигурация, задачи и много други. Свързва се със сървъра по един от два начина.</p>
+<h3>Локален режим, на сървъра</h3>
+<p>Локалният режим позволява на <code>amctl</code> да комуникира със сървъра чрез Unix socket, без вход. Той е активиран в Docker образа. На сървър, инсталиран от архив, го активирайте с <b>ServiceSettings.EnableLocalMode</b> (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>). Socket-ът по подразбиране е <code>/var/tmp/antimatter_local.socket</code> (<code>ServiceSettings.LocalModeSocketLocation</code>).</p>
+<pre><code># with Docker Compose
+docker compose exec antimatter amctl --local system status
+# with a release archive
+sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code></pre>
+<div class="callout warn">Всеки, който може да използва socket-а или да изпълни <code>docker compose exec</code> на хоста, има пълни права на системен администратор.</div>
+<h3>Отдалечено, с акаунт</h3>
+<p>От всяка машина, влезте с акаунт на системен администратор (или личен достъп токен), след което изпълнете команди към този сървър:</p>
+<pre><code>amctl auth login https://chat.example.com --name prod --username admin
+amctl system status</code></pre>
+<h3>Команди за конфигурация</h3>
+<table>
+<thead><tr><th>Команда</th><th>Какво прави</th></tr></thead>
+<tbody>
+<tr><td><code>amctl config get ServiceSettings.SiteURL</code></td><td>Изпечатва една настройка.</td></tr>
+<tr><td><code>amctl config set TeamSettings.EnableOpenServer false</code></td><td>Променя една настройка. Настройките от списък приемат няколко стойности.</td></tr>
+<tr><td><code>amctl config patch settings.json</code></td><td>Слива JSON файл с настройки в конфигурацията.</td></tr>
+<tr><td><code>amctl config show</code></td><td>Изпечатва цялата конфигурация като JSON.</td></tr>
+<tr><td><code>amctl config edit</code></td><td>Отваря конфигурацията в редактора ви (<code>$EDITOR</code>).</td></tr>
+<tr><td><code>amctl config reset</code></td><td>Връща настройките към стойностите им по подразбиране.</td></tr>
+<tr><td><code>amctl config reload</code></td><td>Презарежда конфигурацията от мястото, където е съхранена, след промяна, направена извън сървъра.</td></tr>
+</tbody>
+</table>
+<p>Настройките на приложенията се намират под <code>PluginSettings.Plugins.&lt;app id&gt;</code>, с ключове с малки букви. Например, за да зададете URL-а и ключа за услугата на приложението GIFs от Docker хоста:</p>
+<pre><code>docker compose exec -T antimatter amctl --local config patch /dev/stdin &lt;&lt;'EOF'
+{"PluginSettings": {"Plugins": {"com.antimatterchat.gifs": {
+  "serviceurl": "http://gifs:8080/v2",
+  "apikey": "the GIFS_API_KEY of your .env"
+}}}}
+EOF</code></pre>
+<p>Други полезни команди: <code>amctl user create</code>, <code>amctl user deactivate</code>, <code>amctl team create</code>, <code>amctl plugin list</code>, <code>amctl plugin enable</code>, <code>amctl system supportpacket</code> и <code>amctl logs</code>. Изпълнете <code>amctl help &lt;command&gt;</code> за опциите на всяка от тях.</p>
+
+<h2 id="logs">Журнали</h2>
+<p>Сървърът записва дневника си на две места, всяко с собствено ниво (<code>DEBUG</code>, <code>INFO</code>, <code>WARN</code> или <code>ERROR</code>), зададено в <b>Системна конзола › Обкръжение › Дневници</b>:</p>
+<table>
+<thead><tr><th>Местоположение</th><th>Настройки</th><th>По подразбиране</th></tr></thead>
+<tbody>
+<tr><td>Конзолата (стандартен изход)</td><td><b>Извеждай дневниците в конзолата</b> (<code>LogSettings.EnableConsole</code>), <b>Ниво на дневника в конзолата</b> (<code>LogSettings.ConsoleLevel</code>), <b>Извеждай на конзолата дневниците като JSON</b> (<code>LogSettings.ConsoleJson</code>)</td><td>включено, <code>DEBUG</code>, JSON</td></tr>
+<tr><td>Файл, <code>antimatter.log</code></td><td><b>Извеждай дневника във файл</b> (<code>LogSettings.EnableFile</code>), <b>Ниво на дневника във файл</b> (<code>LogSettings.FileLevel</code>), <b>Директория на файловете с дневници</b> (<code>LogSettings.FileLocation</code>)</td><td>включено, <code>INFO</code>, директорията <code>logs/</code> до <code>bin/</code></td></tr>
+</tbody>
+</table>
+<p>Файловете с дневници се ротират на 100 MB, а старите се компресират.</p>
+<p>Композ файла на сайта изключва записването на дневник във файл (<code>AM_LOGSETTINGS_ENABLEFILE=false</code>), така че дневниците се появяват само в изхода на контейнера:</p>
+<pre><code>docker compose logs -f antimatter
+docker compose logs --since 1h antimatter | grep -i error</code></pre>
+<p>Нивото на конзолата по подразбиране е <code>DEBUG</code>, което е подробно. На натоварен сървър задайте <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code>. При архив за разпространение под systemd изходът на конзолата отива в журнала (<code>journalctl -u antimatter</code>), а файлът — в <code>/opt/antimatter/logs/antimatter.log</code>.</p>
+<p>Когато записването на дневник във файл е включено, системните администратори могат да четат и последните редове от дневника в <b>Системна конзола › Докладване › Сървърни дневници</b> или с <code>amctl logs</code>.</p>

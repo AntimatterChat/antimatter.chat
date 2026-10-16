@@ -1,0 +1,120 @@
+title: الإعدادات
+description: كيف تعمل إعدادات Antimatter: الإعدادات في قاعدة البيانات أو في config.json، متغيرات البيئة AM_، وحدة التحكم بالنظام، أداة سطر الأوامر amctl، وأين تجد السجلات.
+guide: admins
+order: 3
+nav: الإعدادات
+lead: أين تحتفظ Antimatter بإعداداتها، والطرق الثلاثة لتغييرها (وحدة التحكم بالنظام، متغيرات البيئة، amctl)، وأين تذهب السجلات.
+source: e2d6546121d3
+---
+<h2 id="where">أين توجد الإعدادات</h2>
+<p>لكل إعداد في الخادم اسم يتكون من قسم ومفتاح، مثل <code>ServiceSettings.SiteURL</code> أو <code>EmailSettings.SMTPServer</code>. معاً، تشكّلان إعداداً واحداً، يُخزَّن في أحد مكانين:</p>
+<ul>
+<li><b>في قاعدة البيانات.</b> يحدد ملف تكوين الموقع <code>AM_CONFIG</code> على عنوان اتصال PostgreSQL، لذا يكون الإعداد صفّاً في قاعدة البيانات ولا يحتفظ الحاوية بأي شيء على القرص. الخوادم متعددة التي تتشارك قاعدة بيانات واحدة تتشارك أيضاً إعداداتها.</li>
+<li><b>في ملف.</b> في غياب <code>AM_CONFIG</code>، يقرأ الخادم <code>config/config.json</code> بجانب مجلده <code>bin/</code> (<code>/antimatter/config/config.json</code> في صورة Docker). تعمل أرشيف الإصدار وملفات تكوين الإنتاج في antimatter-docker بهذه الطريقة. احتفظ بهذا الملف قابلاً للقراءة لمستخدم الخادم فقط: فهو يحتفظ بكلمات المرور والمفاتيح.</li>
+</ul>
+<p>يقبل <code>AM_CONFIG</code> (أو علم <code>--config</code> في أمر <code>antimatter</code>) مسار ملف أو عنوان <code>postgres://</code>. الإعدادات التي تُترك دون تحديد تأخذ قيمتها الافتراضية.</p>
+<p>لنقل إعداد موجود من ملف إلى قاعدة البيانات، نفّذ هذا على الخادم، ثم ابدأ الخادم مع ضبط <code>AM_CONFIG</code> على نفس العنوان:</p>
+<pre><code>amctl --local config migrate /opt/antimatter/config/config.json \
+    "postgres://antimatter:PASSWORD@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10"</code></pre>
+
+<h2 id="environment">متغيرات البيئة</h2>
+<p>يمكن أيضاً تقديم أي إعداد كمتغير بيئة. تفوز المتغيرات على الإعداد المخزَّن، مما يجعلها مناسبة لما ينتمي إلى النشر: قاعدة البيانات، عنوان الموقع، تخزين الملفات، المنافذ.</p>
+<h3>قاعدة التسمية</h3>
+<p>اكتب <code>AM_</code>، ثم القسم، ثم المفتاح، بأحرف كبيرة ومفصولة بعلامات شرطة سفلية. الكلمات داخل اسم القسم أو المفتاح لا تُفصَل:</p>
+<table>
+<thead><tr><th>الإعداد</th><th>المتغير</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.SiteURL</code></td><td><code>AM_SERVICESETTINGS_SITEURL</code></td></tr>
+<tr><td><code>SqlSettings.DataSource</code></td><td><code>AM_SQLSETTINGS_DATASOURCE</code></td></tr>
+<tr><td><code>EmailSettings.SMTPServer</code></td><td><code>AM_EMAILSETTINGS_SMTPSERVER</code></td></tr>
+<tr><td><code>PrivacySettings.EnableUserBlocking</code></td><td><code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li>الإعدادات الصحيحة والخاطئة تأخذ <code>true</code> أو <code>false</code>؛ والأرقام أرقام عادية.</li>
+<li>إعدادات القوائم تأخذ قيمها مفصولة بمسافات، على سبيل المثال <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>.</li>
+<li>الإعدادات التي تكون كائنات تأخذ JSON. المتغير الوحيد من هذا النوع للتطبيقات هو <code>AM_PLUGINSETTINGS_PLUGINS</code>، وهو يستبدل إعدادات <em>كل</em> التطبيقات دفعة واحدة: اضبط إعدادات التطبيقات في وحدة التحكم بالنظام أو باستخدام <code>amctl</code> بدلاً من ذلك (انظر أدناه).</li>
+<li>تستخدم إعدادات Mattermost الأقدم بادئة <code>MM_</code>، على سبيل المثال <code>MM_SQLSETTINGS_DATASOURCE</code>. لا يزال يعمل كاسم مستعار قديم. عند ضبط كلاهما، تتفوق متغير <code>AM_</code>.</li>
+</ul>
+<p>يتم قفل الإعداد المُعطى عبر متغير في وحدة التحكم بالنظام، مع ملاحظة "تم ضبط هذا الإعداد عبر متغير بيئة. لا يمكن تغييره عبر وحدة التحكم بالنظام." لا يُكتب في الإعدادات المخزنة: احذف المتغير وستُطبَّق القيمة المخزنة مرة أخرى.</p>
+<h3>مع Docker Compose</h3>
+<p>أضف المتغيرات تحت <code>environment:</code> في خدمة <code>antimatter</code>، أو في <code>compose.override.yaml</code> بجانب <code>compose.yaml</code> (يقوم Compose بقراءته تلقائيًا، وهو يبقى بعد تحديث الملف المُحمَّل):</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_LOGSETTINGS_CONSOLELEVEL: INFO</code></pre>
+<p>طبّق التغييرات باستخدام <code>docker compose up -d</code>، والذي يعيد إنشاء الحاوية.</p>
+<h3>المتغيرات التي تقرأها التطبيقات</h3>
+<p>تقرأ بعض التطبيقات متغيرات خاصة بها، مضبوطة على خدمة <code>antimatter</code>: تطبيق المكالمات يقرأ <code>AM_CALLS_*</code> (انظر <a href="{{root}}docs/admins/calls.html">المكالمات والصوت</a>)، وتطبيق GIFs يقرأ <code>AM_GIFS_SERVICE_URL</code>، <code>AM_GIFS_API_KEY</code> و <code>AM_GIFS_UPLOAD_KEY</code> (انظر <a href="{{root}}docs/admins/apps.html">التطبيقات المدمجة</a>).</p>
+
+<h2 id="console">وحدة التحكم بالنظام</h2>
+<p>وحدة التحكم بالنظام هي منطقة إدارة تطبيق الويب، مخصصة لمديري النظام. لفتحها، انقر على صورة ملفك الشخصي واختر <b>وحدة التحكم بالنظام</b>، أو انتقل إلى <code>https://chat.example.com/admin_console</code>. يحتوي شريطها الجانبي على مربع <b>البحث في الإعدادات</b> يبحث في كل الصفحات.</p>
+<figure><img src="{{root}}assets/img/shots/admin.webp" alt="The System Console, with its sidebar of sections on the left and the SAML 2.0 settings page on the right."><figcaption>وحدة التحكم بالنظام. يقسم الشريط الجانبي الصفحات إلى أقسام مثل التقارير، إدارة المستخدمين، والبيئة.</figcaption></figure>
+<p>أقسامها هي:</p>
+<ul>
+<li><b>التقارير</b>: الإحصائيات وسجلات الخادم.</li>
+<li><b>إدارة المستخدمين</b>: المستخدمون، المجموعات، المجتمعات (المدرجة كفِرق)، القنوات، الصلاحيات، والإدارة المندوبة.</li>
+<li><b>خصائص النظام</b>: خصائص الملف الشخصي المخصصة والوصول المبني على الخصائص.</li>
+<li><b>البيئة</b>: خادم الويب، قاعدة البيانات، تخزين الملفات، وكيل الصور، SMTP، الإشعارات الدافعة، تقييد المعدل، التسجيل، مدد الجلسة، ومراقبة الأداء.</li>
+<li><b>إعدادات الموقع</b>: الهوية البصرية، المستخدمون والفِرَق، الإشعارات، المنشورات، مشاركة الملفات، والسلوكيات الأخرى على مستوى الخادم.</li>
+<li><b>المصادقة</b>: التسجيل، تسجيل الدخول عبر البريد الإلكتروني وكلمة المرور، MFA، AD/LDAP، SAML 2.0، OAuth 2.0، OpenID Connect، والوصول للضيوف.</li>
+<li><b>الإضافات</b>: إدارة التطبيقات وإعدادات كل تطبيق مثبَّت.</li>
+<li><b>التكاملات</b>: خطوط الويب، أوامر الشرطة المائلة، حسابات البوتات، GIFs، تحويل النص إلى كلام، CORS.</li>
+<li><b>الامتثال</b>: الاحتفاظ بالبيانات، تصدير بيانات الامتثال والمراقبة، سجلات التدقيق، وشروط الاستخدام المخصصة.</li>
+<li><b>تجريبي</b>: ميزات قد تتغير.</li>
+</ul>
+<p>في هذا الدليل، يُكتب كل إعداد على شكل مساره في وحدة التحكم بالنظام، ثم اسمه، ثم مفتاح إعداده، على سبيل المثال <b>وحدة التحكم بالنظام › إعدادات الموقع › المستخدمون والفِرَق › تفعيل التجاهل والحظر وطلبات الرسائل</b> (<code>PrivacySettings.EnableUserBlocking</code>).</p>
+<p>تُطبَّق معظم التغييرات فور النقر على <b>حفظ</b>. بعض الإعدادات (عنوان الاستماع، وبعض إعدادات قاعدة البيانات والمخزن المؤقت) تتطلب إعادة تشغيل، ويُذكر ذلك في الصفحة.</p>
+
+<h2 id="amctl">أداة سطر الأوامر amctl</h2>
+<p>يدير <code>amctl</code> الخادم من سطر الأوامر: المستخدمون، المجتمعات، القنوات، التطبيقات، الإعدادات، المهام، والمزيد. يتواصل مع الخادم بأحد طريقتين.</p>
+<h3>الوضع المحلي، على الخادم</h3>
+<p>يتيح الوضع المحلي لـ <code>amctl</code> التواصل مع الخادم عبر مقبس Unix، دون تسجيل الدخول. وهو مفعّل في صورة Docker. على خادم مثبّت من أرشيف، فعّله باستخدام <b>ServiceSettings.EnableLocalMode</b> (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>). المقبس هو <code>/var/tmp/antimatter_local.socket</code> افتراضياً (<code>ServiceSettings.LocalModeSocketLocation</code>).</p>
+<pre><code># with Docker Compose
+docker compose exec antimatter amctl --local system status
+# with a release archive
+sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code></pre>
+<div class="callout warn">أي شخص يستطيع استخدام المقبس، أو تنفيذ <code>docker compose exec</code> على المضيف، يملك صلاحيات مدير النظام الكاملة.</div>
+<h3>عن بُعد، بحساب</h3>
+<p>من أي جهاز، سجّل الدخول بحساب مدير نظام (أو رمز وصول شخصي)، ثم نفّذ الأوامر على ذلك الخادم:</p>
+<pre><code>amctl auth login https://chat.example.com --name prod --username admin
+amctl system status</code></pre>
+<h3>أوامر الإعداد</h3>
+<table>
+<thead><tr><th>الأمر</th><th>وظيفته</th></tr></thead>
+<tbody>
+<tr><td><code>amctl config get ServiceSettings.SiteURL</code></td><td>يطبع إعداداً واحداً.</td></tr>
+<tr><td><code>amctl config set TeamSettings.EnableOpenServer false</code></td><td>يغيّر إعداداً واحداً. إعدادات القوائم تأخذ عدة قيم.</td></tr>
+<tr><td><code>amctl config patch settings.json</code></td><td>يدمج ملف JSON يحتوي على إعدادات في التهيئة.</td></tr>
+<tr><td><code>amctl config show</code></td><td>يطبع التهيئة كاملة بصيغة JSON.</td></tr>
+<tr><td><code>amctl config edit</code></td><td>يفتح التهيئة في محرّرك (<code>$EDITOR</code>).</td></tr>
+<tr><td><code>amctl config reset</code></td><td>يعيد الإعدادات إلى قيمها الافتراضية.</td></tr>
+<tr><td><code>amctl config reload</code></td><td>يعيد تحميل التهيئة من مكان تخزينها، بعد تغيير أُجري خارج الخادم.</td></tr>
+</tbody>
+</table>
+<p>تقع إعدادات التطبيقات تحت <code>PluginSettings.Plugins.&lt;app id&gt;</code>، بمفاتيح بحروف صغيرة. على سبيل المثال، لضبط عنوان الخدمة والمفتاح لتطبيق GIFs من مضيف Docker:</p>
+<pre><code>docker compose exec -T antimatter amctl --local config patch /dev/stdin &lt;&lt;'EOF'
+{"PluginSettings": {"Plugins": {"com.antimatterchat.gifs": {
+  "serviceurl": "http://gifs:8080/v2",
+  "apikey": "the GIFS_API_KEY of your .env"
+}}}}
+EOF</code></pre>
+<p>أوامر مفيدة أخرى: <code>amctl user create</code>، <code>amctl user deactivate</code>، <code>amctl team create</code>، <code>amctl plugin list</code>، <code>amctl plugin enable</code>، <code>amctl system supportpacket</code> و <code>amctl logs</code>. نفّذ <code>amctl help &lt;command&gt;</code> لمعرفة خيارات كل أمر.</p>
+
+<h2 id="logs">السجلات</h2>
+<p>يكتب الخادم سجلّه في مكانين، ولكلٍّ منهما مستواه (<code>DEBUG</code>، <code>INFO</code>، <code>WARN</code> أو <code>ERROR</code>)، ويُضبط ذلك في <b>وحدة التحكم بالنظام › البيئة › السجلات</b>:</p>
+<table>
+<thead><tr><th>الوجهة</th><th>الإعدادات</th><th>القيم الافتراضية</th></tr></thead>
+<tbody>
+<tr><td>الوحدة الطرفية (الإخراج القياسي)</td><td><b>إخراج السجلات إلى وحدة التحكم</b> (<code>LogSettings.EnableConsole</code>)، <b>مستوى سجل وحدة التحكم</b> (<code>LogSettings.ConsoleLevel</code>)، <b>إخراج سجلات وحدة التحكم بصيغة JSON</b> (<code>LogSettings.ConsoleJson</code>)</td><td>مفعّل، <code>DEBUG</code>، JSON</td></tr>
+<tr><td>ملف، <code>antimatter.log</code></td><td><b>إخراج السجلات إلى ملف</b> (<code>LogSettings.EnableFile</code>)، <b>مستوى سجل الملف</b> (<code>LogSettings.FileLevel</code>)، <b>مجلد سجل الملف</b> (<code>LogSettings.FileLocation</code>)</td><td>مفعّل، <code>INFO</code>، مجلد <code>logs/</code> المجاور لمجلد <code>bin/</code></td></tr>
+</tbody>
+</table>
+<p>تُستبدل ملفات السجل عند بلوغ حجمها 100 ميغابايت، وتُضغط الملفات القديمة.</p>
+<p>ملف compose الخاص بالموقع يُعطّل التسجيل في ملف (<code>AM_LOGSETTINGS_ENABLEFILE=false</code>)، لذا تكون السجلات في إخراج الحاوية فقط:</p>
+<pre><code>docker compose logs -f antimatter
+docker compose logs --since 1h antimatter | grep -i error</code></pre>
+<p>القيمة الافتراضية لمستوى الوحدة الطرفية هي <code>DEBUG</code>، وهي مفصّلة. على خادم مزدحم، اضبط <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code>. عند استخدام أرشيف إصدار تحت systemd، يُوجَّه إخراج الوحدة الطرفية إلى السجل (<code>journalctl -u antimatter</code>)، ويُوجَّه الملف إلى <code>/opt/antimatter/logs/antimatter.log</code>.</p>
+<p>عند تفعيل التسجيل في ملف، يمكن للمشرفين النظاميين أيضًا قراءة أحدث أسطر السجل في <b>وحدة التحكم بالنظام › التقارير › سجلات الخادم</b>، أو باستخدام <code>amctl logs</code>.</p>

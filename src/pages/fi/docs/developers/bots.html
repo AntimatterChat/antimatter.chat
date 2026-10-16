@@ -1,0 +1,172 @@
+title: Bottit ja interaktiiviset viestit
+description: Bottitilit Antimatterissa: niiden luominen, tunnukset ja oikeudet, viestien lähettäminen bottina, suorat viestit, interaktiiviset painikkeet ja valikot sekä dialogit.
+guide: developers
+order: 5
+nav: Bottit
+lead: Bottitili on ohjelmaa varten luotu käyttäjä. Sillä on oma nimi, kuva ja tunnukset, ja sen nimen vieressä näkyy BOTTI-merkki. Tässä sivussa käsitellään myös viestien interaktiiviset osat: painikkeet, valikot ja dialogit, joita mikä tahansa integraatio voi käyttää.
+source: 45503666f647
+---
+<h2 id="why">Miksi bottitili</h2>
+<ul>
+<li>Sen viestit tulevat selvästä identiteetistä, jossa on <b>BOTTI</b>-merkki, eikä kollegan tililtä.</li>
+<li>Sen tunnukset toimivat edelleen, vaikka asettaja vaihtaisi roolia tai poistuisi (ellei palvelin poista poistettujen omistajien bottitilejä käytöstä, ks. alla).</li>
+<li>Bottit eivät voi kirjautua salasanan avulla, eikä ne koskaan näe verkkosovellusta.</li>
+</ul>
+<p>Sovellukset luovat omat bottitilinsä, kuten Tehtävälista- ja Ohjekirja-bottit, liitännäis-API:n (<code>EnsureBotUser</code>) kautta.</p>
+
+<h2 id="enable">Ota bottitilit käyttöön</h2>
+<p>Järjestelmän ylläpitäjä ottaa <b>Ota bottitilien luominen käyttöön</b> -asetuksen käyttöön kohdassa <b>Järjestelmäkonsoli › Integraatiot › Bottitilit</b> (<code>ServiceSettings.EnableBotAccountCreation</code>, <code>AM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION</code>). Asetus on oletusarvona pois käytöstä. Vain järjestelmän ylläpitäjät voivat luoda bottitilejä, ellei he anna oikeutta muihin rooleihin oikeusasetuksissa.</p>
+<p>Samalla sivulla <b>Poista bottitili käytöstä, kun omistaja poistetaan käytöstä</b> (<code>ServiceSettings.DisableBotsWhenOwnerIsDeactivated</code>, oletusarvona käytössä) poistaa bottitilin käytöstä, kun sen omistajan tili poistetaan käytöstä.</p>
+
+<h2 id="create">Luo bottitili</h2>
+<ol>
+<li>Avaa profiilikuvake yläreunan oikeassa reunassa, valitse <b>Integraatiot › Bottitilit</b> ja sen jälkeen <b>Lisää bottitili</b>.</li>
+<li>Syötä <b>Käyttäjätunnus</b> (piisää kirjaimia, numeroita, pisteitä, väliviivoja ja alaviivoja) sekä valinnaisesti <b>Bottin kuvake</b>, <b>Näyttönimi</b> ja <b>Kuvaus</b>.</li>
+<li>Valitse <b>Rooli</b>: <b>Jäsen</b> tai <b>Järjestelmän ylläpitäjä</b>, jos botti hallinnoi palvelinta. Anna bottille vain se, mitä se todella tarvitsee.</li>
+<li>Valitse <b>post:channels</b>, jotta botti voi lähettää viestejä kaikkiin julkisiin kanaviin, tai <b>post:all</b>, jotta se voi lähettää viestejä kaikkiin kanaviin, myös yksityisiin kanaviin ja suoriin viesteihin, ilman että se on kanavan jäsen.</li>
+<li>Aseta, milloin sen oletustunnus vanhenee, ja valitse <b>Luo bottitili</b>.</li>
+<li>Kopioi näytetty pääsytunnus. Sitä ei näytetä uudelleen.</li>
+</ol>
+<p>Myöhemmin <b>Luo uusi tunnus</b> bottitilin rivillä lisää uuden tunnuksen, ja jokainen tunnus voidaan poistaa käytöstä tai poistaa. Bottitunnukset toimivat, vaikka henkilökohtaiset pääsytunnukset olisivat poistettu käytöstä käyttäjiä varten.</p>
+<p>API:n avulla:</p>
+<pre><code># create the bot (you become its owner)
+curl -X POST https://chat.example.com/api/v4/bots \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username": "deploy-bot", "display_name": "Deploy", "description": "Posts deployments"}'
+
+# give it a token
+curl -X POST https://chat.example.com/api/v4/users/$BOT_USER_ID/tokens \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"description": "deploy pipeline"}'</code></pre>
+<p>Komentoriviltä, kirjautuneena ylläpitäjänä (ei paikallisessa tilassa): <code>amctl bot create deploy-bot --display-name Deploy --with-token --expires-in 90d</code>. Muut rajapinnat: <code>GET /api/v4/bots</code>, <code>PUT /api/v4/bots/{bot_user_id}</code>, <code>POST /api/v4/bots/{bot_user_id}/disable</code> ja <code>/enable</code> sekä <code>POST /api/v4/bots/{bot_user_id}/assign/{user_id}</code> omistajan vaihtamiseksi.</p>
+
+<h2 id="membership">Lisää botti yhteisöihin ja kanaviin</h2>
+<p>Uusi botti ei ole missään yhteisössä. Lisää se kuten henkilö, yhteisön jäsenhallinnasta tai API:n kautta:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/teams/$TEAM_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"team_id": "'$TEAM_ID'", "user_id": "'$BOT_USER_ID'"}'
+
+curl -X POST https://chat.example.com/api/v4/channels/$CHANNEL_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"user_id": "'$BOT_USER_ID'"}'</code></pre>
+<p>Botti, jolla on <b>post:channels</b>- tai <b>post:all</b>-oikeus, voi kirjoittaa ilman jäsenyyttä, mutta se saa WebSocket-tapahtumat vain sille kanaville, joihin se on liitetty.</p>
+
+<h2 id="post">Kirjoita bottin nimellä</h2>
+<p>Käytä bottin tokenia minkä tahansa API-kutsun yhteydessä; <code>POST /api/v4/posts</code> on yleisin (katso <a href="{{root}}docs/developers/api.html#resources">Pääresurssit</a>). Suoraan jollekulle kirjoittamiseksi avaa ensin suora viestikanava:</p>
+<pre><code># returns the channel; use its "id" as channel_id
+curl -X POST https://chat.example.com/api/v4/channels/direct \
+  -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' \
+  -d '["'$BOT_USER_ID'", "'$USER_ID'"]'</code></pre>
+<p>Reaktioita ihmisten kommentteihin varten seuraa <a href="{{root}}docs/developers/api.html#websocket">WebSocket</a>-yhteyttä bottin tokenilla ja vastaa <code>posted</code>-tapahtumiin, jotka kiinnostavat. Ohita bottin omat viestit, jotta vältät silmukat.</p>
+<p>Viesti, jonka vain yksi henkilö näkee (ephemeral-viesti), lähetetään <code>POST /api/v4/posts/ephemeral</code>-kutsulla ja <code>{"user_id", "post": {"channel_id", "message"}}</code>-kuormalla. Se vaatii <code>create_post_ephemeral</code>-oikeuden, joka on oletuksena vain järjestelmäylläpitäjillä. Integraatiot lähettävät ephemeral-viestit yleensä kauttaviivakomentojen ja painikkeiden vastauksina.</p>
+
+<h2 id="interactive">Interaktiiviset viestit: painikkeet ja valikot</h2>
+<p>Mikään liitteitä sisältävä viesti voi kantaa toimintoja: painikkeita ja valikoita, joista voi valita. Ne toimivat API:n, webhookkien ja kauttaviivakomentojen vastauksien kautta lähetetyissä viesteissä. Kun joku käyttää toimintoa, Antimatter kutsuu integraation URL:ää.</p>
+<pre><code>{
+  "channel_id": "…",
+  "message": "Deploy **api 2.4.0** to production?",
+  "props": {
+    "attachments": [{
+      "actions": [
+        {
+          "id": "approve",
+          "type": "button",
+          "name": "Approve",
+          "style": "primary",
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "approve"}}
+        },
+        {
+          "id": "env",
+          "type": "select",
+          "name": "Pick an environment",
+          "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}],
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "env"}}
+        }
+      ]
+    }]
+  }
+}</code></pre>
+<ul>
+<li><code>type</code>: <code>button</code> tai <code>select</code>.</li>
+<li><code>id</code>: kirjaimet, numerot, väliviivat ja alaviivat, erilainen jokaiselle viestin toiminnolle. Se generoidaan, jos jätät sen pois.</li>
+<li><code>style</code> (painikkeet): <code>default</code>, <code>primary</code>, <code>success</code>, <code>good</code>, <code>warning</code>, <code>danger</code> tai heksadesimaalinen väri.</li>
+<li><code>options</code> (valikot) tai <code>data_source</code>: <code>users</code> tai <code>channels</code> henkilön tai kanavan valintaan. <code>default_option</code> esivalitsee arvon.</li>
+<li><code>integration.url</code>: kohtaus, johon napsautus lähetetään. Sovellus (liitännäinen) voi käyttää omaa reittiään, kuten <code>/plugins/com.example.deploy/actions</code>. <code>integration.context</code> on sinun käytössäsi: se palautuu napsautuksen mukana, eikä asiakkaat koskaan näe sitä.</li>
+</ul>
+<h3>Integraation vastaanottama pyyntö</h3>
+<pre><code>{
+  "user_id": "…",
+  "user_name": "priya",
+  "channel_id": "…",
+  "channel_name": "releases",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "post_id": "…",
+  "trigger_id": "…",
+  "type": "button",
+  "context": {"release": "2.4.0", "action": "approve"}
+}</code></pre>
+<p>Valikon tapauksessa <code>type</code> on <code>select</code> ja <code>context.selected_option</code> sisältää valitun arvon.</p>
+<h3>Vastauksesi</h3>
+<pre><code>{
+  "update": {"message": "Deploy of **api 2.4.0** approved by @priya", "props": {}},
+  "ephemeral_text": "Done. The deploy starts in a minute."
+}</code></pre>
+<ul>
+<li><code>update</code>: korvaa viestin tekstin ja ominaisuudet, esimerkiksi poistaaksesi painikkeet käytön jälkeen (tyhjä <code>props</code>).</li>
+<li><code>ephemeral_text</code>: viesti, jonka näkee vain napsauttanut henkilö.</li>
+<li><code>goto_location</code>: avattava URL-osoite.</li>
+<li>Tyhjä ruumis ei muuta mitään.</li>
+</ul>
+<p>Palvelin odottaa niin kauan kuin <b>Integraatiopyyntöjen aikakatkaisu</b> sallii (oletus 30 sekuntia). Integraatioiden URL-osoitteet, jotka osoittavat yksityisen verkon osoitteisiin, on ylläpitäjän hyväksyttävä, kuten webhooken kohdalla.</p>
+
+<h2 id="dialogs">Dialogit</h2>
+<p>Dialogi on lomake, joka avautuu chatin päälle. Sen voi avata vain vastauksena siihen, mitä henkilö juuri teki, kuten kauttaviivakomennon tai painikkeen, koska se vaatii kyseisen pyynnön <code>trigger_id</code>:n. <code>trigger_id</code> on voimassa integraatiopyyntöjen aikakatkaisun ajan.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/actions/dialogs/open \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "trigger_id": "'$TRIGGER_ID'",
+    "url": "https://deploy.example.com/dialog",
+    "dialog": {
+      "callback_id": "new-release",
+      "title": "New release",
+      "introduction_text": "Fill in the release details.",
+      "submit_label": "Create",
+      "notify_on_cancel": false,
+      "state": "anything you want back",
+      "elements": [
+        {"display_name": "Version", "name": "version", "type": "text", "placeholder": "2.4.0"},
+        {"display_name": "Notes", "name": "notes", "type": "textarea", "optional": true},
+        {"display_name": "Environment", "name": "env", "type": "select",
+         "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}]},
+        {"display_name": "Owner", "name": "owner", "type": "select", "data_source": "users"},
+        {"display_name": "Notify the channel", "name": "notify", "type": "bool", "default": "true"}
+      ]
+    }
+  }'</code></pre>
+<table>
+<thead><tr><th>Alueen tyyppi</th><th>Mikä näytetään</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>Yksirivinen kenttä. <code>subtype</code>: <code>text</code>, <code>email</code>, <code>number</code>, <code>password</code>, <code>tel</code> tai <code>url</code>. <code>min_length</code> ja <code>max_length</code> rajoittavat sitä.</td></tr>
+<tr><td><code>textarea</code></td><td>Monirivinen kenttä.</td></tr>
+<tr><td><code>select</code></td><td>Lista: <code>options</code> tai <code>data_source</code> <code>users</code>, <code>channels</code> tai <code>dynamic</code> yhdessä <code>data_source_url</code>:n kanssa. <code>multiselect</code> sallii useamman arvon.</td></tr>
+<tr><td><code>bool</code></td><td>Valintaruutu.</td></tr>
+<tr><td><code>radio</code></td><td>Yksi valinta vaihtoehdoista <code>options</code>.</td></tr>
+<tr><td><code>date</code>, <code>datetime</code></td><td>Päivämäärä tai päivämäärä ja kellonaika.</td></tr>
+</tbody>
+</table>
+<p>Jokainen alue ottaa vastaan <code>display_name</code>, <code>name</code>, <code>help_text</code>, <code>placeholder</code>, <code>default</code> ja <code>optional</code>.</p>
+<p>Kun henkilö lähettää, Antimatter POSTtaa dialogin <code>url</code>:iin:</p>
+<pre><code>{
+  "type": "dialog_submission",
+  "callback_id": "new-release",
+  "state": "anything you want back",
+  "user_id": "…",
+  "channel_id": "…",
+  "team_id": "…",
+  "submission": {"version": "2.4.0", "notes": "", "env": "staging", "owner": "…", "notify": true},
+  "cancelled": false
+}</code></pre>
+<p>Vastaa tyhjällä ruumilla sulkeaksesi dialogin, tai pidä se auki ja näytä, mikä on vialla:</p>
+<pre><code>{"errors": {"version": "This version already exists."}}</code></pre>
+<p><code>{"error": "…"}</code> näyttää viestin koko lomakkeelle. <code>notify_on_cancel</code>:n kanssa dialogin sulkeminen lähettää <code>"cancelled": true</code>. Dialogit toimivat samalla tavalla sovelluksissa: liitännäis-API:n <code>OpenInteractiveDialog</code> ottaa saman pyynnön.</p>

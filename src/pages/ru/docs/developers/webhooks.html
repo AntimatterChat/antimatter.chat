@@ -1,0 +1,170 @@
+title: Вебхуки
+description: Входящие и исходящие вебхуки Antimatter: их создание, структура данных и ответы, вложения и карточки сообщений, переопределение имени и значка, с примерами.
+guide: developers
+order: 3
+nav: Вебхуки
+lead: Входящий вебхук позволяет другой системе отправлять сообщения в канал, передавая JSON на секретный URL. Исходящий вебхук делает обратное: он отправляет сообщения, начинающиеся с триггерного слова, на ваш URL, и публикует ваш ответ.
+source: ecd698619944
+---
+<h2 id="where">Где управлять вебхуками</h2>
+<p>Откройте свой аватар в правом верхнем углу, затем выберите <b>Интеграции</b>. На страницах интеграций текущего сообщества перечислены <b>Входящие вебхуки</b> и <b>Исходящие вебхуки</b>. Каждый вебхук принадлежит одному сообществу.</p>
+<p>По умолчанию вебхуки могут создавать администраторы сообщества и системные администраторы. Системный администратор может предоставить это право другим ролям в настройках разрешений Системной консоли. Системный администратор также может отключить каждый тип вебхука в <b>Системная консоль › Интеграции › Управление интеграцией</b>: <b>Разрешить входящие вебхуки</b> и <b>Разрешить исходящие вебхуки</b> включены по умолчанию.</p>
+<figure><img src="{{root}}assets/img/shots/integrations.webp" alt="A channel with messages from a CI bot and from GitHub, shown as cards with fields, pipeline stages and a button"><figcaption>Сообщения интеграций, отображаемые в виде карточек: поля, этапы конвейера и кнопка действия.</figcaption></figure>
+
+<h2 id="incoming">Создание входящего вебхука</h2>
+<ol>
+<li>В разделе <b>Интеграции</b> выберите <b>Входящие вебхуки</b>, затем <b>Добавить входящий Webhook</b>.</li>
+<li>Заполните <b>Заголовок</b> и <b>Описание</b>: они отображаются только на страницах интеграций.</li>
+<li>Выберите <b>Канал</b>, в который сообщения отправляются по умолчанию. Для закрытого канала вы должны быть его участником.</li>
+<li>Отметьте <b>Прикрепить к этому каналу</b>, если отправители не должны иметь возможность публиковать сообщения в других каналах.</li>
+<li>При необходимости задайте <b>Имя пользователя</b> и URL <b>Изображения профиля</b> для его сообщений (см. <a href="#identity">Имя и значок</a>).</li>
+<li>Выберите <b>Сохранить</b>. Скопируйте отображаемый URL: <code>https://chat.example.com/hooks/&lt;key&gt;</code>.</li>
+</ol>
+<div class="callout warn">URL — единственный секрет: любой, у кого он есть, может публиковать сообщения в канале. Не публикуйте его в открытых репозиториях и удалите вебхук, если он утечет.</div>
+<p>Через API: <code>POST /api/v4/hooks/incoming</code> с <code>{"channel_id", "display_name", "description", "username", "icon_url", "channel_locked"}</code>; <code>id</code> в ответе является ключом. Из командной строки: <code>amctl webhook create-incoming --channel &lt;channel id&gt; --user &lt;user&gt; --display-name "CI"</code>.</p>
+
+<h2 id="incoming-send">Отправка сообщения во входящий вебхук</h2>
+<pre><code>curl -X POST https://chat.example.com/hooks/xgh5ycrx1jf7mbs9w8z4c8e7ho \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Deploy of **api 2.4.0** finished :white_check_mark:"}'</code></pre>
+<p>Сервер отвечает <code>200</code> с телом <code>ok</code>. Он также принимает <code>application/x-www-form-urlencoded</code> с JSON в поле <code>payload</code>, как вебхуки Slack, поэтому инструменты, созданные для Slack, обычно работают без изменений.</p>
+<table>
+<thead><tr><th>Поле</th><th>Значение</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>Сообщение в формате Markdown. Обязательное поле, если нет <code>attachments</code>. Текст, превышающий лимит длины сообщения сервера, разбивается на несколько сообщений.</td></tr>
+<tr><td><code>channel</code></td><td>Другой канал сообщества вебхука, по имени (<code>ops-alerts</code> или <code>#ops-alerts</code>), или <code>@username</code> для Личного сообщения от владельца вебхука. Отказывается, если вебхук привязан к своему каналу.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code>, <code>icon_emoji</code></td><td>Имя и изображение для отображения, если сервер разрешает переопределения.</td></tr>
+<tr><td><code>attachments</code></td><td>Вложения к сообщению, отображаемые в виде карточек (см. ниже).</td></tr>
+<tr><td><code>props</code></td><td>Дополнительные свойства, сохраняемые в сообщении для приложений, которые их читают.</td></tr>
+<tr><td><code>type</code></td><td>Пользовательский тип сообщения, например <code>custom_poll</code>, для приложения, которое его отображает. Типы, начинающиеся с <code>system_</code>, отклоняются.</td></tr>
+<tr><td><code>root_id</code></td><td>ID первого сообщения Обсуждения, чтобы ответить в этом Обсуждении.</td></tr>
+<tr><td><code>priority</code></td><td>Приоритет сообщения, например <code>{"priority": "urgent"}</code>.</td></tr>
+<tr><td><code>silent</code></td><td><code>true</code> отправляет сообщение без push-уведомлений.</td></tr>
+</tbody>
+</table>
+<p>Сообщения, отображаемые под переопределённым именем, имеют рядом с ним метку <b>БОТ</b>, чтобы пользователи могли отличать их от реальных аккаунтов. Сообщения вебхуков никогда не вызывают исходящие вебхуки.</p>
+
+<h2 id="identity">Имя и значок</h2>
+<p>Вебхук публикует сообщения от имени человека, который его создал, если сервер не разрешает переопределение. Два параметра в <b>Системная консоль › Интеграции › Управление интеграцией</b>, оба отключены по умолчанию, изменяют это поведение:</p>
+<ul>
+<li><b>Разрешить интеграциям переопределять имена пользователей</b> (<code>ServiceSettings.EnablePostUsernameOverride</code>): отображается <b>Имя пользователя</b> вебхука или <code>username</code> из запроса; если ни одно из них не задано, имя будет <code>webhook</code>.</li>
+<li><b>Разрешить интеграциям переопеределять иконки изображений профилей</b> (<code>ServiceSettings.EnablePostIconOverride</code>): отображается <b>Изображение профиля</b> вебхука или <code>icon_url</code> или <code>icon_emoji</code> из запроса.</li>
+</ul>
+<p>Значение из запроса имеет приоритет над сохранённым в вебхуке.</p>
+
+<h2 id="attachments">Вложения</h2>
+<p>Вложения добавляют структурированный контент под текстом. Они следуют формату вложений сообщений Slack:</p>
+<pre><code>{
+  "text": "Build failed on `main`",
+  "attachments": [{
+    "fallback": "main #1902 failed",
+    "color": "#d24b4e",
+    "author_name": "GitHub Actions",
+    "author_icon": "https://chat.example.com/static/ci.png",
+    "title": "main #1902 failed",
+    "title_link": "https://ci.example.com/runs/1902",
+    "text": "Commit `0f4d8e2` by Jonas Weber",
+    "fields": [
+      {"title": "Branch", "value": "zephyr-3.7", "short": true},
+      {"title": "Duration", "value": "3m 40s", "short": true}
+    ],
+    "footer": "Lumen CI",
+    "ts": 1760000000
+  }]
+}</code></pre>
+<table>
+<thead><tr><th>Поле</th><th>Значение</th></tr></thead>
+<tbody>
+<tr><td><code>fallback</code></td><td>Обычный текст для мест, где карточка не может быть отображена, например в уведомлениях.</td></tr>
+<tr><td><code>color</code></td><td>Цветная полоса: шестнадцатеричный цвет, либо <code>good</code>, <code>warning</code>, <code>danger</code>.</td></tr>
+<tr><td><code>pretext</code></td><td>Текст над карточкой.</td></tr>
+<tr><td><code>author_name</code>, <code>author_link</code>, <code>author_icon</code></td><td>Небольшая строка заголовка.</td></tr>
+<tr><td><code>title</code>, <code>title_link</code></td><td>Заголовок карточки, опционально со ссылкой.</td></tr>
+<tr><td><code>text</code></td><td>Тело карточки, в формате Markdown.</td></tr>
+<tr><td><code>fields</code></td><td>Список <code>{"title", "value", "short"}</code>; поля <code>short</code> располагаются рядом.</td></tr>
+<tr><td><code>image_url</code>, <code>thumb_url</code></td><td>Большое изображение внизу или маленькое сбоку.</td></tr>
+<tr><td><code>footer</code>, <code>footer_icon</code>, <code>ts</code></td><td>Строка подвала и время (в секундах Unix).</td></tr>
+<tr><td><code>actions</code></td><td>Кнопки и меню: см. <a href="{{root}}docs/developers/bots.html#interactive">Интерактивные сообщения</a>.</td></tr>
+</tbody>
+</table>
+
+<h2 id="cards">Карточки: этапы и графики</h2>
+<p>Antimatter добавляет к вложениям два поля, отображаемые стандартным интерфейсом:</p>
+<ul>
+<li><code>stages</code>: шаги конвейера в виде «пилюль», до 20. Каждый элемент имеет вид <code>{"name", "status"}</code>, где status принимает значение <code>passed</code>, <code>failed</code>, <code>running</code>, <code>pending</code>, <code>skipped</code> или <code>canceled</code>.</li>
+<li><code>chart</code>: небольшой линейный график последних значений, <code>{"values": [2 to 200 numbers], "threshold": number, "label": "…"}</code>. Порог отображается пунктирной линией, например, для ограничения тревоги.</li>
+</ul>
+<pre><code>{
+  "attachments": [{
+    "color": "danger",
+    "title": "main #1902 failed",
+    "stages": [
+      {"name": "build", "status": "failed"},
+      {"name": "unit", "status": "skipped"},
+      {"name": "publish", "status": "skipped"}
+    ]
+  }, {
+    "color": "warning",
+    "title": "API latency above 400 ms",
+    "chart": {"values": [210, 230, 260, 390, 450, 470], "threshold": 400, "label": "p95 latency, ms"}
+  }]
+}</code></pre>
+<p>Классический интерфейс и другие клиенты игнорируют эти два поля, поэтому дублируйте основную информацию в полях <code>text</code> или <code>fields</code>.</p>
+
+<h2 id="outgoing">Создание исходящего вебхука</h2>
+<p>Исходящий вебхук отслеживает <b>Общие</b> каналы сообщества. Когда первое слово сообщения совпадает с одним из его ключевых слов, Antimatter отправляет сообщение на ваш URL.</p>
+<ol>
+<li>В разделе <b>Интеграции</b> выберите <b>Исходящие вебхуки</b>, затем <b>Добавить исходящий Webhook</b>.</li>
+<li>Заполните <b>Заголовок</b> и <b>Описание</b>.</li>
+<li>Выберите <b>Тип содержимого</b> запроса: <code>application/x-www-form-urlencoded</code> или <code>application/json</code>.</li>
+<li>Выберите <b>Канал</b>, введите <b>Ключевые слова (по одному на строку)</b> или и то, и другое. Если указан канал, но нет ключевых слов, отправляются все сообщения этого канала. Если указаны оба условия, сообщение должно соответствовать обоим.</li>
+<li>В разделе <b>Условие срабатывания</b> выберите <b>Первое слово соответствует слову события полностью</b> или <b>Первое слово начинается со слова триггера</b>.</li>
+<li>Введите <b>URL обратного вызова (по одному на строку)</b>. Каждому URL отправляется каждое подходящее сообщение.</li>
+<li>При необходимости задайте <b>Имя пользователя</b> и <b>Изображение профиля</b>, используемые для ответов.</li>
+<li>Нажмите <b>Сохранить</b> и скопируйте отображаемый токен. Ваша служба использует его для проверки того, что запросы исходят от вашего сервера.</li>
+</ol>
+<p>Через API: <code>POST /api/v4/hooks/outgoing</code> с телом <code>{"team_id", "channel_id", "trigger_words", "trigger_when", "callback_urls", "content_type", "display_name"}</code> (<code>trigger_when</code>: 0 для точного совпадения, 1 для «начинается с»).</p>
+<div class="callout">Если ваш сервис находится в частной сети, системный администратор должен разрешить его адрес в <b>Разрешить недоверенные внутренние соединения для</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>). В противном случае сервер не обращается к частным адресам.</div>
+
+<h2 id="outgoing-request">Исходящий запрос</h2>
+<p>Antimatter отправляет POST-запрос с этими полями в формате JSON или form-encoded в зависимости от типа содержимого:</p>
+<pre><code>{
+  "token": "6kd1ofo5ojr5zgu5ipfipybgnc",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "channel_id": "…",
+  "channel_name": "ops-alerts",
+  "timestamp": 1760010000000,
+  "user_id": "…",
+  "user_name": "priya",
+  "post_id": "…",
+  "text": "deploy api 2.4.0",
+  "trigger_word": "deploy",
+  "file_ids": ""
+}</code></pre>
+<p>Сначала сравните <code>token</code> с токеном вебхука. В версии с кодировкой формы <code>timestamp</code> указывается в секундах, а не в миллисекундах. Сервер ожидает ваш ответ в течение времени, разрешённого параметром <b>Таймаут запроса на интеграцию</b> (по умолчанию 30 секунд, <code>ServiceSettings.OutgoingIntegrationRequestsTimeout</code>).</p>
+
+<h2 id="outgoing-response">Ответ на исходящий вебхук</h2>
+<p>Чтобы отправить ответ, верните JSON. Чтобы ничего не отправлять, верните пустое тело ответа.</p>
+<pre><code>{
+  "text": "Deploying **api 2.4.0** to staging…",
+  "response_type": "comment",
+  "username": "deploy-bot",
+  "icon_url": "https://chat.example.com/static/deploy.png"
+}</code></pre>
+<ul>
+<li><code>text</code> и <code>attachments</code>: содержимое ответа. Если ни одно из полей не указано, ничего не будет отправлено.</li>
+<li><code>response_type</code>: значение <code>comment</code> отправляет ответ в обсуждение сообщения, вызвавшего вебхук; в противном случае ответ публикуется в канале.</li>
+<li><code>username</code>, <code>icon_url</code>: отображаются, если сервер разрешает переопределение; в противном случае используются собственные значения вебхука.</li>
+<li><code>props</code>, <code>type</code>, <code>priority</code>: как для входящих вебхуков.</li>
+</ul>
+<p>Ответ публикуется от имени создателя вебхука, с переопределённым именем, если оно указано. Для ответов длиннее короткого ответа отправьте ответ сразу, а затем опубликуйте его позже с помощью входящего вебхука или API.</p>
+
+<h2 id="troubleshooting">Если вебхук не работает</h2>
+<ul>
+<li><b>501 от URL вебхука</b>: входящие вебхуки отключены на сервере.</li>
+<li><b>400 "Failed to decode the payload…"</b>: JSON недействителен, или поле формы не называется <code>payload</code>. Сообщение <b>"No text specified."</b> означает, что в запросе нет ни <code>text</code>, ни <code>attachments</code>.</li>
+<li><b>403</b>: вебхук привязан к другому каналу, или его владелец больше не может читать канал.</li>
+<li><b>Исходящий вебхук никогда не срабатывает</b>: канал закрытый, триггер не является первым словом, или сообщение было отправлено вебхуком.</li>
+<li><b>Журналы</b>: при включённом параметре <b>Включить отладку Webhook-ов</b> (<code>LogSettings.EnableWebhookDebugging</code>) и уровне журнала <code>DEBUG</code> сервер записывает в журнал данные (payloads) неудачных входящих запросов. Неудачные исходящие вызовы записываются как <code>Outgoing Webhook POST failed</code>.</li>
+</ul>

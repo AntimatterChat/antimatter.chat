@@ -1,0 +1,164 @@
+title: REST API
+description: Antimatter REST API’si: temel URL, kişisel erişim jetonları, oturum jetonları ve OAuth, ana kaynaklar, sayfalama, hatalar, hız sınırları, WebSocket olay akışı ve istemci kütüphaneleri.
+guide: developers
+order: 2
+nav: REST API
+lead: Antimatter uygulamalarının yaptığı her şey aynı HTTP API’si üzerinden geçer; bu nedenle senin betiklerin de bunu yapabilir. Bu sayfa, kimlik doğrulamanın nasıl yapıldığını, en sık kullanacağın kaynakları, yanıtların ve hataların nasıl göründüğünü ve WebSocket üzerinden olayları canlı olarak nasıl takip edebileceğini açıklar.
+source: f4b8c83efdba
+---
+<h2 id="basics">Temeller</h2>
+<ul>
+<li><b>Temel URL</b>: <code>https://chat.example.com/api/v4</code>. Aşağıdaki tüm uç noktalar buna görelidir.</li>
+<li><b>Biçim</b>: Girdi ve çıktı JSON’dur (dosya yüklemeleri multipart’tır). <code>Content-Type: application/json</code> gönderin.</li>
+<li><b>Kimlikler</b>: her nesnenin 26 karakterlik bir <code>id</code>’si vardır. Zamanlar Unix epoch’undan bu yana geçen milisaniyelerdir (<code>create_at</code>, <code>update_at</code>, <code>delete_at</code>; 0 “silinmemiş” anlamına gelir).</li>
+<li><b>Topluluklar takımlardır</b>: API bunlara <code>teams</code> der ve <code>team_id</code> kullanır.</li>
+<li><b>Kendiniz</b>: bir yol <code>user_id</code> alıyorsa, <code>me</code> oturum açmış kullanıcıyı ifade eder; örneğin <code>GET /users/me</code>.</li>
+</ul>
+<p>Uç noktaların tam listesi sunucunun kodundadır: rotalar <code>server/channels/api4/*.go</code> içinde, tipler ise <code>server/public/model</code> içinde tanımlanmıştır. Depodaki <code>api/v4/source</code> klasöründeki OpenAPI betiği, Antimatter’in eklemeleri değil, Mattermost’tan devralınan uç noktaları kapsar.</p>
+
+<h2 id="auth">Kimlik doğrulama</h2>
+<p>Oturum açma ve birkaç herkese açık uç nokta dışında her isteğin <code>Authorization</code> başlığında bir jetonu olmalıdır:</p>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" https://chat.example.com/api/v4/users/me</code></pre>
+<p>Burada üç tür jeton kabul edilir: kişisel erişim jetonları, oturum jetonları ve OAuth erişim jetonları. <code>Authorization: Token …</code> biçimi de kabul edilir. Sorgu dizisindeki jetonlar (<code>?access_token=</code>) yalnızca OAuth erişim jetonları için kabul edilir.</p>
+
+<h3>Kişisel erişim jetonları (betikler için önerilir)</h3>
+<p>Bir kişisel erişim jetonu sizin adınıza hareket eder, son kullanma tarihi vermediğiniz sürece zaman aşımına uğramaz ve istediğiniz zaman iptal edilebilir. Kişisel erişim jetonları varsayılan olarak kapalıdır:</p>
+<ol>
+<li>Sistem yöneticisi, <b>Sistem Konsolu › Bütünleştirmeler › Bütünleştirme yönetimi</b> bölümünde <b>Kişisel erişim kodları kullanılsın</b> seçeneğini etkinleştirir (<code>ServiceSettings.EnableUserAccessTokens</code>, <code>AM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS</code>).</li>
+<li>Kod oluşturabilecek her kullanıcı için sistem yöneticisi, <b>Sistem Konsolu › Kullanıcı yönetimi › Kullanıcılar</b> bölümüne gider, kullanıcının menüsünden <b>Rolleri yönet</b> seçeneğini seçer ve <b>Bu hesabın kişisel erişim kodları oluşturmasına izin ver</b> onay kutusunu işaretler. Sistem yöneticileri her zaman kod oluşturabilir.</li>
+<li>Kullanıcı, sağ üst köşedeki avatarına tıklayıp ardından <b>Profil &amp; ayarlar › Güvenlik</b> bölümüne gider. <b>Kişisel erişim kodları</b> altında kodun ne için kullanılacağını açıklar ve <b>Kod oluştur</b> seçeneğini seçer. Kod yalnızca bir kez görüntülenir: kopyalayın.</li>
+</ol>
+<p>API ile: <code>POST /users/{user_id}/tokens</code> ve <code>{"description": "backup script", "expires_at": 0}</code> (<code>expires_at</code> milisaniye cinsindendir; 0 için yok). Yanıtın <code>token</code> alanı gizli anahtardır; <code>id</code> alanı ise onu iptal etmek için kullanılır (<code>POST /users/tokens/revoke</code> ve <code>{"token_id": "…"}</code>). Komut satırından: <code>amctl token generate &lt;user&gt; &lt;description&gt;</code>.</p>
+<p>Sistem yöneticisi, aynı Sistem Konsolu sayfasındaki <b>Maksimum Kişisel Erişim Jetonu Geçerlilik Süresi (gün)</b> ayarıyla kod geçerlilik sürelerini sınırlayabilir.</p>
+
+<h3>Oturum token'ları</h3>
+<p>Parola ile oturum açma, <code>Token</code> yanıt başlığında bir oturum token'ı döndürür; bu, uygulamaların kullandığı türden bir oturumdur:</p>
+<pre><code>curl -i -X POST https://chat.example.com/api/v4/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login_id": "maya", "password": "…"}'</code></pre>
+<p>Çok faktörlü kimlik doğrulama bulunan bir hesap için <code>"token": "123456"</code> ekleyin. Oturumlar, sunucunun oturum ayarlarına göre sona erer ve oturum açma uç noktası hız sınırlıdır (saniyede 5 istek). <code>POST /users/logout</code> oturumu sonlandırır.</p>
+<div class="callout">Tarayıcılar bunun yerine bir çerezi (cookie) kullanır. Çerezle kimlik doğrulanan bir istek, GET dışındaki her şey için <code>X-CSRF-Token</code> başlığını da göndermelidir; <code>Authorization</code> başlığındaki bir token için CSRF başlığı gerekmez.</div>
+
+<h3>OAuth 2.0 uygulamaları</h3>
+<p>Kişilerin Antimatter hesaplarıyla uygulamanıza oturum açmasına izin vermek için bir OAuth 2.0 uygulaması kaydedin. Antimatter bu durumda OAuth sağlayıcısı olur:</p>
+<ol>
+<li><b>OAuth 2.0 hizmet sağlayıcısı kullanılsın</b> seçeneği etkin olmalıdır (<b>Sistem Konsolu › Bütünleştirmeler › Bütünleştirme yönetimi</b>, <code>ServiceSettings.EnableOAuthServiceProvider</code>, varsayılan olarak etkindir).</li>
+<li>OAuth uygulamalarını yönetme yetkisine sahip olan biri (varsayılan olarak sistem yöneticileri), avatarına tıklayıp <b>Bütünleştirmeler › OAuth 2.0 uygulamaları</b> bölümüne gider ve geri çağırma (callback) URL'leriyle birlikte uygulamayı ekler. Bir istemci kimliği (client ID) ve istemci gizli anahtarı (client secret) alır.</li>
+<li>Uygulamanız, <code>https://chat.example.com/oauth/authorize</code> adresine <code>response_type=code</code>, <code>client_id</code>, <code>redirect_uri</code> ve <code>state</code> parametreleriyle yönlendirir. <code>code_challenge_method=S256</code> ile PKCE desteklenir.</li>
+<li>Kodu, <code>POST https://chat.example.com/oauth/access_token</code> adresinde (<code>grant_type=authorization_code</code> ile, ardından yenilemek için <code>refresh_token</code> ile) takas eder ve API'yi <code>Authorization: Bearer &lt;access token&gt;</code> ile çağırır.</li>
+</ol>
+<p>Kişiler, yetkilendirdikleri uygulamaları <b>Profil ve ayarlar › Güvenlik › Yetkilendirdiğiniz uygulamalar</b> bölümünde görür.</p>
+
+<h2 id="resources">Ana kaynaklar</h2>
+<table>
+<thead><tr><th>Nesne</th><th>Uç noktalar</th></tr></thead>
+<tbody>
+<tr><td>Siz ve diğer kişiler</td><td><code>GET /users/me</code>, <code>GET /users/{user_id}</code>, <code>GET /users/username/{username}</code>, <code>POST /users/ids</code> (bir kimlik listesi), <code>POST /users/search</code>, <code>GET /users?in_team=…&amp;in_channel=…</code></td></tr>
+<tr><td>Topluluklar</td><td><code>GET /users/me/teams</code>, <code>GET /teams/{team_id}</code>, <code>GET /teams/name/{name}</code>, <code>PUT /teams/{team_id}/patch</code>, <code>GET /teams/{team_id}/members</code>, <code>POST /teams/{team_id}/members</code></td></tr>
+<tr><td>Kanallar</td><td><code>GET /users/me/teams/{team_id}/channels</code>, <code>GET /teams/name/{team}/channels/name/{channel}</code>, <code>POST /channels</code>, <code>POST /channels/direct</code> (iki kullanıcı kimliği), <code>POST /channels/group</code>, <code>POST /channels/{channel_id}/members</code></td></tr>
+<tr><td>İletiler (gönderiler)</td><td><code>POST /posts</code>, <code>GET /posts/{post_id}</code>, <code>PUT /posts/{post_id}/patch</code>, <code>DELETE /posts/{post_id}</code>, <code>GET /channels/{channel_id}/posts</code>, <code>GET /posts/{post_id}/thread</code>, <code>POST /teams/{team_id}/posts/search</code></td></tr>
+<tr><td>Tepkiler</td><td><code>POST /reactions</code> ile <code>{"user_id", "post_id", "emoji_name"}</code>, <code>DELETE /users/{user_id}/posts/{post_id}/reactions/{emoji_name}</code></td></tr>
+<tr><td>Dosyalar</td><td><code>POST /files</code> (çok parçalı: <code>channel_id</code> ve <code>files</code>), ardından döndürülen kimlikleri gönderinin <code>file_ids</code> alanına ekleyin; <code>GET /files/{file_id}</code></td></tr>
+<tr><td>Tercihler</td><td><code>GET /users/me/preferences</code>, <code>PUT /users/me/preferences</code></td></tr>
+<tr><td>Entegrasyonlar</td><td><code>/hooks/incoming</code>, <code>/hooks/outgoing</code>, <code>/commands</code>, <code>/bots</code>, <code>/oauth/apps</code> (aşağıdaki sayfaları inceleyin)</td></tr>
+<tr><td>Sunucu</td><td><code>GET /system/ping</code> (sağlık durumu, token gerekmez), <code>GET /config/client?format=old</code> (istemcilerin gördüğü ayarlar)</td></tr>
+</tbody>
+</table>
+
+<h3>İleti gönder</h3>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$CHANNEL_ID'", "message": "Backup finished: **42 GB** in 3 min"}'</code></pre>
+<p>İletiler Markdown biçimindedir. Bir konuya yanıt vermek için <code>"root_id"</code> (konunun ilk gönderisi) ekleyin, dosyalar için <code>"file_ids"</code> ve ek dosyalar ile diğer ekler için <code>"props"</code> kullanın (bkz. <a href="{{root}}docs/developers/webhooks.html#attachments">Ek dosyalar</a>).</p>
+
+<h3>Bir kanalın kimliğini bulun</h3>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" \
+  https://chat.example.com/api/v4/teams/name/lumen-labs/channels/name/ops-alerts</code></pre>
+<p>İsimler, kanal bağlantısındaki isimlerdir: <code>/lumen-labs/channels/ops-alerts</code>.</p>
+
+<h2 id="pagination">Sayfalama</h2>
+<p>Liste uç noktaları <code>page</code> (0'dan başlar) ve <code>per_page</code> (varsayılan 60, en fazla 200) parametrelerini alır. Bir sayfa <code>per_page</code> değerinden kısa döndürülene kadar sonraki sayfayı istemeye devam edin.</p>
+<p>Bir kanalın iletileri (<code>GET /channels/{channel_id}/posts</code>) ayrıca <code>since</code> (bir zaman: o andan beri değişen her şey) veya <code>before</code> ve <code>after</code> (bir ileti kimliği) parametrelerini de alır. Yanıt, bir ileti listesi olarak döner: <code>{"order": [IDs, newest first], "posts": {ID: post}, "next_post_id", "prev_post_id"}</code>.</p>
+
+<h2 id="errors">Hatalar</h2>
+<p>Hatalar, standart HTTP durum kodlarını (400 hatalı girdi, 401 oturum açılmamış, 403 izin yok, 404 bulunamadı, 501 özellik devre dışı) ve bir JSON gövdesini kullanır:</p>
+<pre><code>{
+  "id": "api.context.permissions.app_error",
+  "message": "You do not have the appropriate permissions.",
+  "detailed_error": "",
+  "request_id": "jz8zm5nunpbt8f3gpqsz5dq6so",
+  "status_code": 403
+}</code></pre>
+<p>Kodunuzda <code>id</code> alanını kullanın: <code>message</code> kullanıcının diline çevrilir. <code>detailed_error</code>, sunucu geliştirici modunda çalışmıyorsa (<code>ServiceSettings.EnableDeveloper</code>) boş kalır. <code>request_id</code> değerini sunucunun yöneticisine iletin: bu değer günlüklerde bulunur.</p>
+
+<h2 id="rate-limits">Hız sınırları</h2>
+<p>Hız sınırlaması varsayılan olarak devre dışıdır. Sistem yöneticisi bunu etkinleştirdiğinde (<b>Sistem Konsolu › Ortam › Hız sınırlaması</b>), her istemci için varsayılan olarak saniyede 10 istek ve 100'lük patlamalar (bursts) uygulanır; sayım IP adresine veya kullanıcıya göre yapılır. Yanıtlar <code>X-RateLimit-Limit</code>, <code>X-RateLimit-Remaining</code> ve <code>X-RateLimit-Reset</code> başlıklarını taşır; sınır aşıldığında sunucu <code>429</code> yanıtı verir ve saniye cinsinden <code>Retry-After</code> başlığı ekler. Giriş yapma gibi bazı uç noktalar, ayar ne olursa olsun kendi sınırlarına sahiptir.</p>
+<p>429 durumunda bekleyip yeniden denemek için betikler yazın ve yoklama (polling) yapmaktan kaçının: bunun yerine WebSocket'i izleyin.</p>
+
+<h2 id="websocket">WebSocket olay akışı</h2>
+<p><code>wss://chat.example.com/api/v4/websocket</code> adresine bağlanın. Kimlik doğrulama, bağlantı isteğinde <code>Authorization: Bearer</code> başlığıyla veya ilk mesaj olarak şunu göndererek yapılır:</p>
+<pre><code>{"seq": 1, "action": "authentication_challenge", "data": {"token": "…"}}</code></pre>
+<p>Sunucu bir <code>hello</code> olayı gönderir, ardından görüntülemeye yetkili olduğunuz her şey için bir olay gönderir:</p>
+<pre><code>{
+  "event": "posted",
+  "data": {"channel_id": "…", "channel_type": "O", "post": "{\"id\":\"…\",\"message\":\"Hello\",…}"},
+  "broadcast": {"channel_id": "…", "team_id": "", "user_id": "", "omit_users": null},
+  "seq": 4
+}</code></pre>
+<p><code>data.post</code>'un bir JSON dizgesi olarak iletinin kendisi olduğunu unutmayın. Yaygın olaylar: <code>posted</code>, <code>post_edited</code>, <code>post_deleted</code>, <code>reaction_added</code>, <code>reaction_removed</code>, <code>typing</code>, <code>status_change</code>, <code>user_added</code>, <code>direct_added</code>. Uygulamalar, <code>custom_&lt;app id&gt;_&lt;event&gt;</code> adlı kendi olaylarını gönderir.</p>
+<p>Artan <code>seq</code> değerleriyle eylemler de gönderebilirsiniz: <code>{"channel_id", "parent_id"}</code> içeren <code>user_typing</code> veya <code>get_statuses</code>. Bağlantı koptuğunda yeniden bağlanın ve <code>since</code> ile kaçırdıklarınızı alın (bkz. <a href="#pagination">Sayfalama</a>).</p>
+<p>Antimatter şu olayları ekler: <code>community_attributes_updated</code>, <code>member_timeouts_updated</code>, <code>post_put_on_top</code>, <code>post_removed_from_top</code>, <code>server_categories_updated</code>, <code>channel_overrides_updated</code> ve <code>category_overrides_updated</code>.</p>
+
+<h2 id="clients">İstemci kütüphaneleri</h2>
+<ul>
+<li><b>Go</b>: <code>server/public/model</code> içindeki <code>model.Client4</code> (içe aktarım: <code>github.com/mattermost/mattermost/server/public/model</code>). <code>model.NewAPIv4Client(url)</code> çağrıldıktan sonra <code>client.SetToken(token)</code> kullanılır; <code>model.NewWebSocketClient4(wsURL, token)</code> olayları izler. Antimatter'in kopyası, <code>UpdateMessageRequest</code>, <code>PutPostOnTop</code> ve <code>ExportChannel</code> gibi kendi uç noktaları için yöntemler ekler.</li>
+<li><b>TypeScript</b>: <code>webapp/platform/client</code> içindeki <code>@mattermost/client</code> paketinin <code>Client4</code> sınıfı, tipleri ise <code>webapp/platform/types</code> içindedir. Antimatter deposundaki kopya, Antimatter'in uç noktalarını içerir; Mattermost tarafından npm'de yayınlanan paket ise içermez.</li>
+</ul>
+<pre><code>package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/mattermost/mattermost/server/public/model"
+)
+
+func main() {
+	client := model.NewAPIv4Client("https://chat.example.com")
+	client.SetToken("…")
+	post, _, err := client.CreatePost(context.Background(), &amp;model.Post{
+		ChannelId: "…",
+		Message:   "Hello from Go",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("posted", post.Id)
+}</code></pre>
+
+<h2 id="antimatter">Antimatter'in API'ye ekledikleri</h2>
+<p>Bu uç noktalar ve alanlar bir Mattermost sunucusunda mevcut değildir. Hepsinin bir oturum gerektirir.</p>
+<table>
+<thead><tr><th>Uç nokta</th><th>Ne işe yarar</th></tr></thead>
+<tbody>
+<tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> aynı yol<br><code>PATCH</code>, <code>DELETE …/fields/{field_id}</code></td><td>Topluluk öznitelikleri: bir topluluğun yöneticilerinin üyeleri için tanımladığı profil alanları (en fazla 20). Üyeler bunları okuyabilir; topluluk yöneticileri oluşturur ve değiştirir.</td></tr>
+<tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> aynı yol<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>Bir üyenin öznitelik değerleri, <code>{field_id: value}</code> biçiminde. Üyeler kendi değerlerini (yönetici tarafından yönetilenler hariç) ayarlar; yöneticiler herkesin değerini ayarlayabilir. Arama, <code>{"user_ids": [...]}</code> (en fazla 200) alır.</td></tr>
+<tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>Zaman aşımı: <code>{"until": time, "reason": "…"}</code>, bir kişiyi belirtilen süreye kadar (en fazla 28 gün) toplulukta gönderi yapmaktan, tepki vermekten ve dosya yüklemekten alıkoyar; <code>"until": 0</code> bu kısıtlamayı kaldırır. Moderasyon görünümü, kişinin ne zaman katıldığını ve son zamanlarda ne kadar gönderi yaptığını gösterir.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Bir kanalın üst kısmında tutulan iletiler (en fazla 10). <code>{"duration": ms}</code>, en fazla 30 gün; 0, kaldırılana kadar korur. Kanala gönderme yetkisi gerekir.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>Kendi ileti isteğiniz üzerinde işlem yapar: <code>{"action": "accept"}</code>, <code>"dismiss"</code> veya bir konuşmayı istekler arasına geri koymak için <code>"request"</code>. Kanal üyenizi döndürür.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>Bir kanalda bir rolün veya kişinin yapabilecekleri, ayrıca rolle sınırlandırılmış kanalı hangi rollerin görebileceği.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>Topluluğun ortak kanal kategorileri ve bir kategori içindeki her kanala uygulanan geçersiz kılma ayarları.</td></tr>
+<tr><td><code>GET /groups/{group_id}/team_role</code><br><code>PUT …/team_role/permissions</code></td><td>Bir topluluk rolünün tanıdığı izinler.</td></tr>
+<tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>Bir metin üzerinde topluluğun otomatik bağlantı (autolink) kurallarını denemek.</td></tr>
+<tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>Kanalın iletilerini CSV olarak indirme (en fazla 50.000), kanalı okuyabilen kişiler için.</td></tr>
+<tr><td><code>GET /posts/{post_id}/speech</code></td><td>Metinden sese (text-to-speech) yapılandırıldığında, sesli olarak okunan iletinin ses dosyası.</td></tr>
+</tbody>
+</table>
+<h3>Yeni alanlar</h3>
+<ul>
+<li><b>Topluluklar</b> (<code>Team</code> ve <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (Discord'da olduğu gibi, herkes görebildiği her kanala üyedir), <code>default_channel_id</code> (yeni gelenlerin düştüğü yer; boşsa Town Square), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> ve <code>autolinks</code> (ikisi de JSON dizeleri).</li>
+<li><b>Satır içi yanıtlar</b>: <code>"props": {"reply_to": "&lt;post id&gt;"}</code> alanı, aynı kanaldaki ilgili iletinin alıntısını yapar. Yazarı bilgilendirmemek için <code>"reply_to_mention": false</code> ekleyin. Sunucu, alıntılanan iletinin kısa bir açıklamasını <code>metadata.reply_to</code> alanına doldurur.</li>
+<li><b>Spoiler</b>: <code>"props": {"spoiler": true}</code> alanı, okuyucu görmeyi seçene kadar iletinin metnini ve eklerini gizler.</li>
+<li><b>Yoksayma ve engelleme</b> tercihlerdir: kategori <code>user_block</code>, diğer kişinin kimliğiyle adlandırılır ve değeri <code>ignore</code> veya <code>block</code> olur. Bir doğrudan iletinin istek olarak bekleyip beklemeyeceği, kanal üyenizin <code>notify_props.dm_request</code> alanında belirtilir (<code>pending</code>, <code>accepted</code> veya <code>dismissed</code>).</li>
+<li><b>İleti ekleri</b> <code>stages</code> ve <code>chart</code> taşıyabilir: bkz. <a href="{{root}}docs/developers/webhooks.html#cards">Kartlar</a>.</li>
+</ul>

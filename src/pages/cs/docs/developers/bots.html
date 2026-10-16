@@ -1,0 +1,172 @@
+title: Boti a interaktivní zprávy
+description: Botové účty v Antimatteru: jejich vytváření, tokeny a oprávnění, odesílání zpráv jako bot, přímé zprávy, interaktivní tlačítka a nabídky a dialogy.
+guide: developers
+order: 5
+nav: Boti
+lead: Botový účet je uživatel určený pro program. Má vlastní název, obrázek a tokeny a vedle svého jména se zobrazuje štítek BOT. Tato stránka také popisuje interaktivní prvky zpráv: tlačítka, nabídky a dialogy, které může využít jakákoli integrace.
+source: 45503666f647
+---
+<h2 id="why">Proč botový účet</h2>
+<ul>
+<li>Jeho zprávy pocházejí z jasně identifikovatelné identity se štítkem <b>BOT</b>, nikoli z účtu kolegy.</li>
+<li>Jeho tokeny fungují i v případě, že osoba, která je nastavila, změní roli nebo odejde (pokud to server nevyžaduje, viz níže).</li>
+<li>Boti se nemohou přihlásit heslem a nikdy nevidí webovou aplikaci.</li>
+</ul>
+<p>Aplikace si vytvářejí vlastní boty, například boty Todo nebo Playbooks, prostřednictvím plugin API (<code>EnsureBotUser</code>).</p>
+
+<h2 id="enable">Zapnutí botových účtů</h2>
+<p>Systémový administrátor zapne <b>Povolit vytváření účtů botů</b> v <b>Systémová konzole › Integrace › Účty botů</b> (<code>ServiceSettings.EnableBotAccountCreation</code>, <code>AM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION</code>). Výchozí stav je vypnuto. Boty mohou vytvářet pouze systémoví administrátoři, pokud jim v nastavení oprávnění neudělíte toto právo i jiným rolím.</p>
+<p>Na stejné stránce je možnost <b>Zakázat účty botů, když je vlastník deaktivován</b> (<code>ServiceSettings.DisableBotsWhenOwnerIsDeactivated</code>, výchozí stav je zapnuto), která vypne bota, když je účet jeho vlastníka deaktivován.</p>
+
+<h2 id="create">Vytvoření bota</h2>
+<ol>
+<li>Otevřete svůj avatar v pravém horním rohu, poté <b>Integrace › Účty botů</b> a následně <b>Přidat účet bota</b>.</li>
+<li>Zadejte <b>Uživatelské jméno</b> (malá písmena, číslice, tečky, pomlčky a podtržítka) a volitelně <b>Ikona bota</b>, <b>Zobrazovaný název</b> a <b>Popis</b>.</li>
+<li>Vyberte <b>Role</b>: <b>Člen</b> nebo <b>Systémový administrátor</b> pro bota, který spravuje server. Bota nadělejte pouze těch oprávnění, která skutečně potřebuje.</li>
+<li>Zaškrtněte <b>post:channels</b>, aby mohl odesílat zprávy do všech veřejných kanálů, nebo <b>post:all</b> pro všechny kanály, včetně soukromých a přímých zpráv, aniž by musel být členem.</li>
+<li>Nastavte, kdy vyprší platnost výchozího tokenu, a poté zvolte <b>Vytvořit účet bota</b>.</li>
+<li>Zkopírujte zobrazený přístupový token. Znovu se nezobrazí.</li>
+</ol>
+<p>Později můžete na řádku bota použít <b>Vytvořit nový token</b> pro přidání tokenu. Každý token lze vypnout nebo smazat. Tokeny botů fungují i v případě, že jsou osobní přístupové tokeny pro uživatele vypnuté.</p>
+<p>Přes API:</p>
+<pre><code># create the bot (you become its owner)
+curl -X POST https://chat.example.com/api/v4/bots \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username": "deploy-bot", "display_name": "Deploy", "description": "Posts deployments"}'
+
+# give it a token
+curl -X POST https://chat.example.com/api/v4/users/$BOT_USER_ID/tokens \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"description": "deploy pipeline"}'</code></pre>
+<p>Z příkazového řádku, přihlášený jako administrátor (ne v lokálním režimu): <code>amctl bot create deploy-bot --display-name Deploy --with-token --expires-in 90d</code>. Další koncové body: <code>GET /api/v4/bots</code>, <code>PUT /api/v4/bots/{bot_user_id}</code>, <code>POST /api/v4/bots/{bot_user_id}/disable</code> a <code>/enable</code>, <code>POST /api/v4/bots/{bot_user_id}/assign/{user_id}</code> pro změnu vlastníka.</p>
+
+<h2 id="membership">Přidejte bota do komunit a kanálů</h2>
+<p>Nový bot není v žádné komunitě. Přidejte ho jako osobu, buď přes správu členů komunity, nebo pomocí API:</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/teams/$TEAM_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"team_id": "'$TEAM_ID'", "user_id": "'$BOT_USER_ID'"}'
+
+curl -X POST https://chat.example.com/api/v4/channels/$CHANNEL_ID/members \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"user_id": "'$BOT_USER_ID'"}'</code></pre>
+<p>Bot s oprávněním <b>post:channels</b> nebo <b>post:all</b> může publikovat bez toho, aby byl členem, ale přijímá WebSocket události pouze pro kanály, ve kterých se nachází.</p>
+
+<h2 id="post">Publikujte jménem bota</h2>
+<p>Použijte token bota pro jakýkoli API volání; <code>POST /api/v4/posts</code> je nejběžnější (viz <a href="{{root}}docs/developers/api.html#resources">Hlavní zdroje</a>). Pro přímé psaní někomu nejdřív otevřete kanál přímé zprávy:</p>
+<pre><code># returns the channel; use its "id" as channel_id
+curl -X POST https://chat.example.com/api/v4/channels/direct \
+  -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' \
+  -d '["'$BOT_USER_ID'", "'$USER_ID'"]'</code></pre>
+<p>Pokud chcete reagovat na to, co lidé říkají, sledujte <a href="{{root}}docs/developers/api.html#websocket">WebSocket</a> s tokenem bota a reagujte na události <code>posted</code>, které vás zajímají. Ignorujte vlastní zprávy bota, abyste předešli smyčkám.</p>
+<p>Zprávu, kterou vidí jen jedna osoba (efemerní zprávu), odešlete pomocí <code>POST /api/v4/posts/ephemeral</code> a <code>{"user_id", "post": {"channel_id", "message"}}</code>. Vyžaduje oprávnění <code>create_post_ephemeral</code>, které mají ve výchozím nastavení pouze systémoví administrátoři. Integrace obvykle efemerní zprávy odesílají jako odpovědi na příkazy s lomítkem a tlačítka.</p>
+
+<h2 id="interactive">Interaktivní zprávy: tlačítka a nabídky</h2>
+<p>Jakákoli zpráva s přílohami může nést akce: tlačítka a nabídky pro výběr. Fungují ve zprávách publikovaných přes API, webhooks a odpovědi na příkazy s lomítkem. Když je někdo použije, Antimatter zavolá URL vaší integrace.</p>
+<pre><code>{
+  "channel_id": "…",
+  "message": "Deploy **api 2.4.0** to production?",
+  "props": {
+    "attachments": [{
+      "actions": [
+        {
+          "id": "approve",
+          "type": "button",
+          "name": "Approve",
+          "style": "primary",
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "approve"}}
+        },
+        {
+          "id": "env",
+          "type": "select",
+          "name": "Pick an environment",
+          "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}],
+          "integration": {"url": "https://deploy.example.com/actions", "context": {"release": "2.4.0", "action": "env"}}
+        }
+      ]
+    }]
+  }
+}</code></pre>
+<ul>
+<li><code>type</code>: <code>button</code> nebo <code>select</code>.</li>
+<li><code>id</code>: písmena, číslice, pomlčky a podtržítka, odlišná pro každou akci v zprávě. Pokud ji neuvédete, vygeneruje se automaticky.</li>
+<li><code>style</code> (tlačítka): <code>default</code>, <code>primary</code>, <code>success</code>, <code>good</code>, <code>warning</code>, <code>danger</code> nebo barva v hexadecimálním zápisu.</li>
+<li><code>options</code> (nabídky) nebo <code>data_source</code>: <code>users</code> nebo <code>channels</code> pro výběr osoby nebo kanálu. <code>default_option</code> předem vybere hodnotu.</li>
+<li><code>integration.url</code>: adresa, na kterou se odesílá kliknutí. Aplikace (plugin) může použít vlastní trasu, například <code>/plugins/com.example.deploy/actions</code>. <code>integration.context</code> je vaše: vrací se s kliknutím a klienti ho nikdy nevidí.</li>
+</ul>
+<h3>Požadavek, který vaše integrace přijme</h3>
+<pre><code>{
+  "user_id": "…",
+  "user_name": "priya",
+  "channel_id": "…",
+  "channel_name": "releases",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "post_id": "…",
+  "trigger_id": "…",
+  "type": "button",
+  "context": {"release": "2.4.0", "action": "approve"}
+}</code></pre>
+<p>Pro menu je <code>type</code> rovné <code>select</code> a <code>context.selected_option</code> obsahuje vybranou hodnotu.</p>
+<h3>Vaše odpověď</h3>
+<pre><code>{
+  "update": {"message": "Deploy of **api 2.4.0** approved by @priya", "props": {}},
+  "ephemeral_text": "Done. The deploy starts in a minute."
+}</code></pre>
+<ul>
+<li><code>update</code>: nahrazí text a vlastnosti zprávy, například aby se po použití odstranily tlačítka (prázdné <code>props</code>).</li>
+<li><code>ephemeral_text</code>: zpráva, kterou uvidí pouze osoba, která klikla.</li>
+<li><code>goto_location</code>: URL k otevření.</li>
+<li>Prázdné tělo nic nezmění.</li>
+</ul>
+<p>Server čeká tak dlouho, jak to dovoluje <b>Časový limit požadavků integrací</b> (výchozí hodnota je 30 sekund). URL adresy integrací na soukromých síťových adresách musí povolit systémový administrátor, stejně jako u webhooků.</p>
+
+<h2 id="dialogs">Dialogy</h2>
+<p>Dialog je formulář, který se otevře nad chatem. Otevřít ho můžete pouze jako odpověď na něco, co osoba právě udělala, na příkaz s lomítkem nebo na tlačítko, protože je potřeba <code>trigger_id</code> z toho požadavku. <code>trigger_id</code> je platný po dobu časového limitu požadavku integrace.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/actions/dialogs/open \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "trigger_id": "'$TRIGGER_ID'",
+    "url": "https://deploy.example.com/dialog",
+    "dialog": {
+      "callback_id": "new-release",
+      "title": "New release",
+      "introduction_text": "Fill in the release details.",
+      "submit_label": "Create",
+      "notify_on_cancel": false,
+      "state": "anything you want back",
+      "elements": [
+        {"display_name": "Version", "name": "version", "type": "text", "placeholder": "2.4.0"},
+        {"display_name": "Notes", "name": "notes", "type": "textarea", "optional": true},
+        {"display_name": "Environment", "name": "env", "type": "select",
+         "options": [{"text": "Staging", "value": "staging"}, {"text": "Production", "value": "production"}]},
+        {"display_name": "Owner", "name": "owner", "type": "select", "data_source": "users"},
+        {"display_name": "Notify the channel", "name": "notify", "type": "bool", "default": "true"}
+      ]
+    }
+  }'</code></pre>
+<table>
+<thead><tr><th>Typ prvku</th><th>Co zobrazuje</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>Jednorádkové pole. <code>subtype</code>: <code>text</code>, <code>email</code>, <code>number</code>, <code>password</code>, <code>tel</code> nebo <code>url</code>. <code>min_length</code> a <code>max_length</code> ho omezují.</td></tr>
+<tr><td><code>textarea</code></td><td>Víceřádkové pole.</td></tr>
+<tr><td><code>select</code></td><td>Seznam: <code>options</code>, nebo <code>data_source</code> <code>users</code>, <code>channels</code>, nebo <code>dynamic</code> s <code>data_source_url</code>. <code>multiselect</code> umožňuje více hodnot.</td></tr>
+<tr><td><code>bool</code></td><td>Zaškrtávací pole.</td></tr>
+<tr><td><code>radio</code></td><td>Jedna volba ze <code>options</code>.</td></tr>
+<tr><td><code>date</code>, <code>datetime</code></td><td>Datum, nebo datum a čas.</td></tr>
+</tbody>
+</table>
+<p>Každý prvek přijímá <code>display_name</code>, <code>name</code>, <code>help_text</code>, <code>placeholder</code>, <code>default</code> a <code>optional</code>.</p>
+<p>Když osoba odešle, Antimatter pošle požadavek POST na <code>url</code> dialogu:</p>
+<pre><code>{
+  "type": "dialog_submission",
+  "callback_id": "new-release",
+  "state": "anything you want back",
+  "user_id": "…",
+  "channel_id": "…",
+  "team_id": "…",
+  "submission": {"version": "2.4.0", "notes": "", "env": "staging", "owner": "…", "notify": true},
+  "cancelled": false
+}</code></pre>
+<p>Odpovězte prázdným tělem, abyste dialog zavřeli, nebo ho nechte otevřený a zobrazte, co je špatně:</p>
+<pre><code>{"errors": {"version": "This version already exists."}}</code></pre>
+<p><code>{"error": "…"}</code> zobrazí zprávu pro celý formulář. S <code>notify_on_cancel</code> odesílá zavření dialogu <code>"cancelled": true</code>. Dialogy fungují stejně i v aplikacích: <code>OpenInteractiveDialog</code> z plugin API přijímá stejný požadavek.</p>

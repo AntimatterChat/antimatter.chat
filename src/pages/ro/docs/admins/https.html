@@ -1,0 +1,161 @@
+title: Domen, HTTPS și proxii inversi
+description: Servește Antimatter pe propriul domeniu prin HTTPS, folosind profilul Caddy inclus sau un proxy invers nginx propriu, și configurează corect URL-ul site-ului și adresele clientului.
+guide: admins
+order: 4
+nav: Domeniu și HTTPS
+lead: Pune Antimatter pe un nume de domeniu cu HTTPS, folosind profilul Caddy din fișierul de compunere sau un proxy invers propriu, și configurează corect URL-ul site-ului și adresele clientului.
+source: 69e8779d356e
+---
+<h2 id="site-url">URL-ul site-ului</h2>
+<p>URL-ul site-ului (<code>ServiceSettings.SiteURL</code>) este adresa pe care o folosesc utilizatorii pentru a accesa Antimatter, de exemplu <code>https://chat.example.com</code>. Serverul îl utilizează în linkurile din e-mailuri și notificări, în redirecționările de autentificare (OAuth, OpenID Connect, SAML), pentru aplicațiile mobile și de desktop, și pentru a verifica de unde provin cererile. Configurează-l exact cu adresa din bara de adrese a browserului: schemă, domeniu și port (dacă nu este cel implicit), fără bară oblică la final.</p>
+<ul>
+<li>Cu fișierul de compunere al site-ului: <code>SITE_URL</code> în <code>.env</code>.</li>
+<li>În orice alt loc: <code>AM_SERVICESETTINGS_SITEURL</code>, sau <b>Consola de sistem › Mediu de execuție › Server web › URL site</b>.</li>
+</ul>
+<p>Dacă URL-ul site-ului este incorect, autentificarea cu un furnizor de identitate va eșua, linkurile din e-mailuri vor indica un loc greșit, iar aplicațiile s-ar putea să nu se conecteze. După ce ai schimbat domeniul, actualizează-l aici și în URL-urile de redirecționare ale fiecărui furnizor de identitate.</p>
+
+<h2 id="caddy">HTTPS cu profilul Caddy inclus</h2>
+<p>Fișierul <code>compose.yaml</code> al site-ului include un serviciu <a href="https://caddyserver.com">Caddy</a> în profilul <code>https</code>. Acesta obține un certificat de la Let's Encrypt, îl reînnoiește automat, redirecționează HTTP către HTTPS și transmite totul, inclusiv websocket-urile, către Antimatter.</p>
+<ol>
+<li>Indică un înregistrare DNS (A, și AAAA pentru IPv6) a domeniului către server.</li>
+<li>Deschide porturile 80/tcp, 443/tcp și 443/udp (HTTP/3) în firewall. Let's Encrypt trebuie să poată accesa portul 80 sau 443 de pe Internet.</li>
+<li>Adaugă domeniul în <code>.env</code> și configurează URL-ul site-ului:
+<pre><code>echo "DOMAIN=chat.example.com" &gt;&gt; .env
+sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env</code></pre></li>
+<li>Pornește cu profilul:
+<pre><code>docker compose --profile https up -d</code></pre></li>
+</ol>
+<p>Adaugă <code>--profile https</code> la fiecare apel ulterior <code>docker compose up</code>, sau pune <code>COMPOSE_PROFILES=https</code> în <code>.env</code> pentru ca un simplu <code>docker compose up -d</code> să includă profilul. Caddy își păstrează certificatele în volumul <code>https</code>.</p>
+<p>Portul propriu al Antimatter rămâne publicat pe gazdă (<code>HTTP_PORT</code>, implicit 8065). Cu Caddy în față, păstrează-l doar pentru serverul însuși:</p>
+<pre><code>echo "HTTP_PORT=127.0.0.1:8065" &gt;&gt; .env
+docker compose --profile https up -d</code></pre>
+<p>Caddy accesează Antimatter prin rețeaua internă <code>edge</code>, nu prin acel port, deci acest lucru nu schimbă nimic pentru utilizatorii tăi.</p>
+
+<h2 id="nginx">Cu un proxy invers propriu (nginx)</h2>
+<p>Dacă serverul rulează deja nginx sau un alt proxy, dezactivați profilul <code>https</code> și configurați proxy-ul să indice portul 8065 al Antimatter. Proxy-ul trebuie:</p>
+<ul>
+<li>să permită upgrade-urile websocket (aplicația web și aplicațiile mobile mențin deschis un websocket pe <code>/api/v4/websocket</code>, iar unele aplicații își deschid unul propriu);</li>
+<li>acceptați corpuri de cerere cel puțin la fel de mari ca cel mai mare fișier încărcat (<b>Dimensiunea maximă a fișierului</b>, implicit 100 MB);</li>
+<li>să mențină deschise conexiunile de lungă durată (websockets, încărcări și descărcări mari);</li>
+<li>să transmită antetul <code>Host</code> și adresa clientului.</li>
+</ul>
+<p>Un bloc de server complet, adaptat din șablonul de producție din antimatter-docker. Înlocuiți domeniul și căile către certificate:</p>
+<pre><code>upstream antimatter {
+    server 127.0.0.1:8065;
+    keepalive 64;
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+proxy_cache_path /var/cache/nginx/antimatter levels=1:2 keys_zone=antimatter_cache:10m
+                 max_size=3g inactive=120m use_temp_path=off;
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name chat.example.com;
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name chat.example.com;
+
+    ssl_certificate     /etc/ssl/chat.example.com/fullchain.pem;
+    ssl_certificate_key /etc/ssl/chat.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:AntimatterSSL:10m;
+    ssl_session_tickets off;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # At least FileSettings.MaxFileSize (100 MB by default).
+    client_max_body_size 100M;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade           $http_upgrade;
+    proxy_set_header Connection        $connection_upgrade;
+    proxy_buffers 256 16k;
+    proxy_buffer_size 16k;
+
+    location ~ ^/api/v[0-9]+/(users/)?websocket$ {
+        client_body_timeout 60s;
+        send_timeout 300s;
+        lingering_timeout 5s;
+        proxy_connect_timeout 90s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 90s;
+        proxy_pass http://antimatter;
+    }
+
+    location / {
+        proxy_read_timeout 600s;
+        proxy_cache antimatter_cache;
+        proxy_cache_revalidate on;
+        proxy_cache_min_uses 2;
+        proxy_cache_use_stale timeout;
+        proxy_cache_lock on;
+        proxy_pass http://antimatter;
+    }
+}</code></pre>
+<p>Verificați fișierul cu <code>nginx -t</code> și aplicați-l cu <code>systemctl reload nginx</code>. Serverul trimite singur antetele <code>X-Content-Type-Options</code>, <code>Referrer-Policy</code>, <code>Permissions-Policy</code> și <code>X-Frame-Options</code>; doar HSTS este responsabilitatea proxy-ului. Creșteți valoarea <code>max-age</code> după ce HTTPS funcționează și adăugați <code>includeSubDomains</code> doar dacă toate subdomeniile folosesc HTTPS.</p>
+<p>Cu Docker Compose și nginx pe gazdă, <code>upstream</code>-ul de mai sus indică portul publicat 8065. Publicați-l doar pe <code>127.0.0.1</code> (<code>HTTP_PORT=127.0.0.1:8065</code>), astfel încât nimeni să nu ocolească proxy-ul.</p>
+<p>Depozitoriul antimatter-docker conține o configurație completă cu nginx într-un container și Let's Encrypt prin certbot, în <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">deploy/compose</a>.</p>
+
+<h3>Alte proxy-uri</h3>
+<p>Orice proxy funcționează dacă îndeplinește cele patru puncte de mai sus. Apelurile audio și video nu trec niciodată prin proxy: folosesc propriul port, consultați <a href="{{root}}docs/admins/calls.html">Apeluri și voce</a>.</p>
+
+<h2 id="client-address">Adresele clientului din spatele unui proxy</h2>
+<p>Din spatele unui proxy, fiecare cerere pare să vină de la proxy. Pentru a înregistra adresa reală a clientului, pentru a aplica limite de rată per client și pentru a folosi filtrarea IP, indicați serverului care antet conține adresa și de la ce proxy-uri poate încrede. Niciuna dintre aceste setări nu are un câmp în Consola de sistem: configurați-le în <code>config.json</code> sau cu variabile.</p>
+<table>
+<thead><tr><th>Cheie și variabilă</th><th>Implicit</th><th>Ce face</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.TrustedProxyIPHeader</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER</code></td><td>gol: serverul folosește adresa conexiunii</td><td>Antetele care conțin adresa clientului, de exemplu <code>X-Forwarded-For</code>. Se folosește primul prezent într-o cerere.</td></tr>
+<tr><td><code>ServiceSettings.TrustedProxyIPs</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code></td><td>gol</td><td>Adresele sau intervalele CIDR ale proxy-urilor dumneavoastră, de exemplu <code>172.29.71.0/28</code>. Antetele sunt luate în considerare doar pentru cererile care vin de la unul dintre ele.</td></tr>
+</tbody>
+</table>
+<p>Într-o variabilă, separați mai multe valori cu spații: <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>. Serverul refuză o configurație care conține în <code>TrustedProxyIPs</code> o intrare care nu este nici o adresă IP, nici un interval CIDR.</p>
+<h3>Cum identifică serverul adresa clientului</h3>
+<p>Fiecare proxy adaugă adresa de la care a primit cererea la dreapta în <code>X-Forwarded-For</code>. Ce a trimis clientul în antet rămâne la stânga. Astfel, serverul citește antetul de la dreapta, sare peste adresele proxy-urilor de încredere și ia prima adresă diferită ca adresă a clientului. Un client nu își poate alege adresa trimițând propriul antet.</p>
+<ul>
+<li>În spatele unui singur proxy, <code>TrustedProxyIPHeader</code> este suficient pentru a obține adresa corectă: serverul ia adresa cea mai din dreapta a antetului. Înregistrează un avertisment la pornire până când configurați și <code>TrustedProxyIPs</code>. Fără acesta, oricine care accesează direct portul 8065 poate seta antetul, deci publicați acel port doar pe <code>127.0.0.1</code> sau pe un rețea privată.</li>
+<li>În spatele mai multor proxy-uri, de exemplu un CDN sau un echilibrator de încărcare în fața propriului proxy, enumerați-le pe toate în <code>TrustedProxyIPs</code>. În caz contrar, serverul va lua adresa proxy-ului extern ca adresă a clientului.</li>
+<li>Proxy-ul poate înlocui antetul cu adresa pe care o vede, așa cum face exemplul nginx de mai sus (<code>X-Forwarded-For $remote_addr</code>), sau poate adăuga la acesta (nginx's <code>$proxy_add_x_forwarded_for</code>). Ambele funcționează.</li>
+</ul>
+<h3>Ce adrese trebuie enumerate</h3>
+<p>Enumerați adresa de la care vin cererile proxy-ului, așa cum o vede Antimatter.</p>
+<ul>
+<li>Cu fișierul compose al site-ului și Caddy, acest lucru este deja făcut: Caddy accesează Antimatter prin rețeaua <code>edge</code>, iar fișierul compose setează <code>TrustedProxyIPHeader</code> la <code>X-Forwarded-For</code> și <code>TrustedProxyIPs</code> la intervalul acelei rețele, <code>EDGE_SUBNET</code> (<code>172.29.71.0/28</code>, dacă nu îl modificați în <code>.env</code>). Modificați <code>EDGE_SUBNET</code> dacă se suprapune cu una dintre rețelele dumneavoastră.</li>
+<li>Configurația de producție din antimatter-docker face același lucru pentru containerul nginx, folosind <code>FRONTEND_SUBNET</code>.</li>
+<li>Cu nginx pe gazdă și Antimatter în Docker, cererile ajung la Antimatter prin portul publicat, de obicei de la adresa gateway a rețelei proiectului compose (poate fi văzută cu <code>docker network inspect</code>). Setează <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code> la acea adresă în <code>compose.override.yaml</code>.</li>
+<li>Fără Docker, cu nginx pe același gazdă, este <code>127.0.0.1</code> (și <code>::1</code> dacă nginx se conectează prin IPv6).</li>
+</ul>
+
+<h2 id="builtin-tls">TLS fără proxy</h2>
+<p>Serverul poate servi și HTTPS direct, din <b>Consola de sistem › Mediu › Server Web</b>: <b>Siguranța conexiunii</b> setată pe TLS (<code>ServiceSettings.ConnectionSecurity</code>), cu <b>Fișier certificat TLS</b> și <b>Fișier cheie TLS</b> (<code>ServiceSettings.TLSCertFile</code>, <code>ServiceSettings.TLSKeyFile</code>), sau <b>Utilizare Let's Encrypt</b> (<code>ServiceSettings.UseLetsEncrypt</code>). În acest caz, serverul trebuie să asculte pe portul 443 (<b>Ascultați adresa</b>, <code>ServiceSettings.ListenAddress</code>, implicit <code>:8065</code>), iar <code>ServiceSettings.Forward80To443</code> redirecționează portul 80. Un proxy invers este mai ușor de administrat și de reînnoit, și este ceea ce presupune acest ghid.</p>
+
+<h2 id="timeouts">Timere de expirare și dimensiunea cererilor</h2>
+<p>Setările propriului server web, în <b>Consola de sistem › Mediu de execuție › Server web</b>:</p>
+<table>
+<thead><tr><th>Setare</th><th>Cheie</th><th>Implicit</th></tr></thead>
+<tbody>
+<tr><td><b>Ascultați adresa</b></td><td><code>ServiceSettings.ListenAddress</code></td><td><code>:8065</code></td></tr>
+<tr><td><b>Timpul de citire</b></td><td><code>ServiceSettings.ReadTimeout</code></td><td>300 de secunde</td></tr>
+<tr><td><b>Scurtă perioadă de scriere</b></td><td><code>ServiceSettings.WriteTimeout</code></td><td>300 de secunde</td></tr>
+<tr><td>Timer de expirare la inactivitate (fără câmp în Consola de sistem)</td><td><code>ServiceSettings.IdleTimeout</code></td><td>60 de secunde</td></tr>
+<tr><td><b>Dimensiunea maximă a încărcăturii (octeți)</b></td><td><code>ServiceSettings.MaximumPayloadSizeBytes</code></td><td>a se vedea <a href="{{root}}docs/admins/security.html">Securitate</a></td></tr>
+</tbody>
+</table>
+<p>Păstrați timpii de așteptare proprii ai proxy-ului cel puțin la fel de lungi ca acești timpi pentru cererile normale, iar dimensiunea corpului cel puțin <b>Dimensiunea maximă a fișierului</b>.</p>

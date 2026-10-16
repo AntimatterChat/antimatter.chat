@@ -1,0 +1,102 @@
+title: Kaynaktan derleme
+description: Antimatter'ı kaynaktan nasıl derlenir: Go sunucusu, Fusion ve klasik web arayüzleri, bir geliştirme sunucusu, testler, sürüm arşivleri, Docker imajı ve masaüstü ile mobil uygulamalar.
+guide: developers
+order: 7
+nav: Kaynaktan derleme
+lead: Bu sayfa, Antimatter'ı kaynak kodundan nasıl derleyip çalıştıracağınızı, üzerinde çalışmak veya kendi derlemelerinizi oluşturmak için açıklar. Tek bir depoda barınan sunucu ve web arayüzlerini, ardından Docker imajını ve uygulamaları kapsar.
+source: dfdf67f34f6e
+---
+<h2 id="requirements">Gerekli olanlar</h2>
+<ul>
+<li><b>Git</b>, <code>server/go.mod</code> dosyasındaki sürüme (yazım itibarıyla 1.26.7).</li>
+<li><b>Node.js ve npm</b>, <code>.nvmrc</code> ve <code>webapp/package.json</code> içindeki sürümler (npm 11.6.2 ile Node 24.11.1). <a href="https://mise.jdx.dev">mise</a> ile, depodaki <code>mise.toml</code> doğru Node sürümünü yükler.</li>
+<li><b>Docker</b> ve Compose: geliştirme ortamı, PostgreSQL ve birkaç diğer hizmeti konteynerlerde çalıştırır.</li>
+<li><b>make</b>, <b>git</b> ve bir Linux veya macOS makinesi.</li>
+<li><b>Bellek</b>: web arayüzlerini derlemek en ağır kısımdır. 16 GB RAM planlayın; bkz. <a href="#memory">Derlemeler ve bellek</a>.</li>
+</ul>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter.git
+cd antimatter</code></pre>
+<p>Depo, sunucuyu <code>server/</code> içinde, web arayüzlerini <code>webapp/</code> içinde (Fusion <code>webapp/fusion</code> içinde, klasik <code>webapp/channels</code> içinde, ortak paketler <code>webapp/platform</code> içinde) ve uçtan uca testleri <code>e2e-tests/</code> içinde barındırır.</p>
+
+<h2 id="dev-server">Geliştirme sunucusu çalıştırma</h2>
+<pre><code>cd server
+make run</code></pre>
+<p><code>make run</code>, geliştirme konteynerlerini (PostgreSQL, Redis, bir e-posta yakalayıcı ve izleme araçları) başlatır, web uygulaması derlemelerini yerine bağlar, sunucuyu arka planda <code>go run</code> ile başlatır ve web uygulamasının izleyicisini (watcher) başlatır; bu izleyici, düzenledikçe klasik arayüzü yeniden derler. <code>http://localhost:8065</code> adresini açın ve bir hesap oluşturun: ilk hesap sistem yöneticisi olur.</p>
+<table>
+<thead><tr><th>Komut (<code>server/</code> içinde)</th><th>Ne işe yarar</th></tr></thead>
+<tbody>
+<tr><td><code>make run-server</code>, <code>make run-client</code></td><td>Yalnızca sunucuyu veya yalnızca web uygulaması izleyicisini başlatın.</td></tr>
+<tr><td><code>make restart-server</code></td><td>Go kodunu değiştirdikten sonra sunucuyu yeniden başlatın.</td></tr>
+<tr><td><code>make stop</code></td><td>Sunucuyu, izleyiciyi ve konteynerleri durdurun.</td></tr>
+<tr><td><code>make debug-server</code></td><td>Sunucuyu Delve hata ayıklayıcısı altında çalıştırın.</td></tr>
+<tr><td><code>make run-cli ARGS="-version"</code></td><td>Bir sunucu komutu çalıştırın.</td></tr>
+<tr><td><code>make config-reset</code></td><td><code>config/config.json</code> dosyasını varsayılanlara sıfırlayın.</td></tr>
+<tr><td><code>make clean</code>, <code>make nuke</code></td><td>Derleme dosyalarını silin; <code>nuke</code> ayrıca geliştirme verilerini de siler.</td></tr>
+</tbody>
+</table>
+<p>Geliştirme veritabanı <code>postgres://mmuser:mostest_password@localhost/mattermost_test</code> olup sunucunun varsayılan veri kaynağıdır. Hangi konteynerlerin başlayacağını <code>ENABLED_DOCKER_SERVICES</code> ile seçin; bunu bir <code>server/config.override.mk</code> dosyasında veya ortamınızda yapın (bkz. <code>server/config.mk</code>).</p>
+
+<h2 id="webapp">Web arayüzleri</h2>
+<p><code>webapp/</code> içinde:</p>
+<pre><code>npm install      # also builds the shared packages
+npm run build    # the classic interface, then Fusion</code></pre>
+<p>Derlemeler <code>webapp/channels/dist</code> (klasik) ve <code>webapp/fusion/dist</code> (Fusion) dizinlerine yerleştirilir. <code>server/</code> dizininde çalıştırılan <code>make client</code> komutu, bu dosyaları sırasıyla <code>server/client</code> ve <code>server/client-fusion</code> olarak bağlar; sunucu da bunları klasik arayüz için <code>/static/</code>, Fusion için <code>/static/fusion/</code> altında sunar.</p>
+<ul>
+<li><code>npm run run</code> (veya <code>webapp/</code> dizininde <code>make run</code>) klasik arayüzü izleyerek yeniden derler. Fusion'ı da yeniden derlemek için <code>WATCH_FUSION=true</code> ekleyin.</li>
+<li><code>npm run dev-server</code> (<code>make dev</code>) bunun yerine webpack'in geliştirme sunucusunu çalıştırır: klasik arayüz 9005, Fusion 9006 portunda.</li>
+<li>Tarayıcıda bir arayüzü diğerinden ayrı görmek için herhangi bir sayfanın adresine <code>?webui=fusion</code> veya <code>?webui=classic</code> ekleyin.</li>
+</ul>
+
+<h2 id="tests">Testler ve denetimler</h2>
+<table>
+<thead><tr><th>Komut</th><th>Nerede</th><th>Ne işe yarar</th></tr></thead>
+<tbody>
+<tr><td><code>make test-server</code></td><td><code>server/</code></td><td>Geliştirme konteynerlerine karşı sunucu test paketi. Uzun sürer.</td></tr>
+<tr><td><code>make test-server-quick</code></td><td><code>server/</code></td><td>Yalnızca kısa testler.</td></tr>
+<tr><td><code>go test ./channels/app/... -run TestName</code></td><td><code>server/</code></td><td>Konteynerler çalışırken (<code>make start-docker</code>) tek bir paket veya test.</td></tr>
+<tr><td><code>make check-style</code></td><td><code>server/</code></td><td>go vet, golangci-lint ve diğer Go denetimleri.</td></tr>
+<tr><td><code>make test</code></td><td><code>webapp/</code></td><td>Her pakette web uygulamasının birim testleri (Jest).</td></tr>
+<tr><td><code>npm run test -- &lt;pattern&gt;</code></td><td><code>webapp/fusion</code></td><td>Fusion'ın bazı testleri.</td></tr>
+<tr><td><code>make check-style</code>, <code>make check-types</code></td><td><code>webapp/</code></td><td>ESLint ve TypeScript.</td></tr>
+<tr><td><code>make i18n-extract</code></td><td><code>server/</code> ve <code>webapp/</code></td><td>Dizeler eklediğinizde veya değiştirdiğinizde İngilizce dize dosyalarını günceller (bkz. <a href="{{root}}docs/developers/contributing.html#translations">Çeviriler</a>).</td></tr>
+</tbody>
+</table>
+<p><code>server/</code> dizininde <code>go mod tidy</code> yerine <code>make modules-tidy</code> çalıştırın.</p>
+
+<h2 id="release">Sürüm arşivleri</h2>
+<pre><code>cd webapp &amp;&amp; npm run build &amp;&amp; cd ..
+cd server
+make build-linux       # the antimatter and amctl binaries
+make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
+<p><code>make build</code> web arayüzlerini ve Linux ikili dosyalarını tek seferde derler. Arşiv, <code>bin/antimatter</code>, <code>bin/amctl</code>, varsayılan <code>config/config.json</code>, her iki web arayüzü, şablonlar, yazı tipleri ve çevirileri içerir. Diğer platformlar için: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>. Arşivler paketlenmiş uygulamaları içermez; Docker imajı içerir.</p>
+
+<h2 id="docker">Docker imajı</h2>
+<p><a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> deposu, sunucuyu ve uygulamalarını tamamen Docker içinde derleyerek yayımlanan imajları oluşturur:</p>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter-docker.git
+cd antimatter-docker
+scripts/build-all.sh                     # from the main branches on GitHub
+SOURCES=local scripts/build-all.sh       # from your checkouts next to this folder
+VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatter app</code></pre>
+<p>Docker (buildx ile), Python 3, git ve gpg gerektirir; yaklaşık 16 GB RAM ve 30 GB disk alanı gerekir. Sonuç, <code>ghcr.io/antimatterchat/antimatter:dev</code> olarak yüklenir; <code>ANTIMATTER_IMAGE=ghcr.io/antimatterchat/antimatter:dev docker compose -f compose.local.yml up -d</code> komutuyla deneyebilirsiniz. <code>plugins.json</code> dosyası derlenen uygulamaları ve sürümlerini listeler, depoyun README dosyası ise varyantları açıklar.</p>
+<div class="callout warn"><code>build-all.sh</code>, paketlenmiş uygulamaları Antimatter imzalama anahtarıyla imzalar ve görüntü derlemesi imzasız uygulamaları reddeder. Yalnızca bakımcıların sahip olduğu bu özel anahtar olmadan yalnızca ilk adımları çalıştırın: <code>scripts/fetch-sources.sh</code>, <code>scripts/build-plugins.sh</code> (uygulama paketleri <code>out/plugins/</code> içinde) ve <code>scripts/build-server.sh</code> (sunucu arşivleri <code>out/server/</code> içinde).</div>
+
+<h2 id="memory">Derleme ve bellek</h2>
+<p>Web arayüzleri büyük webpack derlemeleridir ve bellek yetersizliği en yaygın derleme hatasıdır.</p>
+<ul>
+<li><code>npm run build</code>, tepe bellek kullanımını düşük tutmak için klasik arayüzü ve Fusion'u sırayla, birlikte değil derler. Bunları kendiniz paralel olarak çalıştırmayın.</li>
+<li>Sıkıştırıcı, işlemci başına bir işçi başlatır. Çekirdeği çok ama belleği az olan bir makinede, derlemenin gördüğü işlemci sayısını sınırlayın: <code>taskset -c 0-5 npm run build</code>.</li>
+<li>Node yığın (heap) belleği dolarsa, sınırını artırın: <code>NODE_OPTIONS=--max-old-space-size=6144</code>. Docker derlemesi bu değeri kullanır (<code>build.env</code> içindeki <code>BUILD_NODE_OPTIONS</code>).</li>
+<li>Küçük bir makinede sunucunun tam test paketi, bir web derlemesi ve bir Docker derlemesini aynı anda çalıştırmaktan kaçının.</li>
+</ul>
+
+<h2 id="apps">Uygulamalar</h2>
+<p>Her uygulamanın (eklentinin) kendi deposu ve Makefile'ı vardır; <code>make dist</code> paketini derler. <a href="{{root}}docs/developers/apps.html#build">Derleme, kurulum ve hata ayıklama</a> bölümüne bakın.</p>
+<h3>Masaüstü uygulaması</h3>
+<p><a href="https://github.com/AntimatterChat/desktop-app">Masaüstü uygulaması</a> bir Electron uygulamasıdır. Node.js 24 veya üstü ile:</p>
+<pre><code>npm install --allow-git=all
+npm run build          # development build, into dist/
+npm start              # run it
+npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
+<p>Derleme zamanı ayarları, örneğin önceden yapılandırılacak sunucular, <code>src/common/config/buildConfig.ts</code> dosyasındadır.</p>
+<h3>Mobil uygulama</h3>
+<p><a href="https://github.com/AntimatterChat/mobile-app">Mobil uygulama</a> bir React Native uygulamasıdır; README'si komutları listeler (<code>npm run ios</code>, <code>npm run android</code>). Kendi kopyanızı derlemek için ayrıca kendi imzalama anahtarlarınıza, Android bildirimleri için bir Firebase projesine, iOS için bir APNs anahtarına ve bu kimlik bilgilerini barındıran bir <a href="https://github.com/AntimatterChat/push-proxy">push proxy</a>'ye de ihtiyacınız vardır.</p>

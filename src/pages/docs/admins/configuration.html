@@ -1,0 +1,119 @@
+title: Configuration
+description: How Antimatter's configuration works: settings in the database or in config.json, AM_ environment variables, the System Console, the amctl command-line tool, and where to find the logs.
+guide: admins
+order: 3
+nav: Configuration
+lead: Where Antimatter keeps its settings, the three ways to change them (System Console, environment variables, amctl), and where the logs go.
+---
+<h2 id="where">Where the settings live</h2>
+<p>Every server setting has a name made of a section and a key, such as <code>ServiceSettings.SiteURL</code> or <code>EmailSettings.SMTPServer</code>. Together they form one configuration, stored in one of two places:</p>
+<ul>
+<li><b>In the database.</b> The site's compose file sets <code>AM_CONFIG</code> to the PostgreSQL connection URL, so the configuration is a row in the database and the container keeps nothing on disk. Several servers sharing one database also share their configuration.</li>
+<li><b>In a file.</b> Without <code>AM_CONFIG</code>, the server reads <code>config/config.json</code> next to its <code>bin/</code> directory (<code>/antimatter/config/config.json</code> in the Docker image). The release archive and the production compose files of antimatter-docker work this way. Keep this file readable by the server's user only: it holds passwords and keys.</li>
+</ul>
+<p><code>AM_CONFIG</code> (or the <code>--config</code> flag of the <code>antimatter</code> command) accepts either a file path or a <code>postgres://</code> URL. Settings you leave out take their default value.</p>
+<p>To move an existing configuration from a file to the database, run this on the server, then start the server with <code>AM_CONFIG</code> set to the same URL:</p>
+<pre><code>amctl --local config migrate /opt/antimatter/config/config.json \
+    "postgres://antimatter:PASSWORD@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10"</code></pre>
+
+<h2 id="environment">Environment variables</h2>
+<p>Any setting can also be given as an environment variable. Variables win over the stored configuration, which makes them a good fit for what belongs to the deployment: the database, the site URL, the file storage, the ports.</p>
+<h3>Naming rule</h3>
+<p>Write <code>AM_</code>, then the section, then the key, in capital letters and separated by underscores. The words inside a section or key name are not separated:</p>
+<table>
+<thead><tr><th>Setting</th><th>Variable</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.SiteURL</code></td><td><code>AM_SERVICESETTINGS_SITEURL</code></td></tr>
+<tr><td><code>SqlSettings.DataSource</code></td><td><code>AM_SQLSETTINGS_DATASOURCE</code></td></tr>
+<tr><td><code>EmailSettings.SMTPServer</code></td><td><code>AM_EMAILSETTINGS_SMTPSERVER</code></td></tr>
+<tr><td><code>PrivacySettings.EnableUserBlocking</code></td><td><code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li>True and false settings take <code>true</code> or <code>false</code>; numbers are plain numbers.</li>
+<li>List settings take their values separated by spaces, for example <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>.</li>
+<li>Settings that are objects take JSON. The only such variable for apps is <code>AM_PLUGINSETTINGS_PLUGINS</code>, and it replaces the settings of <em>every</em> app at once: set app settings in the System Console or with <code>amctl</code> instead (see below).</li>
+<li>Older Mattermost setups use the <code>MM_</code> prefix, for example <code>MM_SQLSETTINGS_DATASOURCE</code>. It still works as a legacy alias. When both are set, the <code>AM_</code> variable wins.</li>
+</ul>
+<p>A setting given by a variable is locked in the System Console, with the note "This setting has been set through an environment variable. It cannot be changed through the System Console." It is not written to the stored configuration: remove the variable and the stored value applies again.</p>
+<h3>With Docker Compose</h3>
+<p>Add variables under <code>environment:</code> of the <code>antimatter</code> service, or in a <code>compose.override.yaml</code> next to <code>compose.yaml</code> (Compose reads it automatically, and it survives updates of the downloaded file):</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_LOGSETTINGS_CONSOLELEVEL: INFO</code></pre>
+<p>Apply changes with <code>docker compose up -d</code>, which recreates the container.</p>
+<h3>Variables read by the apps</h3>
+<p>A few apps read their own variables, set on the <code>antimatter</code> service: the Calls app reads <code>AM_CALLS_*</code> (see <a href="{{root}}docs/admins/calls.html">Calls and voice</a>), and the GIFs app reads <code>AM_GIFS_SERVICE_URL</code>, <code>AM_GIFS_API_KEY</code> and <code>AM_GIFS_UPLOAD_KEY</code> (see <a href="{{root}}docs/admins/apps.html">Bundled apps</a>).</p>
+
+<h2 id="console">The System Console</h2>
+<p>The System Console is the administration area of the web app, for system administrators. To open it, click your profile picture and choose <b>System Console</b>, or go to <code>https://chat.example.com/admin_console</code>. Its sidebar has a <b>Find settings</b> box that searches every page.</p>
+<figure><img src="{{root}}assets/img/shots/admin.webp" alt="The System Console, with its sidebar of sections on the left and the SAML 2.0 settings page on the right."><figcaption>The System Console. The sidebar groups the pages into sections such as Reporting, User Management and Environment.</figcaption></figure>
+<p>Its sections are:</p>
+<ul>
+<li><b>Reporting</b>: statistics and the server logs.</li>
+<li><b>User Management</b>: users, groups, communities (listed as Teams), channels, permissions and delegated administration.</li>
+<li><b>System Attributes</b>: custom profile attributes and attribute-based access.</li>
+<li><b>Environment</b>: web server, database, file storage, image proxy, SMTP, push notifications, rate limiting, logging, session lengths, performance monitoring.</li>
+<li><b>Site Configuration</b>: branding, users and teams, notifications, posts, file sharing and the other server-wide behaviours.</li>
+<li><b>Authentication</b>: sign-up, email and password sign-in, MFA, AD/LDAP, SAML 2.0, OAuth 2.0, OpenID Connect and guest access.</li>
+<li><b>Plugins</b>: app management and each installed app's settings.</li>
+<li><b>Integrations</b>: webhooks, slash commands, bot accounts, GIFs, text to speech, CORS.</li>
+<li><b>Compliance</b>: data retention, compliance export and monitoring, audit logging, custom terms of service.</li>
+<li><b>Experimental</b>: features that may change.</li>
+</ul>
+<p>In this guide, a setting is written as its path in the System Console, then its label, then its configuration key, for example <b>System Console › Site Configuration › Users and Teams › Enable ignoring, blocking and message requests</b> (<code>PrivacySettings.EnableUserBlocking</code>).</p>
+<p>Most changes apply as soon as you click <b>Save</b>. A few (the listen address, some database and cache settings) need a restart, and the page says so.</p>
+
+<h2 id="amctl">The amctl command-line tool</h2>
+<p><code>amctl</code> manages a server from the command line: users, communities, channels, apps, configuration, jobs and more. It talks to the server in one of two ways.</p>
+<h3>Local mode, on the server</h3>
+<p>Local mode lets <code>amctl</code> talk to the server through a Unix socket, without signing in. It is on in the Docker image. On a server installed from an archive, turn it on with <b>ServiceSettings.EnableLocalMode</b> (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>). The socket is <code>/var/tmp/antimatter_local.socket</code> by default (<code>ServiceSettings.LocalModeSocketLocation</code>).</p>
+<pre><code># with Docker Compose
+docker compose exec antimatter amctl --local system status
+# with a release archive
+sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code></pre>
+<div class="callout warn">Anyone who can use the socket, or run <code>docker compose exec</code> on the host, has full system administrator rights.</div>
+<h3>Remote, with an account</h3>
+<p>From any machine, sign in with a system administrator account (or a personal access token), then run commands against that server:</p>
+<pre><code>amctl auth login https://chat.example.com --name prod --username admin
+amctl system status</code></pre>
+<h3>Configuration commands</h3>
+<table>
+<thead><tr><th>Command</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>amctl config get ServiceSettings.SiteURL</code></td><td>Prints one setting.</td></tr>
+<tr><td><code>amctl config set TeamSettings.EnableOpenServer false</code></td><td>Changes one setting. List settings take several values.</td></tr>
+<tr><td><code>amctl config patch settings.json</code></td><td>Merges a JSON file of settings into the configuration.</td></tr>
+<tr><td><code>amctl config show</code></td><td>Prints the whole configuration as JSON.</td></tr>
+<tr><td><code>amctl config edit</code></td><td>Opens the configuration in your editor (<code>$EDITOR</code>).</td></tr>
+<tr><td><code>amctl config reset</code></td><td>Resets settings to their defaults.</td></tr>
+<tr><td><code>amctl config reload</code></td><td>Reloads the configuration from where it is stored, after a change made outside the server.</td></tr>
+</tbody>
+</table>
+<p>App settings live under <code>PluginSettings.Plugins.&lt;app id&gt;</code>, with keys in lower case. For example, to set the GIFs app's service URL and key from the Docker host:</p>
+<pre><code>docker compose exec -T antimatter amctl --local config patch /dev/stdin &lt;&lt;'EOF'
+{"PluginSettings": {"Plugins": {"com.antimatterchat.gifs": {
+  "serviceurl": "http://gifs:8080/v2",
+  "apikey": "the GIFS_API_KEY of your .env"
+}}}}
+EOF</code></pre>
+<p>Other useful commands: <code>amctl user create</code>, <code>amctl user deactivate</code>, <code>amctl team create</code>, <code>amctl plugin list</code>, <code>amctl plugin enable</code>, <code>amctl system supportpacket</code> and <code>amctl logs</code>. Run <code>amctl help &lt;command&gt;</code> for each one's options.</p>
+
+<h2 id="logs">Logs</h2>
+<p>The server writes its log to two places, each with its own level (<code>DEBUG</code>, <code>INFO</code>, <code>WARN</code> or <code>ERROR</code>), set in <b>System Console › Environment › Logging</b>:</p>
+<table>
+<thead><tr><th>Destination</th><th>Settings</th><th>Defaults</th></tr></thead>
+<tbody>
+<tr><td>The console (standard output)</td><td><b>Output logs to console</b> (<code>LogSettings.EnableConsole</code>), <b>Console Log Level</b> (<code>LogSettings.ConsoleLevel</code>), <b>Output console logs as JSON</b> (<code>LogSettings.ConsoleJson</code>)</td><td>on, <code>DEBUG</code>, JSON</td></tr>
+<tr><td>A file, <code>antimatter.log</code></td><td><b>Output logs to file</b> (<code>LogSettings.EnableFile</code>), <b>File Log Level</b> (<code>LogSettings.FileLevel</code>), <b>File Log Directory</b> (<code>LogSettings.FileLocation</code>)</td><td>on, <code>INFO</code>, the <code>logs/</code> directory next to <code>bin/</code></td></tr>
+</tbody>
+</table>
+<p>Log files are rotated at 100 MB and the old ones compressed.</p>
+<p>The site's compose file turns file logging off (<code>AM_LOGSETTINGS_ENABLEFILE=false</code>), so the logs are only in the container's output:</p>
+<pre><code>docker compose logs -f antimatter
+docker compose logs --since 1h antimatter | grep -i error</code></pre>
+<p>The console level defaults to <code>DEBUG</code>, which is verbose. On a busy server, set <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code>. With a release archive under systemd, the console output goes to the journal (<code>journalctl -u antimatter</code>) and the file to <code>/opt/antimatter/logs/antimatter.log</code>.</p>
+<p>When file logging is on, system administrators can also read the latest log lines in <b>System Console › Reporting › Server Logs</b>, or with <code>amctl logs</code>.</p>

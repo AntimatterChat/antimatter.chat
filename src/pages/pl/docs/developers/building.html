@@ -1,0 +1,102 @@
+title: Budowanie ze źródła
+description: Jak zbudować Antimatter ze źródła: serwer Go, interfejsy Fusion i klasyczny, serwer deweloperski, testy, archiwa wydawnicze, obraz Docker oraz aplikacje desktopowe i mobilne.
+guide: developers
+order: 7
+nav: Budowanie ze źródła
+lead: Ta strona wyjaśnia, jak zbudować i uruchomić Antimatter z kodu źródłowego, aby nad nim pracować lub tworzyć własne buildy. Omawia serwer i interfejsy webowe, które znajdują się w jednym repozytorium, a następnie obraz Docker i aplikacje.
+source: dfdf67f34f6e
+---
+<h2 id="requirements">Wymagania</h2>
+<ul>
+<li><b>Przejdź</b> do wersji w <code>server/go.mod</code> (1.26.7 na moment pisania).</li>
+<li><b>Node.js i npm</b> w wersjach określonych w <code>.nvmrc</code> i <code>webapp/package.json</code> (Node 24.11.1 z npm 11.6.2). Dzięki <a href="https://mise.jdx.dev">mise</a> plik <code>mise.toml</code> w repozytorium instaluje odpowiednią wersję Node.</li>
+<li><b>Docker</b> z Compose: środowisko deweloperskie uruchamia PostgreSQL i kilka innych usług w kontenerach.</li>
+<li><b>make</b>, <b>git</b> oraz komputer z systemem Linux lub macOS.</li>
+<li><b>Pamięć RAM</b>: budowanie interfejsów webowych to najcięższa część procesu. Zaplanuj 16 GB RAM; zobacz <a href="#memory">Budowanie i pamięć</a>.</li>
+</ul>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter.git
+cd antimatter</code></pre>
+<p>Repozytorium zawiera serwer w <code>server/</code>, interfejsy webowe w <code>webapp/</code> (Fusion w <code>webapp/fusion</code>, klasyczny w <code>webapp/channels</code>, wspólne pakiety w <code>webapp/platform</code>) oraz testy end-to-end w <code>e2e-tests/</code>.</p>
+
+<h2 id="dev-server">Uruchomienie serwera deweloperskiego</h2>
+<pre><code>cd server
+make run</code></pre>
+<p><code>make run</code> uruchamia kontenery deweloperskie (PostgreSQL, Redis, przechwytywacz poczty i narzędzia monitoringu), podłącza buildy aplikacji webowej, uruchamia serwer w tle za pomocą <code>go run</code> oraz startuje watcher aplikacji webowej, który ponownie buduje klasyczny interfejs podczas edycji. Otwórz <code>http://localhost:8065</code> i utwórz konto: pierwsze staje się administratorem systemu.</p>
+<table>
+<thead><tr><th>Polecenie (w <code>server/</code>)</th><th>Opis</th></tr></thead>
+<tbody>
+<tr><td><code>make run-server</code>, <code>make run-client</code></td><td>Uruchom tylko serwer lub tylko watcher aplikacji webowej.</td></tr>
+<tr><td><code>make restart-server</code></td><td>Uruchom ponownie serwer po zmianie kodu Go.</td></tr>
+<tr><td><code>make stop</code></td><td>Zatrzymaj serwer, watcher i kontenery.</td></tr>
+<tr><td><code>make debug-server</code></td><td>Uruchom serwer w debuggerze Delve.</td></tr>
+<tr><td><code>make run-cli ARGS="-version"</code></td><td>Uruchom polecenie serwera.</td></tr>
+<tr><td><code>make config-reset</code></td><td>Zresetuj <code>config/config.json</code> do wartości domyślnych.</td></tr>
+<tr><td><code>make clean</code>, <code>make nuke</code></td><td>Usuń pliki buildu; <code>nuke</code> usuwa również dane deweloperskie.</td></tr>
+</tbody>
+</table>
+<p>Baza danych deweloperska to <code>postgres://mmuser:mostest_password@localhost/mattermost_test</code>, domyślne źródło danych serwera. Wybierz, które kontenery mają się uruchomić, za pomocą <code>ENABLED_DOCKER_SERVICES</code> w pliku <code>server/config.override.mk</code> lub w swoim środowisku (zobacz <code>server/config.mk</code>).</p>
+
+<h2 id="webapp">Interfejsy webowe</h2>
+<p>W <code>webapp/</code>:</p>
+<pre><code>npm install      # also builds the shared packages
+npm run build    # the classic interface, then Fusion</code></pre>
+<p>Zbudowane pliki trafiają do <code>webapp/channels/dist</code> (klasyczny) i <code>webapp/fusion/dist</code> (Fusion). Wykonanie <code>make client</code> w katalogu <code>server/</code> tworzy linki <code>server/client</code> i <code>server/client-fusion</code>, z których serwer serwuje interfejsy: klasyczny pod <code>/static/</code>, a Fusion pod <code>/static/fusion/</code>.</p>
+<ul>
+<li><code>npm run run</code> (lub <code>make run</code> w <code>webapp/</code>) monitoruje zmiany i ponownie buduje klasyczny interfejs. Aby ponownie budować również Fusion, dodaj <code>WATCH_FUSION=true</code>.</li>
+<li><code>npm run dev-server</code> (<code>make dev</code>) uruchamia serwer deweloperski webpacka: klasyczny na porcie 9005, Fusion na porcie 9006.</li>
+<li>Aby wyświetlić w przeglądarce jeden z interfejsów, dodaj do adresu dowolnej strony parametr <code>?webui=fusion</code> lub <code>?webui=classic</code>.</li>
+</ul>
+
+<h2 id="tests">Testy i kontrole</h2>
+<table>
+<thead><tr><th>Polecenie</th><th>Gdzie</th><th>Opis</th></tr></thead>
+<tbody>
+<tr><td><code>make test-server</code></td><td><code>server/</code></td><td>Zestaw testów serwera, uruchamiany w kontenerach deweloperskich. Zajmuje dużo czasu.</td></tr>
+<tr><td><code>make test-server-quick</code></td><td><code>server/</code></td><td>Tylko krótkie testy.</td></tr>
+<tr><td><code>go test ./channels/app/... -run TestName</code></td><td><code>server/</code></td><td>Jeden pakiet lub test, przy uruchomionych kontenerach (<code>make start-docker</code>).</td></tr>
+<tr><td><code>make check-style</code></td><td><code>server/</code></td><td>go vet, golangci-lint i inne kontrole Go.</td></tr>
+<tr><td><code>make test</code></td><td><code>webapp/</code></td><td>Testy jednostkowe aplikacji webowej (Jest) dla każdego pakietu.</td></tr>
+<tr><td><code>npm run test -- &lt;pattern&gt;</code></td><td><code>webapp/fusion</code></td><td>Wybrane testy Fusion.</td></tr>
+<tr><td><code>make check-style</code>, <code>make check-types</code></td><td><code>webapp/</code></td><td>ESLint i TypeScript.</td></tr>
+<tr><td><code>make i18n-extract</code></td><td><code>server/</code> i <code>webapp/</code></td><td>Aktualizuje angielskie pliki z napisami po dodaniu lub zmianie tekstów (patrz <a href="{{root}}docs/developers/contributing.html#translations">Tłumaczenia</a>).</td></tr>
+</tbody>
+</table>
+<p>W katalogu <code>server/</code> używaj <code>make modules-tidy</code> zamiast <code>go mod tidy</code>.</p>
+
+<h2 id="release">Archiwa wydawnicze</h2>
+<pre><code>cd webapp &amp;&amp; npm run build &amp;&amp; cd ..
+cd server
+make build-linux       # the antimatter and amctl binaries
+make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
+<p><code>make build</code> buduje interfejsy webowe i binaria dla Linuksa w jednej operacji. Archiwum zawiera <code>bin/antimatter</code>, <code>bin/amctl</code>, domyślny <code>config/config.json</code>, oba interfejsy webowe, szablony, czcionki i tłumaczenia. Inne platformy: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>. Archiwa nie zawierają wbudowanych aplikacji; obraz Docker je zawiera.</p>
+
+<h2 id="docker">Obraz Docker</h2>
+<p>Repozytorium <a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> buduje publikowane obrazy, zawierające serwer wraz z aplikacjami, całkowicie wewnątrz Dockera:</p>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter-docker.git
+cd antimatter-docker
+scripts/build-all.sh                     # from the main branches on GitHub
+SOURCES=local scripts/build-all.sh       # from your checkouts next to this folder
+VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatter app</code></pre>
+<p>Wymagany jest Docker z buildx, Python 3, git i gpg, około 16 GB RAM i 30 GB miejsca na dysku. Wynik jest ładowany jako <code>ghcr.io/antimatterchat/antimatter:dev</code>; przetestuj go za pomocą <code>ANTIMATTER_IMAGE=ghcr.io/antimatterchat/antimatter:dev docker compose -f compose.local.yml up -d</code>. Plik <code>plugins.json</code> zawiera listę aplikacji i ich wersji, a README repozytorium opisuje dostępne warianty.</p>
+<div class="callout warn">Skrypt <code>build-all.sh</code> podpisuje dołączone aplikacje kluczem podpisowym Antimatter, a budowanie obrazu odrzuca aplikacje bez podpisu. Jeśli nie masz dostępu do tego klucza prywatnego, który posiadają wyłącznie opiekunowie projektu, wykonaj tylko pierwsze kroki: <code>scripts/fetch-sources.sh</code>, <code>scripts/build-plugins.sh</code> (pakiety aplikacji w <code>out/plugins/</code>) oraz <code>scripts/build-server.sh</code> (archiwa serwera w <code>out/server/</code>).</div>
+
+<h2 id="memory">Budowanie i pamięć</h2>
+<p>Interfejsy webowe to duże budowania webpack, a najczęstszą przyczyną niepowodzenia budowania jest wyczerpanie pamięci.</p>
+<ul>
+<li>Polecenie <code>npm run build</code> buduje klasyczny interfejs, a następnie Fusion, jeden po drugim, a nie jednocześnie, aby utrzymać szczytowe zużycie na niższym poziomie. Nie uruchamiaj ich równolegle samodzielnie.</li>
+<li>Minifikator uruchamia jeden procesor roboczy na każdy rdzeń procesora. Na maszynie z dużą liczbą rdzeni i małą ilością pamięci ogranicz liczbę procesorów widocznych dla budowania: <code>taskset -c 0-5 npm run build</code>.</li>
+<li>Jeśli Node wyczerpie pamięć stosu (heap), podnieś jej limit: <code>NODE_OPTIONS=--max-old-space-size=6144</code>. Budowanie w Dockerze używa tej wartości (<code>BUILD_NODE_OPTIONS</code> w <code>build.env</code>).</li>
+<li>Unikaj jednoczesnego uruchamiania pełnego zestawu testów serwera, budowania interfejsu webowego i budowania obrazu Docker na małej maszynie.</li>
+</ul>
+
+<h2 id="apps">Aplikacje</h2>
+<p>Każda aplikacja (wtyczka) ma własne repozytorium i plik Makefile; polecenie <code>make dist</code> buduje jej pakiet. Zobacz <a href="{{root}}docs/developers/apps.html#build">Budowanie, instalacja i debugowanie</a>.</p>
+<h3>Aplikacja desktopowa</h3>
+<p><a href="https://github.com/AntimatterChat/desktop-app">Aplikacja desktopowa</a> to aplikacja Electron. Wymaga Node.js 24 lub nowszej wersji:</p>
+<pre><code>npm install --allow-git=all
+npm run build          # development build, into dist/
+npm start              # run it
+npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
+<p>Ustawienia czasu budowania, takie jak serwery do wstępnej konfiguracji, znajdują się w <code>src/common/config/buildConfig.ts</code>.</p>
+<h3>Aplikacja mobilna</h3>
+<p><a href="https://github.com/AntimatterChat/mobile-app">Aplikacja mobilna</a> to aplikacja React Native; jej plik README zawiera listę poleceń (<code>npm run ios</code>, <code>npm run android</code>). Aby zbudować własną kopię, potrzebujesz również własnych kluczy podpisowych, projektu Firebase dla powiadomień na Androidzie, klucza APNs dla iOS oraz <a href="https://github.com/AntimatterChat/push-proxy">proxy push</a> przechowującego te dane uwierzytelniające.</p>

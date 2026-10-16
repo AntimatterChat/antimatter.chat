@@ -1,0 +1,126 @@
+title: การโทรและเสียง
+description: ตั้งค่าการโทรและช่องเสียงของ Antimatter: พอร์ตสื่อ, NAT และ STUN, TURN, โหมดทดสอบ, วิดีโอ, เซิร์ฟเวอร์ rtcd ภายนอก, การถอดเสียงและคำบรรยายสดด้วยโมเดล speech-to-text ของคุณเอง และการบันทึก
+guide: admins
+order: 5
+nav: การโทรและเสียง
+lead: การโทรและช่องเสียงส่งเสียง วิดีโอ และการแชร์หน้าจอตรงไปยังเซิร์ฟเวอร์บนพอร์ตของมันเอง หน้านี้ครอบคลุมด้านเครือข่าย การตั้งค่าที่ต้องตรวจสอบหลังติดตั้ง และการถอดเสียงด้วยโมเดล speech-to-text ที่คุณรันเอง
+source: 16057458346f
+---
+<h2 id="overview">การทำงานของระบบการโทร</h2>
+<p>การโทรให้บริการโดยแอป <b>Calls</b> (id <code>com.mattermost.calls</code>) ซึ่งติดตั้งและเปิดใช้งานไว้โดยค่าเริ่มต้น ช่องเสียง (แอป <b>Voice Channels</b>, ภาพ <code>antimatter-next</code>) เป็นห้องโทรถาวรที่สร้างบนพื้นฐานของ Calls: ต้องเปิดใช้งาน Calls และใช้การตั้งค่า พอร์ต และเซิร์ฟเวอร์เดียวกัน</p>
+<p>แอป Calls รันเซิร์ฟเวอร์สื่อภายใน Antimatter แอปเว็บ แอปเดสก์ท็อป และแอปมือถือเชื่อมต่อกับมันด้วย WebRTC:</p>
+<ul>
+<li>สัญญาณ (signalling) จะผ่านการเชื่อมต่อเว็บปกติ (พร็อกซี HTTPS ของคุณ)</li>
+<li>ส่วน<b>สื่อ</b> (เสียง วิดีโอ การแชร์หน้าจอ) จะไม่ผ่าน: มันจะส่งตรงไปยังเซิร์ฟเวอร์บนพอร์ตการโทร <b>8443 UDP และ TCP</b> โดยค่าเริ่มต้น</li>
+</ul>
+<p>การตั้งค่าอยู่ใน <b>คอนโซลระบบ › ปลั๊กอิน › การโทร</b> แต่ละรายการสามารถตั้งค่าได้ด้วยตัวแปรสภาพแวดล้อม <code>AM_CALLS_</code> บนบริการ <code>antimatter</code> ซึ่งจะมีผลเหนือกว่าการตั้งค่าในคอนโซลระบบและล็อกค่าไว้ที่นั่น ชื่อ <code>MM_CALLS_</code> แบบเดิมก็ใช้ได้เช่นกัน</p>
+
+<h2 id="after-install">ตรวจสอบสิ่งเหล่านี้หลังติดตั้ง</h2>
+<ol>
+<li><b>เปิดพอร์ตการโทร</b> อนุญาต 8443/udp และ 8443/tcp ในไฟร์วอลล์ของเซิร์ฟเวอร์และของผู้ให้บริการคลาวด์ของคุณ</li>
+<li><b>ปิดโหมดทดสอบ.</b> <b>โหมดทดสอบ</b> (<code>DefaultEnabled</code>) เปิดอยู่โดยค่าเริ่มต้น: เฉพาะผู้ดูแลระบบเท่านั้นที่สามารถเริ่มการโทรในช่องได้ เพื่อให้คุณตรวจสอบว่าการโทรทำงานได้ก่อนที่ทุกคนจะใช้ ตั้งค่าเป็น <b>ปิด</b> ใน <b>คอนโซลระบบ › ปลั๊กอิน › การโทร</b> หรือตั้งค่า <code>AM_CALLS_DEFAULT_ENABLED=true</code></li>
+<li><b>ตัดสินใจเกี่ยวกับวิดีโอ</b> <b>Enable video calls in DMs (Experimental)</b> (<code>EnableVideo</code>, <code>AM_CALLS_ENABLE_VIDEO</code>) ปิดอยู่โดยค่าเริ่มต้น ตราบใดที่มันปิดอยู่ ไม่มีใครสามารถเปิดกล้องได้ แม้แต่ในช่องเสียง เมื่อมันเปิดอยู่ กล้องจะทำงานในการโทรข้อความส่วนตัวและในช่องเสียง (เว้นแต่ <b>Allow video in voice channels</b> ของแอป Voice Channels จะปิดอยู่)</li>
+<li><b>อยู่หลัง NAT, ตั้งค่าที่อยู่สาธารณะ</b> (หัวข้อถัดไป)</li>
+</ol>
+
+<h2 id="network">พอร์ต, NAT และ STUN</h2>
+<table>
+<thead><tr><th>การตั้งค่า</th><th>ตัวแปร</th><th>ค่าเริ่มต้น</th></tr></thead>
+<tbody>
+<tr><td><b>RTC Server Port (UDP)</b></td><td><code>AM_CALLS_UDP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>RTC Server Port (TCP)</b></td><td><code>AM_CALLS_TCP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>RTC Server Address (UDP)</b>, <b>(TCP)</b></td><td><code>AM_CALLS_UDP_SERVER_ADDRESS</code>, <code>AM_CALLS_TCP_SERVER_ADDRESS</code></td><td>ว่าง: ทุกที่อยู่</td></tr>
+<tr><td><b>ICE Host Override</b></td><td><code>AM_CALLS_ICE_HOST_OVERRIDE</code></td><td>ว่าง: ค้นพบผ่าน STUN</td></tr>
+<tr><td><b>ICE Host Port Override</b></td><td><code>AM_CALLS_ICE_HOST_PORT_OVERRIDE</code></td><td>ว่าง: พอร์ตของเซิร์ฟเวอร์</td></tr>
+<tr><td><b>การตั้งค่า ICE Servers</b></td><td><code>AM_CALLS_ICE_SERVERS_CONFIGS</code></td><td><code>[{"urls":["stun:stun.cloudflare.com:3478"]}]</code></td></tr>
+<tr><td><b>(ทดลอง) เปิดใช้งานการรองรับ IPv6</b></td><td>(คอนโซลระบบ)</td><td>ปิด</td></tr>
+</tbody>
+</table>
+<p>พอร์ตต้องอยู่ระหว่าง 80 ถึง 49151. ในไฟล์ compose ของไซต์ ให้เปลี่ยน <code>CALLS_PORT</code> ใน <code>.env</code>: ตัวแปรนี้จะตั้งค่าทั้งสองตัวแปรและเผยแพร่พอร์ต โดยใช้หมายเลขเดียวกันทั้งบนโฮสต์และในคอนเทนเนอร์ ฝั่งไคลเอนต์จะลองใช้ UDP ก่อน และเปลี่ยนไปใช้ TCP บนพอร์ตเดียวกันหากไม่สำเร็จ</p>
+<h3>ที่อยู่ปลายทางที่ไคลเอนต์จะส่งมีเดียไป</h3>
+<p>เซิร์ฟเวอร์จะแจ้งให้แต่ละไคลเอนต์ทราบถึงที่อยู่ที่ต้องส่งมีเดียไป (เรียกว่า "host candidate") โดยค่าเริ่มต้น เซิร์ฟเวอร์จะค้นหาที่อยู่สาธารณะของตัวเองโดยส่งคำขอไปยังเซิร์ฟเวอร์ STUN ซึ่งเป็นบริการสาธารณะที่ตอบกลับด้วยที่อยู่และพอร์ตที่คำขอมาจาก ค่าเริ่มต้นคือเซิร์ฟเวอร์ STUN สาธารณะของ Cloudflare <code>stun:stun.cloudflare.com:3478</code> เซิร์ฟเวอร์ไม่ใช่ผู้ใช้เพียงคนเดียว: ไคลเอนต์ทุกตัวที่เข้าร่วมการโทรก็จะส่งคำขอไปยังเซิร์ฟเวอร์ STUN นี้เพื่อค้นหาที่อยู่สาธารณะของตัวเองด้วย เซิร์ฟเวอร์ STUN จะเห็นเฉพาะที่อยู่ IP และพอร์ตเท่านั้น จะไม่มีการเห็นเสียง วิดีโอ หรือข้อความจากการโทร</p>
+<p>เซิร์ฟเวอร์ที่ยังคงมีเซิร์ฟเวอร์ STUN ของ Mattermost (<code>stun.global.calls.mattermost.com</code>) บันทึกไว้ใน <b>การตั้งค่า ICE Servers</b> เช่น หลังจากย้ายมาจาก Mattermost จะใช้ของ Cloudflare แทน การตั้งค่าที่บันทึกไว้เดิมจะไม่ถูกเปลี่ยนแปลง</p>
+<p>ตั้งค่าที่อยู่ด้วยตนเองเมื่อ:</p>
+<ul>
+<li>เซิร์ฟเวอร์อยู่หลัง NAT หรือมีที่อยู่สาธารณะหลายตัว: ตั้งค่า <b>ICE Host Override</b> เป็นที่อยู่ IP สาธารณะ (หรือชื่อโดเมนที่ชี้ไปยังที่อยู่ IP นั้น);</li>
+<li>NAT แมปพอร์ตสาธารณะที่แตกต่างจาก 8443: ให้ตั้งค่า <b>ICE Host Port Override</b> เป็นพอร์ตสาธารณะนั้นด้วย;</li>
+<li>เซิร์ฟเวอร์ไม่สามารถเข้าถึงอินเทอร์เน็ตได้ หรือคุณไม่ต้องการให้เซิร์ฟเวอร์และไคลเอนต์ติดต่อกับเซิร์ฟเวอร์ STUN ภายนอก: ตั้งค่า <b>ICE Host Override</b> และล้างรายการ STUN ด้วย <code>AM_CALLS_ICE_SERVERS_CONFIGS=[]</code> เมื่อตั้งค่า <b>ICE Host Override</b> แล้ว เซิร์ฟเวอร์จะหยุดส่งคำขอไปยังเซิร์ฟเวอร์ STUN เพื่อค้นหาที่อยู่ของตัวเอง; การล้างรายการจะหยุดไม่ให้ไคลเอนต์ส่งคำขอไปยังเซิร์ฟเวอร์ STUN</li>
+</ul>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ICE_HOST_OVERRIDE: 203.0.113.10
+      AM_CALLS_ICE_SERVERS_CONFIGS: "[]"</code></pre>
+<p>หากต้องการใช้ STUN โดยไม่พึ่งพาบุคคลที่สาม ให้ติดตั้งเซิร์ฟเวอร์ STUN ของคุณเอง (เซิร์ฟเวอร์ TURN เช่น coturn ก็ตอบคำขอ STUN ได้ด้วย) และเพิ่มรายการไว้ใน <b>การตั้งค่า ICE Servers</b> แทน ดังตัวอย่าง TURN ด้านล่าง</p>
+<p>บนเครือข่ายภายใน (LAN) ให้ใช้ที่อยู่ LAN ของเซิร์ฟเวอร์ เริ่มเซิร์ฟเวอร์ใหม่หลังการเปลี่ยนพอร์ต ที่อยู่ หรือการตั้งค่า ICE หรือปิดและเปิดแอป Calls ใหม่: เซิร์ฟเวอร์มีเดียจะถูกตั้งค่าเมื่อแอปเริ่มทำงาน</p>
+
+<h2 id="turn">TURN สำหรับไฟร์วอลล์ที่เข้มงวด</h2>
+<p>เครือข่ายบางเครือข่ายจะบล็อกทั้ง UDP และการเชื่อมต่อขาออกไปยังพอร์ต TCP ที่ไม่ปกติ ผู้ใช้บนเครือข่ายเหล่านี้ต้องการเซิร์ฟเวอร์ TURN ซึ่งจะทำหน้าที่เป็นสื่อกลางส่งข้อมูลสื่อผ่านพอร์ตที่พวกเขาสามารถเข้าถึงได้ (มักจะเป็นพอร์ต 443) Antimatter ไม่ได้รวมเซิร์ฟเวอร์ TURN ไว้ด้วย คุณต้องดำเนินการเซิร์ฟเวอร์ TURN เช่น coturn และเพิ่มลงใน <b>ICE Servers Configurations</b> ซึ่งเป็นรายการ JSON:</p>
+<pre><code>[
+  {"urls": ["stun:turn.example.com:3478"]},
+  {"urls": ["turn:turn.example.com:3478?transport=udp", "turns:turn.example.com:443?transport=tcp"]}
+]</code></pre>
+<ul>
+<li>เมื่อกำหนด shared secret (ใช้ <code>use-auth-secret</code> ของ coturn) ให้ใส่ secret เดียวกันนั้นใน <b>TURN Static Auth Secret</b> (<code>AM_CALLS_TURN_STATIC_AUTH_SECRET</code>): เซิร์ฟเวอร์จะสร้าง credential สั้น ๆ ให้แต่ละ client ซึ่งจะมีอายุตาม <b>TURN Credentials Expiration (minutes)</b> (ค่าเริ่มต้นคือ 240 นาที)</li>
+<li>เมื่อใช้ข้อมูลรับรองแบบคงที่ ให้เพิ่ม <code>"username"</code> และ <code>"credential"</code> ในรายการ TURN แทน</li>
+<li><b>Server Side TURN</b> (ปิดไว้โดยค่าเริ่มต้น) ยังใช้เซิร์ฟเวอร์ TURN สำหรับเชื่อมต่อที่เซิร์ฟเวอร์เป็นผู้เริ่ม</li>
+</ul>
+
+<h2 id="general">การตั้งค่าการโทรอื่นๆ</h2>
+<table>
+<thead><tr><th>การตั้งค่า</th><th>ตัวแปร</th><th>ค่าเริ่มต้น</th><th>สิ่งที่ทำ</th></tr></thead>
+<tbody>
+<tr><td><b>จำนวนผู้เข้าร่วมการโทรสูงสุด</b></td><td><code>AM_CALLS_MAX_CALL_PARTICIPANTS</code></td><td>0 (ไม่จำกัด)</td><td>จำนวนคนสูงสุดที่สามารถอยู่ในสายการโทรเดียวกันได้</td></tr>
+<tr><td><b>อนุญาตให้แชร์หน้าจอ</b></td><td>(คอนโซลระบบ)</td><td>เปิด</td><td>อนุญาตให้ผู้เข้าร่วมแชร์หน้าจอของตนเอง</td></tr>
+<tr><td><b>เปิดใช้งานเสียงเรียกเข้าสำหรับการโทร</b></td><td><code>AM_CALLS_ENABLE_RINGING</code></td><td>เปิด</td><td>จะส่งเสียงเรียกเข้าไปยังผู้เข้าร่วมในข้อความส่วนตัวหรือข้อความกลุ่มเมื่อมีการเริ่มการโทรในนั้น</td></tr>
+<tr><td><b>เปิดใช้งาน simulcast สำหรับการแชร์หน้าจอ (ทดลองใช้)</b></td><td>(คอนโซลระบบ)</td><td>ปิด</td><td>ส่งการแชร์หน้าจอในหลายระดับคุณภาพ</td></tr>
+<tr><td><b>เปิดใช้งาน AV1 codec สำหรับการแชร์หน้าจอ (ทดลองใช้)</b></td><td>(คอนโซลระบบ)</td><td>ปิด</td><td>จะถูกละเลยเมื่อ simulcast เปิดอยู่</td></tr>
+</tbody>
+</table>
+<p>แอป Voice Channels มีสองการตั้งค่า ใน <b>คอนโซลระบบ › ปลั๊กอิน › Voice Channels</b>: <b>เข้าร่วมเมื่อเปิดช่องเสียง</b> (เปิดอยู่โดยค่าเริ่มต้น) และ <b>อนุญาตวิดีโอในช่องเสียง</b> (เปิดอยู่โดยค่าเริ่มต้น แต่ดูวิดีโอข้างบน) ผู้ดูแลชุมชนจะเปลี่ยนช่องให้เป็นช่องเสียงในการตั้งค่าของช่องนั้น</p>
+<div class="callout">หากต้องการปิดการโทรอย่างสมบูรณ์ ให้ปิดใช้งานแอป Calls ใน <b>คอนโซลระบบ › ปลั๊กอิน › การจัดการปลั๊กอิน</b> หรือตั้งค่า <code>AM_CALLS_DISABLE=true</code> ช่องเสียงจะหยุดทำงานไปด้วย</div>
+
+<h2 id="rtcd">เซิร์ฟเวอร์ขนาดใหญ่: rtcd ภายนอก</h2>
+<p>โดยค่าเริ่มต้น เซิร์ฟเวอร์ Antimatter หนึ่งเครื่องจะรับสื่อการโทรทั้งหมด สำหรับกรณีที่มีการโทรพร้อมกันหลายสาย หรือเพื่อแยกสื่อออกจากเซิร์ฟเวอร์แชท แอป Calls สามารถส่งสื่อไปยัง <b>rtcd</b> ซึ่งเป็นเซิร์ฟเวอร์สื่อแยกต่างหาก (โอเพนซอร์สของ Mattermost <code>rtcd</code> เวอร์ชัน 0.17 หรือใหม่กว่า) ตั้งค่า <b>RTCD service URL</b> (<code>AM_CALLS_RTCD_SERVICE_URL</code>) ตัวอย่างเช่น <code>https://rtcd.example.com</code>: การโทรทั้งหมดจะผ่าน rtcd และไคลเอนต์จะส่งสื่อไปยังพอร์ตของ rtcd แทนที่จะเป็นพอร์ตของ Antimatter สามารถระบุข้อมูลรับรองได้ผ่าน <code>AM_CALLS_RTCD_CLIENT_ID</code> และ <code>AM_CALLS_RTCD_AUTH_KEY</code>; หากไม่ระบุ แอปจะลงทะเบียนตัวเองกับ rtcd โดยไม่จำเป็นต้องมีใบอนุญาต แอป Calls จะแสดงคำเตือนแก่ผู้ดูแลระบบ แนะนำให้ใช้ rtcd เมื่อเซิร์ฟเวอร์มักมีผู้เข้าร่วมการโทรพร้อมกันมากกว่า 50 คน</p>
+
+<h2 id="transcription">การถอดเสียงและคำบรรยายสด</h2>
+<p>Antimatter สามารถถอดเสียงจากการโทรได้โดยใช้โมเดลแปลงเสียงเป็นข้อความที่คุณรันด้วยตัวเอง และแสดงคำบรรยายสดขณะผู้คนกำลังพูด Antimatter ใช้เซิร์ฟเวอร์ใดก็ได้ที่ให้บริการปลายทาง <code>/v1/audio/transcriptions</code> ที่เข้ากันได้กับ OpenAI เช่น เซิร์ฟเวอร์ Whisper ในเครือข่ายของคุณ ไม่จำเป็นต้องมีบริการเพิ่มเติมจาก Antimatter</p>
+<h3>หลักการทำงาน</h3>
+<ul>
+<li>ผู้เป็นโฮสต์ของการโทรจะเริ่มการถอดเสียงด้วย <b>ถอดเสียงการโทร</b> ในแผงควบคุมการโทร ป้าย <b>กำลังถอดเสียง</b> จะแจ้งให้ทุกคนทราบ</li>
+<li>แอปของผู้เข้าร่วมแต่ละคนจะรับฟังไมโครโฟนของตัวเอง ตัดเสียงพูดออกเป็นชิ้นสั้นๆ (สูงสุด 12 วินาที และจะไม่ทำขณะปิดเสียง) และส่งไปยัง Antimatter ซึ่งจะส่งต่อไปยังเซิร์ฟเวอร์แปลงเสียงเป็นข้อความของคุณ</li>
+<li>เมื่อเปิดคำบรรยายสดไว้ ข้อความของแต่ละชิ้นจะแสดงให้ผู้เข้าร่วมเห็นเป็นคำบรรยายทันที</li>
+<li>เมื่อการถอดเสียงหยุดหรือการโทรสิ้นสุดลง บอทของ Calls จะโพสต์บันทึกการถอดเสียงเป็นไฟล์ข้อความและไฟล์คำบรรยาย WebVTT ในเธรดของการโทร (ในช่องเสียง จะโพสต์ในช่อง)</li>
+<li>เมื่อเปิด <b>Summarize transcriptions</b> ไว้ เอเจนต์เริ่มต้นของแอป Agents จะโพสต์สรุปในเธรดด้วย (ดู <a href="{{root}}docs/admins/ai.html">AI</a>)</li>
+</ul>
+<figure><img src="{{root}}assets/img/shots/transcript.webp" alt="A call's thread: the Calls bot has posted the transcript as a text file, and an AI agent has posted a summary below it."><figcaption>หลังจากการโทร บันทึกการถอดเสียงและสรุปในเธรดของการโทร</figcaption></figure>
+<h3>การตั้งค่า</h3>
+<p>ตั้งค่าเหล่านี้ในบริการ <code>antimatter</code>:</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ENABLE_TRANSCRIPTIONS: "true"
+      AM_CALLS_TRANSCRIBE_API: openai
+      AM_CALLS_TRANSCRIBE_API_OPEN_AIURL: http://stt.internal:8000/v1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL: whisper-1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY: ""
+      AM_CALLS_ENABLE_LIVE_CAPTIONS: "true"
+      AM_CALLS_LIVE_CAPTIONS_LANGUAGE: en</code></pre>
+<table>
+<thead><tr><th>การตั้งค่า</th><th>ตัวแปร</th><th>สิ่งที่ต้องกรอก</th></tr></thead>
+<tbody>
+<tr><td><b>เปิดใช้งานการถอดเสียงจากการโทร (Beta)</b></td><td><code>AM_CALLS_ENABLE_TRANSCRIPTIONS</code></td><td><code>true</code></td></tr>
+<tr><td><b>Call transcriber API</b></td><td><code>AM_CALLS_TRANSCRIBE_API</code></td><td><code>openai</code> (แสดงเป็น "OpenAI-compatible API (no job service)")</td></tr>
+<tr><td><b>Speech-to-text API URL</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AIURL</code></td><td>URL พื้นฐานของ API จนถึง <code>/v1</code></td></tr>
+<tr><td><b>Speech-to-text model</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL</code></td><td>ชื่อโมเดลตามที่ API รู้จัก ตัวอย่างเช่น <code>whisper-1</code> จำเป็นต้องระบุ</td></tr>
+<tr><td><b>Speech-to-text API key</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY</code></td><td>ส่งเป็น bearer token ทิ้งว่างไว้หาก API ไม่ต้องการ</td></tr>
+<tr><td><b>เปิดใช้งานคำบรรยายสด (Beta)</b></td><td><code>AM_CALLS_ENABLE_LIVE_CAPTIONS</code></td><td>ค่า <code>true</code> สำหรับคำบรรยายระหว่างโทร</td></tr>
+<tr><td><b>ภาษาของคำบรรยายสด</b></td><td><code>AM_CALLS_LIVE_CAPTIONS_LANGUAGE</code></td><td>ภาษาที่พูด เป็นรหัสสองตัวอักษร (ค่าเริ่มต้นคือ <code>en</code>) ซึ่งจะถูกส่งไปยัง API speech-to-text เพื่อถอดเสียงด้วย ดังนั้นจึงควรตั้งค่านี้แม้ไม่ได้เปิดคำบรรยายก็ตาม</td></tr>
+<tr><td><b>สรุปการถอดเสียง</b></td><td><code>AM_CALLS_SUMMARIZE_TRANSCRIPTIONS</code></td><td>ค่า <code>true</code> สำหรับสรุปด้วย AI หลังการโทรเสร็จสิ้น</td></tr>
+</tbody>
+</table>
+<div class="callout">ในคอนโซลระบบ การตั้งค่าการถอดเสียงจะปรากฏขึ้นก็ต่อเมื่อเปิด <b>เปิดใช้งานการบันทึกการโทร</b> แล้วเท่านั้น แม้ว่าการถอดเสียงประเภทนี้ไม่จำเป็นต้องมีการบันทึกก็ตาม การตั้งค่าด้วยตัวแปรข้างต้นจะช่วยให้หลีกเลี่ยงปัญหานี้ได้ อย่าเปิดใช้งานการบันทึกพร้อมกับการถอดเสียงด้วย <code>openai</code> เพราะการเริ่มบันทึกจะพยายามเริ่มงานถอดเสียงของ job-service และล้มเหลว</div>
+<p>เสียงของทุกคนที่พูดขณะเปิดการถอดเสียงจะถูกส่งไปยังเซิร์ฟเวอร์ speech-to-text ที่คุณตั้งค่าไว้ และบทถอดเสียงจะถูกโพสต์ในที่ที่ทุกคนในช่องสามารถอ่านได้ แจ้งให้ผู้ใช้ทราบ และหากการโทรเป็นความลับ ให้เก็บเซิร์ฟเวอร์นั้นไว้บนเครือข่ายของคุณเอง</p>
+
+<h2 id="recordings">การบันทึก</h2>
+<p>การบันทึกการโทร (และการถอดเสียงด้วย <code>whisper.cpp</code> หรือตัวถอดเสียง Azure ที่ฝังมาในตัว) จะทำงานในคอนเทนเนอร์แยกต่างหากที่เริ่มโดย job service คือ <code>calls-offloader</code> ของ Mattermost ซึ่งเป็นโอเพนซอร์สที่คุณต้องติดตั้งเองเคียงข้าง Antimatter การตั้งค่า ได้แก่ <b>เปิดใช้งานการบันทึกการโทร</b> (<code>AM_CALLS_ENABLE_RECORDINGS</code> ปิดไว้โดยค่าเริ่มต้น), <b>URL ของ job service</b> (<code>AM_CALLS_JOB_SERVICE_URL</code>), <b>ระยะเวลาสูงสุดของการบันทึกการโทร</b> (60 นาทีโดยค่าเริ่มต้น ช่วง 15 ถึง 180) และ <b>คุณภาพการบันทึกการโทร</b> (ต่ำ กลาง หรือสูง; กลางโดยค่าเริ่มต้น) ไม่จำเป็นต้องมีใบอนุญาต สำหรับบทถอดเสียงและคำบรรยายเท่านั้น การตั้งค่า speech-to-text ข้างต้นจะง่ายกว่า: ไม่จำเป็นต้องมี job service</p>

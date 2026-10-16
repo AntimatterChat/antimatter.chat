@@ -1,0 +1,125 @@
+title: Calls and voice
+description: Set up Antimatter's calls and voice channels: the media port, NAT and STUN, TURN, test mode, video, an external rtcd server, transcription and live captions with your own speech-to-text model, and recordings.
+guide: admins
+order: 5
+nav: Calls and voice
+lead: Calls and voice channels send audio, video and screen sharing straight to the server on their own port. This page covers the network side, the settings to check after installing, and transcription with a speech-to-text model you run yourself.
+---
+<h2 id="overview">How calls work</h2>
+<p>Calls are provided by the <b>Calls</b> app (id <code>com.mattermost.calls</code>), which is installed and enabled by default. Voice channels (the <b>Voice Channels</b> app, <code>antimatter-next</code> image) are permanent call rooms built on Calls: they need Calls to be enabled and use the same settings, ports and servers.</p>
+<p>The Calls app runs a media server inside Antimatter. The web app, the desktop app and the mobile apps connect to it with WebRTC:</p>
+<ul>
+<li>the signalling goes through the normal web connection (your HTTPS proxy);</li>
+<li>the <b>media</b> (audio, video, screen sharing) does not: it goes straight to the server on the calls port, <b>8443 UDP and TCP</b> by default.</li>
+</ul>
+<p>The settings are in <b>System Console › Plugins › Calls</b>. Each of them can also be set with an <code>AM_CALLS_</code> environment variable on the <code>antimatter</code> service, which then wins over the System Console and locks the setting there. The legacy <code>MM_CALLS_</code> names also work.</p>
+
+<h2 id="after-install">Check these after installing</h2>
+<ol>
+<li><b>Open the calls port.</b> Allow 8443/udp and 8443/tcp in the firewall of the server and of your cloud provider.</li>
+<li><b>Turn test mode off.</b> <b>Test mode</b> (<code>DefaultEnabled</code>) is on by default: only system administrators can start calls in channels, so you can check that calls work before everyone uses them. Set it to <b>Off</b> in <b>System Console › Plugins › Calls</b>, or set <code>AM_CALLS_DEFAULT_ENABLED=true</code>.</li>
+<li><b>Decide on video.</b> <b>Enable video calls in DMs (Experimental)</b> (<code>EnableVideo</code>, <code>AM_CALLS_ENABLE_VIDEO</code>) is off by default. While it is off, nobody can turn on a camera, not even in voice channels. When it is on, cameras work in direct message calls and in voice channels (unless the Voice Channels app's <b>Allow video in voice channels</b> is off).</li>
+<li><b>Behind NAT, set the public address</b> (next section).</li>
+</ol>
+
+<h2 id="network">Ports, NAT and STUN</h2>
+<table>
+<thead><tr><th>Setting</th><th>Variable</th><th>Default</th></tr></thead>
+<tbody>
+<tr><td><b>RTC Server Port (UDP)</b></td><td><code>AM_CALLS_UDP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>RTC Server Port (TCP)</b></td><td><code>AM_CALLS_TCP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>RTC Server Address (UDP)</b>, <b>(TCP)</b></td><td><code>AM_CALLS_UDP_SERVER_ADDRESS</code>, <code>AM_CALLS_TCP_SERVER_ADDRESS</code></td><td>empty: all addresses</td></tr>
+<tr><td><b>ICE Host Override</b></td><td><code>AM_CALLS_ICE_HOST_OVERRIDE</code></td><td>empty: found through STUN</td></tr>
+<tr><td><b>ICE Host Port Override</b></td><td><code>AM_CALLS_ICE_HOST_PORT_OVERRIDE</code></td><td>empty: the server port</td></tr>
+<tr><td><b>ICE Servers Configurations</b></td><td><code>AM_CALLS_ICE_SERVERS_CONFIGS</code></td><td><code>[{"urls":["stun:stun.cloudflare.com:3478"]}]</code></td></tr>
+<tr><td><b>(Experimental) Enable IPv6 support</b></td><td>(System Console)</td><td>off</td></tr>
+</tbody>
+</table>
+<p>Ports must be between 80 and 49151. With the site's compose file, change <code>CALLS_PORT</code> in <code>.env</code>: it sets both variables and publishes the port, the same number on the host and in the container. Clients first try UDP and fall back to TCP on the same port.</p>
+<h3>Which address clients send media to</h3>
+<p>The server tells each client the address to send media to (its "host candidate"). By default it finds its public address by asking a STUN server, a public service that replies with the address and port a request came from. The default is Cloudflare's public STUN server, <code>stun:stun.cloudflare.com:3478</code>. The server isn't the only one to use it: every client that joins a call also asks it for its own public address. The STUN server sees only IP addresses and ports, never call audio, video or messages.</p>
+<p>A server that still has Mattermost's STUN server (<code>stun.global.calls.mattermost.com</code>) saved in <b>ICE Servers Configurations</b>, for example after moving from Mattermost, uses Cloudflare's instead. The saved setting isn't changed.</p>
+<p>Set the address yourself when:</p>
+<ul>
+<li>the server is behind NAT, or has several public addresses: set <b>ICE Host Override</b> to the public IP address (or a hostname that resolves to it);</li>
+<li>the NAT maps a different public port to 8443: also set <b>ICE Host Port Override</b> to that public port;</li>
+<li>the server has no Internet access, or you don't want the server and the clients to contact an outside STUN server: set <b>ICE Host Override</b>, and empty the STUN list with <code>AM_CALLS_ICE_SERVERS_CONFIGS=[]</code>. With <b>ICE Host Override</b> set, the server no longer asks a STUN server for its address; the empty list stops the clients from asking one.</li>
+</ul>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ICE_HOST_OVERRIDE: 203.0.113.10
+      AM_CALLS_ICE_SERVERS_CONFIGS: "[]"</code></pre>
+<p>To keep STUN without a third party, run your own STUN server (a TURN server such as coturn also answers STUN requests) and list it in <b>ICE Servers Configurations</b> instead, as in the TURN example below.</p>
+<p>On a local network only, use the server's LAN address. Restart the server after changing ports, addresses or ICE settings, or disable and enable the Calls app: the media server is set up when the app starts.</p>
+
+<h2 id="turn">TURN, for strict firewalls</h2>
+<p>Some networks block both UDP and outgoing connections to unusual TCP ports. People on them need a TURN server, which relays the media over a port they can reach (often 443). Antimatter doesn't include one; run a TURN server such as coturn and add it to <b>ICE Servers Configurations</b>, a JSON list:</p>
+<pre><code>[
+  {"urls": ["stun:turn.example.com:3478"]},
+  {"urls": ["turn:turn.example.com:3478?transport=udp", "turns:turn.example.com:443?transport=tcp"]}
+]</code></pre>
+<ul>
+<li>With a shared secret (coturn's <code>use-auth-secret</code>), put the same secret in <b>TURN Static Auth Secret</b> (<code>AM_CALLS_TURN_STATIC_AUTH_SECRET</code>): the server gives each client short-lived credentials, valid for <b>TURN Credentials Expiration (minutes)</b> (240 by default).</li>
+<li>With fixed credentials, add <code>"username"</code> and <code>"credential"</code> to the TURN entry instead.</li>
+<li><b>Server Side TURN</b> (off by default) also uses the TURN servers for connections the server starts.</li>
+</ul>
+
+<h2 id="general">Other call settings</h2>
+<table>
+<thead><tr><th>Setting</th><th>Variable</th><th>Default</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><b>Max call participants</b></td><td><code>AM_CALLS_MAX_CALL_PARTICIPANTS</code></td><td>0 (no limit)</td><td>Largest number of people in one call.</td></tr>
+<tr><td><b>Allow screen sharing</b></td><td>(System Console)</td><td>on</td><td>Lets participants share their screen.</td></tr>
+<tr><td><b>Enable call ringing</b></td><td><code>AM_CALLS_ENABLE_RINGING</code></td><td>on</td><td>Rings the other people of a direct or group message when a call starts there.</td></tr>
+<tr><td><b>Enable simulcast for screen sharing (Experimental)</b></td><td>(System Console)</td><td>off</td><td>Sends screen shares in several qualities.</td></tr>
+<tr><td><b>Enable AV1 codec for screen sharing (Experimental)</b></td><td>(System Console)</td><td>off</td><td>Ignored while simulcast is on.</td></tr>
+</tbody>
+</table>
+<p>The Voice Channels app has two settings, in <b>System Console › Plugins › Voice Channels</b>: <b>Join when opening a voice channel</b> (on by default) and <b>Allow video in voice channels</b> (on by default, but see video above). Community admins turn a channel into a voice channel in its settings.</p>
+<div class="callout">To turn calls off completely, disable the Calls app in <b>System Console › Plugins › Plugin Management</b>, or set <code>AM_CALLS_DISABLE=true</code>. Voice channels then stop working too.</div>
+
+<h2 id="rtcd">Larger servers: an external rtcd</h2>
+<p>By default one Antimatter server carries all the call media. For many simultaneous calls, or to keep the media off the chat server, the Calls app can hand the media to <b>rtcd</b>, a separate media server (Mattermost's open-source <code>rtcd</code>, version 0.17 or newer). Set <b>RTCD service URL</b> (<code>AM_CALLS_RTCD_SERVICE_URL</code>), for example <code>https://rtcd.example.com</code>: all calls then go through it, and clients send their media to rtcd's own port instead of Antimatter's. Credentials can be given with <code>AM_CALLS_RTCD_CLIENT_ID</code> and <code>AM_CALLS_RTCD_AUTH_KEY</code>; without them, the app registers itself with rtcd. No licence is needed. The Calls app shows administrators a warning recommending rtcd when a server often has more than 50 people in calls at once.</p>
+
+<h2 id="transcription">Transcription and live captions</h2>
+<p>Antimatter can transcribe calls with a speech-to-text model you run yourself, and show live captions while people speak. Antimatter uses any server that offers an OpenAI-compatible <code>/v1/audio/transcriptions</code> endpoint, such as a Whisper server on your network. No extra service from Antimatter is needed.</p>
+<h3>How it works</h3>
+<ul>
+<li>The host of a call starts transcription with <b>Transcribe the call</b> in the call controls. A <b>Transcribing</b> badge tells everyone.</li>
+<li>Each participant's app listens to its own microphone, cuts the speech into short pieces (up to 12 seconds, never while muted) and sends them to Antimatter, which forwards them to your speech-to-text server.</li>
+<li>With live captions on, each piece's text is shown to the participants as a caption right away.</li>
+<li>When transcription stops or the call ends, the Calls bot posts the transcript as a text file and a WebVTT subtitle file, in the call's thread (in voice channels, in the channel).</li>
+<li>With <b>Summarize transcriptions</b> on, the default agent of the Agents app also posts a summary in the thread (see <a href="{{root}}docs/admins/ai.html">AI</a>).</li>
+</ul>
+<figure><img src="{{root}}assets/img/shots/transcript.webp" alt="A call's thread: the Calls bot has posted the transcript as a text file, and an AI agent has posted a summary below it."><figcaption>After the call, the transcript and its summary in the call's thread.</figcaption></figure>
+<h3>Set it up</h3>
+<p>Set these on the <code>antimatter</code> service:</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ENABLE_TRANSCRIPTIONS: "true"
+      AM_CALLS_TRANSCRIBE_API: openai
+      AM_CALLS_TRANSCRIBE_API_OPEN_AIURL: http://stt.internal:8000/v1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL: whisper-1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY: ""
+      AM_CALLS_ENABLE_LIVE_CAPTIONS: "true"
+      AM_CALLS_LIVE_CAPTIONS_LANGUAGE: en</code></pre>
+<table>
+<thead><tr><th>Setting</th><th>Variable</th><th>What to put</th></tr></thead>
+<tbody>
+<tr><td><b>Enable call transcriptions (Beta)</b></td><td><code>AM_CALLS_ENABLE_TRANSCRIPTIONS</code></td><td><code>true</code></td></tr>
+<tr><td><b>Call transcriber API</b></td><td><code>AM_CALLS_TRANSCRIBE_API</code></td><td><code>openai</code> (shown as "OpenAI-compatible API (no job service)")</td></tr>
+<tr><td><b>Speech-to-text API URL</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AIURL</code></td><td>The API's base URL, up to and including <code>/v1</code>.</td></tr>
+<tr><td><b>Speech-to-text model</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL</code></td><td>The model name as the API knows it, for example <code>whisper-1</code>. Required.</td></tr>
+<tr><td><b>Speech-to-text API key</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY</code></td><td>Sent as a bearer token. Leave it empty if the API needs none.</td></tr>
+<tr><td><b>Enable live captions (Beta)</b></td><td><code>AM_CALLS_ENABLE_LIVE_CAPTIONS</code></td><td><code>true</code> for captions during the call.</td></tr>
+<tr><td><b>Live captions language</b></td><td><code>AM_CALLS_LIVE_CAPTIONS_LANGUAGE</code></td><td>The spoken language, as a two-letter code (<code>en</code> by default). It is sent to the speech-to-text API for transcripts too, so set it even without captions.</td></tr>
+<tr><td><b>Summarize transcriptions</b></td><td><code>AM_CALLS_SUMMARIZE_TRANSCRIPTIONS</code></td><td><code>true</code> for an AI summary after the call.</td></tr>
+</tbody>
+</table>
+<div class="callout">In the System Console, the transcription settings only appear once <b>Enable call recordings</b> is on, although this kind of transcription needs no recording. Setting them with the variables above avoids that. Don't turn recordings on together with the <code>openai</code> transcriber: starting a recording would then try to start the job-service transcriber and fail.</div>
+<p>The audio of everyone who speaks while transcription is on goes to the speech-to-text server you configured, and the transcript is posted where everyone in the channel can read it. Tell your users, and keep that server on your own network if calls are confidential.</p>
+
+<h2 id="recordings">Recordings</h2>
+<p>Recording calls (and transcribing with the built-in <code>whisper.cpp</code> or Azure transcribers) runs in separate containers started by a job service, Mattermost's open-source <code>calls-offloader</code>, which you deploy yourself next to Antimatter. The settings are <b>Enable call recordings</b> (<code>AM_CALLS_ENABLE_RECORDINGS</code>, off by default), <b>Job service URL</b> (<code>AM_CALLS_JOB_SERVICE_URL</code>), <b>Maximum call recording duration</b> (60 minutes by default, 15 to 180) and <b>Call recording quality</b> (low, medium or high; medium by default). No licence is needed. For transcripts and captions alone, the speech-to-text setup above is simpler: it needs no job service.</p>

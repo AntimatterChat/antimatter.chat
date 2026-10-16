@@ -1,0 +1,170 @@
+title: Webhookit
+description: Antimatterin saapuvat ja lähtevät webhookit: niiden luominen, kuormat ja vastaukset, viestiliitteet ja kortit, nimen ja kuvakkeen yliajaminen, esimerkkeineen.
+guide: developers
+order: 3
+nav: Webhookit
+lead: Saapuva webhook mahdollistaa toisen järjestelmän lähettämään viestin kanavaan lähettämällä JSON:ia salaiselle URL-osoitteelle. Lähtevä webhook toimii päinvastoin: se lähettää viestit, jotka alkavat laukaisusanalla, sinun URL-osoitteellesi ja julkaisee vastauksesi.
+source: ecd698619944
+---
+<h2 id="where">Webhookkien hallinta</h2>
+<p>Avataa profiilikuvasi yläoikeassa reunassa ja valitse <b>Integraatiot</b>. Nykyisen yhteisön integraatioiden sivuilla näkyvät <b>Saapuvat Webhookit</b> ja <b>Lähtevät webhooks</b>. Jokainen webhook kuuluu yhteen yhteisöön.</p>
+<p>By default, community admins and system admins can create webhooks. A system admin can give the right to other roles in the permission settings of the System Console. A system admin can also turn each kind off in <b>System Console › Integrations › Integration Management</b>: <b>Enable Incoming Webhooks</b> and <b>Enable Outgoing Webhooks</b> are both on by default.</p>
+<figure><img src="{{root}}assets/img/shots/integrations.webp" alt="A channel with messages from a CI bot and from GitHub, shown as cards with fields, pipeline stages and a button"><figcaption>Integraation viestit kortteina: kentät, putken vaiheet ja toimintapainike.</figcaption></figure>
+
+<h2 id="incoming">Saapuvan webhokin luominen</h2>
+<ol>
+<li>Valitse <b>Integraatiot</b> -välilehdeltä <b>Saapuvat webhookit</b> ja sen jälkeen <b>Lisää saapuva webhook</b>.</li>
+<li>Täytä <b>Otsikko</b> ja <b>Kuvaus</b>: ne näkyvät vain integraatioiden sivuilla.</li>
+<li>Valitse <b>Kanava</b>, johon viestit lähetetään oletuksena. Yksityisen kanavan tapauksessa sinun on oltava sen jäsen.</li>
+<li>Valitse <b>Lukitse tähän kanavaan</b>, jos lähettäjien ei sallita lähettää muualle.</li>
+<li>Aseta valinnaisesti <b>Käyttäjätunnus</b> ja <b>Profiilikuva</b>-URL viesteille (katso <a href="#identity">Nimi ja ikoni</a>).</li>
+<li>Valitse <b>Tallenna</b>. Kopioi näytetty URL-osoite: <code>https://chat.example.com/hooks/&lt;key&gt;</code>.</li>
+</ol>
+<div class="callout warn">URL-osoite on ainoa salaisuus: kuka tahansa, jolla se on, voi lähettää viestejä kanavaan. Älä julkaise sitä julkisissa varastossa ja poista webhook, jos se vuotaa.</div>
+<p>API:lla: <code>POST /api/v4/hooks/incoming</code> kuormalla <code>{"channel_id", "display_name", "description", "username", "icon_url", "channel_locked"}</code>; vastauksen <code>id</code> on avain. Komentoriviltä: <code>amctl webhook create-incoming --channel &lt;channel id&gt; --user &lt;user&gt; --display-name "CI"</code>.</p>
+
+<h2 id="incoming-send">Viestin lähettäminen saapuvaan webhookiin</h2>
+<pre><code>curl -X POST https://chat.example.com/hooks/xgh5ycrx1jf7mbs9w8z4c8e7ho \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Deploy of **api 2.4.0** finished :white_check_mark:"}'</code></pre>
+<p>Palvelin vastaa <code>200</code> ruumiilla <code>ok</code>. Se hyväksyy myös <code>application/x-www-form-urlencoded</code> -muodon, jossa JSON on <code>payload</code> -kentässä, kuten Slackin webhookit, joten Slackille tehdyt työkalut toimivat yleensä muuttumattomina.</p>
+<table>
+<thead><tr><th>Kenttä</th><th>Merkitseminen</th></tr></thead>
+<tbody>
+<tr><td><code>text</code></td><td>Viesti Markdown-muodossa. Pakollinen, ellei viestillä ole <code>attachments</code>-liitteitä. Teksti, joka ylittää palvelimen viestirajan, jaetaan useampaan viestiin.</td></tr>
+<tr><td><code>channel</code></td><td>Toinen kanava webhoonin yhteisössä, nimellä (<code>ops-alerts</code> tai <code>#ops-alerts</code>), tai <code>@username</code> suoraviestiksi webhoonin omistajalta. Hylätään, jos webhook on lukittu kanavaansa.</td></tr>
+<tr><td><code>username</code>, <code>icon_url</code>, <code>icon_emoji</code></td><td>Nimi ja kuva, jotka näytetään, jos palvelin sallii yliaukot.</td></tr>
+<tr><td><code>attachments</code></td><td>Viestin liitteet, jotka piirretään kortteina (alla).</td></tr>
+<tr><td><code>props</code></td><td>Lisäominaisuudet, jotka tallennetaan viestiin sovelluksia varten, jotka lukevat ne.</td></tr>
+<tr><td><code>type</code></td><td>Mukautettu viestityyppi, kuten <code>custom_poll</code>, sovellusta varten, joka piirtää sen. Tyyppien, jotka alkavat <code>system_</code>-etimiin, hylätään.</td></tr>
+<tr><td><code>root_id</code></td><td>Ketjun ensimmäisen viestin ID, jotta voit vastata kyseisessä ketjussa.</td></tr>
+<tr><td><code>priority</code></td><td>Viestin prioriteetti, esimerkiksi <code>{"priority": "urgent"}</code>.</td></tr>
+<tr><td><code>silent</code></td><td><code>true</code> lähettää viestin ilman push-ilmoituksia.</td></tr>
+</tbody>
+</table>
+<p>Viestit, jotka näkyvät yliajetun nimen alla, kantavat <b>BOTTI</b>-tunnistetta vieressään, jotta ne voidaan erottaa oikeista tileista. Webhoonin viestit eivät koskaan laukaise lähteviä webhooks.</p>
+
+<h2 id="identity">Nimi ja ikoni</h2>
+<p>Webhook julkaisee viestin sen luoneen henkilön nimissä, ellei palvelin salli yliaukkoja. Kaksi asetuusta kohdassa <b>Järjestelmäkonsoli › Integraatiot › Integraatioiden hallinta</b>, jotka ovat oletusarvoisesti poissa käytöstä, muuttavat tätä:</p>
+<ul>
+<li><b>Salli integraatioiden yliajaa käyttäjätunnukset</b> (<code>ServiceSettings.EnablePostUsernameOverride</code>): webhoonin <b>Käyttäjätunnus</b> tai pyynnön <code>username</code> näytetään sen sijaan; jos kumpikaan ei ole asetettu, nimi on <code>webhook</code>.</li>
+<li><b>Salli integraatioiden yliajaa profiilikuvakkeet</b> (<code>ServiceSettings.EnablePostIconOverride</code>): webhoonin <b>Profiilikuva</b> tai pyynnön <code>icon_url</code> tai <code>icon_emoji</code> näytetään.</li>
+</ul>
+<p>Pyynnön arvo voittaa webhooken tallennetun arvon.</p>
+
+<h2 id="attachments">Liitteet</h2>
+<p>Liitteet lisäävät strukturoitua sisältöä tekstin alle. Ne noudattavat Slackin viestiliiteformaatia:</p>
+<pre><code>{
+  "text": "Build failed on `main`",
+  "attachments": [{
+    "fallback": "main #1902 failed",
+    "color": "#d24b4e",
+    "author_name": "GitHub Actions",
+    "author_icon": "https://chat.example.com/static/ci.png",
+    "title": "main #1902 failed",
+    "title_link": "https://ci.example.com/runs/1902",
+    "text": "Commit `0f4d8e2` by Jonas Weber",
+    "fields": [
+      {"title": "Branch", "value": "zephyr-3.7", "short": true},
+      {"title": "Duration", "value": "3m 40s", "short": true}
+    ],
+    "footer": "Lumen CI",
+    "ts": 1760000000
+  }]
+}</code></pre>
+<table>
+<thead><tr><th>Kenttä</th><th>Merkitseminen</th></tr></thead>
+<tbody>
+<tr><td><code>fallback</code></td><td>Tavallinen teksti paikkoihin, jotka eivät voi näyttää korttia, kuten ilmoituksiin.</td></tr>
+<tr><td><code>color</code></td><td>Väritangas: heksadesimaalinen väri tai <code>good</code>, <code>warning</code>, <code>danger</code>.</td></tr>
+<tr><td><code>pretext</code></td><td>Teksti kortin yläpuolella.</td></tr>
+<tr><td><code>author_name</code>, <code>author_link</code>, <code>author_icon</code></td><td>Pieni otsikkorivi.</td></tr>
+<tr><td><code>title</code>, <code>title_link</code></td><td>Kortin otsikko, valinnaisesti linkki.</td></tr>
+<tr><td><code>text</code></td><td>Kortin runko, Markdown-muodossa.</td></tr>
+<tr><td><code>fields</code></td><td>Lista <code>{"title", "value", "short"}</code>-objekteista; <code>short</code>-kentät sijoitetaan vierekkäin.</td></tr>
+<tr><td><code>image_url</code>, <code>thumb_url</code></td><td>Suuri kuva alla tai pieni kuva sivulla.</td></tr>
+<tr><td><code>footer</code>, <code>footer_icon</code>, <code>ts</code></td><td>Alatunniste ja aika (Unix-sekunteina).</td></tr>
+<tr><td><code>actions</code></td><td>Painikkeet ja valikot: ks. <a href="{{root}}docs/developers/bots.html#interactive">Interaktiiviset viestit</a>.</td></tr>
+</tbody>
+</table>
+
+<h2 id="cards">Kortit: vaiheet ja kaaviot</h2>
+<p>Antimatter lisää liitteisiin kaksi kenttää, jotka oletuskäyttöliittymä piirtää:</p>
+<ul>
+<li><code>stages</code>: putken vaiheet pillien muodossa, enintään 20. Jokainen on <code>{"name", "status"}</code>, ja tila on <code>passed</code>, <code>failed</code>, <code>running</code>, <code>pending</code>, <code>skipped</code> tai <code>canceled</code>.</li>
+<li><code>chart</code>: pieni viivakaavio viimeaikaisista arvoista, <code>{"values": [2 to 200 numbers], "threshold": number, "label": "…"}</code>. Rajan arvo piirretään katkoviivana, esimerkiksi hälytysrajan visualisoimiseksi.</li>
+</ul>
+<pre><code>{
+  "attachments": [{
+    "color": "danger",
+    "title": "main #1902 failed",
+    "stages": [
+      {"name": "build", "status": "failed"},
+      {"name": "unit", "status": "skipped"},
+      {"name": "publish", "status": "skipped"}
+    ]
+  }, {
+    "color": "warning",
+    "title": "API latency above 400 ms",
+    "chart": {"values": [210, 230, 260, 390, 450, 470], "threshold": 400, "label": "p95 latency, ms"}
+  }]
+}</code></pre>
+<p>Klassinen käyttöliittymä ja muut asiakasohjelmat ignoroi nämä kaksi kenttää, joten lisää olennainen tieto myös <code>text</code>- tai <code>fields</code>-kenttään.</p>
+
+<h2 id="outgoing">Luo lähtevä webhook</h2>
+<p>Lähtevä webhook valvoo yhteisön <b>Julkinen</b> kanavia. Kun viestin ensimmäinen sana vastaa yhden sen laukaisusanasta, Antimatter lähettää viestin osoitteeseesi.</p>
+<ol>
+<li>Valitse <b>Integraatiot</b> -välilehdeltä <b>Lähtevät webhooks</b> ja sen jälkeen <b>Lisää lähtevä webhook</b>.</li>
+<li>Täytä <b>Otsikko</b> ja <b>Kuvaus</b>.</li>
+<li>Valitse pyynnön <b>Sisällontyyppi</b>: <code>application/x-www-form-urlencoded</code> tai <code>application/json</code>.</li>
+<li>Valitse <b>Kanava</b>, syötä <b>Laukaisusanat (yksi per rivi)</b> tai molemmat. Jos valitset kanavan ilman laukaisusanoja, kaikki kanavan viestit lähetetään. Jos valitset molemmat, viestin on täytettävä molemmat ehdot.</li>
+<li>Valitse <b>Laukaisu, kun</b> -kohdasta <b>Ensimmäinen sana vastaa laukaisusanaa täsmälleen</b> tai <b>Ensimmäinen sana alkaa laukaisusanalla</b>.</li>
+<li>Syötä <b>Callback-URL:it (yksi per rivi)</b>. Jokainen URL saa jokaisen vastaavan viestin.</li>
+<li>Aseta valinnaisesti <b>Käyttäjätunnus</b> ja <b>Profiilikuva</b>, joita käytetään vastauksissa.</li>
+<li>Valitse <b>Tallenna</b> ja kopioi näytetty token. Palvelusi käyttää sitä varmistaakseen, että pyynnöt tulevat palvelimeltasi.</li>
+</ol>
+<p>API:lla: <code>POST /api/v4/hooks/outgoing</code> ja <code>{"team_id", "channel_id", "trigger_words", "trigger_when", "callback_urls", "content_type", "display_name"}</code> (<code>trigger_when</code>: 0 täsmälliselle vastaukselle, 1 "alkaa"-tilanteelle).</p>
+<div class="callout">Jos palvelusi on yksityisessä verkossa, järjestelmän ylläpitäjän on sallittava sen osoite kohdassa <b>Salli luottamattomat sisäiset yhteydet osoitteisiin</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>). Muuten palvelin ei kutsu yksityisiä osoitteita.</div>
+
+<h2 id="outgoing-request">Lähtevä pyyntö</h2>
+<p>Antimatter lähettää POST-pyynnön, jossa on nämä kentät JSON- tai lomakekoodattuna sisällön tyypin mukaan:</p>
+<pre><code>{
+  "token": "6kd1ofo5ojr5zgu5ipfipybgnc",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "channel_id": "…",
+  "channel_name": "ops-alerts",
+  "timestamp": 1760010000000,
+  "user_id": "…",
+  "user_name": "priya",
+  "post_id": "…",
+  "text": "deploy api 2.4.0",
+  "trigger_word": "deploy",
+  "file_ids": ""
+}</code></pre>
+<p>Vertaa <code>token</code>-arvo webhooken tokeniin ennen minkään tekemistä. Lomakekoodatussa versiossa <code>timestamp</code> on sekunteina, ei millisekunteina. Palvelin odottaa vastaustasi niin kauan kuin <b>Integraatiopyyntöjen aikakatkaisu</b> sallii (oletusarvo 30 sekuntia, <code>ServiceSettings.OutgoingIntegrationRequestsTimeout</code>).</p>
+
+<h2 id="outgoing-response">Vastaa lähtevään webhooken</h2>
+<p>Julkistaaksesi vastauksen, vastaa JSON:lla. Jos et halua julkaista mitään, vastaa tyhjällä ruumiilla.</p>
+<pre><code>{
+  "text": "Deploying **api 2.4.0** to staging…",
+  "response_type": "comment",
+  "username": "deploy-bot",
+  "icon_url": "https://chat.example.com/static/deploy.png"
+}</code></pre>
+<ul>
+<li><code>text</code> ja <code>attachments</code>: vastaus. Jos kumpikaan ei ole mukana, mitään ei julkaista.</li>
+<li><code>response_type</code>: <code>comment</code> julkistaa vastauksen alkuperäisen viestin ketjuun; muuten se julkaistaan kanavaan.</li>
+<li><code>username</code>, <code>icon_url</code>: näytetään, jos palvelin sallii yliajojen; muuten käytetään webhooken omia arvoja.</li>
+<li><code>props</code>, <code>type</code>, <code>priority</code>: kuten lähtevissä webhookeissa.</li>
+</ul>
+<p>Vastaus julkaistaan webhooken luojaan nimettynä, jos yliajo on määritetty. Jos vastaus on pidempi kuin lyhyt kommentti, vastaa heti ja julkista myöhemmin lähtevän webhooken tai API:n kautta.</p>
+
+<h2 id="troubleshooting">Kun webhook ei toimi</h2>
+<ul>
+<li><b>501 webhooken URL:stä</b>: lähtevät webhookit on poistettu käytöstä palvelimella.</li>
+<li><b>400 "Failed to decode the payload…"</b>: JSON on virheellinen, tai lomakekentän nimi ei ole <code>payload</code>. <b>"No text specified."</b> tarkoittaa, että pyynnössä ei ole <code>text</code>- eikä <code>attachments</code>-kenttää.</li>
+<li><b>403</b>: webhook on lukittu toiseen kanavaan, tai sen omistaja ei enää voi lukea kanavaa.</li>
+<li><b>Lähtevä webhook ei koskaan laukaise</b>: kanava on yksityinen, laukaisuteksti ei ole viestin ensimmäinen sana, tai viesti tuli webhooken kautta.</li>
+<li><b>Lokit</b>: kun <b>Ota käyttöön webhook-vianhaku</b> on päällä (<code>LogSettings.EnableWebhookDebugging</code>) ja lokitaso on <code>DEBUG</code>, palvelin lokiittaa epäonnistuneiden saapuvien pyyntöjen kuormat. Epäonnistuneet lähetyskutsut lokitoidaan tekstillä <code>Outgoing Webhook POST failed</code>.</li>
+</ul>

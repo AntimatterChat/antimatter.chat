@@ -1,0 +1,161 @@
+title: 網域、HTTPS 與反向代理
+description: 透過 HTTPS 在您自己的網域上提供 Antimatter 服務，可使用隨附的 Caddy 設定檔或您自己的 nginx 反向代理，並正確設定網站網址與用戶端位址。
+guide: admins
+order: 4
+nav: 網域與 HTTPS
+lead: 使用 compose 檔案中的 Caddy 設定檔或您自己的反向代理，透過 HTTPS 將 Antimatter 部署到網域上，並確保網站網址與用戶端位址設定正確。
+source: 69e8779d356e
+---
+<h2 id="site-url">網站網址</h2>
+<p>網站網址（<code>ServiceSettings.SiteURL</code>）是使用者用來存取 Antimatter 的位址，例如 <code>https://chat.example.com</code>。伺服器會將其用於電子郵件與通知中的連結、登入重定向（OAuth、OpenID Connect、SAML）、行動與桌面應用程式，以及檢查請求來源。請將其設定為與瀏覽器位址列中完全一致的位址：包含協定、網域，若非預設埠號則包含埠號，且結尾不要加斜線。</p>
+<ul>
+<li>使用該網站的 compose 檔案時：在 <code>.env</code> 中設定 <code>SITE_URL</code>。</li>
+<li>其他位置：<code>AM_SERVICESETTINGS_SITEURL</code>，或 <b>系統控制台 › 環境 › 網頁伺服器 › 網站網址</b>。</li>
+</ul>
+<p>如果網站網址設定錯誤，使用身分提供者登入將失敗，電子郵件中的連結會指向錯誤位置，且應用程式可能無法連線。變更網域後，請在此處以及每個身分提供者的重定向網址中更新設定。</p>
+
+<h2 id="caddy">使用隨附的 Caddy 設定檔啟用 HTTPS</h2>
+<p>該網站的 <code>compose.yaml</code> 包含 <code>https</code> 設定檔中的 <a href="https://caddyserver.com">Caddy</a> 服務。它會從 Let's Encrypt 取得憑證並自動更新，將 HTTP 重定向至 HTTPS，並將所有流量（包括 websocket）轉發至 Antimatter。</p>
+<ol>
+<li>將您網域的 DNS 記錄（A 記錄，IPv6 則加上 AAAA 記錄）指向伺服器。</li>
+<li>在防火牆中開啟 80/tcp、443/tcp 和 443/udp（HTTP/3）埠號。Let's Encrypt 必須能從網際網路存取埠號 80 或 443。</li>
+<li>將網域加入 <code>.env</code> 並設定網站網址：
+<pre><code>echo "DOMAIN=chat.example.com" &gt;&gt; .env
+sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env</code></pre></li>
+<li>使用該設定檔啟動：
+<pre><code>docker compose --profile https up -d</code></pre></li>
+</ol>
+<p>在之後每次執行 <code>docker compose up</code> 時加上 <code>--profile https</code>，或在 <code>.env</code> 中設定 <code>COMPOSE_PROFILES=https</code>，以便普通的 <code>docker compose up -d</code> 也能包含它。Caddy 會將其憑證儲存在 <code>https</code> 磁碟區中。</p>
+<p>Antimatter 自身的埠號仍會在主機上公開（<code>HTTP_PORT</code>，預設為 8065）。當 Caddy 位於前端時，請將其保留給伺服器本身使用：</p>
+<pre><code>echo "HTTP_PORT=127.0.0.1:8065" &gt;&gt; .env
+docker compose --profile https up -d</code></pre>
+<p>Caddy 透過內部 <code>edge</code> 網路存取 Antimatter，而非透過該埠號，因此這對您的使用者不會有任何影響。</p>
+
+<h2 id="nginx">使用您自己的反向代理（nginx）</h2>
+<p>如果伺服器已經執行 nginx 或其他代理程式，請關閉 <code>https</code> 設定檔，並將代理程式指向 Antimatter 的 8065 埠。代理程式必須：</p>
+<ul>
+<li>傳遞 websocket 升級請求（網頁應用程式和行動應用程式會在 <code>/api/v4/websocket</code> 上保持 websocket 連線，某些應用程式會開啟自己的連線）；</li>
+<li>接受至少與最大上傳檔案（<b>最大檔案大小</b>，預設為 100 MB）一樣大的請求主體；</li>
+<li>保持長生命週期連線開啟（websocket、大型上傳和下載）；</li>
+<li>傳遞 <code>Host</code> 標頭和用戶端位址。</li>
+</ul>
+<p>以下是完整的伺服器區塊，改編自 antimatter-docker 中的生產環境範本。請替換網域和憑證路徑：</p>
+<pre><code>upstream antimatter {
+    server 127.0.0.1:8065;
+    keepalive 64;
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+proxy_cache_path /var/cache/nginx/antimatter levels=1:2 keys_zone=antimatter_cache:10m
+                 max_size=3g inactive=120m use_temp_path=off;
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name chat.example.com;
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name chat.example.com;
+
+    ssl_certificate     /etc/ssl/chat.example.com/fullchain.pem;
+    ssl_certificate_key /etc/ssl/chat.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:AntimatterSSL:10m;
+    ssl_session_tickets off;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # At least FileSettings.MaxFileSize (100 MB by default).
+    client_max_body_size 100M;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade           $http_upgrade;
+    proxy_set_header Connection        $connection_upgrade;
+    proxy_buffers 256 16k;
+    proxy_buffer_size 16k;
+
+    location ~ ^/api/v[0-9]+/(users/)?websocket$ {
+        client_body_timeout 60s;
+        send_timeout 300s;
+        lingering_timeout 5s;
+        proxy_connect_timeout 90s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 90s;
+        proxy_pass http://antimatter;
+    }
+
+    location / {
+        proxy_read_timeout 600s;
+        proxy_cache antimatter_cache;
+        proxy_cache_revalidate on;
+        proxy_cache_min_uses 2;
+        proxy_cache_use_stale timeout;
+        proxy_cache_lock on;
+        proxy_pass http://antimatter;
+    }
+}</code></pre>
+<p>使用 <code>nginx -t</code> 檢查檔案，並使用 <code>systemctl reload nginx</code> 套用設定。伺服器會自行發送 <code>X-Content-Type-Options</code>、<code>Referrer-Policy</code>、<code>Permissions-Policy</code> 和 <code>X-Frame-Options</code>；只有 HSTS 由代理程式負責。一旦 HTTPS 正常運作，請提高其 <code>max-age</code>，並僅在所有子網域都使用 HTTPS 時才加入 <code>includeSubDomains</code>。</p>
+<p>如果使用 Docker Compose 且 nginx 執行在主機上，上述的 <code>upstream</code> 應指向已發布的 8065 埠。請僅在 <code>127.0.0.1</code> 上發布該埠（<code>HTTP_PORT=127.0.0.1:8065</code>），以防止任何人繞過代理程式。</p>
+<p>antimatter-docker 儲存庫包含完整的設定，其中 nginx 執行在容器中，並透過 certbot 使用 Let's Encrypt，位於 <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">deploy/compose</a>。</p>
+
+<h3>其他代理程式</h3>
+<p>任何代理程式只要符合上述四點即可使用。通話的音訊和視訊從不經過代理程式：它們使用自己的埠，請參閱<a href="{{root}}docs/admins/calls.html">通話與語音</a>。</p>
+
+<h2 id="client-address">代理程式後方的用戶端位址</h2>
+<p>在代理程式後方，每個請求看起來都來自代理程式。若要記錄真實的用戶端位址、依用戶端套用速率限制並使用 IP 過濾，請告知伺服器哪個標頭攜帶位址，以及它可以信任哪些代理程式。這兩個設定在系統控制台中沒有對應欄位：請在 <code>config.json</code> 中或使用變數設定。</p>
+<table>
+<thead><tr><th>金鑰與變數</th><th>預設值</th><th>功能說明</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.TrustedProxyIPHeader</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER</code></td><td>留空：伺服器使用連線的位址</td><td>攜帶用戶端位址的標頭，例如 <code>X-Forwarded-For</code>。將使用請求中出現的第一個標頭。</td></tr>
+<tr><td><code>ServiceSettings.TrustedProxyIPs</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code></td><td>留空</td><td>您的代理程式的位址或 CIDR 範圍，例如 <code>172.29.71.0/28</code>。這些標頭僅對來自其中一個代理程式的請求有效。</td></tr>
+</tbody>
+</table>
+<p>在變數中，使用空格分隔多個值：<code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>。如果 <code>TrustedProxyIPs</code> 中的項目既不是 IP 位址，也不是 CIDR 範圍，伺服器將拒絕該設定。</p>
+<h3>伺服器如何找到客戶端的位址</h3>
+<p>每個代理程式都會將它收到請求的來源位址附加到 <code>X-Forwarded-For</code> 的右側。客戶端本身在標頭中傳送的內容則保留在左側。因此，伺服器會從右側讀取該標頭，略過您信任的代理程式位址，並將第一個其他位址視為客戶端位址。客戶端無法透過自行傳送標頭來選擇其位址。</p>
+<ul>
+<li>在單一代理程式後方，僅設定 <code>TrustedProxyIPHeader</code> 即可獲得正確的位址：伺服器會採用該標頭中最右側的位址。在您也設定 <code>TrustedProxyIPs</code> 之前，伺服器會在啟動時記錄警告。若未設定，任何能直接存取 8065 端口的使用者都可以設定該標頭，因此請僅在 <code>127.0.0.1</code> 或私人網路上公開該端口。</li>
+<li>在多個代理程式後方（例如在您自己的代理程式前方有 CDN 或負載平衡器），請將所有代理程式都列在 <code>TrustedProxyIPs</code> 中。否則，伺服器會將最外層代理程式的位址誤認為客戶端位址。</li>
+<li>代理程式可以用它看到的位址取代該標頭（如上方的 nginx 範例所示：<code>X-Forwarded-For $remote_addr</code>），或者附加到該標頭上（nginx 的 <code>$proxy_add_x_forwarded_for</code>）。兩者皆可運作。</li>
+</ul>
+<h3>要列出哪些位址</h3>
+<p>請列出代理程式請求的來源位址，也就是 Antimatter 所看到的位址。</p>
+<ul>
+<li>使用該網站的 compose 檔案和 Caddy 時，這已經完成：Caddy 透過 <code>edge</code> 網路連接到 Antimatter，而 compose 檔案將 <code>TrustedProxyIPHeader</code> 設定為 <code>X-Forwarded-For</code>，並將 <code>TrustedProxyIPs</code> 設定為該網路的範圍 <code>EDGE_SUBNET</code>（除非您在 <code>.env</code> 中修改，否則預設為 <code>172.29.71.0/28</code>）。如果 <code>EDGE_SUBNET</code> 與您的其他網路重疊，請予以修改。</li>
+<li>antimatter-docker 中的生產環境設定對其 nginx 容器也採取相同做法，使用 <code>FRONTEND_SUBNET</code>。</li>
+<li>如果 nginx 位於主機上，而 Antimatter 在 Docker 中，請求會透過公開的端口到達 Antimatter，通常來自 compose 專案網路的閘道位址（可使用 <code>docker network inspect</code> 查看）。請在 <code>compose.override.yaml</code> 中將 <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code> 設定為該位址。</li>
+<li>若未使用 Docker，且 nginx 位於同一主機上，則為 <code>127.0.0.1</code>（若 nginx 透過 IPv6 連線，則為 <code>::1</code>）。</li>
+</ul>
+
+<h2 id="builtin-tls">無代理程式的 TLS</h2>
+<p>伺服器也可以自行提供 HTTPS，在 <b>系統控制台 › 環境 › 網頁伺服器</b> 中：<b>連線安全性</b> 設為 TLS（<code>ServiceSettings.ConnectionSecurity</code>），並設定 <b>TLS 憑證檔案</b> 和 <b>TLS 金鑰檔案</b>（<code>ServiceSettings.TLSCertFile</code>、<code>ServiceSettings.TLSKeyFile</code>），或 <b>使用 Let's Encrypt</b>（<code>ServiceSettings.UseLetsEncrypt</code>）。此時伺服器必須監聽 443 埠（<b>監聽位址</b>、<code>ServiceSettings.ListenAddress</code>，預設為 <code>:8065</code>），且 <code>ServiceSettings.Forward80To443</code> 會將 80 埠的流量轉發。反向代理較易執行與更新憑證，本指南即以此為前提。</p>
+
+<h2 id="timeouts">伺服器逾時與請求大小</h2>
+<p>伺服器自身網頁伺服器的設定，位於 <b>系統控制台 › 環境 › 網頁伺服器</b>：</p>
+<table>
+<thead><tr><th>設定</th><th>金鑰</th><th>預設值</th></tr></thead>
+<tbody>
+<tr><td><b>監聽位址</b></td><td><code>ServiceSettings.ListenAddress</code></td><td><code>:8065</code></td></tr>
+<tr><td><b>讀取逾時</b></td><td><code>ServiceSettings.ReadTimeout</code></td><td>300 秒</td></tr>
+<tr><td><b>寫入逾時</b></td><td><code>ServiceSettings.WriteTimeout</code></td><td>300 秒</td></tr>
+<tr><td>閒置逾時（系統控制台中無對應欄位）</td><td><code>ServiceSettings.IdleTimeout</code></td><td>60 秒</td></tr>
+<tr><td><b>最大有效負載大小（位元組數）</b></td><td><code>ServiceSettings.MaximumPayloadSizeBytes</code></td><td>請參閱 <a href="{{root}}docs/admins/security.html">安全性</a></td></tr>
+</tbody>
+</table>
+<p>請確保代理程式自身的逾時時間至少與這些設定值相同，且其主體大小至少為 <b>最大檔案大小</b>。</p>

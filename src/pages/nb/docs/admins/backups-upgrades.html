@@ -1,0 +1,105 @@
+title: Sikkerhetskopier og oppgraderinger
+description: Sikkerhetskopier og gjenopprett en Antimatter-tjener (database, filopplagring, konfigurasjon), oppgrader den på en sikker måte, flytt en Mattermost-tjener til Antimatter, og eksporter eller importer data.
+guide: admins
+order: 10
+nav: Sikkerhetskopier og oppgraderinger
+lead: Hva du skal sikkerhetskopiere, hvordan du gjenoppretter det på en ny vert, hvordan du oppgraderer, og hvordan du flytter en Mattermost-tjener eller et enkelt samfunn til Antimatter.
+source: b0797af8b6e7
+---
+<h2 id="what">Hva du skal sikkerhetskopiere</h2>
+<table>
+<thead><tr><th>Hva</th><th>Med stedets compose-fil</th><th>Med et utgavearkiv</th></tr></thead>
+<tbody>
+<tr><td>Databasen: meldinger, brukere, samfunn, kanaler og, med stedets compose-fil, konfigurasjonen</td><td>volumet <code>antimatter_postgres</code>, via <code>pg_dump</code></td><td>din PostgreSQL-database</td></tr>
+<tr><td>Opplastede filer, bilder og installerte apper</td><td>volumet <code>antimatter_files</code> (S3-opplagringen)</td><td><code>FileSettings.Directory</code>, <code>./data/</code> som standard</td></tr>
+<tr><td>Konfigurasjonsfilen</td><td>(i databasen)</td><td><code>config/config.json</code></td></tr>
+<tr><td>GIF-er og klistermerker</td><td>volumet <code>antimatter_gifs</code></td><td>datakatalogen til GIF-tjenesten</td></tr>
+<tr><td>Hemmeligheter</td><td><code>.env</code> (og <code>compose.override.yaml</code>)</td><td>din miljøfil</td></tr>
+</tbody>
+</table>
+<p>Databasen og filene hører sammen: sikkerhetskopier dem samtidig, og hold kopiene unna tjeneren. Volumnavnene starter med compose-prosjektnavnet, <code>antimatter</code> (<code>docker volume ls</code> viser dem).</p>
+
+<h2 id="backup">Sikkerhetskopier</h2>
+<p>Fra katalogen til <code>compose.yaml</code>. Hvis du stopper Antimatter først, får du en fullstendig konsistent kopi; en sikkerhetskopi tatt mens den kjører er vanligvis i orden, men filer som lastes opp under sikkerhetskopieringen kan mangle.</p>
+<pre><code>stamp=$(date +%Y%m%d-%H%M%S)
+mkdir -p backups
+docker compose stop antimatter
+# Database
+docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
+    &gt; "backups/antimatter-db-$stamp.dump"
+# File storage and GIF service
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
+        alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
+done
+docker compose start antimatter
+# Secrets
+cp .env "backups/env-$stamp"</code></pre>
+<p>Kjør den fra cron for daglige sikkerhetskopier, og kopier <code>backups/</code>-katalogen til en annen maskin. Hold kopiene av <code>.env</code> like sikre som tjeneren: de inneholder passordene.</p>
+<p>Hvis du i stedet vil kopiere de opplastede filene objekt for objekt (for eksempel til en annen S3-opplagring), bruk AWS-kommandolinjeverktøyet til <code>bucket</code>-tjenesten:</p>
+<pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
+    "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
+<p>Med et utgavearkiv, sikkerhetskopier databasen med <code>pg_dump -Fc</code>, og <code>data/</code>- og <code>config/</code>-katalogene med dine vanlige verktøy.</p>
+
+<h2 id="restore">Gjenopprett på en ny vert</h2>
+<p>Legg <code>compose.yaml</code>, den lagrede <code>.env</code>-filen og sikkerhetskopiene i en ny katalog, deretter:</p>
+<pre><code>stamp=20261016-030000          # the backup to restore
+docker compose create           # creates the volumes, starts nothing
+docker compose up -d postgres
+docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
+    &lt; "backups/antimatter-db-$stamp.dump"
+for v in files gifs; do
+    docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
+        alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
+done
+docker compose up -d</code></pre>
+<p>Bruk den samme <code>.env</code>-filen: lagringen og databasen må beholde passordene de hadde. Hvis den nye verten har en annen adresse, oppdater <code>SITE_URL</code> (og <code>DOMAIN</code>).</p>
+<p>Test sikkerhetskopiene ved å gjenopprette dem på en annen maskin fra tid til annen.</p>
+
+<h2 id="upgrade">Oppgrader</h2>
+<ol>
+<li>Ta en sikkerhetskopi.</li>
+<li>Endre bildeetiketten i <code>.env</code> (<code>ANTIMATTER_IMAGE</code>), hvis du fester en, som anbefalt.</li>
+<li>Hent og start på nytt:
+<pre><code>docker compose pull
+docker compose up -d
+docker compose logs -f antimatter</code></pre></li>
+</ol>
+<p>Ved oppstart oppgraderer serveren databasestrukturen (du kan følge med i loggen; en stor server kan ta flere minutter) og installerer de nyere versjonene av de medfølgende appene fra bildet. Med et utgavearkiv: stopp serveren, erstatt alt bortsett fra <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> og <code>client/plugins/</code> med innholdet fra det nye arkivet, og start den på nytt.</p>
+<div class="callout warn">Oppgraderinger går kun fremover. Når en nyere server har oppgradert databasen, kan en eldre versjon ikke lenger bruke den: for å gå tilbake, gjenopprett sikkerhetskopien som ble tatt før oppgraderingen. Det samme gjelder å gå tilbake fra <code>antimatter-next</code> til <code>antimatter</code>.</div>
+<h3>Versjoner</h3>
+<p>Antimatters server rapporterer versjonen av Mattermost-linjen den er basert på (for tiden 12.0.0). Bildene bygges på nytt fra <code>main</code>-greinene: <code>antimatter-next</code> hver natt (tags <code>nightly-&lt;YYYYMMDD&gt;</code>), og begge bildene ved hver endring (tags <code>sha-&lt;commit&gt;</code>). Fest deg til én av disse taggene, oppgrader med hensikt, og merk deg den forrige taggen slik at du vet hvilken sikkerhetskopi som hører til den.</p>
+<h3>PostgreSQL-hovedversjoner</h3>
+<p>Compose-filen bruker <code>postgres:17-alpine</code>. Antimatter krever PostgreSQL 15 eller nyere. En ny hovedversjon av PostgreSQL kan ikke lese datakataloget til den forrige: for å flytte til en ny, dump databasen, start den nye versjonen på et nytt volum og gjenopprett dumpen der.</p>
+
+<h2 id="mattermost">Flytting fra Mattermost</h2>
+<p>Antimatter bruker Mattermosts databasestruktur og legger til sine egne tabeller, så den kan ta over en Mattermost-servers PostgreSQL-database og filer. Prøv det først på en kopi:</p>
+<ol>
+<li>Sikkerhetskopier Mattermost-databasen, filopplagringen (<code>data/</code> eller S3-bucketen) og <code>config.json</code>, og stopp deretter Mattermost.</li>
+<li>Gjenopprett databasen i Antimatters PostgreSQL, eller pekk Antimatter mot en kopi av den (<code>AM_SQLSETTINGS_DATASOURCE</code>).</li>
+<li>Kopiér filene til Antimatters lagring, og behold stiene deres: til <code>antimatter</code>-bucketen med et S3-verktøy, eller til <code>data/</code> med et utgavearkiv.</li>
+<li>Gjenbruk innstillingene dine: kopiér <code>config.json</code>, eller flytt den til databasen med <code>amctl --local config migrate</code> (se <a href="{{root}}docs/admins/configuration.html">Konfigurasjon</a>). Miljøvariablene dine med prefikset <code>MM_</code> fortsetter å fungere; endre navnet til <code>AM_</code> når det passer.</li>
+<li>Start Antimatter og følg loggen mens den oppgraderer databasen. Deretter sjekker du <b>Systemkonsoll › Plugins › Pluginhåndtering</b>. Antimatter installerer sine egne bygg av Calls, Playbooks, Kanban (Boards), Agents og integrasjonene når de er nyere enn den installerte versjonen. Hvis Mattermost hadde en nyere versjon av én av dem, fjerner du appen og starter Antimatter på nytt, slik at Antimatters eget bygg blir installert.</li>
+<li>Sett opp push-varsler på nytt med din egen push-proxy: Antimatter sender aldri varsler til Mattermosts push-tjenester, verken test- eller vertstjenester, som kun leverer til Mattermosts egne apper. Inntil du endrer <b>Push-varselserver</b>, sender serveren ingen push-varsler (se <a href="{{root}}docs/admins/email-push.html#push">Push-varsler</a>).</li>
+</ol>
+<p>Antimatter kontakter ingen tjenester drevet av Mattermost, Inc. (se <a href="{{root}}docs/admins/security.html#outbound">Connections to outside services</a>), selv om konfigurasjonen din fortsatt nevner én:</p>
+<ul>
+<li>en push-varselserver hos Mattermost beholdes i innstillingene, men brukes aldri;</li>
+<li>Mattermosts adresser for appmarkedet (<b>Markeds-URL</b>) og for produktmeldinger blir tomme;</li>
+<li>Calls-appen bruker Cloudflares offentlige STUN-server i stedet for Mattermosts, uten å endre den lagrede innstillingen (se <a href="{{root}}docs/admins/calls.html#network">Calls</a>);</li>
+<li>sjekken for sikkerhetsoppdateringer og rapportering av krassh er borte, og med dem også innstillingene i Systemkonsollen (<b>Slå på sikkerhetsvarsel</b>, <b>Slå på diagnostikk og feilrapportering</b>) og siden <b>Meldinger</b>.</li>
+</ul>
+<p>Sokkelen for lokal modus er nå <code>/var/tmp/antimatter_local.socket</code>; <code>amctl</code> prøver også den gamle <code>/var/tmp/mattermost_local.socket</code>. Mattermost støtter kun PostgreSQL i sine nyere versjoner, og det gjør Antimatter også: flytt en MySQL-database til PostgreSQL først. Å gå tilbake til Mattermost etter at Antimatter har oppgradert databasen innebærer at du gjenoppretter sikkerhetskopien din av Mattermost.</p>
+
+<h2 id="export-import">Eksport og import av data</h2>
+<p>Formatet for masseeksport flytter data mellom servere: hele serveren, noen samfunn eller noen kanaler, med vedlegg, profilbilder og egne emoji hvis du ønsker det.</p>
+<pre><code># on the source server
+amctl export create --team-name design --include-profile-pictures
+amctl export list
+amctl export download &lt;export file&gt; design.zip
+# on the destination server
+amctl import upload design.zip
+amctl import list available
+amctl import process &lt;uploaded file&gt; --imported-users active</code></pre>
+<p>Følg jobbene med <code>amctl export job list</code> og <code>amctl import job list</code>. For eksport av et team eller en kanal er <code>--imported-users</code> påkrevd: <code>active</code> når personene flytter til denne serveren, <code>inactive</code> når du importerer til en server der de allerede har kontoer, slik at kontoer opprettet fra usikre treff forblir inaktive inntil en administrator har kontrollert dem. <code>--destination-team-name</code> importerer til et eksisterende team. Eksporter og importer beholdes på serverens lagringsplass (<code>ExportSettings.Directory</code>, <code>ImportSettings.Directory</code>) i 30 dager som standard.</p>
+<p>På selve serveren gjør <code>antimatter export bulk</code> og <code>antimatter import bulk --apply</code> det samme fra filer, uten API-et.</p>

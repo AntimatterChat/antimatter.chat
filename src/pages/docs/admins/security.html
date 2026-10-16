@@ -1,0 +1,106 @@
+title: Security
+description: Harden an Antimatter server: which ports to expose, secrets, rate limiting, IP filtering, upload limits, privacy settings and user blocking, sessions, the connections the server makes to outside services, and how to report a vulnerability.
+guide: admins
+order: 12
+nav: Security
+lead: A checklist to harden an Antimatter server: what to expose, the limits and privacy settings to review, the outside services the server contacts, and how to report a security problem.
+---
+<h2 id="exposure">What to expose</h2>
+<table>
+<thead><tr><th>Port</th><th>Service</th><th>Exposure</th></tr></thead>
+<tbody>
+<tr><td>443/tcp, 443/udp, 80/tcp</td><td>Your HTTPS proxy (Caddy or nginx)</td><td>Public: this is how people reach Antimatter.</td></tr>
+<tr><td>8443/udp and 8443/tcp</td><td>Call media</td><td>Public, if people use calls from outside your network.</td></tr>
+<tr><td>8065/tcp</td><td>Antimatter's web server</td><td>Only to the proxy: publish it on <code>127.0.0.1</code> (<code>HTTP_PORT=127.0.0.1:8065</code>).</td></tr>
+<tr><td>8067/tcp</td><td>Metrics</td><td>Private network only, when enabled. No sign-in.</td></tr>
+<tr><td>8074/tcp and udp</td><td>Cluster gossip</td><td>Between cluster nodes only.</td></tr>
+<tr><td>5432, 9000, 8080, 8066</td><td>PostgreSQL, file storage, GIF service, push proxy</td><td>Never. The compose files keep them on internal networks with no published port.</td></tr>
+</tbody>
+</table>
+<p>The site's compose file also runs every container with <code>no-new-privileges</code>, runs Antimatter as an unprivileged user on a distroless image, and runs the GIF service with a read-only file system. The database, the storage and the GIF service sit on a network without Internet access.</p>
+
+<h2 id="checklist">Checklist after installing</h2>
+<ol>
+<li>Create the first administrator account before anyone else can reach the server (<a href="{{root}}docs/admins/install.html#first-admin">Installing</a>).</li>
+<li>Serve Antimatter over HTTPS only, and set the site URL to the <code>https://</code> address (<a href="{{root}}docs/admins/https.html">Domain and HTTPS</a>).</li>
+<li>Keep <code>.env</code>, <code>config.json</code> and TLS keys readable by root (or the server's user) only: <code>chmod 600 .env</code>.</li>
+<li>Decide who can create accounts, keep <b>Enable Open Server</b> off unless the community is public, and turn on <b>Require Email Verification</b> once email works (<a href="{{root}}docs/admins/authentication.html">Sign-in and accounts</a>).</li>
+<li>Turn on multi-factor authentication, and enforce it for administrators' accounts at least, or use your identity provider's.</li>
+<li>Review the outside connections below, in particular the STUN server Calls uses by default.</li>
+<li>Back up, and test a restore (<a href="{{root}}docs/admins/backups-upgrades.html">Backups and upgrades</a>).</li>
+<li>Keep the images up to date: security fixes arrive with new images.</li>
+</ol>
+
+<h2 id="rate-limiting">Rate limiting</h2>
+<p>The server can limit how many API requests each client makes. It is off by default. In <b>System Console › Environment › Rate Limiting</b>:</p>
+<table>
+<thead><tr><th>Setting</th><th>Key</th><th>Default</th></tr></thead>
+<tbody>
+<tr><td><b>Enable Rate Limiting</b></td><td><code>RateLimitSettings.Enable</code></td><td>off</td></tr>
+<tr><td><b>Maximum Queries per Second</b></td><td><code>RateLimitSettings.PerSec</code></td><td>10</td></tr>
+<tr><td><b>Maximum Burst Size</b></td><td><code>RateLimitSettings.MaxBurst</code></td><td>100</td></tr>
+<tr><td><b>Memory Store Size</b></td><td><code>RateLimitSettings.MemoryStoreSize</code></td><td>10000 clients tracked</td></tr>
+<tr><td><b>Vary rate limit by remote address</b></td><td><code>RateLimitSettings.VaryByRemoteAddr</code></td><td>on</td></tr>
+<tr><td><b>Vary rate limit by user</b></td><td><code>RateLimitSettings.VaryByUser</code></td><td>off</td></tr>
+<tr><td><b>Vary rate limit by HTTP header</b></td><td><code>RateLimitSettings.VaryByHeader</code></td><td>empty</td></tr>
+</tbody>
+</table>
+<p>Behind a proxy, limits by address only work if the server knows each client's address (<code>ServiceSettings.TrustedProxyIPHeader</code> and <code>ServiceSettings.TrustedProxyIPs</code>, see <a href="{{root}}docs/admins/https.html#client-address">Client addresses behind a proxy</a>). Otherwise every request seems to come from the proxy, and everyone shares one limit. The same goes for IP filtering and for the addresses in audit logs.</p>
+<p>Sign-in attempts are limited separately: <b>Maximum Login Attempts</b> (10) locks an account after that many failed passwords.</p>
+
+<h2 id="ip-filtering">IP filtering</h2>
+<p><b>System Console › Site Configuration › IP Filtering</b> limits access to the server by IP address, with allow and deny rules (an address or a CIDR range each). With <b>Enable IP Filtering</b> on, people whose address matches a deny rule, or no allow rule when there are allow rules, can't reach the server. The page refuses rules that would block your own address. Behind a proxy, set up client addresses first (<a href="{{root}}docs/admins/https.html#client-address">Client addresses behind a proxy</a>): otherwise every request seems to come from the proxy.</p>
+
+<h2 id="uploads">Uploads and file sharing</h2>
+<table>
+<thead><tr><th>Setting</th><th>Where</th><th>Default</th></tr></thead>
+<tbody>
+<tr><td><b>Maximum File Size</b> (<code>FileSettings.MaxFileSize</code>)</td><td>Environment › File Storage</td><td>100 MB. Keep the proxy's request size limit at least this.</td></tr>
+<tr><td><b>Maximum Payload Size (Bytes)</b> (<code>ServiceSettings.MaximumPayloadSizeBytes</code>)</td><td>Environment › Web Server</td><td>300000: the largest API request other than file uploads</td></tr>
+<tr><td><b>Allow File Sharing</b> (<code>FileSettings.EnableFileAttachments</code>)</td><td>Site Configuration › File Sharing and Downloads</td><td>on</td></tr>
+<tr><td><b>Allow File Uploads on Mobile</b>, <b>Allow File Downloads on Mobile</b></td><td>Site Configuration › File Sharing and Downloads</td><td>on</td></tr>
+<tr><td><b>Enable Public File Links</b> (<code>FileSettings.EnablePublicLink</code>)</td><td>Site Configuration › Public Links</td><td>off: when on, people can share a file with a link that works without signing in</td></tr>
+<tr><td><b>Enable SVGs</b> (<code>ServiceSettings.EnableSVGs</code>)</td><td>Site Configuration › Posts</td><td>off on a new server: when on, SVG images are shown inline</td></tr>
+</tbody>
+</table>
+<p>Antimatter doesn't scan uploads for malware.</p>
+
+<h2 id="privacy">Privacy settings</h2>
+<p>In <b>System Console › Site Configuration › Users and Teams</b>:</p>
+<table>
+<thead><tr><th>Setting</th><th>Key</th><th>Default</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><b>Show Email Address</b></td><td><code>PrivacySettings.ShowEmailAddress</code></td><td>on</td><td>Off, members' email addresses are hidden from everyone but administrators. Turn it off on public servers.</td></tr>
+<tr><td><b>Show Full Name</b></td><td><code>PrivacySettings.ShowFullName</code></td><td>on</td><td>Off, full names are hidden and usernames shown instead.</td></tr>
+<tr><td><b>Enable ignoring, blocking and message requests</b></td><td><code>PrivacySettings.EnableUserBlocking</code></td><td>on</td><td>See below.</td></tr>
+<tr><td><b>Enable users to open Direct Message channels with</b></td><td><code>TeamSettings.RestrictDirectMessage</code></td><td>Any user on the Antimatter server</td><td>Or <b>Any member of the team</b>: only people who share a community.</td></tr>
+</tbody>
+</table>
+<h3>Ignoring, blocking and message requests</h3>
+<p>With <b>Enable ignoring, blocking and message requests</b> on (the default), people can ignore and block each other, and can choose to receive direct messages from people they don't know as message requests, which don't notify them until accepted. This suits public communities. In a workplace where colleagues must always be able to reach each other, turn it off (<code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING=false</code>): none of it is enforced any more, but the lists and choices people made are kept, and apply again if you turn it back on.</p>
+
+<h2 id="sessions">Sessions and tokens</h2>
+<ul>
+<li>Session lengths and idle timeout: see <a href="{{root}}docs/admins/authentication.html#sessions">Sign-in and accounts</a>. Shorter sessions mean a lost laptop or phone stays signed in for less time.</li>
+<li><b>Enable Personal Access Tokens</b> (<code>ServiceSettings.EnableUserAccessTokens</code>, off) lets people create API tokens; <b>Maximum Personal Access Token Lifetime (days)</b> limits them. Both are in <b>System Console › Integrations › Integration Management</b>.</li>
+<li>To sign everyone out at once, for example after a suspected breach: <b>Revoke All Sessions</b> in <b>System Console › User Management › Users</b>.</li>
+</ul>
+
+<h2 id="outbound">Connections to outside services</h2>
+<p>Antimatter contacts no service run by Mattermost, Inc. It sends no telemetry, crash reports or security update checks, and fetches no product notices. A configuration brought over from Mattermost that still names one of Mattermost's services (its push services, its app marketplace, its notices or its STUN server for calls) doesn't make the server contact them: those addresses are ignored.</p>
+<p>The server and the apps connect to other outside services only for the features that need them, and to the services you configure:</p>
+<table>
+<thead><tr><th>Feature</th><th>Contacts</th><th>By default</th></tr></thead>
+<tbody>
+<tr><td>Calls: finding public addresses with STUN. The server and each person joining a call send a request, which shows the STUN server their IP address and port.</td><td>Cloudflare's public STUN server, <code>stun.cloudflare.com</code></td><td>on, while the Calls app is enabled. To change it, see <a href="{{root}}docs/admins/calls.html#network">Calls</a>.</td></tr>
+<tr><td>Link previews: the server fetches the pages linked in messages (<b>Enable website link previews</b>, <code>ServiceSettings.EnableLinkPreviews</code>)</td><td>the websites people link to</td><td>on. Turn off with <code>AM_SERVICESETTINGS_ENABLELINKPREVIEWS=false</code>.</td></tr>
+<tr><td>Push notifications to the mobile app</td><td>your own push proxy (<a href="{{root}}docs/admins/email-push.html#push">Push notifications</a>)</td><td>off until you set its address</td></tr>
+<tr><td>The remote app marketplace (<code>PluginSettings.EnableRemoteMarketplace</code>)</td><td>the <b>Marketplace URL</b> you set</td><td>off, and no address</td></tr>
+<tr><td>Email</td><td>your SMTP server</td><td>the default server is <code>localhost</code></td></tr>
+<tr><td>Single sign-on, AI models, speech-to-text and translation, outgoing webhooks, and apps such as Mail, Calendar, GitHub, GitLab or Jira</td><td>the services you configure</td><td>off until you configure them</td></tr>
+</tbody>
+</table>
+<p>By default the server refuses to connect to private and loopback addresses for these (link previews, webhooks, apps), so a message or an integration can't be used to reach your internal network. List the internal hosts it may reach in <b>Allow untrusted internal connections to</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>, in <b>System Console › Environment › Developer</b>); the site's compose file lists <code>gifs</code> there.</p>
+
+<h2 id="report">Reporting a vulnerability</h2>
+<p>Report security problems privately, as explained in the <a href="https://github.com/AntimatterChat/.github/blob/main/SECURITY.md">Antimatter security policy</a>, not in public issues.</p>

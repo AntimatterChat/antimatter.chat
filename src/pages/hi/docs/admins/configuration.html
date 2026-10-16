@@ -1,0 +1,120 @@
+title: कॉन्फ़िगरेशन
+description: Antimatter का कॉन्फ़िगरेशन कैसे काम करता है: डेटाबेस या config.json में सेटिंग्स, AM_ एनवायरनमेंट वेरिएबल्स, System Console, amctl कमांड-लाइन टूल, और लॉग्स कहाँ मिलते हैं।
+guide: admins
+order: 3
+nav: कॉन्फ़िगरेशन
+lead: Antimatter अपनी सेटिंग्स कहाँ रखता है, उन्हें बदलने के तीन तरीके (System Console, एनवायरनमेंट वेरिएबल्स, amctl), और लॉग्स कहाँ जाते हैं।
+source: e2d6546121d3
+---
+<h2 id="where">सेटिंग्स कहाँ रहती हैं</h2>
+<p>हर सर्वर सेटिंग का नाम एक सेक्शन और एक की से बना होता है, जैसे <code>ServiceSettings.SiteURL</code> या <code>EmailSettings.SMTPServer</code>। मिलकर ये एक कॉन्फ़िगरेशन बनाते हैं, जो दो स्थानों में से एक में संग्रहीत होता है:</p>
+<ul>
+<li><b>डेटाबेस में।</b> साइट का कॉम्पोज़ फ़ाइल <code>AM_CONFIG</code> को PostgreSQL कनेक्शन URL पर सेट करती है, इसलिए कॉन्फ़िगरेशन डेटाबेस में एक पंक्ति होता है और कंटेनर डिस्क पर कुछ भी नहीं रखता। एक डेटाबेस साझा करने वाले कई सर्वर अपना कॉन्फ़िगरेशन भी साझा करते हैं।</li>
+<li><b>फ़ाइल में।</b> <code>AM_CONFIG</code> के बिना, सर्वर अपने <code>bin/</code> डायरेक्टरी के पास <code>config/config.json</code> पढ़ता है (Docker इमेज में <code>/antimatter/config/config.json</code>)। antimatter-docker की रिलीज़ आर्काइव और प्रोडक्शन कॉम्पोज़ फ़ाइलें इसी तरह काम करती हैं। इस फ़ाइल को केवल सर्वर के यूज़र द्वारा पढ़ने योग्य रखें: इसमें पासवर्ड और कीज़ होती हैं।</li>
+</ul>
+<p><code>AM_CONFIG</code> (या <code>antimatter</code> कमांड का <code>--config</code> फ़्लैग) एक फ़ाइल पथ या <code>postgres://</code> URL स्वीकार करता है। जो सेटिंग्स आप छोड़ देते हैं, वे अपने डिफ़ॉल्ट मान लेती हैं।</p>
+<p>मौजूदा कॉन्फ़िगरेशन को फ़ाइल से डेटाबेस में ले जाने के लिए, सर्वर पर यह चलाएँ, फिर <code>AM_CONFIG</code> को उसी URL पर सेट करके सर्वर शुरू करें:</p>
+<pre><code>amctl --local config migrate /opt/antimatter/config/config.json \
+    "postgres://antimatter:PASSWORD@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10"</code></pre>
+
+<h2 id="environment">एनवायरनमेंट वेरिएबल्स</h2>
+<p>कोई भी सेटिंग एनवायरनमेंट वेरिएबल के रूप में भी दी जा सकती है। वेरिएबल्स संग्रहीत कॉन्फ़िगरेशन पर प्राथमिकता रखते हैं, जिससे वे डिप्लॉयमेंट से जुड़े चीज़ों के लिए उपयुक्त हैं: डेटाबेस, साइट URL, फ़ाइल स्टोरेज, पोर्ट्स।</p>
+<h3>नेमिंग नियम</h3>
+<p><code>AM_</code> लिखें, फिर सेक्शन, फिर की, बड़े अक्षरों में और अंडरस्कोर से अलग-अलग। सेक्शन या की नाम के अंदर के शब्द अलग नहीं किए जाते:</p>
+<table>
+<thead><tr><th>सेटिंग</th><th>वेरिएबल</th></tr></thead>
+<tbody>
+<tr><td><code>ServiceSettings.SiteURL</code></td><td><code>AM_SERVICESETTINGS_SITEURL</code></td></tr>
+<tr><td><code>SqlSettings.DataSource</code></td><td><code>AM_SQLSETTINGS_DATASOURCE</code></td></tr>
+<tr><td><code>EmailSettings.SMTPServer</code></td><td><code>AM_EMAILSETTINGS_SMTPSERVER</code></td></tr>
+<tr><td><code>PrivacySettings.EnableUserBlocking</code></td><td><code>AM_PRIVACYSETTINGS_ENABLEUSERBLOCKING</code></td></tr>
+</tbody>
+</table>
+<ul>
+<li>सच और झूठे सेटिंग्स <code>true</code> या <code>false</code> लेती हैं; संख्याएँ साधारण संख्याएँ होती हैं।</li>
+<li>लिस्ट सेटिंग्स अपने मानों को स्पेस से अलग करके लेती हैं, उदाहरण के लिए <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>।</li>
+<li>ऑब्जेक्ट जो सेटिंग्स हैं, वे JSON लेती हैं। ऐप्स के लिए ऐसा एकमात्र वेरिएबल <code>AM_PLUGINSETTINGS_PLUGINS</code> है, और यह <em>हर</em> ऐप की सेटिंग्स एक साथ बदल देता है: ऐप सेटिंग्स System Console या <code>amctl</code> से सेट करें (नीचे देखें)।</li>
+<li>पुराने Mattermost सेटअप <code>MM_</code> प्रिफ़िक्स का उपयोग करते हैं, उदाहरण के लिए <code>MM_SQLSETTINGS_DATASOURCE</code>। यह अभी भी एक लीगेसी एलियास के रूप में काम करता है। जब दोनों सेट किए जाएं, तो <code>AM_</code> वेरिएबल प्राथमिकता प्राप्त करता है।</li>
+</ul>
+<p>वेरिएबल द्वारा दिया गया सेटिंग सिस्टम कंसोल में लॉक होता है, जिसमें यह नोट होता है: "यह सेटिंग एक एनवायरनमेंट वेरिएबल के माध्यम से सेट की गई है। इसे सिस्टम कंसोल के माध्यम से नहीं बदला जा सकता।" इसे स्टोर्ड कन्फ़िगरेशन में नहीं लिखा जाता है: वेरिएबल हटा दें और स्टोर्ड वैल्यू फिर से लागू हो जाएगी।</p>
+<h3>Docker Compose के साथ</h3>
+<p><code>antimatter</code> सर्विस के <code>environment:</code> के नीचे वेरिएबल जोड़ें, या <code>compose.yaml</code> के पास <code>compose.override.yaml</code> में (Compose इसे स्वतः पढ़ता है, और यह डाउनलोड की गई फ़ाइल के अपडेट के बाद भी बना रहता है):</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_EMAILSETTINGS_SMTPSERVER: smtp.example.com
+      AM_EMAILSETTINGS_SMTPPORT: "587"
+      AM_LOGSETTINGS_CONSOLELEVEL: INFO</code></pre>
+<p>बदलाव लागू करने के लिए <code>docker compose up -d</code> चलाएं, जो कंटेनर को पुनः बनाता है।</p>
+<h3>ऐप्स द्वारा पढ़े जाने वाले वेरिएबल</h3>
+<p>कुछ ऐप्स <code>antimatter</code> सर्विस पर सेट किए गए अपने वेरिएबल पढ़ते हैं: Calls ऐप <code>AM_CALLS_*</code> पढ़ता है (देखें <a href="{{root}}docs/admins/calls.html">Calls and voice</a>), और GIFs ऐप <code>AM_GIFS_SERVICE_URL</code>, <code>AM_GIFS_API_KEY</code> और <code>AM_GIFS_UPLOAD_KEY</code> पढ़ता है (देखें <a href="{{root}}docs/admins/apps.html">Bundled apps</a>)।</p>
+
+<h2 id="console">सिस्टम कंसोल</h2>
+<p>सिस्टम कंसोल वेब ऐप का प्रबन्धन क्षेत्र है, जो सिस्टम एडमिन के लिए है। इसे खोलने के लिए, अपने प्रोफ़ाइल चित्र पर क्लिक करें और <b>सिस्टम कंसोल</b> चुनें, या <code>https://chat.example.com/admin_console</code> पर जाएं। इसकी साइडबार में <b>सेटिंग्स खोजें</b> बॉक्स है जो हर पेज को खोजता है।</p>
+<figure><img src="{{root}}assets/img/shots/admin.webp" alt="The System Console, with its sidebar of sections on the left and the SAML 2.0 settings page on the right."><figcaption>सिस्टम कंसोल। साइडबार पेजों को Reporting, User Management और Environment जैसे सेक्शनों में समूहित करता है।</figcaption></figure>
+<p>इसके सेक्शन हैं:</p>
+<ul>
+<li><b>रिपोर्टिंग</b>: सांख्यिकी और सर्वर लॉग।</li>
+<li><b>यूज़र प्रबंधन</b>: उपयोगकर्ता, समूह, कम्युनिटी (टीम के रूप में सूचीबद्ध), चैनल, अनुमतियां और प्रत्यायित प्रबन्धन।</li>
+<li><b>सिस्टम गुण</b>: कस्टम प्रोफ़ाइल गुण और गुण-आधारित एक्सेस।</li>
+<li><b>पर्यार्वण</b>: वेब सर्वर, डेटाबेस, फ़ाइल स्टोरेज, इमेज प्रॉक्सी, SMTP, पुश सूचनाएं, रेट लिमिटिंग, लॉगिंग, सेशन अवधि, प्रदर्शन मॉनिटरिंग।</li>
+<li><b>साइट कॉन्फ़िगरेशन</b>: ब्रांडिंग, उपयोगकर्ता और टीमें, सूचनाएं, पोस्ट, फ़ाइल साझाकरण और अन्य सर्वर-व्यापक व्यवहार।</li>
+<li><b>प्रमाणीकरण</b>: साइन-अप, ईमेल और पासवर्ड साइन-इन, MFA, AD/LDAP, SAML 2.0, OAuth 2.0, OpenID Connect और अतिथि एक्सेस।</li>
+<li><b>प्लगइन</b>: ऐप प्रबंधन और हर स्थापित ऐप की सेटिंग्स।</li>
+<li><b>इंटिग्रेशन</b>: वेबहूक, स्लैश कमांड, बॉट खाते, GIF, टेक्स्ट-टू-स्पीच, CORS।</li>
+<li><b>सम्मतता</b>: डेटा रिटेंशन, सम्मतता निर्यात और मॉनिटरिंग, ऑडिट लॉगिंग, कस्टम सेवा की शर्तें।</li>
+<li><b>प्रयोगात्मक</b>: ऐसे फीचर जो बदल सकते हैं।</li>
+</ul>
+<p>इस गाइड में, कोई भी सेटिंग इसकी सिस्टम कंसोल में पथ, फिर उसकी लेबल, और फिर उसकी कॉन्फ़िगरेशन की के रूप में लिखी जाती है, उदाहरण के लिए <b>सिस्टम कंसोल › साइट कॉन्फ़िगरेशन › उपयोगकर्ता और टीमें › अनदेखा करना, ब्लॉक करना और मैसेज रिक्वेस्ट सक्षम करें</b> (<code>PrivacySettings.EnableUserBlocking</code>)।</p>
+<p>ज्यादातर परिवर्तन तब लागू हो जाते हैं जब आप <b>सहेजें</b> पर क्लिक करते हैं। कुछ (जैसे कि लिसन एड्रेस, कुछ डेटाबेस और कैश सेटिंग्स) को रीस्टार्ट की आवश्यकता होती है, और पेज पर इसकी सूचना दी जाती है।</p>
+
+<h2 id="amctl">amctl command-line tool</h2>
+<p><code>amctl</code> command line से server को manage करता है: users, communities, channels, apps, configuration, jobs और बहुत कुछ। यह server से बात करने के लिए दो तरीकों में से एक का उपयोग करता है।</p>
+<h3>Local mode, server पर</h3>
+<p>Local mode <code>amctl</code> को Unix socket के माध्यम से server से बात करने की अनुमति देता है, बिना sign in किए। यह Docker image में on होता है। एक archive से installed server पर, इसे <b>ServiceSettings.EnableLocalMode</b> (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>) के साथ on करें। Socket by default <code>/var/tmp/antimatter_local.socket</code> होता है (<code>ServiceSettings.LocalModeSocketLocation</code>).</p>
+<pre><code># with Docker Compose
+docker compose exec antimatter amctl --local system status
+# with a release archive
+sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code></pre>
+<div class="callout warn">जो भी socket का उपयोग कर सकता है, या host पर <code>docker compose exec</code> चला सकता है, उसके पास full system administrator rights होते हैं।</div>
+<h3>Remote, एक account के साथ</h3>
+<p>किसी भी machine से, एक system administrator account (या personal access token) के साथ sign in करें, फिर उस server के लिए commands चलाएं:</p>
+<pre><code>amctl auth login https://chat.example.com --name prod --username admin
+amctl system status</code></pre>
+<h3>Configuration commands</h3>
+<table>
+<thead><tr><th>Command</th><th>यह क्या करता है</th></tr></thead>
+<tbody>
+<tr><td><code>amctl config get ServiceSettings.SiteURL</code></td><td>एक setting print करता है।</td></tr>
+<tr><td><code>amctl config set TeamSettings.EnableOpenServer false</code></td><td>एक setting बदलता है। List settings कई values लेती हैं।</td></tr>
+<tr><td><code>amctl config patch settings.json</code></td><td>settings के JSON file को configuration में merge करता है।</td></tr>
+<tr><td><code>amctl config show</code></td><td>पूरा configuration JSON के रूप में print करता है।</td></tr>
+<tr><td><code>amctl config edit</code></td><td>आपके editor (<code>$EDITOR</code>) में configuration खोलता है।</td></tr>
+<tr><td><code>amctl config reset</code></td><td>settings को उनके defaults पर reset करता है।</td></tr>
+<tr><td><code>amctl config reload</code></td><td>server के बाहर किए गए change के बाद, configuration को जहां से store होता है, वहां से reload करता है।</td></tr>
+</tbody>
+</table>
+<p>App settings <code>PluginSettings.Plugins.&lt;app id&gt;</code> के नीचे रहती हैं, keys lower case में। उदाहरण के लिए, Docker host से GIFs app की service URL और key set करने के लिए:</p>
+<pre><code>docker compose exec -T antimatter amctl --local config patch /dev/stdin &lt;&lt;'EOF'
+{"PluginSettings": {"Plugins": {"com.antimatterchat.gifs": {
+  "serviceurl": "http://gifs:8080/v2",
+  "apikey": "the GIFS_API_KEY of your .env"
+}}}}
+EOF</code></pre>
+<p>अन्य उपयोगी commands: <code>amctl user create</code>, <code>amctl user deactivate</code>, <code>amctl team create</code>, <code>amctl plugin list</code>, <code>amctl plugin enable</code>, <code>amctl system supportpacket</code> और <code>amctl logs</code>। हर एक की options के लिए <code>amctl help &lt;command&gt;</code> चलाएं।</p>
+
+<h2 id="logs">Logs</h2>
+<p>सर्वर अपने लॉग दो स्थानों में लिखता है, प्रत्येक का अपना स्तर (<code>DEBUG</code>, <code>INFO</code>, <code>WARN</code> या <code>ERROR</code>) होता है, जो <b>सिस्टम कंसोल › पर्यार्वण › लॉगिंग</b> में सेट किया जाता है:</p>
+<table>
+<thead><tr><th>गंतव्य</th><th>सेटिंग्स</th><th>डिफ़ॉल्ट</th></tr></thead>
+<tbody>
+<tr><td>कंसोल (स्टैंडर्ड आउटपुट)</td><td><b>कंसोल में लॉग आउटपुट करें</b> (<code>LogSettings.EnableConsole</code>), <b>कंसोल लॉग स्तर</b> (<code>LogSettings.ConsoleLevel</code>), <b>कंसोल लॉग को JSON के रूप में आउटपुट करें</b> (<code>LogSettings.ConsoleJson</code>)</td><td>चालू, <code>DEBUG</code>, JSON</td></tr>
+<tr><td>एक फ़ाइल, <code>antimatter.log</code></td><td><b>लॉग फ़ाइल में आउटपुट करें</b> (<code>LogSettings.EnableFile</code>), <b>फ़ाइल लॉग स्तर</b> (<code>LogSettings.FileLevel</code>), <b>फ़ाइल लॉग डायरेक्टरी</b> (<code>LogSettings.FileLocation</code>)</td><td>चालू, <code>INFO</code>, <code>bin/</code> के पास की <code>logs/</code> डायरेक्टरी</td></tr>
+</tbody>
+</table>
+<p>लॉग फ़ाइलें 100 MB पर रोटेट होती हैं और पुरानी फ़ाइलें संपीड़ित (compressed) कर दी जाती हैं।</p>
+<p>साइट की compose फ़ाइल फ़ाइल लॉगिंग बंद कर देती है (<code>AM_LOGSETTINGS_ENABLEFILE=false</code>), इसलिए लॉग केवल कंटेनर के आउटपुट में होते हैं:</p>
+<pre><code>docker compose logs -f antimatter
+docker compose logs --since 1h antimatter | grep -i error</code></pre>
+<p>कंसोल स्तर डिफ़ॉल्ट रूप से <code>DEBUG</code> होता है, जो विस्तृत (verbose) होता है। एक व्यस्त सर्वर पर, <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code> सेट करें। systemd के तहत रिलीज़ आर्काइव के साथ, कंसोल आउटपुट जर्नल (<code>journalctl -u antimatter</code>) में जाता है और फ़ाइल <code>/opt/antimatter/logs/antimatter.log</code> में।</p>
+<p>जब फ़ाइल लॉगिंग चालू होती है, तो सिस्टम एडमिन <b>सिस्टम कंसोल › रिपोर्टिंग › सर्वर लॉग</b> में नवीनतम लॉग लाइनें भी पढ़ सकते हैं, या <code>amctl logs</code> के साथ।</p>

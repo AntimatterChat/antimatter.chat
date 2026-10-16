@@ -1,0 +1,102 @@
+title: Bouwen vanuit broncode
+description: Hoe je Antimatter bouwt vanuit de broncode: de Go-server, de Fusion- en klassieke webinterfaces, een ontwikkelserver, tests, release-archieven, het Docker-image en de desktop- en mobiele apps.
+guide: developers
+order: 7
+nav: Bouwen vanuit broncode
+lead: Deze pagina legt uit hoe je Antimatter bouwt en uitvoert vanuit de broncode, om er aan te werken of om eigen builds te maken. Het dekt de server en de webinterfaces, die in één repository staan, en daarna het Docker-image en de apps.
+source: dfdf67f34f6e
+---
+<h2 id="requirements">Wat je nodig hebt</h2>
+<ul>
+<li><b>Ga</b>, op de versie in <code>server/go.mod</code> (1.26.7 op het moment van schrijven).</li>
+<li><b>Node.js en npm</b>, in de versies die staan in <code>.nvmrc</code> en <code>webapp/package.json</code> (Node 24.11.1 met npm 11.6.2). Met <a href="https://mise.jdx.dev">mise</a> installeert de <code>mise.toml</code> van de repository de juiste Node.</li>
+<li><b>Docker</b> met Compose: de ontwikkelomgeving draait PostgreSQL en een paar andere services in containers.</li>
+<li><b>make</b>, <b>git</b> en een Linux- of macOS-machine.</li>
+<li><b>Geheugen</b>: het bouwen van de webinterfaces is het zwaarste deel. Plan op 16 GB RAM; zie <a href="#memory">Builds en geheugen</a>.</li>
+</ul>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter.git
+cd antimatter</code></pre>
+<p>De repository bevat de server in <code>server/</code>, de webinterfaces in <code>webapp/</code> (Fusion in <code>webapp/fusion</code>, klassiek in <code>webapp/channels</code>, gedeelde pakketten in <code>webapp/platform</code>) en eind-tot-eind-tests in <code>e2e-tests/</code>.</p>
+
+<h2 id="dev-server">Een ontwikkelserver starten</h2>
+<pre><code>cd server
+make run</code></pre>
+<p><code>make run</code> start de ontwikkelcontainers (PostgreSQL, Redis, een mail catcher en monitoringtools), koppelt de webapp-builds op de juiste plek, start de server in de achtergrond met <code>go run</code> en start de watcher van de webapp, die het klassieke interface herbouwt terwijl je het bewerkt. Open <code>http://localhost:8065</code> en maak een account aan: de eerste wordt de systeembeheerder.</p>
+<table>
+<thead><tr><th>Opdracht (in <code>server/</code>)</th><th>Wat het doet</th></tr></thead>
+<tbody>
+<tr><td><code>make run-server</code>, <code>make run-client</code></td><td>Start alleen de server, of alleen de webapp-watcher.</td></tr>
+<tr><td><code>make restart-server</code></td><td>Herstart de server na het wijzigen van Go-code.</td></tr>
+<tr><td><code>make stop</code></td><td>Stop de server, de watcher en de containers.</td></tr>
+<tr><td><code>make debug-server</code></td><td>Voer de server uit onder de Delve-debugger.</td></tr>
+<tr><td><code>make run-cli ARGS="-version"</code></td><td>Voer een serveropdracht uit.</td></tr>
+<tr><td><code>make config-reset</code></td><td>Zet <code>config/config.json</code> terug naar de standaardwaarden.</td></tr>
+<tr><td><code>make clean</code>, <code>make nuke</code></td><td>Verwijder buildbestanden; <code>nuke</code> verwijdert ook de ontwikkeldata.</td></tr>
+</tbody>
+</table>
+<p>De ontwikkeldatabase is <code>postgres://mmuser:mostest_password@localhost/mattermost_test</code>, de standaard databron van de server. Kies welke containers starten met <code>ENABLED_DOCKER_SERVICES</code>, in een <code>server/config.override.mk</code>-bestand of in je omgeving (zie <code>server/config.mk</code>).</p>
+
+<h2 id="webapp">De webinterfaces</h2>
+<p>In <code>webapp/</code>:</p>
+<pre><code>npm install      # also builds the shared packages
+npm run build    # the classic interface, then Fusion</code></pre>
+<p>De builds worden opgeslagen in <code>webapp/channels/dist</code> (classic) en <code>webapp/fusion/dist</code> (Fusion). <code>make client</code> in <code>server/</code> koppelt deze als <code>server/client</code> en <code>server/client-fusion</code>, waar de server ze serveert: classic onder <code>/static/</code>, Fusion onder <code>/static/fusion/</code>.</p>
+<ul>
+<li><code>npm run run</code> (of <code>make run</code> in <code>webapp/</code>) bewaakt en herbouwt de classic-interface. Voeg <code>WATCH_FUSION=true</code> toe om ook Fusion te herbouwen.</li>
+<li><code>npm run dev-server</code> (<code>make dev</code>) start in plaats daarvan de webpack-ontwikkelserver: classic op poort 9005, Fusion op poort 9006.</li>
+<li>Om in de browser de ene of de andere interface te zien, voeg <code>?webui=fusion</code> of <code>?webui=classic</code> toe aan het adres van een willekeurige pagina.</li>
+</ul>
+
+<h2 id="tests">Tests en controles</h2>
+<table>
+<thead><tr><th>Opdracht</th><th>Waar</th><th>Wat het doet</th></tr></thead>
+<tbody>
+<tr><td><code>make test-server</code></td><td><code>server/</code></td><td>De testsuite van de server, tegen de ontwikkelcontainers. Dit duurt lang.</td></tr>
+<tr><td><code>make test-server-quick</code></td><td><code>server/</code></td><td>Alleen de korte tests.</td></tr>
+<tr><td><code>go test ./channels/app/... -run TestName</code></td><td><code>server/</code></td><td>Eén pakket of test, met de containers draaiend (<code>make start-docker</code>).</td></tr>
+<tr><td><code>make check-style</code></td><td><code>server/</code></td><td>go vet, golangci-lint en de andere Go-controles.</td></tr>
+<tr><td><code>make test</code></td><td><code>webapp/</code></td><td>De unit tests (Jest) van de webapp, in elk pakket.</td></tr>
+<tr><td><code>npm run test -- &lt;pattern&gt;</code></td><td><code>webapp/fusion</code></td><td>Enkele tests van Fusion.</td></tr>
+<tr><td><code>make check-style</code>, <code>make check-types</code></td><td><code>webapp/</code></td><td>ESLint en TypeScript.</td></tr>
+<tr><td><code>make i18n-extract</code></td><td><code>server/</code> en <code>webapp/</code></td><td>Werkst de Engelse stringbestanden bij nadat u strings hebt toegevoegd of gewijzigd (zie <a href="{{root}}docs/developers/contributing.html#translations">Vertalingen</a>).</td></tr>
+</tbody>
+</table>
+<p>Voer <code>make modules-tidy</code> uit in plaats van <code>go mod tidy</code> in <code>server/</code>.</p>
+
+<h2 id="release">Release-archieven</h2>
+<pre><code>cd webapp &amp;&amp; npm run build &amp;&amp; cd ..
+cd server
+make build-linux       # the antimatter and amctl binaries
+make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
+<p><code>make build</code> bouwt de webinterfaces en de Linux-binaries in één keer. Het archief bevat <code>bin/antimatter</code>, <code>bin/amctl</code>, een standaard <code>config/config.json</code>, beide webinterfaces, de sjablonen, de lettertypen en de vertalingen. Andere platforms: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>. De archieven bevatten niet de gebundelde apps; het Docker-image wél.</p>
+
+<h2 id="docker">Het Docker-image</h2>
+<p>De <a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a>-repository bouwt de gepubliceerde images, de server met zijn apps, volledig binnen Docker:</p>
+<pre><code>git clone https://github.com/AntimatterChat/antimatter-docker.git
+cd antimatter-docker
+scripts/build-all.sh                     # from the main branches on GitHub
+SOURCES=local scripts/build-all.sh       # from your checkouts next to this folder
+VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatter app</code></pre>
+<p>Hiervoor is Docker met buildx, Python 3, git en gpg nodig, plus ongeveer 16 GB RAM en 30 GB schijfruimte. Het resultaat wordt geladen als <code>ghcr.io/antimatterchat/antimatter:dev</code>; probeer het met <code>ANTIMATTER_IMAGE=ghcr.io/antimatterchat/antimatter:dev docker compose -f compose.local.yml up -d</code>. <code>plugins.json</code> bevat de lijst met apps en de gebouwde versies, en de README van de repository legt de varianten uit.</p>
+<div class="callout warn"><code>build-all.sh</code> ondertekent de gebundelde apps met de Antimatter-ondersteuningskey en de image-build weigert apps zonder handtekening. Zonder die private key, die alleen de maintainers hebben, voer je de eerste stappen afzonderlijk uit: <code>scripts/fetch-sources.sh</code>, <code>scripts/build-plugins.sh</code> (app-bundles in <code>out/plugins/</code>) en <code>scripts/build-server.sh</code> (server-archieven in <code>out/server/</code>).</div>
+
+<h2 id="memory">Builds en geheugen</h2>
+<p>De webinterfaces zijn grote webpack-builds en het raken van het geheugen is de meest voorkomende oorzaak van build-fouten.</p>
+<ul>
+<li><code>npm run build</code> bouwt het klassieke interface en Fusion na elkaar, niet tegelijk, om het piekgebruik laag te houden. Voer ze niet zelf parallel uit.</li>
+<li>De minifier start één worker per processor. Op een machine met veel cores en weinig geheugen, beperk je de processors die de build ziet: <code>taskset -c 0-5 npm run build</code>.</li>
+<li>Als Node het heap-geheugen raakt, verhoog je de limiet: <code>NODE_OPTIONS=--max-old-space-size=6144</code>. De Docker-build gebruikt deze waarde (<code>BUILD_NODE_OPTIONS</code> in <code>build.env</code>).</li>
+<li>Voer de volledige test-suite van de server, een web-build en een Docker-build niet tegelijk uit op een kleine machine.</li>
+</ul>
+
+<h2 id="apps">De apps</h2>
+<p>Elke app (plugin) heeft zijn eigen repository en Makefile; <code>make dist</code> bouwt de bundle. Zie <a href="{{root}}docs/developers/apps.html#build">Builden, installeren en debuggen</a>.</p>
+<h3>Desktop-app</h3>
+<p>De <a href="https://github.com/AntimatterChat/desktop-app">desktop-app</a> is een Electron-app. Met Node.js 24 of hoger:</p>
+<pre><code>npm install --allow-git=all
+npm run build          # development build, into dist/
+npm start              # run it
+npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
+<p>Build-instellingen, zoals servers die vooraf geconfigureerd moeten worden, staan in <code>src/common/config/buildConfig.ts</code>.</p>
+<h3>Mobiele app</h3>
+<p>De <a href="https://github.com/AntimatterChat/mobile-app">mobiele app</a> is een React Native-app; de README noemt de commando's (<code>npm run ios</code>, <code>npm run android</code>). Om een eigen kopie te bouwen heb je ook eigen ondertekeningskeys nodig, een Firebase-project voor Android-meldingen, een APNs-key voor iOS en een <a href="https://github.com/AntimatterChat/push-proxy">push-proxy</a> met die gegevens.</p>

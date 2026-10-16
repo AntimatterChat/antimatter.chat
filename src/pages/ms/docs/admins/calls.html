@@ -1,0 +1,126 @@
+title: Panggilan dan suara
+description: Set up panggilan dan saluran suara Antimatter: port media, NAT dan STUN, TURN, mod ujian, video, pelayan rtcd luaran, transkripsi dan kapsyen langsung dengan model speech-to-text anda sendiri, dan rakaman.
+guide: admins
+order: 5
+nav: Panggilan dan suara
+lead: Panggilan dan saluran suara menghantar audio, video dan kongsi skrin terus ke pelayan pada port mereka sendiri. Halaman ini merangkumi bahagian rangkaian, tetapan yang perlu diperiksa selepas pemasangan, dan transkripsi dengan model speech-to-text yang anda jalankan sendiri.
+source: 16057458346f
+---
+<h2 id="overview">Bagaimana panggilan berfungsi</h2>
+<p>Panggilan disediakan oleh aplikasi <b>Panggilan</b> (id <code>com.mattermost.calls</code>), yang dipasang dan didayakan secara lalai. Saluran suara (aplikasi <b>Saluran Suara</b>, imej <code>antimatter-next</code>) adalah bilik panggilan kekal yang dibina atas Panggilan: ia memerlukan Panggilan untuk didayakan dan menggunakan tetapan, port dan pelayan yang sama.</p>
+<p>Aplikasi Panggilan menjalankan pelayan media di dalam Antimatter. Aplikasi web, aplikasi desktop dan aplikasi mudah alih menyambungkannya dengan WebRTC:</p>
+<ul>
+<li>isyarat (signalling) melalui sambungan web biasa (proxy HTTPS anda);</li>
+<li><b>media</b> (audio, video, kongsi skrin) tidak: ia terus ke pelayan pada port panggilan, <b>8443 UDP dan TCP</b> secara lalai.</li>
+</ul>
+<p>Tetapan ini terdapat di <b>Konsol Sistem › Plugin › Panggilan</b>. Setiap tetapan juga boleh diset dengan pemboleh ubah persekitaran <code>AM_CALLS_</code> pada perkhidmatan <code>antimatter</code>, yang kemudian akan mengatasi Konsol Sistem dan mengunci tetapan tersebut. Nama lama <code>MM_CALLS_</code> juga berfungsi.</p>
+
+<h2 id="after-install">Periksa ini selepas pemasangan</h2>
+<ol>
+<li><b>Buka port panggilan.</b> Benarkan 8443/udp dan 8443/tcp dalam tembok api pelayan dan pelayan awan anda.</li>
+<li><b>Tutup mod ujian.</b> <b>Mod ujian</b> (<code>DefaultEnabled</code>) adalah aktif secara lalai: hanya pentadbir sistem yang boleh memulakan panggilan dalam saluran, supaya anda dapat memeriksa sama ada panggilan berfungsi sebelum semua orang memakainya. Set kepada <b>Tutup</b> di <b>Konsol Sistem › Plugin › Panggilan</b>, atau set <code>AM_CALLS_DEFAULT_ENABLED=true</code>.</li>
+<li><b>Tentukan tentang video.</b> <b>Dayakan panggilan video dalam DM (Eksperimental)</b> (<code>EnableVideo</code>, <code>AM_CALLS_ENABLE_VIDEO</code>) adalah tidak pada secara lalai. Semasa ia tidak pada, tiada siapa boleh menyalakan kamera, walaupun dalam saluran suara. Apabila ia pada, kamera berfungsi dalam panggilan mesej terus dan dalam saluran suara (kecuali <b>Benarkan video dalam saluran suara</b> aplikasi Saluran Suara adalah tidak pada).</li>
+<li><b>Di belakang NAT, tetapkan alamat awam</b> (bahagian seterusnya).</li>
+</ol>
+
+<h2 id="network">Port, NAT dan STUN</h2>
+<table>
+<thead><tr><th>Tetapan</th><th>Pemboleh ubah</th><th>Lalai</th></tr></thead>
+<tbody>
+<tr><td><b>Port Pelayan RTC (UDP)</b></td><td><code>AM_CALLS_UDP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>Port Pelayan RTC (TCP)</b></td><td><code>AM_CALLS_TCP_SERVER_PORT</code></td><td><code>8443</code></td></tr>
+<tr><td><b>Alamat Pelayan RTC (UDP)</b>, <b>(TCP)</b></td><td><code>AM_CALLS_UDP_SERVER_ADDRESS</code>, <code>AM_CALLS_TCP_SERVER_ADDRESS</code></td><td>kosong: semua alamat</td></tr>
+<tr><td><b>Penimpaan Pelayan ICE</b></td><td><code>AM_CALLS_ICE_HOST_OVERRIDE</code></td><td>kosong: ditemui melalui STUN</td></tr>
+<tr><td><b>Penimpaan Port Pelayan ICE</b></td><td><code>AM_CALLS_ICE_HOST_PORT_OVERRIDE</code></td><td>kosong: port pelayan</td></tr>
+<tr><td><b>Peraturan Pelayan ICE</b></td><td><code>AM_CALLS_ICE_SERVERS_CONFIGS</code></td><td><code>[{"urls":["stun:stun.cloudflare.com:3478"]}]</code></td></tr>
+<tr><td><b>(Eksperimental) Aktifkan sokongan IPv6</b></td><td>(Konsol Sistem)</td><td>Tutup</td></tr>
+</tbody>
+</table>
+<p>Port mesti berada antara 80 dan 49151. Dengan fail compose tapak, ubah <code>CALLS_PORT</code> dalam <code>.env</code>: ia menetapkan kedua-dua pemboleh ubah dan menerbitkan port, nombor yang sama pada hos dan dalam kontena. Klien cuba UDP terlebih dahulu dan kembali ke TCP pada port yang sama.</p>
+<h3>Alamat yang dihantar oleh klien untuk media</h3>
+<p>Pelayan memberitahu setiap klien alamat untuk menghantar media ("calon hos" mereka). Secara lalai, ia mencari alamat awam dengan bertanya kepada pelayan STUN, perkhidmatan awam yang membalas dengan alamat dan port tempat permintaan datang. Lalai ialah pelayan STUN awam Cloudflare, <code>stun:stun.cloudflare.com:3478</code>. Pelayan bukan satu-satunya yang menggunakannya: setiap klien yang menyertai panggilan juga bertanya kepadanya untuk alamat awam mereka sendiri. Pelayan STUN hanya melihat alamat IP dan port, bukan audio, video atau mesej panggilan.</p>
+<p>Pelayan yang masih mempunyai pelayan STUN Mattermost (<code>stun.global.calls.mattermost.com</code>) disimpan dalam <b>Peraturan Pelayan ICE</b>, contohnya selepas berpindah dari Mattermost, menggunakan Cloudflare sebagai gantinya. Tetapan yang disimpan tidak diubah.</p>
+<p>Tetapkan alamat sendiri apabila:</p>
+<ul>
+<li>pelayan berada di belakang NAT, atau mempunyai beberapa alamat awam: tetapkan <b>Penimpaan Pelayan ICE</b> kepada alamat IP awam (atau nama hos yang selesaikan kepadanya);</li>
+<li>NAT memetakan port awam yang berbeza kepada 8443: juga tetapkan <b>Penimpaan Port Pelayan ICE</b> kepada port awam tersebut;</li>
+<li>pelayan tiada akses Internet, atau anda tidak mahu pelayan dan klien menghubungi pelayan STUN luaran: tetapkan <b>Penimpaan Pelayan ICE</b>, dan kosongkan senarai STUN dengan <code>AM_CALLS_ICE_SERVERS_CONFIGS=[]</code>. Dengan <b>Penimpaan Pelayan ICE</b> ditetapkan, pelayan tidak lagi bertanya kepada pelayan STUN untuk alamatnya; senarai kosong menghentikan klien daripada bertanya.</li>
+</ul>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ICE_HOST_OVERRIDE: 203.0.113.10
+      AM_CALLS_ICE_SERVERS_CONFIGS: "[]"</code></pre>
+<p>Untuk mengekalkan STUN tanpa pihak ketiga, jalankan pelayan STUN anda sendiri (pelayan TURN seperti coturn juga menjawab permintaan STUN) dan senaraikannya dalam <b>Peraturan Pelayan ICE</b> sebagai gantinya, seperti dalam contoh TURN di bawah.</p>
+<p>Pada rangkaian tempatan sahaja, gunakan alamat LAN pelayan. Mula semula pelayan selepas mengubah port, alamat atau tetapan ICE, atau lumpuhkan dan aktifkan aplikasi Panggilan: pelayan media disetup apabila aplikasi bermula.</p>
+
+<h2 id="turn">TURN, untuk tembok api ketat</h2>
+<p>Beberapa rangkaian menyekat kedua-dua UDP dan sambungan keluar ke port TCP yang luar biasa. Pengguna pada rangkaian sedemikian memerlukan pelayan TURN, yang meneruskan media melalui port yang boleh dicapai (sering kali 443). Antimatter tidak menyertakan pelayan TURN; jalankan pelayan TURN seperti coturn dan tambahkan ke <b>ICE Servers Configurations</b>, senarai JSON:</p>
+<pre><code>[
+  {"urls": ["stun:turn.example.com:3478"]},
+  {"urls": ["turn:turn.example.com:3478?transport=udp", "turns:turn.example.com:443?transport=tcp"]}
+]</code></pre>
+<ul>
+<li>Dengan rahsia bersama (coturn's <code>use-auth-secret</code>), letakkan rahsia yang sama dalam <b>TURN Static Auth Secret</b> (<code>AM_CALLS_TURN_STATIC_AUTH_SECRET</code>): pelayan memberikan setiap klien kelayakan berjangka pendek, sah untuk <b>TURN Credentials Expiration (minutes)</b> (240 secara lalai).</li>
+<li>Dengan kelayakan tetap, tambahkan <code>"username"</code> dan <code>"credential"</code> ke entri TURN sebagai gantinya.</li>
+<li><b>Server Side TURN</b> (dimatikan secara lalai) juga menggunakan pelayan TURN untuk sambungan yang dimulakan oleh pelayan.</li>
+</ul>
+
+<h2 id="general">Tetapan panggilan lain</h2>
+<table>
+<thead><tr><th>Tetapan</th><th>Pemboleh ubah</th><th>Lalai</th><th>Fungsinya</th></tr></thead>
+<tbody>
+<tr><td><b>Max call participants</b></td><td><code>AM_CALLS_MAX_CALL_PARTICIPANTS</code></td><td>0 (tiada had)</td><td>Bilangan terbesar orang dalam satu panggilan.</td></tr>
+<tr><td><b>Allow screen sharing</b></td><td>(Konsol Sistem)</td><td>hidup</td><td>Membenarkan peserta berkongsi skrin mereka.</td></tr>
+<tr><td><b>Enable call ringing</b></td><td><code>AM_CALLS_ENABLE_RINGING</code></td><td>hidup</td><td>Membunyikan orang lain dalam mesej terus atau kumpulan apabila panggilan bermula di sana.</td></tr>
+<tr><td><b>Enable simulcast for screen sharing (Experimental)</b></td><td>(Konsol Sistem)</td><td>Tutup</td><td>Menghantar perkongsian skrin dalam beberapa kualiti.</td></tr>
+<tr><td><b>Enable AV1 codec for screen sharing (Experimental)</b></td><td>(Konsol Sistem)</td><td>Tutup</td><td>Diabaikan semasa simulcast dihidupkan.</td></tr>
+</tbody>
+</table>
+<p>Aplikasi Saluran Suara mempunyai dua tetapan, di <b>Konsol Sistem › Plugin › Saluran Suara</b>: <b>Sertai apabila membuka saluran suara</b> (aktif secara lalai) dan <b>Benarkan video dalam saluran suara</b> (aktif secara lalai, tetapi lihat video di atas). Pentadbir komuniti menukar saluran menjadi saluran suara dalam tetapan saluran tersebut.</p>
+<div class="callout">Untuk mematikan panggilan sepenuhnya, lumpuhkan aplikasi Panggilan di <b>Konsol Sistem › Plugin › Pengurusan Plagin</b>, atau set <code>AM_CALLS_DISABLE=true</code>. Saluran suara juga akan berhenti berfungsi.</div>
+
+<h2 id="rtcd">Pelayan yang lebih besar: rtcd luaran</h2>
+<p>Secara lalai, satu pelayan Antimatter membawa semua media panggilan. Untuk banyak panggilan serentak, atau untuk mengekalkan media di luar pelayan sembang, aplikasi Panggilan boleh menyerahkan media kepada <b>rtcd</b>, iaitu pelayan media berasingan (<code>rtcd</code> sumber terbuka Mattermost, versi 0.17 atau lebih baharu). Tetapkan <b>RTCD service URL</b> (<code>AM_CALLS_RTCD_SERVICE_URL</code>), sebagai contoh <code>https://rtcd.example.com</code>: semua panggilan kemudian akan melalui pelayan ini, dan klien akan menghantar media mereka ke port rtcd sendiri, bukan ke port Antimatter. Kelayakan boleh diberikan melalui <code>AM_CALLS_RTCD_CLIENT_ID</code> dan <code>AM_CALLS_RTCD_AUTH_KEY</code>; tanpa kelayakan ini, aplikasi akan mendaftarkan dirinya dengan rtcd. Tiada lesen diperlukan. Aplikasi Panggilan akan memaparkan amaran kepada Pentadbir yang mengesyorkan penggunaan rtcd apabila pelayan sering mempunyai lebih daripada 50 orang dalam panggilan serentak.</p>
+
+<h2 id="transcription">Transkripsi dan kapsyen langsung</h2>
+<p>Antimatter boleh mentranskripsi panggilan menggunakan model suara-ke-teks yang anda jalankan sendiri, dan memaparkan kapsyen langsung semasa orang bercakap. Antimatter menggunakan mana-mana pelayan yang menawarkan titik akhir <code>/v1/audio/transcriptions</code> yang serasi dengan OpenAI, seperti pelayan Whisper dalam rangkaian anda. Tiada perkhidmatan tambahan daripada Antimatter diperlukan.</p>
+<h3>Cara ia berfungsi</h3>
+<ul>
+<li>Tuan rumah panggilan memulakan transkripsi dengan <b>Transkripsikan panggilan</b> dalam kawalan panggilan. Lencana <b>Sedang ditranskripsi</b> memaklumkan kepada semua orang.</li>
+<li>Aplikasi setiap peserta akan mendengar mikrofonnya sendiri, memotong suara kepada potongan pendek (sehingga 12 saat, dan tidak semasa senyap) dan menghantarnya ke Antimatter, yang kemudiannya meneruskannya ke pelayan suara-ke-teks anda.</li>
+<li>Dengan kapsyen langsung dihidupkan, teks setiap potongan akan dipaparkan kepada peserta sebagai kapsyen serta-merta.</li>
+<li>Apabila transkripsi dihentikan atau panggilan tamat, bot Panggilan akan memuat naik transkripsi sebagai fail teks dan fail subtitel WebVTT, dalam bebenang panggilan (dalam saluran suara, dalam saluran).</li>
+<li>Dengan <b>Summarize transcriptions</b> dihidupkan, ejen lalai aplikasi Ejen juga akan memuat naik ringkasan dalam bebenang (lihat <a href="{{root}}docs/admins/ai.html">AI</a>).</li>
+</ul>
+<figure><img src="{{root}}assets/img/shots/transcript.webp" alt="A call's thread: the Calls bot has posted the transcript as a text file, and an AI agent has posted a summary below it."><figcaption>Selepas panggilan, transkripsi dan ringkasannya dalam bebenang panggilan.</figcaption></figure>
+<h3>Cara menetapkannya</h3>
+<p>Tetapkan ini pada perkhidmatan <code>antimatter</code>:</p>
+<pre><code>services:
+  antimatter:
+    environment:
+      AM_CALLS_ENABLE_TRANSCRIPTIONS: "true"
+      AM_CALLS_TRANSCRIBE_API: openai
+      AM_CALLS_TRANSCRIBE_API_OPEN_AIURL: http://stt.internal:8000/v1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL: whisper-1
+      AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY: ""
+      AM_CALLS_ENABLE_LIVE_CAPTIONS: "true"
+      AM_CALLS_LIVE_CAPTIONS_LANGUAGE: en</code></pre>
+<table>
+<thead><tr><th>Tetapan</th><th>Pemboleh ubah</th><th>Apa yang perlu diisi</th></tr></thead>
+<tbody>
+<tr><td><b>Enable call transcriptions (Beta)</b></td><td><code>AM_CALLS_ENABLE_TRANSCRIPTIONS</code></td><td><code>true</code></td></tr>
+<tr><td><b>Call transcriber API</b></td><td><code>AM_CALLS_TRANSCRIBE_API</code></td><td><code>openai</code> (dipaparkan sebagai "OpenAI-compatible API (no job service)")</td></tr>
+<tr><td><b>Speech-to-text API URL</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AIURL</code></td><td>URL asas API, sehingga dan termasuk <code>/v1</code>.</td></tr>
+<tr><td><b>Speech-to-text model</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_MODEL</code></td><td>Nama model seperti yang dikenali oleh API, sebagai contoh <code>whisper-1</code>. Diperlukan.</td></tr>
+<tr><td><b>Speech-to-text API key</b></td><td><code>AM_CALLS_TRANSCRIBE_API_OPEN_AI_KEY</code></td><td>Dihantar sebagai token bearer. Kosongkan jika API tidak memerlukan kunci.</td></tr>
+<tr><td><b>Benarkan kapsyen langsung (Beta)</b></td><td><code>AM_CALLS_ENABLE_LIVE_CAPTIONS</code></td><td><code>true</code> untuk kapsyen semasa panggilan.</td></tr>
+<tr><td><b>Bahasa kapsyen langsung</b></td><td><code>AM_CALLS_LIVE_CAPTIONS_LANGUAGE</code></td><td>Bahasa yang diucapkan, sebagai kod dua huruf (<code>en</code> secara lalai). Ia dihantar ke API suara-ke-teks untuk transkripsi juga, jadi tetapkannya walaupun tanpa kapsyen.</td></tr>
+<tr><td><b>Rumuskan transkripsi</b></td><td><code>AM_CALLS_SUMMARIZE_TRANSCRIPTIONS</code></td><td><code>true</code> untuk ringkasan AI selepas panggilan.</td></tr>
+</tbody>
+</table>
+<div class="callout">Dalam Konsol Sistem, tetapan transkripsi hanya muncul apabila <b>Benarkan rakaman panggilan</b> dihidupkan, walaupun jenis transkripsi ini tidak memerlukan rakaman. Menetapkannya dengan pemboleh ubah di atas mengelakkan masalah ini. Jangan hidupkan rakaman bersama transkrip <code>openai</code>: memulakan rakaman akan cuba memulakan transkrip perkhidmatan kerja dan gagal.</div>
+<p>Audio daripada semua orang yang bercakap semasa transkripsi dihidupkan dihantar ke pelayan suara-ke-teks yang anda tetapkan, dan transkripsi diposkan di tempat semua orang dalam saluran boleh membacanya. Beritahu pengguna anda, dan simpan pelayan itu dalam rangkaian anda sendiri jika panggilan bersifat sulit.</p>
+
+<h2 id="recordings">Rakaman</h2>
+<p>Rakaman panggilan (dan transkripsi menggunakan transkriptor terbina dalam <code>whisper.cpp</code> atau Azure) dijalankan dalam kontena berasingan yang dimulakan oleh perkhidmatan kerja, <code>calls-offloader</code> sumber terbuka Mattermost, yang anda pasang sendiri di sebelah Antimatter. Tetapan yang terlibat ialah <b>Rakaman panggilan</b> (<code>AM_CALLS_ENABLE_RECORDINGS</code>, lalai dimatikan), <b>URL perkhidmatan kerja</b> (<code>AM_CALLS_JOB_SERVICE_URL</code>), <b>Tempoh maksimum rakaman panggilan</b> (lalai 60 minit, julat 15 hingga 180) dan <b>Kualiti rakaman panggilan</b> (rendah, sederhana atau tinggi; lalai sederhana). Tiada lesen diperlukan. Untuk transkripsi dan kapsyen sahaja, tetapan teks-dari-suara di atas lebih ringkas: ia tidak memerlukan perkhidmatan kerja.</p>
