@@ -160,7 +160,7 @@
             EnableClientMetrics: 'false', EnableDiagnostics: 'false', DiagnosticsEnabled: 'false', WebsocketURL: '', WebsocketPort: '80',
             WebsocketSecurePort: '443', EnableUserTypingMessages: 'true', FeatureFlagContentFlagging: 'false', ContentFlaggingEnabled: 'false',
             AllowUserWebUISelection: 'false', EnableSignUpWithEmail: 'false', EnableUserCreation: 'false', EnableGuestAccounts: 'false',
-            ExperimentalEnableAuthenticationTransfer: 'false',
+            ExperimentalEnableAuthenticationTransfer: 'false', EnablePreviewModeBanner: 'false',
         });
         S.license = core.license || {};
         // As the server tells it (X-Version-Id, the websocket's hello): <version>.<build>.<config hash>.<licensed>. The app
@@ -2319,6 +2319,18 @@
     });
     route('GET', '/api/v4/properties/groups/:group/:target/values/:id', function () {
         return json([]);
+    });
+    // Attribute-based access control: everything the visitor asks for is allowed.
+    route('POST', '/api/v4/access_control/decisions/actions/search', function (req) {
+        var b = req.body || {};
+        var actions = b.actions || [];
+        var decisions = {};
+        actions.forEach(function (a) {
+            decisions[a] = {allowed: true, evaluated: true};
+        });
+        return json({resource: b.resource || {}, results: actions.map(function (a) {
+            return {action: {name: a}};
+        }), decisions: decisions});
     });
     route('GET', '/api/v4/agents', function () {
         return json([]);
