@@ -9,7 +9,7 @@ mock server in the page, which answers from recorded fixtures and keeps what vis
 
 | Path | What it is |
 |---|---|
-| `src/demo/mock/` | The mock layer: `server.js` (the REST API), `plugins.js` (the apps' routes), `graphql.js` (Playbooks' queries), `socket.js` (a fake websocket), `life.js` (people typing, coming and going, answering direct messages), `boot.js` and `loader.js` (start-up), the banner and its strings in the site's languages (`i18n.json`) |
+| `src/demo/mock/` | The mock layer: `server.js` (the REST API), `plugins.js` (the apps' routes), `graphql.js` (Playbooks' queries), `socket.js` (a fake websocket), `life.js` (people typing, coming and going, answering direct messages), `boot.js` and `loader.js` (start-up), the banner (the app's own announcement bar) and the demo's strings in the site's languages (`i18n.json`) |
 | `src/demo/sw.js`, `src/demo/loader.html` | The service worker, and the page that installs it (`/demo/`) |
 | `src/demo/fixtures/` | The recorded data, cleaned of anything private, with its images |
 | `tools/demo/` | `record_fixtures.py` (records the fixtures), `build_demo.py` (assembles `demo/`), `serve.py` (a local preview that behaves like GitHub Pages), `test_fixtures.py` and `smoke_mock.js` (checks) |

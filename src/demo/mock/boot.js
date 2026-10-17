@@ -1,6 +1,6 @@
 // Starts the demo in app.html, before the app: checks the service worker carries the app's requests (or goes through
-// the loader, /demo/, which installs it), loads the mock server's fixtures, answers the worker's requests, then
-// starts the app's own scripts and shows the demo's banner.
+// the loader, /demo/, which installs it), loads the mock server's fixtures and the demo's banner, answers the
+// worker's requests, then starts the app's own scripts.
 (function () {
     'use strict';
     var script = document.getElementById('demo-boot');
@@ -61,7 +61,10 @@
         }
     }
 
-    window.DemoServer.load({base: base, version: version, locale: locale, systemAdmin: false}).then(startApp, function (e) {
+    Promise.all([window.DemoServer.load({base: base, version: version, locale: locale, systemAdmin: false}), demoBanner()]).then(function (r) {
+        Object.assign(r[0].config, r[1]);
+        startApp();
+    }, function (e) {
         console.error('[demo] the fixtures did not load', e); // eslint-disable-line no-console
         document.body.textContent = 'The demo could not start. Reload the page to try again.';
     });
@@ -83,59 +86,37 @@
         clearInterval(guardTimer);
     }, 60000);
 
-    // The banner.
-    function banner(t) {
-        var bar = document.createElement('div');
-        bar.className = 'demo-banner';
-        bar.setAttribute('role', 'note');
-        bar.dir = /^(ar|fa|he|ur)/.test(lang) ? 'rtl' : 'ltr';
-        var text = document.createElement('span');
-        text.textContent = t.banner;
-        var again = document.createElement('button');
-        again.type = 'button';
-        again.textContent = t.start_over;
-        again.addEventListener('click', function () {
-            location.reload();
-        });
-        var back = document.createElement('a');
-        back.className = 'demo-banner-back';
-        back.href = '/' + (lang && lang !== 'en' ? lang + '/' : '');
-        back.textContent = t.back;
-        var hide = document.createElement('button');
-        hide.type = 'button';
-        hide.className = 'demo-banner-hide';
-        hide.setAttribute('aria-label', t.hide);
-        hide.title = t.hide;
-        hide.textContent = '×';
-        var show = document.createElement('button');
-        show.type = 'button';
-        show.className = 'demo-banner-show';
-        show.textContent = 'Demo';
-        show.title = t.banner;
-        hide.addEventListener('click', function () {
-            bar.classList.add('collapsed');
-        });
-        show.addEventListener('click', function () {
-            bar.classList.remove('collapsed');
-        });
-        [text, again, back, hide, show].forEach(function (el) {
-            bar.appendChild(el);
-        });
-        document.body.appendChild(bar);
+    // The banner is the app's own announcement bar (the one an administrator can set), so the app makes room for it
+    // above its top bar, on computers and phones. Its two links are taken over here: "Start over" reloads the demo
+    // (which starts again from the fixtures), "Back to the website" leaves it.
+    var START_OVER = location.origin + base + '?start-over=1';
+    var BACK = location.origin + '/' + (lang && lang !== 'en' ? lang + '/' : '');
+    function bannerConfig(t) {
+        var text = t.banner + ' [' + t.start_over + '](' + START_OVER + ') · [' + t.back + '](' + BACK + ')';
+        return {EnableBanner: 'true', BannerText: text, BannerColor: '#6d28d9', BannerTextColor: '#ffffff',
+            AllowBannerDismissal: 'true'};
     }
-    fetch(base + 'mock/i18n.json?v=' + version).then(function (r) {
-        return r.json();
-    }).then(function (all) {
-        var wanted = (lang || navigator.language || 'en').toLowerCase();
-        var t = all[wanted] || all[wanted.split('-')[0]] || all.en;
-        if (document.body) {
-            banner(t);
-        } else {
-            document.addEventListener('DOMContentLoaded', function () {
-                banner(t);
-            });
+    document.addEventListener('click', function (e) {
+        var link = e.target && e.target.closest && e.target.closest('.admin-announcement a[href]');
+        if (!link) {
+            return;
         }
-    }).catch(function () {
-        return null;
-    });
+        var href = link.getAttribute('href');
+        if (href === START_OVER || href === BACK) {
+            e.preventDefault();
+            e.stopPropagation();
+            location.assign(href === START_OVER ? base : href);
+        }
+    }, true);
+    function demoBanner() {
+        return fetch(base + 'mock/i18n.json?v=' + version).then(function (r) {
+            return r.json();
+        }).then(function (all) {
+            var wanted = (lang || navigator.language || 'en').toLowerCase();
+            return bannerConfig(all[wanted] || all[wanted.split('-')[0]] || all.en);
+        }).catch(function () {
+            return bannerConfig({banner: 'Demo with sample data. Nothing you do here is saved.', start_over: 'Start over',
+                back: 'Back to the website'});
+        });
+    }
 }());
