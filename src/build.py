@@ -202,6 +202,8 @@ def lang_menu(path, lang, root):
 def layout(path, meta, body, lang):
     """The page around a page's content. path is the page's path within a language, e.g. compare/slack.html."""
     root = '../' * (path.count('/') + (lang != 'en'))
+    if path == '404.html':
+        root = '/'  # GitHub Pages serves it at any depth: its links start from the site's root.
     base = root + lang_dir(lang)
     tag = LANGS[lang][0]
     page_url = SITE + '/' + lang_dir(lang) + ('' if path == 'index.html' else path)
@@ -494,7 +496,7 @@ def main():
         for rel, raw in compare_pages(code).items():
             pages[rel] = parse(raw)
         for rel, (meta, content) in pages.items():
-            root = '../' * (rel.count('/') + (code != 'en'))
+            root = '../' * (rel.count('/') + (code != 'en')) if rel != '404.html' else '/'
             out = ROOT / lang_dir(code) / rel
             out.parent.mkdir(parents=True, exist_ok=True)
             if meta.get('guide'):
