@@ -228,12 +228,13 @@ def app_page(root_html, base, version):
     app = [s for s in scripts if '/remote_entry.js' not in s]  # The module federation entry is the desktop app's.
     if not any('/main.' in s for s in app):
         raise SystemExit('root.html has no main script')
-    # The favicons of root.html come from the classic web app's folder; the app sets its own once started.
-    html = re.sub(r'<link rel="icon"[^>]*>', '', html)
+    # The favicons of root.html come from the classic web app's folder, which the demo doesn't have: they show the
+    # site's icon until the app sets its own. The tags stay, one per size: the app looks them up to update them
+    # (unread and mention badges) and stops if one is missing.
+    html = re.sub(r'(<link rel="icon") type="image/png" href="[^"]*"', r'\1 type="image/svg+xml" href="/favicon.svg"', html)
     html = html.replace('<script id="publicPathInWindowScript"></script>', '')
     v = f'?v={version}'
-    mock = (f'<link rel="icon" href="/favicon.svg" type="image/svg+xml">'
-            f'<link rel="stylesheet" href="{base}mock/banner.css{v}">'
+    mock = (f'<link rel="stylesheet" href="{base}mock/banner.css{v}">'
             f'<script src="{base}mock/server.js{v}"></script>'
             f'<script src="{base}mock/graphql.js{v}"></script>'
             f'<script src="{base}mock/plugins.js{v}"></script>'
