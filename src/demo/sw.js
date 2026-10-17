@@ -3,7 +3,7 @@
 // memory. The data therefore lives as long as the page, and a reload starts again from the fixtures, even when the
 // browser stops this worker between requests.
 //
-// Navigations anywhere under /demo/ (the app's own routes, like /demo/lumen/channels/town-square) get the app's page,
+// Navigations anywhere under /demo/ (the app's own routes, like /demo/lumen/channels/general) get the app's page,
 // app.html; the real files under /demo/ (static/, mock/, fixtures/) come from the site as they are.
 
 /* eslint-env serviceworker */

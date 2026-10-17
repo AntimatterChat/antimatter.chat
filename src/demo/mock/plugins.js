@@ -546,6 +546,239 @@
             channelRefresh(p.cid);
             return api.ok();
         });
+        // Todo 0.9: lists of todos, personal or a channel's (recorded as todo_lists, with their todos).
+        data.todo_lists = data.todo_lists || [];
+        data.favorites = data.favorites || [];
+        function findList(id) {
+            return data.todo_lists.find(function (l) {
+                return l.id === id;
+            });
+        }
+        function isOpen(item) {
+            return !item.done_at;
+        }
+        function info(l) {
+            var out = {};
+            Object.keys(l).forEach(function (k) {
+                if (k !== 'items') {
+                    out[k] = l[k];
+                }
+            });
+            var open = (l.items || []).filter(isOpen);
+            out.open_count = open.length;
+            var dues = open.map(function (x) {
+                return x.due;
+            }).filter(Boolean).sort();
+            if (dues.length) {
+                out.earliest_due = dues[0];
+            } else {
+                delete out.earliest_due;
+            }
+            out.favorite = data.favorites.indexOf(l.id) >= 0;
+            out.can_edit = true;
+            out.can_rename = true;
+            out.can_delete = !l.default;
+            out.can_manage = true;
+            return out;
+        }
+        function detail(l) {
+            var out = info(l);
+            var items = l.items || [];
+            out.items = items.filter(isOpen).concat(items.filter(function (x) {
+                return !isOpen(x);
+            }).sort(function (x, y) {
+                return (y.done_at || 0) - (x.done_at || 0);
+            }));
+            return out;
+        }
+        function listChanged(l) {
+            event(TODO, 'list_changed', {list_id: l.id, channel_id: l.channel_id || ''}, l.channel_id ? {channel_id: l.channel_id} : {user_id: S.me.id});
+        }
+        function listOr404(p, fn) {
+            var l = findList(p.list);
+            return l ? fn(l) : pluginError(404, 'list not found');
+        }
+        function channelInfo(cid) {
+            var c = S.channels[cid] || {};
+            var team = S.teams[c.team_id] || {};
+            if (c.type === 'D' || c.type === 'G') {
+                return {scope: 'conversation', channel_name: c.display_name || '', channel_url_name: c.name || ''};
+            }
+            return {scope: 'channel', channel_name: c.display_name || '', channel_url_name: c.name || '', team_name: team.name || ''};
+        }
+        api.route('GET', b + '/api/v1/lists', function (req) {
+            var scope = req.query.get('scope') || 'mine';
+            var cid = req.query.get('channel_id');
+            var lists = data.todo_lists.filter(function (l) {
+                if (l.archived_at) {
+                    return false;
+                }
+                if (scope === 'favorites') {
+                    return data.favorites.indexOf(l.id) >= 0;
+                }
+                if (scope === 'channel') {
+                    return Boolean(cid) && l.channel_id === cid;
+                }
+                return !l.channel_id;
+            });
+            return api.json(lists.map(info));
+        });
+        api.route('POST', b + '/api/v1/lists', function (req) {
+            var body = req.body || {};
+            var t = api.now();
+            var l = {id: api.newId(), name: (body.name || '').trim() || 'Todos', icon: body.icon || '', owner_id: S.me.id, create_at: t, update_at: t, items: []};
+            if (body.channel_id) {
+                l.channel_id = body.channel_id;
+                Object.assign(l, channelInfo(body.channel_id));
+            } else {
+                l.scope = 'personal';
+            }
+            data.todo_lists.push(l);
+            listChanged(l);
+            return api.json(detail(l), 201);
+        });
+        api.route('GET', b + '/api/v1/lists/:list', function (req, p) {
+            return listOr404(p, function (l) {
+                return api.json(detail(l));
+            });
+        });
+        api.route('PATCH', b + '/api/v1/lists/:list', function (req, p) {
+            return listOr404(p, function (l) {
+                var body = req.body || {};
+                if (typeof body.name === 'string' && body.name.trim()) {
+                    l.name = body.name.trim();
+                }
+                if (typeof body.icon === 'string') {
+                    l.icon = body.icon;
+                }
+                if (body.archived === true) {
+                    l.archived_at = api.now();
+                } else if (body.archived === false) {
+                    delete l.archived_at;
+                }
+                if (typeof body.position === 'number') {
+                    var all = data.todo_lists;
+                    all.splice(all.indexOf(l), 1);
+                    var peers = all.filter(function (x) {
+                        return (x.channel_id || '') === (l.channel_id || '');
+                    });
+                    var before = peers[Math.max(0, Math.min(body.position, peers.length))];
+                    all.splice(before ? all.indexOf(before) : all.length, 0, l);
+                }
+                l.update_at = api.now();
+                listChanged(l);
+                return api.json(detail(l));
+            });
+        });
+        api.route('DELETE', b + '/api/v1/lists/:list', function (req, p) {
+            return listOr404(p, function (l) {
+                data.todo_lists.splice(data.todo_lists.indexOf(l), 1);
+                data.favorites = data.favorites.filter(function (id) {
+                    return id !== l.id;
+                });
+                listChanged(l);
+                return api.ok();
+            });
+        });
+        ['PUT', 'DELETE'].forEach(function (method) {
+            api.route(method, b + '/api/v1/lists/:list/favorite', function (req, p) {
+                return listOr404(p, function (l) {
+                    data.favorites = data.favorites.filter(function (id) {
+                        return id !== l.id;
+                    });
+                    if (method === 'PUT') {
+                        data.favorites.push(l.id);
+                    }
+                    listChanged(l);
+                    return api.ok();
+                });
+            });
+        });
+        function patchItem(item, body) {
+            ['message', 'description', 'assignee_id', 'due', 'post_id'].forEach(function (k) {
+                if (typeof body[k] === 'string') {
+                    if (body[k]) {
+                        item[k] = body[k];
+                    } else {
+                        delete item[k];
+                    }
+                }
+            });
+            if (body.done === true && !item.done_at) {
+                item.done_by = S.me.id;
+                item.done_at = api.now();
+            } else if (body.done === false) {
+                delete item.done_by;
+                delete item.done_at;
+            }
+            item.update_at = api.now();
+        }
+        api.route('POST', b + '/api/v1/lists/:list/items', function (req, p) {
+            return listOr404(p, function (l) {
+                var t = api.now();
+                var item = {id: api.newId(), list_id: l.id, message: '', creator_id: S.me.id, create_at: t, update_at: t};
+                patchItem(item, req.body || {});
+                l.items = l.items || [];
+                var open = l.items.filter(isOpen);
+                l.items.splice(open.length, 0, item);
+                listChanged(l);
+                return api.json(item, 201);
+            });
+        });
+        api.route('PATCH', b + '/api/v1/lists/:list/items/:item', function (req, p) {
+            return listOr404(p, function (l) {
+                var item = (l.items || []).find(function (x) {
+                    return x.id === p.item;
+                });
+                if (!item) {
+                    return pluginError(404, 'todo not found');
+                }
+                var body = req.body || {};
+                patchItem(item, body);
+                if (typeof body.position === 'number' && isOpen(item)) {
+                    l.items.splice(l.items.indexOf(item), 1);
+                    var open = l.items.filter(isOpen);
+                    var before = open[Math.max(0, Math.min(body.position, open.length))];
+                    l.items.splice(before ? l.items.indexOf(before) : open.length, 0, item);
+                }
+                listChanged(l);
+                return api.json(item);
+            });
+        });
+        api.route('DELETE', b + '/api/v1/lists/:list/items/:item', function (req, p) {
+            return listOr404(p, function (l) {
+                l.items = (l.items || []).filter(function (x) {
+                    return x.id !== p.item;
+                });
+                listChanged(l);
+                return api.ok();
+            });
+        });
+        api.route('POST', b + '/api/v1/lists/:list/items/:item/send', function (req, p) {
+            // Sent to someone: it leaves the list here (the demo has nobody else to receive it).
+            return listOr404(p, function (l) {
+                l.items = (l.items || []).filter(function (x) {
+                    return x.id !== p.item;
+                });
+                listChanged(l);
+                return api.json({status: 'OK'});
+            });
+        });
+        api.route('GET', b + '/api/v1/targets', function (req) {
+            var cid = req.query.get('channel_id');
+            var lists = data.todo_lists.filter(function (l) {
+                return !l.archived_at && ((cid && l.channel_id === cid) || !l.channel_id);
+            });
+            var ofChannel = lists.find(function (l) {
+                return cid && l.channel_id === cid;
+            });
+            var mine = lists.find(function (l) {
+                return l.default;
+            }) || lists.find(function (l) {
+                return !l.channel_id;
+            });
+            return api.json({lists: lists.map(info), default_id: (ofChannel || mine || {}).id || ''});
+        });
         api.route('PUT', b + '/api/v1/channels/:cid/follow', function (req, p) {
             channelList(p.cid).following = true;
             return api.json({following: true});

@@ -74,7 +74,7 @@
 
     // Opens the app once the worker controls this page: its routes are answered by the worker from then on.
     function open() {
-        var target = base + (path && !/^(index\.html)?$/.test(path) ? path.replace(/^\/+/, '') : 'lumen/channels/town-square');
+        var target = base + (path && !/^(index\.html)?$/.test(path) ? path.replace(/^\/+/, '') : 'lumen/channels/general');
         location.replace(target);
     }
 

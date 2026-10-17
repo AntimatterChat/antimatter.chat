@@ -80,7 +80,7 @@ async function req(method, url, body, check) {
     const team = Object.values(S.teams).find((t) => t.name === 'lumen');
     const community = Object.values(S.teams).find((t) => t.name === 'lumen-community');
     const channel = Object.values(S.channels).find((c) => c.team_id === team.id && c.name === 'firmware');
-    const town = Object.values(S.channels).find((c) => c.team_id === team.id && c.name === 'town-square');
+    const town = Object.values(S.channels).find((c) => c.team_id === team.id && (c.name === 'general' || c.name === 'town-square'));
     const dm = Object.values(S.channels).find((c) => c.type === 'D');
 
     // Starting the app (see the Fusion survey in the README).
@@ -195,6 +195,19 @@ async function req(method, url, body, check) {
     }
     await req('GET', '/plugins/com.mattermost.plugin-todo/lists', undefined, (l) => Array.isArray(l.my));
     await req('GET', `/plugins/com.mattermost.plugin-todo/api/v1/channels/${channel.id}/todos`, undefined, (l) => Array.isArray(l.todos));
+    // Todo 0.9's lists: the side panel's tabs, a channel's lists, adding and ticking a todo, favourites, the targets.
+    const T = '/plugins/com.mattermost.plugin-todo/api/v1';
+    const mine = await req('GET', `${T}/lists?scope=mine`, undefined, (l) => Array.isArray(l) && l.length > 0 && l.every((x) => x.id && typeof x.open_count === 'number'));
+    await req('GET', `${T}/lists?scope=favorites`, undefined, (l) => Array.isArray(l));
+    const fwLists = await req('GET', `${T}/lists?scope=channel&channel_id=${channel.id}`, undefined, (l) => Array.isArray(l) && l.length > 0 && l.every((x) => x.channel_id === channel.id));
+    const fwList = await req('GET', `${T}/lists/${fwLists[0].id}`, undefined, (l) => Array.isArray(l.items) && l.items.some((x) => x.due));
+    const added = await req('POST', `${T}/lists/${fwList.id}/items`, {message: 'Smoke todo', due: '2026-12-01'}, (x) => x.id && x.due === '2026-12-01');
+    await req('PATCH', `${T}/lists/${fwList.id}/items/${added.id}`, {done: true}, (x) => x.done_at > 0);
+    await req('PUT', `${T}/lists/${mine[0].id}/favorite`);
+    await req('GET', `${T}/lists?scope=favorites`, undefined, (l) => l.some((x) => x.id === mine[0].id && x.favorite));
+    const made = await req('POST', `${T}/lists`, {name: 'Smoke list', icon: '', channel_id: ''}, (l) => l.id && l.name === 'Smoke list' && Array.isArray(l.items));
+    await req('DELETE', `${T}/lists/${made.id}`);
+    await req('GET', `${T}/targets?channel_id=${channel.id}`, undefined, (t) => Array.isArray(t.lists) && t.default_id);
     await req('GET', '/plugins/memes/api/v1/templates', undefined, (t) => t.length > 10);
     await req('GET', '/plugins/com.antimatterchat.gifs/api/v1/config', undefined, (c) => c.configured);
     await req('GET', '/plugins/com.antimatterchat.gifs/api/v1/search?kind=gif&q=cats&locale=en', undefined, (p) => p.items.length > 0);

@@ -118,9 +118,27 @@ def todo(rec, channel_ids):
         c = s.get(f'{base}/api/v1/channels/{cid}/todos', quiet=True)
         if c and c.get('todos'):
             channels[cid] = c
+    # Todo 0.9's lists: maya's own, her favourites and the channels', each with its todos (GET /api/v1/lists/{id}).
+    details, order = {}, []
+
+    def keep(infos):
+        for info in infos or []:
+            if info['id'] not in details:
+                detail = s.get(f'{base}/api/v1/lists/{info["id"]}', quiet=True)
+                if detail:
+                    details[info['id']] = detail
+                    order.append(info['id'])
+
+    keep(s.get(f'{base}/api/v1/lists?scope=mine', quiet=True))
+    favorites = s.get(f'{base}/api/v1/lists?scope=favorites', quiet=True) or []
+    keep(favorites)
+    for cid in channel_ids:
+        keep(s.get(f'{base}/api/v1/lists?scope=channel&channel_id={cid}', quiet=True))
     out = {'lists': lists, 'assigned': s.get(f'{base}/api/v1/assigned', quiet=True) or [],
-           'following': s.get(f'{base}/api/v1/following', quiet=True) or [], 'channels': channels}
-    log(f'todo: {sum(len(v or []) for v in lists.values())} personal, {len(channels)} channel lists')
+           'following': s.get(f'{base}/api/v1/following', quiet=True) or [], 'channels': channels,
+           'todo_lists': [details[i] for i in order], 'favorites': [f['id'] for f in favorites]}
+    log(f'todo: {sum(len(v or []) for v in lists.values())} sent and received, {len(details)} lists '
+        f'({sum(len(d.get("items") or []) for d in details.values())} todos), {len(favorites)} favourites')
     return out
 
 
