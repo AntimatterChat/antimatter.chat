@@ -271,6 +271,12 @@
         var data = app(POLLS);
         data.polls = data.polls || {};
         var b = '/plugins/' + POLLS + '/api/v1';
+        // An anonymous poll doesn't say who voted: its recorded count of voters is kept as it is.
+        api.values(data.polls).forEach(function (poll) {
+            if (poll.anonymous) {
+                poll.voter_count_base = poll.voter_count || 0;
+            }
+        });
 
         function out(poll) {
             poll.voter_count = 0;

@@ -185,7 +185,11 @@ async function req(method, url, body, check) {
         await req('GET', `/plugins/com.antimatterchat.notes/api/v1/docs/${noteId}/state`, undefined, (s) => s.snapshot);
         await req('POST', `/plugins/com.antimatterchat.notes/api/v1/docs/${noteId}/updates`, {client_id: '1', data: 'AAA='}, (r) => r.seq === 1);
     }
-    const poll = Object.values((apps['com.antimatterchat.polls'] || {}).polls || {})[0];
+    const anon = Object.values((apps['com.antimatterchat.polls'] || {}).polls || {}).find((x) => x.anonymous);
+    if (anon) {
+        await req('GET', `/plugins/com.antimatterchat.polls/api/v1/polls/${anon.id}`, undefined, (p) => p.voter_count > 0);
+    }
+    const poll = Object.values((apps['com.antimatterchat.polls'] || {}).polls || {}).find((x) => !x.anonymous);
     if (poll) {
         await req('POST', `/plugins/com.antimatterchat.polls/api/v1/polls/${poll.id}/vote`, {option: 0}, (p) => p.my_votes.indexOf(0) >= 0);
     }
