@@ -78,12 +78,19 @@
         location.replace(target);
     }
 
-    if (navigator.serviceWorker.controller) {
-        open();
-        return;
+    // A navigation goes through the worker as soon as it is active, even from a page it doesn't control (this one,
+    // after a hard reload or on a first visit): wait for that, not for it to take this page over.
+    var opened = false;
+    function openOnce() {
+        if (!opened) {
+            opened = true;
+            open();
+        }
     }
-    navigator.serviceWorker.addEventListener('controllerchange', open);
-    navigator.serviceWorker.register(base + 'sw.js', {scope: base}).catch(function () {
+    navigator.serviceWorker.register(base + 'sw.js', {scope: base}).then(function () {
+        return navigator.serviceWorker.ready;
+    }).then(openOnce, function () {
         ready.then(fail);
     });
+    navigator.serviceWorker.addEventListener('controllerchange', openOnce);
 }());

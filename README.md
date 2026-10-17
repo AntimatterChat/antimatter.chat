@@ -12,7 +12,7 @@ mock server in the page, which answers from recorded fixtures and keeps what vis
 | `src/demo/mock/` | The mock layer: `server.js` (the REST API), `plugins.js` (the apps' routes), `graphql.js` (Playbooks' queries), `socket.js` (a fake websocket), `life.js` (people typing, coming and going, answering direct messages), `boot.js` and `loader.js` (start-up), the banner and its strings in the site's languages (`i18n.json`) |
 | `src/demo/sw.js`, `src/demo/loader.html` | The service worker, and the page that installs it (`/demo/`) |
 | `src/demo/fixtures/` | The recorded data, cleaned of anything private, with its images |
-| `tools/demo/` | `record_fixtures.py` (records the fixtures), `build_demo.py` (assembles `demo/`), `test_fixtures.py` and `smoke_mock.js` (checks) |
+| `tools/demo/` | `record_fixtures.py` (records the fixtures), `build_demo.py` (assembles `demo/`), `serve.py` (a local preview that behaves like GitHub Pages), `test_fixtures.py` and `smoke_mock.js` (checks) |
 
 `demo/` itself is not committed: the Pages workflow (`.github/workflows/static.yml`) builds it at each deployment,
 from the web app and app bundles of the published `ghcr.io/antimatterchat/antimatter-next` image. Besides pushes, the
@@ -35,7 +35,9 @@ domain other than Antimatter's own). Look at the diff, then commit
 
 **Trying it locally:** `python3 tools/demo/build_demo.py --image ghcr.io/antimatterchat/antimatter-next:latest`, or
 with a local build, `--fusion <server repo>/webapp/fusion/dist --plugins <folder of plugin .tar.gz>`; then serve
-the site (`python3 -m http.server 8000`) and open http://localhost:8000/demo/. Add `?demo-debug=1` to log, in the
+the site with `python3 tools/demo/serve.py 8000` and open http://127.0.0.1:8000/demo/. Unlike a plain
+`python3 -m http.server`, it answers missing paths with the site's 404 page, as GitHub Pages does: a hard reload or a
+first visit of one of the demo's routes needs it to get back to the demo. Add `?demo-debug=1` to log, in the
 console, the requests the mock answers with an empty default (also listed in `window.__demoMisses`).
 
 ## Feedback and support
