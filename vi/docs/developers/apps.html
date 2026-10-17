@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Viết ứng dụng (plugin) · Antimatter</title>
-<meta name="description" content="Cách viết một ứng dụng (plugin) cho Antimatter: cấu trúc gói và plugin.json, các hook và API của máy chủ, registry của ứng dụng web, hỗ trợ giao diện Fusion, cài đặt, kho lưu trữ khóa-giá trị, bản dịch, đóng gói và cài đặt.">
+<meta name="description" content="Cách viết một ứng dụng Antimatter (plugin): bố cục gói và plugin.json, các hook và API của máy chủ, dịch vụ AI, sổ đăng ký ứng dụng web, hỗ trợ giao diện Fusion, cài đặt, kho lưu trữ khóa-giá trị, bản dịch, đóng gói và cài đặt.">
 <meta property="og:title" content="Viết ứng dụng (plugin) · Antimatter">
-<meta property="og:description" content="Cách viết một ứng dụng (plugin) cho Antimatter: cấu trúc gói và plugin.json, các hook và API của máy chủ, registry của ứng dụng web, hỗ trợ giao diện Fusion, cài đặt, kho lưu trữ khóa-giá trị, bản dịch, đóng gói và cài đặt.">
+<meta property="og:description" content="Cách viết một ứng dụng Antimatter (plugin): bố cục gói và plugin.json, các hook và API của máy chủ, dịch vụ AI, sổ đăng ký ứng dụng web, hỗ trợ giao diện Fusion, cài đặt, kho lưu trữ khóa-giá trị, bản dịch, đóng gói và cài đặt.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://antimatter.chat/vi/docs/developers/apps.html">
 <meta property="og:locale" content="vi">
@@ -200,6 +200,22 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 <li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: kiểm tra ai có thể làm gì trước khi hành động thay mặt cho một người dùng.</li>
 </ul>
 <p>Ứng dụng chạy trên mọi máy chủ của cụm. Hãy lưu trữ trạng thái trong kho lưu trữ khóa-giá trị hoặc cơ sở dữ liệu, không chỉ trong bộ nhớ.</p>
+<h3 id="ai">Dịch vụ AI</h3>
+<p>Máy chủ Antimatter gọi các mô hình AI cho ứng dụng, thông qua các kết nối mô hình do quản trị viên thiết lập (xem <a href="../../../vi/docs/admins/ai.html">AI</a> trong hướng dẫn dành cho quản trị viên). Ứng dụng không bao giờ giữ khóa của nhà cung cấp: nó chỉ nêu rõ người dùng mà nó hành động thay mặt và vị trí, sau đó máy chủ kiểm tra xem người này có quyền sử dụng kết nối đó ở đó hay không, áp dụng các giới hạn và ngân sách, tính số token cho người dùng và ứng dụng, và kiểm toán cuộc gọi mà không lưu nội dung.</p>
+<table>
+<thead><tr><th>Phương thức</th><th>Chức năng</th></tr></thead>
+<tbody>
+<tr><td><code>AIChat(actingUserID, channelID, teamID, *ai.ChatRequest)</code></td><td>Hoàn thành trò chuyện: tin nhắn, công cụ, đầu ra có cấu trúc (<code>JSONSchema</code>).</td></tr>
+<tr><td><code>AIChatStream(…)</code></td><td>Tương tự nhưng dạng luồng: đọc các <code>Events</code> của luồng cho đến khi kênh đóng, hoặc gọi <code>Close</code> để dừng cuộc gọi.</td></tr>
+<tr><td><code>AIEmbed(…, *ai.EmbedRequest)</code></td><td>Vector nhúng (embeddings) của văn bản.</td></tr>
+<tr><td><code>AITranscribe(…, *ai.TranscribeRequest)</code></td><td>Chuyển giọng nói thành văn bản.</td></tr>
+<tr><td><code>AIDecide(…, *ai.DecideRequest)</code></td><td>Các câu hỏi có kiểu dữ liệu cho mô hình ra quyết định (có hoặc không, một lựa chọn, một điểm số) về một đoạn văn bản.</td></tr>
+<tr><td><code>AIConnectionsForUser(userID, channelID, teamID)</code></td><td>Các kết nối mà một người có thể sử dụng ở đó, cùng với các mô hình và khả năng của chúng, nhưng không bao giờ bao gồm khóa.</td></tr>
+</tbody>
+</table>
+<p><code>ConnectionID</code> của mỗi yêu cầu chọn kết nối, và <code>Model</code> chọn một trong các mô hình của nó (trống nếu dùng mô hình mặc định của kết nối). <code>Operation</code> là một nhãn ngắn cho bản ghi sử dụng và kiểm toán, không bao giờ chứa nội dung. Phiên bản máy chủ tối thiểu là 11.11.</p>
+<div class="callout warn">Chỉ lấy <code>actingUserID</code> từ nguồn đã được máy chủ xác minh: tiêu đề <code>Mattermost-User-Id</code> của một yêu cầu đến <code>ServeHTTP</code> của bạn, hoặc người dùng trong ngữ cảnh của hook (tác giả của bài đăng, người dùng đã chạy lệnh). Không bao giờ lấy từ tin nhắn, payload webhook, URL hoặc yêu cầu từ ứng dụng khác: ứng dụng của bạn sẽ tiêu hao quyền truy cập của người khác.</div>
+<p>Các phương thức này và gói <code>ai</code> (<code>server/public/ai</code>) chỉ tồn tại trong bản sao của Antimatter cho module, không có trong phiên bản do Mattermost phát hành. Để sử dụng chúng, hãy build dựa trên <code>server/public</code> của Antimatter với dòng <code>replace</code> trong <code>go.mod</code> của bạn, ví dụ <code>replace github.com/mattermost/mattermost/server/public =&gt; ../antimatter/server/public</code>. Ứng dụng như vậy chỉ chạy trên Antimatter.</p>
 
 <h2 id="kv">Lưu trữ dữ liệu</h2>
 <p>Mỗi ứng dụng có kho lưu trữ khóa-giá trị riêng trong cơ sở dữ liệu của máy chủ:</p>
@@ -241,17 +257,17 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <pre><code>export function isFusionUI(): boolean {
     return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
 }</code></pre>
-<p>Các ứng dụng tích hợp sẵn sử dụng điều này để hiển thị khác biệt. Ứng dụng Bình chọn vẽ các thẻ bình chọn và hộp thoại tạo mới theo phong cách của Fusion, và mở hộp thoại riêng cho <code>/poll</code> trong Fusion. Cuộc gọi và Kênh thoại loại bỏ các thành phần thanh bên và thông báo (toast) mà Fusion thay thế bằng giao diện cuộc gọi của riêng nó. Ứng dụng Trợ lý đặt các hành động AI của mình vào một menu con của menu tin nhắn thay vì thanh công cụ khi di chuột. Các lớp CSS riêng của Fusion (có tiền tố <code>am-</code>) và lớp hộp thoại của nó (phần tử <code>am-layer</code>) là những gì các ứng dụng này sử dụng để khớp với giao diện; chúng không phải là một API được tài liệu hóa và ổn định.</p>
+<p>Các ứng dụng tích hợp sẵn sử dụng điều này để hiển thị khác biệt. Ứng dụng Bình chọn vẽ thẻ bình chọn và hộp thoại tạo mới theo phong cách của Fusion, và mở hộp thoại riêng cho <code>/poll</code> trong Fusion. Cuộc gọi và Kênh thoại loại bỏ các thành phần thanh bên và thông báo nhanh mà Fusion thay thế bằng giao diện cuộc gọi của riêng nó. Ứng dụng Trợ lý đặt các hành động AI của mình vào menu tin nhắn, dưới dạng một nhóm trong <b>Hành động khác</b>, thay vì thanh công cụ khi di chuột. Các lớp CSS riêng của Fusion (có tiền tố <code>am-</code>) và lớp hộp thoại của nó (phần tử <code>am-layer</code>) là những gì các ứng dụng này sử dụng để khớp với giao diện; chúng không phải là một API được tài liệu hóa và ổn định.</p>
 <h3>Nơi Fusion hiển thị các thành phần plugin</h3>
 <table>
 <thead><tr><th>Phương thức Registry</th><th>Nơi nó xuất hiện trong Fusion</th></tr></thead>
 <tbody>
 <tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>Thanh ứng dụng (app rail), cột biểu tượng ở cạnh phải, nằm giữa ảnh đại diện của bạn và nút <b>Giới thiệu về Antimatter</b>. Các nút trong tiêu đề kênh cũng được đặt ở đây, không phải trong tiêu đề kênh. Thanh này sẽ bị ẩn khi quản trị viên hệ thống bật <b>Tắt Thanh ứng dụng (Apps Bar)</b> (<code>ExperimentalSettings.DisableAppBar</code>, mặc định là tắt).</td></tr>
-<tr><td><code>registerRightHandSidebarComponent</code></td><td>Bảng bên phải. Người dùng có thể thay đổi kích thước bằng cách kéo cạnh của bảng. Nếu ứng dụng cũng là một sản phẩm, bảng sẽ cung cấp tùy chọn <b>Mở dưới dạng trang đầy đủ</b>.</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>Bảng bên phải. Người dùng có thể thay đổi kích thước bằng cách kéo cạnh của nó và mở nó trong một cửa sổ mới. Nếu ứng dụng cũng là một sản phẩm, bảng sẽ cung cấp tùy chọn <b>Mở dưới dạng trang đầy đủ</b>. Xem <a href="#panel-state">Bảng trong cửa sổ mới</a>.</td></tr>
 <tr><td><code>registerChannelHeaderIcon</code></td><td>Các biểu tượng trong tiêu đề kênh, sau các nút cuộc gọi; trên điện thoại, trong menu <b>Thêm</b> của tiêu đề.</td></tr>
 <tr><td><code>registerCallButtonAction</code></td><td>Nút cuộc gọi trong tiêu đề kênh; một số nhà cung cấp chia sẻ menu <b>Các cách gọi khác</b>.</td></tr>
-<tr><td><code>registerPostDropdownMenuAction</code></td><td>Menu <b>Hành động khác</b> (⋯) của tin nhắn, nằm trong mục con <b>Hành động cho tin nhắn</b>; cũng có trong menu <b>Thao tác chủ đề</b> của bảng chủ đề, dưới mục <b>Hành động khác</b>.</td></tr>
-<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Menu con riêng của các menu này, với tên và biểu tượng của ứng dụng.</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>Menu <b>Hành động cho tin nhắn</b> (⋯) của tin nhắn, trong mục con <b>Hành động khác</b>; cũng có trong menu <b>Thao tác chủ đề</b> của bảng chủ đề, dưới <b>Hành động khác</b>. Fusion vẽ biểu tượng của ứng dụng trước mỗi hành động, màu xám: biểu tượng riêng của nó cho các ứng dụng tích hợp sẵn, nếu không thì biểu tượng mà ứng dụng hiển thị trong thanh ứng dụng, nếu không thì một biểu tượng trung tính. Một phần tử không có văn bản ở đầu văn bản của hành động (biểu tượng mà ứng dụng tự vẽ) sẽ bị ẩn.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Một nhóm có tiêu đề trong cùng một mục con <b>Hành động khác</b>, sau các hành động đơn lẻ. Không có ứng dụng nào có mục riêng trong menu tin nhắn.</td></tr>
 <tr><td><code>registerPostActionComponent</code></td><td>Thanh công cụ khi di chuột trên tin nhắn, trước nút ⋯.</td></tr>
 <tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>Chính tin nhắn: phần thân, dưới văn bản, sau thời gian, và thay thế cho các bản xem trước liên kết.</td></tr>
 <tr><td><code>registerChannelHeaderMenuAction</code></td><td>Menu <b>Tùy chọn kênh</b> của kênh (⋯ trên một kênh trong thanh bên, hoặc nhấp chuột phải), dưới dạng các mục có biểu tượng phích cắm.</td></tr>
@@ -269,7 +285,7 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <tr><td><code>registerChannelTypeOption</code></td><td>Các loại kênh trong hộp thoại <b>Tạo kênh</b>.</td></tr>
 <tr><td><code>registerSearchComponents</code></td><td>Hộp tìm kiếm trong tiêu đề kênh: các phạm vi ứng dụng sẽ hiển thị khi hộp này trống.</td></tr>
 <tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>Giới thiệu về Antimatter</b> (phần dưới cùng của thanh ứng dụng), dưới mục <b>Trợ giúp</b>.</td></tr>
-<tr><td><code>registerProduct</code></td><td>Các trang đầy đủ tại URL của sản phẩm, được liệt kê dưới mục <b>Sản phẩm</b> trong <b>Giới thiệu về Antimatter</b>. Các trang sản phẩm giữ nguyên khung trang cổ điển.</td></tr>
+<tr><td><code>registerProduct</code></td><td>Các trang đầy đủ tại URL của sản phẩm, được liệt kê dưới <b>Sản phẩm</b> trong <b>Giới thiệu về Antimatter</b>. Các trang sản phẩm giữ lại khung trang cổ điển, trong đó menu sản phẩm chỉ hiển thị khi một ứng dụng đăng ký một sản phẩm hoặc thêm một mục vào đó. Các ứng dụng Kanban và Playbook tích hợp sẵn không còn đăng ký sản phẩm nữa: trang của chúng mở trong bảng bên của chúng.</td></tr>
 <tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, các hook như <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>Hoạt động như trong giao diện cổ điển.</td></tr>
 <tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>Bảng điều khiển Hệ thống, là bảng điều khiển cổ điển trong cả hai giao diện.</td></tr>
 </tbody>
@@ -299,12 +315,21 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <thead><tr><th>Phương thức</th><th>Nó bổ sung gì</th></tr></thead>
 <tbody>
 <tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>Một mục trong menu <b>+</b> của hộp tin nhắn, trong cả hai giao diện. <code>action</code> nhận <code>{channelId, rootId}</code>.</td></tr>
-<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Một tab của trình chọn biểu tượng cảm xúc trong hộp nhắn tin, chẳng hạn GIF hoặc sticker. Trong Fusion, các tab có <code>order</code> nhỏ hơn 10 sẽ hiển thị trước tab Emoji. Component nhận <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> và <code>isFusion</code>.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Một tab của trình chọn biểu tượng cảm xúc trong hộp tin nhắn, chẳng hạn như GIF hoặc sticker. Trong Fusion, các tab có <code>order</code> nhỏ hơn 10 sẽ đứng trước tab Biểu tượng cảm xúc. Thành phần nhận <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code>, <code>isFusion</code> và, trong Fusion, <code>pickerKit</code> (xem bên dưới).</td></tr>
 <tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>Một panel nằm giữa tiêu đề kênh và các tin nhắn, dành cho các kênh mà <code>matcher(state, channel)</code> chọn. Nó có thể ẩn các tin nhắn và trình soạn thảo (<code>setMessagesVisible</code>), giống như cách các kênh thoại làm.</td></tr>
 <tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>Một dòng dưới một kênh trong thanh bên, chẳng hạn những người đang trong cuộc gọi của kênh đó. Nó nhận <code>channel</code>.</td></tr>
 <tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Chỉ dành cho Fusion: một mục trên các trang <b>Tích Hợp</b>, cạnh biểu tượng cảm xúc tùy chỉnh. Ứng dụng GIF sẽ thêm các GIF và sticker tùy chỉnh của nó vào đó.</td></tr>
 </tbody>
 </table>
+<h3 id="picker-kit">Thêm và quản lý các chế độ xem trong trình chọn biểu tượng cảm xúc</h3>
+<p>Trong Fusion, một tab trình chọn emoji nhận prop <code>pickerKit</code>: các thành phần mà tab Emoji sử dụng cho các chế độ xem thêm và quản lý của riêng nó, để các chế độ xem của tab trông giống nhau và nằm gọn trong trình chọn. Các ứng dụng GIF và Memes sử dụng nó để thêm và quản lý GIF, sticker và mẫu meme. Nó chứa <code>version</code> (1), các hook <code>usePickerView</code> và <code>useOnEscape</code>, cùng các thành phần <code>PickerViewButtons</code> (nút <b>+</b> và nút quản lý bên cạnh ô tìm kiếm), <code>PickerViewFrame</code> (một chế độ xem với mũi tên quay lại), <code>PickerNotice</code>, <code>PickerField</code>, <code>PickerSearch</code>, <code>PickerDropZone</code> và <code>PickerManageList</code>. Nhấn Escape để quay lại từ một chế độ xem về lưới của tab. Hãy kiểm tra xem prop này có tồn tại không: các host khác có thể không bao gồm nó, và khi đó tab sẽ giữ lại các hộp thoại của riêng mình. Các kiểu dữ liệu nằm trong <code>webapp/fusion/src/types/store/plugins.ts</code> (<code>EmojiPickerTabProps</code>) và các thành phần nằm trong <code>webapp/fusion/src/fusion/popovers/picker_views.tsx</code>.</p>
+<h3 id="panel-state">Bảng trong cửa sổ mới</h3>
+<p>Fusion cung cấp cho thành phần của <code>registerRightHandSidebarComponent</code> hai prop bổ sung, để <b>Mở trong cửa sổ mới</b> mở bảng tại vị trí nó đang ở thay vì ở trang chủ của ứng dụng:</p>
+<ul>
+<li><code>setPanelState(state)</code>: gọi hàm này khi bảng thay đổi vị trí, với một chuỗi ngắn do ứng dụng của bạn định nghĩa, chẳng hạn như <code>'note/&lt;id&gt;'</code> hoặc <code>'board/&lt;id&gt;/card/&lt;id&gt;'</code>, hoặc <code>null</code> khi ở trang chủ. Giá trị này sẽ được đưa vào địa chỉ của cửa sổ, vì vậy đừng bao giờ đặt thông tin bí mật vào đó. Trạng thái dài hơn 512 ký tự, hoặc chứa các ký tự điều khiển, sẽ bị loại bỏ.</li>
+<li><code>initialPanelState</code>: trong cửa sổ mới, đây là trạng thái mà bảng đã có, hoặc <code>undefined</code>. Hãy coi đây là đầu vào không đáng tin cậy: lấy lại mục một lần nữa với tư cách là người dùng đã đăng nhập, và hiển thị trang chủ của ứng dụng hoặc chế độ xem không tìm thấy nếu họ không thể mở nó.</li>
+</ul>
+<p>Trạng thái sẽ bị quên đi khi bảng đóng hoặc bảng của ứng dụng khác thay thế vị trí của nó. Để tự mở cửa sổ của một bảng, <code>popoutRhsPlugin</code> (cũng nằm trong <code>window.WebappUtils.popouts</code>) nhận trạng thái như một đối số tùy chọn thứ năm. Ghi chú, Bảng trắng, Việc cần làm, Kanban và Playbook sử dụng tính năng này.</p>
 <p><code>fusionIcon</code> đặt tên cho một icon trong bộ icon của Fusion (ví dụ <code>poll</code>, <code>sticker</code>, <code>calendar</code> hoặc <code>image</code>; xem <code>webapp/fusion/src/fusion/components/icon</code>). Fusion hiển thị nó thay cho <code>icon</code>, để mục này khớp với các mục khác.</p>
 
 <h2 id="settings">Cài đặt</h2>

@@ -1,10 +1,10 @@
 title: Installerer Antimatter
-description: Installer Antimatter med Docker Compose eller fra et utgavearkiv, velg et bilde, start det for første gang og opprett den første systemadministratoren.
+description: Installer Antimatter med Docker Compose, fra .deb- og .rpm-pakkene eller fra et utgavearkiv, velg et bilde, start det for første gang og opprett den første systemadministratoren.
 guide: admins
 order: 2
 nav: Installasjon
-lead: Installer Antimatter med den ferdige compose-filen, velg riktig bilde, eller kjør serveren fra et utgavearkiv. Deretter oppretter du den første administratorkontoen.
-source: 64cd522c4946
+lead: Installer Antimatter med den ferdige compose-filen, fra .deb- eller .rpm-pakken til en utgave, eller fra et utgavearkiv. Deretter oppretter du den første administratorkontoen.
+source: bb05a35899c4
 ---
 <h2 id="compose">Installer med Docker Compose</h2>
 <p>Dette er den anbefalte metoden. Én compose-fil kjører Antimatter, PostgreSQL, filopplagringen og GIF-tjenesten. Du trenger en Linux-server med Docker Engine og Compose-tillegget (<code>docker compose</code>), 2 CPU-kjerner og 4 GB minne eller mer.</p>
@@ -20,9 +20,10 @@ SITE_URL=http://localhost:8065
 POSTGRES_PASSWORD=$(openssl rand -hex 24)
 S3_SECRET_KEY=$(openssl rand -hex 24)
 GIFS_API_KEY=$(openssl rand -hex 24)
+AM_AI_ENCRYPTION_KEY=$(openssl rand -base64 32)
 EOF
 chmod 600 .env</code></pre>
-<p>Sett <code>SITE_URL</code> til adressen folk skal skrive i nettleseren, for eksempel <code>http://192.168.1.20:8065</code> på et lokalt nettverk eller <code>https://chat.example.com</code> med et domenenavn. Behold <code>.env</code>-filen: databasen og lagringen bruker disse passordene fra første start, og du trenger den samme filen for å gjenopprette en sikkerhetskopi.</p>
+<p>Sett <code>SITE_URL</code> til adressen folk skal skrive i nettleseren, for eksempel <code>http://192.168.1.20:8065</code> på et lokalt nettverk eller <code>https://chat.example.com</code> med et domenenavn. Behold <code>.env</code>-filen: databasen og lagringen bruker disse passordene fra første start, API-nøklene for AI-modelltilkoblingene krypteres med <code>AM_AI_ENCRYPTION_KEY</code>, og du trenger den samme filen for å gjenopprette en sikkerhetskopi.</p>
 
 <h3>3. Start det</h3>
 <pre><code>docker compose up -d
@@ -38,7 +39,8 @@ docker compose ps</code></pre>
 <tr><td><code>POSTGRES_PASSWORD</code></td><td>obligatorisk</td><td>Passordet til <code>antimatter</code>-databasbrukeren.</td></tr>
 <tr><td><code>S3_SECRET_KEY</code></td><td>obligatorisk</td><td>Hemmelig nøkkel for filopplagringen.</td></tr>
 <tr><td><code>GIFS_API_KEY</code></td><td>obligatorisk</td><td>Nøkkelen Antimatter bruker for å kalle GIF-tjenesten.</td></tr>
-<tr><td><code>GIFS_UPLOAD_KEY</code></td><td>tom</td><td>Gir brukere mulighet til å legge til egne GIF-er og klistermerker fra velgeren. Tom verdi slår av opplasting.</td></tr>
+<tr><td><code>AM_AI_ENCRYPTION_KEY</code></td><td>tom</td><td>Nøkkelen som krypterer API-nøklene for AI-modelltilkoblingene (<code>openssl rand -base64 32</code>). Tom: serveren lager en nøkkelfil i <code>data</code>-volumet. Se <a href="{{root}}docs/admins/ai.html#encryption-key">Krypteringsnøkkelen</a>.</td></tr>
+<tr><td><code>GIFS_UPLOAD_KEY</code></td><td>tom</td><td>Gir brukere mulighet til å legge til egne GIF-er og klistermerker fra utvalget, og slette dem. Tom slår av opplastinger.</td></tr>
 <tr><td><code>DOMAIN</code></td><td>tom</td><td>Dit domenenavn, for <code>https</code>-profilen.</td></tr>
 <tr><td><code>HTTP_PORT</code></td><td><code>8065</code></td><td>Vertsporten til Antimatters webserver.</td></tr>
 <tr><td><code>CALLS_PORT</code></td><td><code>8443</code></td><td>UDP- og TCP-porten for lyd og video i samtaler.</td></tr>
@@ -52,7 +54,7 @@ docker compose ps</code></pre>
 <table>
 <thead><tr><th>Tjeneste</th><th>Bilde</th><th>Rolle</th></tr></thead>
 <tbody>
-<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>Serveren, webapplikasjonen og de medfølgende appene. Publiserer <code>HTTP_PORT</code> og <code>CALLS_PORT</code>.</td></tr>
+<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>Serveren, nettappet og medfølgende apper. Publisere <code>HTTP_PORT</code> og <code>CALLS_PORT</code>. Datakatalogen er <code>data</code>-volumet.</td></tr>
 <tr><td><code>postgres</code></td><td><code>postgres:17-alpine</code></td><td>Databasen, i <code>postgres</code>-volumet.</td></tr>
 <tr><td><code>files</code></td><td><code>rustfs/rustfs</code></td><td>S3-kompatibel lagring for opplastede filer og installerte apper, i <code>files</code>-volumet.</td></tr>
 <tr><td><code>bucket</code></td><td><code>amazon/aws-cli</code></td><td>Oppretter <code>antimatter</code>-bøtten og avslutter deretter.</td></tr>
@@ -62,7 +64,7 @@ docker compose ps</code></pre>
 </tbody>
 </table>
 <p>PostgreSQL, lagringen og GIF-tjenesten er på et internt nettverk (<code>private</code>) uten tilgang til internett, som bare Antimatter er med i. Ingen av dem publiserer en port.</p>
-<p>Antimatter-beholderen lagrer ingenting på disken: innstillingene er i databasen (<code>AM_CONFIG</code> peker til den), og filene og appene er i lagringstjenesten. Du kan fjerne og opprette beholderen på nytt når som helst. Alt som skal sikkerhetskopieres, finnes i <code>postgres</code>, <code>files</code> og <code>gifs</code>-volumene, i tillegg til <code>.env</code>-filen din.</p>
+<p>Antimatter-beholderen lagrer ingenting på disken: innstillingene er i databasen (<code>AM_CONFIG</code> peker på den), og filene og appene er i lagringstjenesten. Du kan fjerne og opprette beholderen når som helst. <code>data</code>-volumet inneholder bare filen med AI-krypteringsnøkkelen, som serveren lager når <code>AM_AI_ENCRYPTION_KEY</code> er tom. Alt som skal sikkerhetskopieres ligger i <code>postgres</code>, <code>files</code>, <code>gifs</code> og <code>data</code>-volumene, i tillegg til <code>.env</code>-filen din.</p>
 
 <h2 id="images">Velg et bilde</h2>
 <p>To Antimatter-bilder publiseres, begge for <code>linux/amd64</code> og <code>linux/arm64</code>, og begge bygget fra <code>main</code>-greinen i alle repositorier:</p>
@@ -99,14 +101,154 @@ docker compose exec antimatter amctl --local team users add main admin</code></p
 <p>Logg deretter inn på <code>SITE_URL</code>. Start kommandoen med et mellomrom for å holde passordet utenfor skallegjengen (med <code>HISTCONTROL=ignorespace</code>), eller endre passordet når du er logget inn.</p>
 <p>Neste steg når du er inne:</p>
 <ol>
+<li>For et selskap eller en organisasjon, sett <b>Type for nye samfunn</b> til <b>Arbeidsplass</b>, og endre typen til et samfunn du allerede har opprettet i innstillingene: <a href="{{root}}docs/admins/configuration.html#community-kind">Arbeidsplass eller samfunn</a>.</li>
 <li>Bestem hvem som kan opprette kontoer: <a href="{{root}}docs/admins/authentication.html">Innlogging og kontoer</a>.</li>
 <li>Konfigurer e-post, slik at invitasjoner og passordresett fungerer: <a href="{{root}}docs/admins/email-push.html">E-post og push-varsler</a>.</li>
 <li>Åpne samtaleporten i brannmuren din: <a href="{{root}}docs/admins/calls.html">Samtaler og tale</a>.</li>
 <li>Se hvilke apper som er slått på: <a href="{{root}}docs/admins/apps.html">Medfølgende apper</a>.</li>
 </ol>
 
+<h2 id="releases">Last ned en utgave</h2>
+<p>Uten Docker, installer Antimatter fra filene i en utgave på GitHub: <a href="https://github.com/AntimatterChat/antimatter/releases">github.com/AntimatterChat/antimatter/releases</a>. Hver utgave har et versjonsnummer som <code>0.9.0</code>, og merket er det samme tallet med et <code>v</code> foran (<code>v0.9.0</code>).</p>
+<div class="callout">Antimatter er i beta: utgavene er i 0.9.0-serien. En utgave hvis versjon har et suffiks etter en bindestrek, for eksempel <code>0.9.0-rc.1</code>, er merket <b>Pre-release</b> på GitHub. Det er en testversjon, utgitt før den endelige utgaven.</div>
+<p>Hver utgave har disse filene, for <code>amd64</code>- og <code>arm64</code>-servere:</p>
+<table>
+<thead><tr><th>Fil</th><th>Hva det er</th></tr></thead>
+<tbody>
+<tr><td><code>antimatter_&lt;version&gt;-1_amd64.deb</code>, <code>antimatter_&lt;version&gt;-1_arm64.deb</code></td><td>Pakken for Debian, Ubuntu og distribusjonene basert på dem.</td></tr>
+<tr><td><code>antimatter-&lt;version&gt;-1.x86_64.rpm</code>, <code>antimatter-&lt;version&gt;-1.aarch64.rpm</code></td><td>Pakken for Fedora, RHEL og distribusjonene som er kompatible med RHEL.</td></tr>
+<tr><td><code>antimatter-&lt;version&gt;-linux-amd64.tar.gz</code>, <code>antimatter-&lt;version&gt;-linux-arm64.tar.gz</code></td><td>Utgavearkivet, for alle Linux-distribusjoner, satt opp manuelt.</td></tr>
+<tr><td><code>SHA256SUMS</code></td><td>SHA-256-kontrollsummen for alle filer i utgaven.</td></tr>
+</tbody>
+</table>
+<p>Pakkene og arkivet inneholder det samme programmet: serveren (<code>antimatter</code>), kommandolinjeverktøyet (<code>amctl</code>), begge webappene (standardgrensesnittet og det klassiske), de medfølgende appene, e-postmalene og oversettelsene. Pakkene legger til en systemd-tjeneste og en innstillingsfil, så hver er en alt-i-ett-installasjon: du legger bare til en PostgreSQL-database. Det finnes ikke separate binærnedlastinger: binærfilene er i arkivet, i <code>antimatter/bin/</code>. De er statiske, så de kjører på alle Linux-distribusjoner med deres arkitektur.</p>
+<p>I pakkenavnene blir bindestreken i en forhåndsutgave-versjon til en tilde, slik at pakkeshåndtereren sorterer en forhåndsutgave før den endelige utgaven: versjon <code>0.9.0-rc.1</code> gir <code>antimatter_0.9.0~rc.1-1_amd64.deb</code> og <code>antimatter-0.9.0~rc.1-1.x86_64.rpm</code>. Arkivet beholder bindestreken.</p>
+<p><code>antimatter version</code> skriver ut utgaveversjonen som <b>Byggenummer</b>, med commiten den ble bygget fra som <b>Byggehash</b>. Dens <b>Versjon</b>-linje er versjonen av Mattermost-linjen Antimatter er basert på.</p>
+
+<h3>Sjekk nedlastingen</h3>
+<p>Last ned filen du trenger og <code>SHA256SUMS</code> til samme mappe, fra utgavesiden eller med <code>curl</code>, og sjekk deretter filen:</p>
+<pre><code>curl -fLO https://github.com/AntimatterChat/antimatter/releases/download/v&lt;version&gt;/antimatter_&lt;version&gt;-1_amd64.deb
+curl -fLO https://github.com/AntimatterChat/antimatter/releases/download/v&lt;version&gt;/SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS</code></pre>
+<p>Hver fil du lastet ned må stå med <code>OK</code>. Noen andre resultat betyr at filen er skadet eller ufullstendig: last den ned på nytt, og installer den ikke. <code>SHA256SUMS</code> er ikke signert: den oppdager en skadet nedlasting, og beviser ingenting mer enn HTTPS-nedlastingen fra GitHub gjør.</p>
+
+<h2 id="packages">Installer .deb- eller .rpm-pakken</h2>
+<p>Pakken installerer Antimatter som en systemd-tjeneste, som bare trenger en database for å starte. Bruk den på en 64-bits Debian, Ubuntu, Fedora eller RHEL-kompatibel server med systemd.</p>
+
+<h3>Hva pakken installerer</h3>
+<table>
+<thead><tr><th>Sti</th><th>Innhold</th></tr></thead>
+<tbody>
+<tr><td><code>/opt/antimatter</code></td><td>Programmet: <code>bin/antimatter</code>, <code>bin/amctl</code>, nettappene (<code>client/</code>, <code>client-fusion/</code>), de medfølgende appene (<code>prepackaged_plugins/</code>), malene, oversettelsene og fontene. Hver oppgradering erstatter dette.</td></tr>
+<tr><td><code>/etc/antimatter/antimatter.env</code></td><td>Tjenestens innstillinger, som <code>AM_</code>-variabler: databasen, nettstedets URL og GIF-tjenesten. Kun root kan lese den. Oppgraderinger beholder den.</td></tr>
+<tr><td><code>/etc/antimatter/config/config.json</code></td><td>Konfigurasjonsfilen, der serveren lagrer endringer gjort i Systemkonsollen. Den opprettes fra <code>/opt/antimatter/defaults/config.json</code> ved første installasjon og erstattes aldri etter det.</td></tr>
+<tr><td><code>/var/lib/antimatter</code></td><td>Opplastede filer (<code>data/</code>) og installerte apper (<code>plugins/</code>, <code>client-plugins/</code>).</td></tr>
+<tr><td><code>/var/log/antimatter</code></td><td>Loggfiler, hvis du slår på fillogging. Den er av: loggene går til journalen.</td></tr>
+<tr><td><code>/usr/lib/systemd/system/antimatter.service</code></td><td>Tjenesten.</td></tr>
+<tr><td><code>/usr/bin/amctl</code></td><td>En lenke til <code>/opt/antimatter/bin/amctl</code>.</td></tr>
+</tbody>
+</table>
+<p>Mappene serveren skriver til i <code>/opt/antimatter</code> (<code>config</code>, <code>data</code>, <code>plugins</code>, <code>client/plugins</code> og <code>logs</code>) er lenker til <code>/etc/antimatter</code>, <code>/var/lib/antimatter</code> og <code>/var/log/antimatter</code>. En oppgradering, som erstatter <code>/opt/antimatter</code>, rører derfor aldri dataene dine. Paken oppretter også systembrukeren <code>antimatter</code>, som kjører serveren og eier disse mappene.</p>
+<p>Paken er avhengig av <code>ca-certificates</code>. Den anbefaler PostgreSQL (<code>postgresql</code> på Debian og Ubuntu, <code>postgresql-server</code> på Fedora og RHEL), <code>media-types</code> (<code>mailcap</code> for .rpm) og <code>gifs-server</code>, GIF-tjenesten, som har sin egen utgave (se <a href="#gifs-push-packages">nedenfor</a>). apt og dnf installerer anbefalte pakker når de finner dem. Den foreslår <code>poppler-utils</code>, <code>wv</code>, <code>unrtf</code> og <code>tidy</code> (ingen <code>wv</code> for .rpm): de uttrekker tekst fra opplastede dokumenter, slik at søk finner ord i dem. Installer dem selv hvis du ønsker dette.</p>
+
+<h3>1. Installer pakene</h3>
+<p>Last ned Antimatter-paken og GIF-tjenestens pake for din arkitektur, sjekk dem som vist ovenfor, og installer begge i én kommando, slik at anbefalingen for <code>gifs-server</code> oppfylles (den finnes ikke i distribusjonenes pakerepositorier):</p>
+<pre><code># Debian, Ubuntu
+sudo apt install ./antimatter_&lt;version&gt;-1_amd64.deb ./gifs-server_*_amd64.deb
+# Fedora, RHEL
+sudo dnf install ./antimatter-&lt;version&gt;-1.x86_64.rpm ./gifs-server-*.x86_64.rpm</code></pre>
+<p>Behold <code>./</code>: Den forteller apt og dnf at de skal installere en lokal fil. For å installere uten GIF-tjenesten, utelatt pakkene. Pakken aktiverer <code>antimatter</code>-tjenesten, men starter den ikke, og viser neste steg.</p>
+
+<h3>2. Opprett databasen</h3>
+<p>Antimatter krever PostgreSQL 15 eller nyere, enten på denne serveren eller på en annen. Sjekk versjonen av distribusjonens PostgreSQL med <code>psql --version</code>. Hvis den er eldre, installer en nyere versjon fra PostgreSQL-projektets egne repositorier, eller bruk en database på en annen server. På Debian og Ubuntu starter <code>postgresql</code>-pakken databasen. På Fedora og RHEL må du først opprette og starte den:</p>
+<pre><code>sudo postgresql-setup --initdb
+sudo systemctl enable --now postgresql</code></pre>
+<p>Deretter oppretter du en bruker og en database for Antimatter:</p>
+<pre><code>sudo -u postgres psql -c "CREATE USER antimatter WITH PASSWORD 'a-long-password'"
+sudo -u postgres psql -c "CREATE DATABASE antimatter OWNER antimatter"</code></pre>
+<p>PostgreSQL må akseptere passordbaserte tilkoblinger fra <code>127.0.0.1</code>: <code>host</code>-linjene i <code>pg_hba.conf</code>-filen, med metoden <code>scram-sha-256</code>.</p>
+
+<h3>3. Still inn databasen og nettstedets URL</h3>
+<p>Rediger <code>/etc/antimatter/antimatter.env</code> (<code>sudoedit /etc/antimatter/antimatter.env</code>). Fjern <code>#</code> foran linjene du bruker, og still inn databasen og adressen folk skal åpne:</p>
+<pre><code>AM_SQLSETTINGS_DRIVERNAME=postgres
+AM_SQLSETTINGS_DATASOURCE=postgres://antimatter:a-long-password@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10
+AM_SERVICESETTINGS_SITEURL=https://chat.example.com</code></pre>
+<p>Enhver innstilling i konfigurasjonen kan legges i denne filen som <code>AM_&lt;SECTION&gt;_&lt;SETTING&gt;</code>: for eksempel er <code>SqlSettings.DataSource</code> <code>AM_SQLSETTINGS_DATASOURCE</code>. En innstilling som er satt her kan ikke endres i Systemkonsollen. Se <a href="{{root}}docs/admins/configuration.html">Konfigurasjon</a>. Start om serveren etter hver endring: <code>sudo systemctl restart antimatter</code>.</p>
+<p>Tjenesten setter også noen standardverdier, som en linje i <code>antimatter.env</code> kan overstyre: logging til filer er slått av (<code>AM_LOGSETTINGS_ENABLEFILE=false</code>, <code>AM_NOTIFICATIONLOGSETTINGS_ENABLEFILE=false</code>), og lokal modus er slått på (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>), slik at <code>amctl --local</code> fungerer på serveren.</p>
+
+<h3>4. Start den</h3>
+<pre><code>sudo systemctl start antimatter
+journalctl -u antimatter -f
+sudo -u antimatter amctl --local system status</code></pre>
+<p>Ved første oppstart lager serveren tabellene sine og lytter deretter på port 8065. Åpne <code>http://&lt;server&gt;:8065</code>, eller domenet ditt når en revers proxy er på plass (se <a href="{{root}}docs/admins/https.html">Domena og HTTPS</a>), og opprett den første kontoen med det samme: den blir systemadministrator. Hvis du heller vil opprette den fra kommandolinjen, bruk <code>amctl</code>-kommandoene i <a href="#first-admin">Opprett den første administratoren</a>, med <code>sudo -u antimatter amctl --local</code> i stedet for <code>docker compose exec antimatter amctl --local</code>.</p>
+
+<h3>5. Slå på GIF-er</h3>
+<p>GIF-appen er med i pakken og slått på, og <code>antimatter.env</code> peker allerede på GIF-tjenesten på samme server (<code>AM_GIFS_SERVICE_URL=http://127.0.0.1:8080/v2</code>). Den trenger likevel API-nøkkelen til tjenesten. Pakkene <code>gifs-server</code> genererte en ved installasjonen:</p>
+<pre><code>sudo systemctl start gifs-server-stickers    # imports the sticker pack, about a minute and a half
+sudo systemctl start gifs-server
+sudo grep -v '^#' /etc/gifs-server/api-keys</code></pre>
+<p>Legg nøkkelen i <code>antimatter.env</code> som <code>AM_GIFS_API_KEY=&lt;key&gt;</code> og start Antimatter på nytt, eller skriv den inn som <b>API-nøkkel</b> i <b>Systemkonsoll › Plugins › GIF-er</b>. Hvis GIF-tjenesten kjører på en annen server, må du sette <code>AM_GIFS_SERVICE_URL</code> til adressen til serveren. Hvis du vil la brukerne legge til egne GIF-er og klistermerker, se <a href="{{root}}docs/admins/apps.html#gifs">GIF-er</a>.</p>
+
+<h3>Tjenesten</h3>
+<ul>
+<li>Den kjører som brukeren <code>antimatter</code>, i <code>/opt/antimatter</code>, og leser <code>/etc/antimatter/antimatter.env</code>. systemd starter serveren på nytt når den avsluttes, og gir den opptil en time på å starte, fordi databasevandringer for en ny versjon kan ta lang tid.</li>
+<li>Loggene ligger i journalen: <code>journalctl -u antimatter</code>.</li>
+<li>Den er hærdenet: <code>/usr</code> og <code>/etc</code> er skrivebeskyttet for serveren, unntatt <code>/etc/antimatter/config</code>, og den kan ikke se <code>/home</code>, <code>/root</code> eller <code>/run/user</code>. Hvis du flytter filopplagringen (<code>FileSettings.Directory</code>), velg en mappe utenfor disse, eid av <code>antimatter</code>.</li>
+<li>Oppgraderinger erstatter tjenestefilen. Hvis du vil endre den, bruk <code>sudo systemctl edit antimatter</code>, som lagrer endringene i en separat fil.</li>
+</ul>
+
+<h3>Oppgrader en pakke</h3>
+<ol>
+<li>Ta en sikkerhetskopi (se <a href="{{root}}docs/admins/backups-upgrades.html">Sikkerhetskopier og oppgraderinger</a>).</li>
+<li>Last ned den nye pakken og <code>SHA256SUMS</code>, og kontroller dem.</li>
+<li>Stopp serveren, installer den nye pakken over den gamle, og start den på nytt:
+<pre><code>sudo systemctl stop antimatter
+sudo apt install ./antimatter_&lt;new version&gt;-1_amd64.deb     # or: sudo dnf install ./antimatter-&lt;new version&gt;-1.x86_64.rpm
+sudo systemctl start antimatter
+journalctl -u antimatter -f</code></pre></li>
+</ol>
+<p>Pakken starter ikke om serveren automatisk. Etter en oppgradering skrives <code>Antimatter was upgraded; restart it to run the new version: sudo systemctl restart antimatter</code>: Hvis du ikke stoppet serveren først, må du starte den om umiddelbart. Oppgraderingen erstatter <code>/opt/antimatter</code> og tjenestefilen, og beholder <code>antimatter.env</code>, <code>config.json</code>, <code>/var/lib/antimatter</code> og loggene. Når serveren starter, oppgraderes databasen, og de nyere versjonene av de medfølgende appene installeres.</p>
+<p>Hvis en ny versjon endrer standard <code>antimatter.env</code>, spør apt om du vil beholde din versjon: behold den. dnf beholder din og lagrer den nye som <code>/etc/antimatter/antimatter.env.rpmnew</code>. Oppgraderinger går kun fremover: Installer ikke en eldre versjon over en nyere.</p>
+
+<h3>Fjern en pakke</h3>
+<p><code>sudo apt remove antimatter</code> eller <code>sudo dnf remove antimatter</code> stopper og deaktiverer tjenesten, og fjerner programmet. Det beholder dataene (<code>/var/lib/antimatter</code>), konfigurasjonen (<code>/etc/antimatter</code>), databasen og <code>antimatter</code>-brukeren: Slett disse selv for å fjerne Antimatter helt.</p>
+
+<h2 id="release-apps">Apper i pakkene og arkivet</h2>
+<p>Pakkene og arkivet inneholder den nyeste signerte utgaven av disse appene, i <code>prepackaged_plugins/</code>: Agents, Calls, GIFs, Memes, Notes, Polls, Todo, Voice Channels og Whiteboard. En app som ikke hadde en utgave ennå da serverutgaven ble bygget, utelates: <code>ls /opt/antimatter/prepackaged_plugins</code> viser hva din utgave inneholder. Memes og Todo er med, men ikke aktivert: <a href="{{root}}docs/admins/apps.html#manage">Bundled apps</a> forklarer hvordan du installerer og aktiverer dem.</p>
+<p>De andre appene i Docker-bildene er ikke i pakkene eller arkivet: Kanban, Playbooks, Mail, Calendar, GitHub, GitLab, Jira og Metrics. Installer hver av dem fra sine egne utgaver:</p>
+<table>
+<thead><tr><th>App</th><th>Utgaver</th><th>App-id</th></tr></thead>
+<tbody>
+<tr><td>Kanban</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-boards/releases">antimatter-plugin-boards</a></td><td><code>focalboard</code></td></tr>
+<tr><td>Playbooks</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-playbooks/releases">antimatter-plugin-playbooks</a></td><td><code>playbooks</code></td></tr>
+<tr><td>E-post</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-mail/releases">antimatter-plugin-mail</a></td><td><code>com.antimatterchat.mail</code></td></tr>
+<tr><td>Kalender</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-calendar/releases">antimatter-plugin-calendar</a></td><td><code>com.antimatterchat.calendar</code></td></tr>
+<tr><td>GitHub</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-github/releases">antimatter-plugin-github</a></td><td><code>github</code></td></tr>
+<tr><td>GitLab</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-gitlab/releases">antimatter-plugin-gitlab</a></td><td><code>com.github.manland.mattermost-plugin-gitlab</code></td></tr>
+<tr><td>Jira</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-jira/releases">antimatter-plugin-jira</a></td><td><code>jira</code></td></tr>
+<tr><td>Målepunkter</td><td><a href="https://github.com/AntimatterChat/Antimatter-plugin-metrics/releases">Antimatter-plugin-metrics</a></td><td><code>com.mattermost.mattermost-plugin-metrics</code></td></tr>
+</tbody>
+</table>
+<p>Hver app-utgave inneholder appens bunt (en <code>.tar.gz</code>-fil), dens signatur (samme navn med <code>.sig</code> lagt til) og en <code>SHA256SUMS</code>-fil. For å installere en app, tillat opplastinger, og legg deretter til bunten med <code>amctl</code>:</p>
+<pre><code># 1. In /etc/antimatter/antimatter.env, add this line, then restart Antimatter
+AM_PLUGINSETTINGS_ENABLEUPLOADS=true
+sudo systemctl restart antimatter
+# 2. Download the bundle where the antimatter user can read it, and install it
+cd /tmp
+curl -fLO https://github.com/AntimatterChat/antimatter-plugin-boards/releases/download/v&lt;version&gt;/&lt;bundle&gt;.tar.gz
+sudo -u antimatter amctl --local plugin add &lt;bundle&gt;.tar.gz
+sudo -u antimatter amctl --local plugin enable focalboard</code></pre>
+<p>For å oppgradere en app som er installert på denne måten, legg til den nye bunten med <code>plugin add --force</code>: pakkeoppgraderinger oppgraderer bare de innebygde appene. Du kan fjerne linjen <code>AM_PLUGINSETTINGS_ENABLEUPLOADS</code> igjen etterpå. Se <a href="{{root}}docs/admins/apps.html#other-apps">Installerer andre apper</a> for andre måter å installere apper på.</p>
+
+<h3>App-signaturer</h3>
+<p>App-buntene er signert med Antimatters app-signeringsnøkkel: hver <code>.tar.gz.sig</code>-fil er en løs GPG-signatur av sin bunt. Serveren sjekker disse signaturene før den installerer en innebygd app. For å sjekke en bunt selv:</p>
+<pre><code>curl -fsSLO https://raw.githubusercontent.com/AntimatterChat/antimatter-docker/main/keys/antimatter-plugin-signing.asc
+gpg --import antimatter-plugin-signing.asc
+gpg --verify &lt;bundle&gt;.tar.gz.sig &lt;bundle&gt;.tar.gz</code></pre>
+<p>gpg må rapportere en god signatur fra <code>Antimatter Plugin Signing</code>, med fingeravtrykket <code>06C8 1032 4677 0F08 BBA7 78B9 E69B 05C3 92A6 9A45</code>. Den advarer også om at nøkkelen ikke er sertifisert med en tillit signatur: det er normalt for en nøkkel du ikke har signert selv. En app-utgave uten <code>.sig</code>-filer er usignert, og utgavemerkene sier dette.</p>
+
 <h2 id="archive">Installer fra et utgavearkiv</h2>
-<p>Uten Docker kjører serveren fra et arkiv med navnet <code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code> (for eksempel <code>antimatter-linux-amd64.tar.gz</code>). Det inneholder én <code>antimatter/</code>-mappe med <code>bin/antimatter</code>, <code>bin/amctl</code>, <code>config/config.json</code>, nettappene (<code>client/</code> og <code>client-fusion/</code>), e-postmalene og oversettelsene.</p>
+<p>Arkivet, <code>antimatter-&lt;version&gt;-linux-&lt;arch&gt;.tar.gz</code> (for eksempel <code>antimatter-0.9.0-linux-amd64.tar.gz</code>), passer for en distribusjon uten .deb- eller .rpm-pakker, eller et eget oppsett. Det inneholder én <code>antimatter/</code>-mappe med <code>bin/antimatter</code>, <code>bin/amctl</code>, <code>config/config.json</code>, webappene (<code>client/</code> og <code>client-fusion/</code>), de innebygde appene (<code>prepackaged_plugins/</code>, se <a href="#release-apps">over</a>), e-postmalene og oversettelsene.</p>
 
 <h3>1. Forbered PostgreSQL</h3>
 <p>Antimatter støtter kun PostgreSQL, versjon 15 eller nyere (eldre versjoner starter, men gir en feil i loggen). Opprett en bruker og en database:</p>
@@ -116,7 +258,7 @@ CREATE DATABASE antimatter OWNER antimatter;
 EOF</code></pre>
 
 <h3>2. Pakk ut og konfigurer</h3>
-<pre><code>sudo tar -xzf antimatter-linux-amd64.tar.gz -C /opt
+<pre><code>sudo tar -xzf antimatter-&lt;version&gt;-linux-amd64.tar.gz -C /opt
 sudo useradd --system --user-group antimatter
 sudo mkdir -p /opt/antimatter/data
 sudo chown -R antimatter:antimatter /opt/antimatter</code></pre>
@@ -152,6 +294,34 @@ sudo systemctl enable --now antimatter
 journalctl -u antimatter -f</code></pre>
 <p>Serveren lytter på port 8065. Åpne <code>http://&lt;server&gt;:8065</code>, eller domenet ditt når en omvendt proxy er på plass (se <a href="{{root}}docs/admins/https.html">Domena og HTTPS</a>), og opprett den første kontoen: den blir systemadministrator.</p>
 <p><code>bin/amctl</code> administrerer den kjørende serveren fra kommandolinjen. På selve serveren fungerer den uten pålogging via lokal modus: sett <code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>, deretter kjør <code>sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code>.</p>
+<p>For GIF-er, installer GIF-tjenesten (se nedenfor) og sett <code>AM_GIFS_SERVICE_URL</code> og <code>AM_GIFS_API_KEY</code> som i <a href="#packages">steg 5 i pakkene</a>.</p>
+
+<h2 id="gifs-push-packages">GIF-tjenesten og push-proxy-pakkene</h2>
+<p>GIF-tjenesten og push-proxyen har hver sine utgaver, med de samme reglene som serveren: et <code>.tar.gz</code>-arkiv, en .deb- og en .rpm-pakke for <code>amd64</code> og <code>arm64</code>, samt en <code>SHA256SUMS</code>-fil. Versjoner med bindestrek er forhåndsutgaver. Kontroller nedlastningene med <code>sha256sum --check --ignore-missing SHA256SUMS</code>, som for serveren.</p>
+
+<h3>GIF-tjenesten (gifs-server)</h3>
+<p>Utgaver: <a href="https://github.com/AntimatterChat/gifs-server/releases">github.com/AntimatterChat/gifs-server/releases</a>. Arkivet er <code>gifs-server-&lt;version&gt;-linux-&lt;arch&gt;.tar.gz</code>, og pakkene heter <code>gifs-server</code>.</p>
+<pre><code>sudo apt install ./gifs-server_*_amd64.deb      # Debian, Ubuntu
+sudo dnf install ./gifs-server-*.x86_64.rpm     # Fedora, RHEL</code></pre>
+<p>Pakken installerer:</p>
+<ul>
+<li><code>/usr/bin/gifs-server</code> og <code>gifs-server</code>-tjenesten, som kjører som <code>gifs-server</code>-brukeren og lagrer katalogen i <code>/var/lib/gifs-server</code>;</li>
+<li><code>gifs-server-stickers</code>-tjenesten, som importerer eller oppdaterer stikerpakken i <code>/usr/share/gifs-server/stickers</code> når du starter den, og deretter stopper;</li>
+<li>innstillingene, <code>/etc/gifs-server/gifs-server.env</code> (<code>AM_GIFS_</code>-variabler, som beholdes ved oppgraderinger) og <code>/etc/gifs-server/api-keys</code>, med én API-nøkkel per linje, der en tilfeldig nøkkel genereres ved første installasjon.</li>
+</ul>
+<p>Den lytter på <code>127.0.0.1:8080</code>, slik at bare Antimatter på samme server kan nå den. Hvis Antimatter kjører et annet sted, må du sette <code>AM_GIFS_LISTEN=:8080</code> i <code>gifs-server.env</code> og begrense tilgangen til porten med brannmuren. Filen inneholder også de andre innstillingene: <code>AM_GIFS_UPLOAD_KEYS</code> (nøklene som kan legge til GIF-er og stikere, og slette de som er lagt til med dem), <code>AM_GIFS_PUBLIC_URL</code>, <code>AM_GIFS_TRUST_PROXY</code> og <code>AM_GIFS_LOG_LEVEL</code>. Pakken anbefaler <code>ffmpeg</code>, <code>gifsicle</code>, <code>librsvg2-bin</code> (<code>librsvg2-tools</code> for .rpm) og en DejaVu-skrifttype: tjenesten bruker dem til å lage GIF-, video- og stikerformater når den importerer eller mottar filer, og kjører uten dem.</p>
+<p>Som for serveren er tjenesten aktivert, men ikke startet, ved installasjon. Start den som vist i <a href="#packages">steg 5 for pakkene</a>. Etter en oppgradering må du starte den på nytt: <code>sudo systemctl restart gifs-server</code>. Hvis du fjerner pakken, beholdes katalogen i <code>/var/lib/gifs-server</code>.</p>
+
+<h3>Push-proxyen</h3>
+<p>Utgaver: <a href="https://github.com/AntimatterChat/push-proxy/releases">github.com/AntimatterChat/push-proxy/releases</a>. Arkivet er <code>antimatter-push-proxy-&lt;version&gt;-linux-&lt;arch&gt;.tar.gz</code>, og pakkene heter <code>antimatter-push-proxy</code>. Pakken installerer <code>/usr/bin/antimatter-push-proxy</code> og tjenesten <code>antimatter-push-proxy</code>, som kjører som brukeren <code>antimatter-push-proxy</code> og leser <code>/etc/antimatter-push-proxy/antimatter-push-proxy.json</code> (beholdes ved oppgraderinger). Apple- og Firebase-kredensialene legges i <code>/etc/antimatter-push-proxy/certs</code>: <a href="{{root}}docs/admins/email-push.html#push">Push-varsler</a> forklarer hvor de kommer fra.</p>
+<pre><code>sudo apt install ./antimatter-push-proxy_*_amd64.deb      # or: sudo dnf install ./antimatter-push-proxy-*.x86_64.rpm
+sudo install -o root -g antimatter-push-proxy -m 0640 \
+    AuthKey_ABCDE12345.p8 firebase-service-account.json /etc/antimatter-push-proxy/certs/
+sudoedit /etc/antimatter-push-proxy/antimatter-push-proxy.json
+sudo systemctl start antimatter-push-proxy
+journalctl -u antimatter-push-proxy -f</code></pre>
+<p>I innstillingsfilen er stier relative til <code>/etc/antimatter-push-proxy</code>: for eksempel <code>"AppleAuthKeyFile": "./certs/AuthKey_ABCDE12345.p8"</code> og <code>"ServiceFileLocation": "./certs/firebase-service-account.json"</code>. Deretter setter du <b>Push-varselserver</b> i Antimatter til <code>http://&lt;proxy host&gt;:8066</code>. Etter en oppgradering starter du den på nytt: <code>sudo systemctl restart antimatter-push-proxy</code>.</p>
+<div class="callout warn">Push-proxyen lytter på port 8066 på alle adresser og sjekker ikke hvem som ringer. Hold porten på et privat nettverk, eller bak en omvendt proxy som begrenser tilgangen.</div>
 
 <h2 id="other-commands">Andre serverkommandoer</h2>
 <p>Utenom å kjøre serveren (<code>antimatter</code>, eller <code>antimatter server</code>), har binærfilen noen vedlikeholdskommandoer. De leser samme konfigurasjon som serveren.</p>

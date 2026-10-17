@@ -1,10 +1,10 @@
 title: Pagsulat ng mga app (plugin)
-description: Paano gumawa ng Antimatter app (plugin): ang layout ng bundle at plugin.json, ang mga server hooks at API, ang registry ng web app, ang suporta sa Fusion interface, ang mga setting, ang key-value store, ang mga pagsasalin, at ang pag-package at pag-install.
+description: Paano gumawa ng Antimatter app (plugin): ang bundle layout at plugin.json, ang server hooks at API, ang AI service, ang web app registry, ang suporta sa Fusion interface, ang mga setting, ang key-value store, ang mga pagsasalin, ang pag-package at pag-install.
 guide: developers
 order: 6
 nav: Pagsulat ng mga app
 lead: Ang mga app ay nagdaragdag ng mga feature sa Antimatter mula sa loob: may server part na Go na nakahook sa server, at may web app part na React na nagdaragdag ng mga menu, panel, uri ng mensahe, at mga pahina. Ipinapakita ng pahinang ito kung paano nakalagay ang isang app, gamit ang bundled na Polls app bilang halimbawa, at ano ang nagbabago sa Fusion interface ng Antimatter.
-source: d9c132cac759
+source: f2c14bacc2f3
 ---
 <h2 id="overview">Paano gumagana ang isang app</h2>
 <ul>
@@ -131,6 +131,22 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 <li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: suriin kung sino ang maaaring gawin bago kumilos para sa isang user.</li>
 </ul>
 <p>Ang app ay tumatakbo sa bawat server ng cluster. Iimbak ang state sa key-value store o database, hindi lamang sa memory.</p>
+<h3 id="ai">Ang AI service</h3>
+<p>Tinatawag ng server ng Antimatter ang mga AI model para sa mga app, gamit ang mga model connection na itinatag ng admin (tingnan ang <a href="{{root}}docs/admins/ai.html">AI</a> sa admin guide). Hindi hawak ng app ang key ng provider: tinatawag niya ang tao na kung saan siya ay kumikilos at saan, at tinutukoy ng server na maaari bang gamitin ng tao ang connection sa lugar na iyon, inilalapat ang mga limitasyon at budget nito, binibilang ang mga token laban sa tao at sa app, at sinasagawa ang audit ng tawag nang walang nilalaman nito.</p>
+<table>
+<thead><tr><th>Method</th><th>Ginagawa nito</th></tr></thead>
+<tbody>
+<tr><td><code>AIChat(actingUserID, channelID, teamID, *ai.ChatRequest)</code></td><td>Isang chat completion: mga mensahe, mga tool, structured output (<code>JSONSchema</code>).</td></tr>
+<tr><td><code>AIChatStream(…)</code></td><td>Ito rin, na streamed: basahin ang <code>Events</code> ng stream hanggang sa mag-close ang channel, o <code>Close</code> ito upang itigil ang tawag.</td></tr>
+<tr><td><code>AIEmbed(…, *ai.EmbedRequest)</code></td><td>Mga embedding ng mga teksto.</td></tr>
+<tr><td><code>AITranscribe(…, *ai.TranscribeRequest)</code></td><td>Speech to text.</td></tr>
+<tr><td><code>AIDecide(…, *ai.DecideRequest)</code></td><td>Mga tinipang tanong sa isang decision model (oo o hindi, isang pagpili, isang score) tungkol sa isang teksto.</td></tr>
+<tr><td><code>AIConnectionsForUser(userID, channelID, teamID)</code></td><td>Ang mga connection na maaaring gamitin ng tao sa lugar na iyon, kasama ang mga model at capabilities nito, ngunit hindi ang mga key nito.</td></tr>
+</tbody>
+</table>
+<p>Ang <code>ConnectionID</code> ng bawat request ay pumipili ng connection, at ang <code>Model</code> ay isa sa mga model nito (walang laman para sa default ng connection). Ang <code>Operation</code> ay maikling label para sa mga record ng paggamit at audit, hindi ang nilalaman. Ang minimum server version nito ay 11.11.</p>
+<div class="callout warn">Kunin ang <code>actingUserID</code> lamang mula sa pinagmulan na binigyan ng tawag ng server: ang <code>Mattermost-User-Id</code> header ng isang request sa iyong <code>ServeHTTP</code>, o ang user ng context ng isang hook (ang may-akda ng isang post, ang user na nagpatakbo ng isang command). Huwag kunin mula sa isang mensahe, isang webhook payload, isang URL, o request ng ibang app: gagastusin ng iyong app ang access ng ibang tao.</div>
+<p>Ang mga method na ito at ang <code>ai</code> package (<code>server/public/ai</code>) ay umiiral lamang sa kopya ng Antimatter ng module, hindi sa bersyon na ipinubliko ng Mattermost. Upang gamitin ang mga ito, i-build laban sa <code>server/public</code> ng Antimatter gamit ang isang <code>replace</code> line sa iyong <code>go.mod</code>, halimbawa <code>replace github.com/mattermost/mattermost/server/public =&gt; ../antimatter/server/public</code>. Ang ganitong app ay tumatakbo lamang sa Antimatter.</p>
 
 <h2 id="kv">Pag-iimbak ng data</h2>
 <p>May sariling key-value store ang bawat app sa database ng server:</p>
@@ -172,17 +188,17 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <pre><code>export function isFusionUI(): boolean {
     return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
 }</code></pre>
-<p>Ginagamit ng mga bundled na app ang ito upang mag-iba sa pagguhit. Ang Polls ay nagguhit ng mga poll card nito at ng dialog ng paglikha nito sa estilo ng Fusion, at binubuksan ang sariling dialog para sa <code>/poll</code> sa loob ng Fusion. Ang mga Call at Voice channel ay iniiwasan ang sidebar at toast components na pinapalit ng Fusion sa sariling call interface nito. Ang Agents app ay inilalagay ang mga AI action nito sa isang submenu ng menu ng mensahe, sa halip sa hover toolbar. Ang mga sariling CSS class ng Fusion (may prefix na <code>am-</code>) at ang dialog layer nito (ang <code>am-layer</code> element) ang ginagamit ng mga app na ito upang tumugma sa interface; hindi ito isang naka-document at stable na API.</p>
+<p>Ginagamit ng mga kasamang app ang ito upang mag-iba sa pagguhit. Ang Polls ay nagguhit ng mga poll card nito at ng dialog para sa paglikha nito sa estilo ng Fusion, at binubuksan ang sariling dialog para sa <code>/poll</code> sa loob ng Fusion. Ang Calls at Voice channels ay hindi ipinapakita ang sidebar at toast components na palipunan ng Fusion ng sariling call interface nito. Ang Agents app ay inilalagay ang mga AI actions nito sa menu ng mensahe, bilang isang grupo sa ilalim ng <b>Mga Karagdagang Aksyon</b>, sa halip sa hover toolbar. Ang sariling CSS classes ng Fusion (may prefix na <code>am-</code>) at ang dialog layer nito (ang <code>am-layer</code> element) ang ginagamit ng mga app na ito upang tumugma sa interface; hindi ito isang naka-dokumentong, matatag na API.</p>
 <h3>Saan ipinapakita ng Fusion ang mga plugin component</h3>
 <table>
 <thead><tr><th>Registry method</th><th>Saan lumalabas ito sa loob ng Fusion</th></tr></thead>
 <tbody>
 <tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>Ang app rail, ang hanay ng mga icon sa kanang gilid, sa pagitan ng iyong avatar at ng <b>Tungkol sa Antimatter</b> button. Dito rin matatagpuan ang mga button ng channel header, hindi sa channel header mismo. Ito ay natatago kapag pinag-on ng system admin ang <b>I-disable ang Apps Bar</b> (<code>ExperimentalSettings.DisableAppBar</code>, off by default).</td></tr>
-<tr><td><code>registerRightHandSidebarComponent</code></td><td>Ang panel sa kanan. Maaari nitong palitan ang laki ng mga tao sa pamamagitan ng pag-drag ng kanyang gilid. Kung ang app ay isang produkto rin, ang panel ay nag-aalok ng <b>Buksan bilang buong pahina</b>.</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>Ang panel sa kanang bahagi. Maaari nitong palitan ang laki ng mga tao sa pamamagitan ng pag-drag ng gilid nito, at mabuksan sa bagong window. Kung ang app ay isang produkto rin, nag-aalok ang panel ng <b>Buksan bilang buong pahina</b>. Tingnan ang <a href="#panel-state">Ang panel sa bagong window</a>.</td></tr>
 <tr><td><code>registerChannelHeaderIcon</code></td><td>Mga icon sa channel header, pagkatapos ng mga call button; sa mga phone, nasa <b>Pang-iba pa</b> menu ng header.</td></tr>
 <tr><td><code>registerCallButtonAction</code></td><td>Ang call button ng channel header; maraming provider ang nagbabahagi ng <b>Iba pang paraan ng pagtawag</b> menu.</td></tr>
-<tr><td><code>registerPostDropdownMenuAction</code></td><td>Ang <b>Mga Karagdagang Aksyon</b> (⋯) menu ng mensahe, nasa <b>Mga aksyon sa mensahe</b> submenu; pati na rin nasa <b>Mga aksyon sa thread</b> menu ng thread panel, sa ilalim ng <b>Mga Karagdagang Aksyon</b>.</td></tr>
-<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Ang sariling submenu ng mga menu na iyon, may pangalan at icon ng app.</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>Ang <b>Mga aksyon sa mensahe</b> (⋯) menu ng mensahe, sa <b>Mga Karagdagang Aksyon</b> submenu nito; pati na rin sa <b>Mga aksyon sa thread</b> menu ng thread panel, sa ilalim ng <b>Mga Karagdagang Aksyon</b>. Ang Fusion ay nagguhit ng icon ng app bago bawat aksyon, sa kulay abo: ang sariling icon para sa mga kasamang app, kung hindi naman ang icon na ipinapakita ng app sa app rail, kung hindi naman ang isang neutral na icon. Ang element na walang teksto sa simula ng teksto ng aksyon (isang icon na nagguhit ng sarili ang app) ay itinatago.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Isang grupo na may heading sa parehong <b>Mga Karagdagang Aksyon</b> submenu, pagkatapos ng mga solong aksyon. Walang app ang may sariling entry sa menu ng mensahe.</td></tr>
 <tr><td><code>registerPostActionComponent</code></td><td>Ang hover toolbar ng mensahe, bago ang ⋯ button.</td></tr>
 <tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>Ang mensahe mismo: ang katawan nito, sa ilalim ng teksto nito, pagkatapos ng oras nito, at sa lugar ng mga link preview.</td></tr>
 <tr><td><code>registerChannelHeaderMenuAction</code></td><td>Ang <b>Mga opsyon ng channel</b> menu ng channel (⋯ sa isang channel sa sidebar, o right-click), bilang mga item na may plug icon.</td></tr>
@@ -200,7 +216,7 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <tr><td><code>registerChannelTypeOption</code></td><td>Mga uri ng channel ng <b>Gumawa ng channel</b> dialog.</td></tr>
 <tr><td><code>registerSearchComponents</code></td><td>Ang search box sa header ng channel: lumalabas ang mga app scopes kapang walang laman ito.</td></tr>
 <tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>Tungkol sa Antimatter</b> (sa ibaba ng app rail), sa ilalim ng <b>Tulong</b>.</td></tr>
-<tr><td><code>registerProduct</code></td><td>Mga buong pahina sa URL ng produkto, nakalista sa ilalim ng <b>Mga Produkto</b> sa <b>Tungkol sa Antimatter</b>. Ang mga pahina ng produkto ay nananatili sa klasikong frame ng pahina.</td></tr>
+<tr><td><code>registerProduct</code></td><td>Mga buong pahina sa URL ng produkto, nakalista sa ilalim ng <b>Mga Produkto</b> sa <b>Tungkol sa Antimatter</b>. Ang mga pahina ng produkto ay panatilihin ang klasikong frame ng pahina, kung saan ang menu ng produkto ay ipinapakita lamang kapang may app na naka-register ng produkto o nagdagdag ng entry dito. Ang mga kasamang Kanban at Playbooks apps ay hindi na naka-register ng mga produkto: ang mga pahina nito ay binubuksan sa kanilang side panels.</td></tr>
 <tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, mga hook tulad ng <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>Gumagana tulad ng sa klasikong interface.</td></tr>
 <tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>Ang System Console, na ang klasikong isa sa parehong interface.</td></tr>
 </tbody>
@@ -230,12 +246,21 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <thead><tr><th>Method</th><th>Ang idinagdag nito</th></tr></thead>
 <tbody>
 <tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>Isang item sa menu ng <b>+</b> sa kahon ng mensahe, sa parehong interface. Ang <code>action</code> ay tumatanggap ng <code>{channelId, rootId}</code>.</td></tr>
-<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Isang tab ng emoji picker sa message box, tulad ng GIF o stickers. Sa Fusion, ang mga tab na may <code>order</code> na mas mababa sa 10 ay nasa unahan ng Emoji tab. Tinatanggap ng component ang <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code>, at <code>isFusion</code>.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Isang tab ng emoji picker ng message box, tulad ng GIFs o stickers. Sa Fusion, ang mga tab na may <code>order</code> na mas mababa sa 10 ay nasa unahan ng Emoji tab. Ang component ay tumatanggap ng <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code>, <code>isFusion</code> at, sa Fusion, <code>pickerKit</code> (tingnan sa ibaba).</td></tr>
 <tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>Isang panel sa pagitan ng channel header at mga mensahe, para sa mga channel na pinili ng <code>matcher(state, channel)</code>. Maaari nitong itago ang mga mensahe at composer (<code>setMessagesVisible</code>), gaya ng ginagawa ng mga voice channel.</td></tr>
 <tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>Isang linya sa ilalim ng channel sa sidebar, tulad ng mga tao sa kanyang tawag. Tinatanggap nito ang <code>channel</code>.</td></tr>
 <tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Fusion lamang: isang entry sa mga <b>Mga Integration</b> pages, tabi ng custom emoji. Ang GIFs app ay nagdadagdag ng kanyang mga custom GIF at stickers doon.</td></tr>
 </tbody>
 </table>
+<h3 id="picker-kit">Magdagdag at pamahalaan ng mga view sa emoji picker</h3>
+<p>Sa Fusion, ang emoji picker tab ay may <code>pickerKit</code> prop: ang mga component na ginagamit ng Emoji tab para sa sariling add at manage views nito, upang magkasingkat ang mga view ng tab at manatili sa loob ng picker. Ginagamit ito ng mga GIFs at Memes apps para magdagdag at pamahalaan ng mga GIF, sticker, at meme template. Ito ay naglalaman ng <code>version</code> (1), ang mga hook na <code>usePickerView</code> at <code>useOnEscape</code>, at ang mga component na <code>PickerViewButtons</code> (ang <b>+</b> at manage buttons sa tabi ng search box), <code>PickerViewFrame</code> (isang view na may back arrow), <code>PickerNotice</code>, <code>PickerField</code>, <code>PickerSearch</code>, <code>PickerDropZone</code>, at <code>PickerManageList</code>. Ang Escape ay bumabalik mula sa view patungo sa grid ng tab. Siguraduhing nandoon ang prop: ang ibang host ay hindi ito isasama, at ang tab ay gagamit ng sariling dialogs sa ganun. Ang mga type ay nasa <code>webapp/fusion/src/types/store/plugins.ts</code> (<code>EmojiPickerTabProps</code>) at ang mga component ay nasa <code>webapp/fusion/src/fusion/popovers/picker_views.tsx</code>.</p>
+<h3 id="panel-state">Ang panel sa bagong window</h3>
+<p>Binibigyan ng Fusion ng dalawang karagdagang prop ang component ng <code>registerRightHandSidebarComponent</code>, upang ang <b>Buksan sa bagong window</b> ay buksan ang panel sa kung saan ito nagsimula, hindi sa home ng app:</p>
+<ul>
+<li><code>setPanelState(state)</code>: tawagin ito kapag nagbago ang posisyon ng panel, gamit ang maikling string na iyong tinutukoy, tulad ng <code>'note/&lt;id&gt;'</code> o <code>'board/&lt;id&gt;/card/&lt;id&gt;'</code>, o <code>null</code> sa home nito. Dito ito ilalagay sa address ng window, kaya huwag ilagay ang anumang sekreto rito. Ang state na mas mahaba kaysa 512 character, o may control characters, ay tatanggalin.</li>
+<li><code>initialPanelState</code>: sa bagong window, ang state ng panel, o <code>undefined</code>. Ituring itong hindi mapagkakatiwalaang input: i-fetch ulit ang item bilang ang nakasign-in na tao, at ipakita ang home ng app o isang not-found view kung hindi ito mabubuksan.</li>
+</ul>
+<p>Kalimutan ang state kapag sarado ang panel o may ibang app na panel ang tumakas sa lugar nito. Para buksan ang window ng panel sa sarili, ang <code>popoutRhsPlugin</code> (nasa <code>window.WebappUtils.popouts</code> din) ay tumatanggap ng state bilang opsyonal na ikalimang argumento. Ginagamit ito ng Notes, Whiteboard, Todo, Kanban, at Playbooks.</p>
 <p>Ang <code>fusionIcon</code> ay nagpapangalan ng isang icon mula sa icon set ng Fusion (halimbawa, <code>poll</code>, <code>sticker</code>, <code>calendar</code>, o <code>image</code>; tingnan ang <code>webapp/fusion/src/fusion/components/icon</code>). Ipinapakita nito ng Fusion sa halip ng <code>icon</code>, upang tumugma ang item sa iba.</p>
 
 <h2 id="settings">Mga Setting</h2>

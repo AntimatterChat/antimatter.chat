@@ -1,10 +1,10 @@
 title: ऐप्स (प्लग-इन) लिखना
-description: Antimatter ऐप (प्लग-इन) कैसे लिखें: बंडल लेआउट और plugin.json, सर्वर हुक्स और API, वेब ऐप रजिस्ट्री, Fusion इंटरफ़ेस का समर्थन, सेटिंग्स, की-वैल्यू स्टोर, अनुवाद, पैकेजिंग और इंस्टॉलेशन।
+description: Antimatter ऐप (प्लगइन) कैसे लिखें: बंडल लेआउट और plugin.json, सर्वर हुक्स और API, AI सर्विस, वेब ऐप रजिस्ट्री, Fusion इंटरफेस का समर्थन, सेटिंग्स, की-वैल्यू स्टोर, अनुवाद, पैकेजिंग और इंस्टॉलेशन।
 guide: developers
 order: 6
 nav: ऐप्स लिखना
 lead: ऐप्स Antimatter में अंदर से फीचर्स जोड़ते हैं: Go में एक सर्वर हिस्सा जो सर्वर में हुक होता है, और React में एक वेब ऐप हिस्सा जो मेनू, पैनल, मैसेज टाइप्स और पेज जोड़ता है। यह पेज एक ऐप का लेआउट कैसे होता है, यह दिखाता है, जिसमें बंडल्ड Polls ऐप का उपयोग उदाहरण के रूप में किया गया है, और Antimatter के Fusion इंटरफ़ेस में क्या बदलाव आते हैं।
-source: d9c132cac759
+source: f2c14bacc2f3
 ---
 <h2 id="overview">एक ऐप कैसे काम करता है</h2>
 <ul>
@@ -131,6 +131,22 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 <li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: किसी उपयोगकर्ता के लिए कार्य करने से पहले जांचें कि कौन क्या कर सकता है।</li>
 </ul>
 <p>एक ऐप क्लस्टर के हर सर्वर पर चलता है। स्टेट को केवल मेमोरी में नहीं, बल्कि की-वैल्यू स्टोर या डेटाबेस में रखें।</p>
+<h3 id="ai">AI सर्विस</h3>
+<p>Antimatter का सर्वर ऐप्स के लिए AI मॉडल को कॉल करता है, एडमिन द्वारा सेट किए गए मॉडल कनेक्शन के माध्यम से (एडमिन गाइड में <a href="{{root}}docs/admins/ai.html">AI</a> देखें)। कोई ऐप प्रोवाइडर की कुंजी कभी नहीं रखता है: यह उस व्यक्ति का नाम बताता है जिसके लिए यह कार्य कर रहा है और कहाँ, और सर्वर जाँचता है कि क्या वह व्यक्ति वहाँ उस कनेक्शन का उपयोग कर सकता है, इसके सीमाओं और बजटों को लागू करता है, टोकन को उस व्यक्ति और ऐप के विरुद्ध गिनता है, और कॉल की सामग्री के बिना ऑडिट करता है।</p>
+<table>
+<thead><tr><th>विधि</th><th>यह क्या करता है</th></tr></thead>
+<tbody>
+<tr><td><code>AIChat(actingUserID, channelID, teamID, *ai.ChatRequest)</code></td><td>एक चैट कंप्लीशन: संदेश, टूल्स, संरचित आउटपुट (<code>JSONSchema</code>)।</td></tr>
+<tr><td><code>AIChatStream(…)</code></td><td>उसी का स्ट्रीमिंग संस्करण: चैनल बंद होने तक स्ट्रीम के <code>Events</code> पढ़ें, या कॉल रोकने के लिए इसे <code>Close</code> करें।</td></tr>
+<tr><td><code>AIEmbed(…, *ai.EmbedRequest)</code></td><td>टेक्स्ट के एम्बेडिंग।</td></tr>
+<tr><td><code>AITranscribe(…, *ai.TranscribeRequest)</code></td><td>बोली से टेक्स्ट (Speech to text)।</td></tr>
+<tr><td><code>AIDecide(…, *ai.DecideRequest)</code></td><td>टेक्स्ट के बारे में निर्णय मॉडल (हाँ या नहीं, एक विकल्प, एक स्कोर) के लिए टाइप्ड प्रश्न।</td></tr>
+<tr><td><code>AIConnectionsForUser(userID, channelID, teamID)</code></td><td>वहाँ एक व्यक्ति द्वारा उपयोग किए जा सकने वाले कनेक्शन, उनके मॉडल और क्षमताओं के साथ, कभी उनकी कुंजियाँ नहीं।</td></tr>
+</tbody>
+</table>
+<p>हर अनुरोध का <code>ConnectionID</code> कनेक्शन चुनता है, और <code>Model</code> उसके मॉडल में से एक (कनेक्शन के डिफ़ॉल्ट के लिए खाली)। <code>Operation</code> उपयोग और ऑडिट रिकॉर्ड के लिए एक छोटा लेबल है, कभी सामग्री नहीं। इनकी न्यूनतम सर्वर संस्करण 11.11 है।</p>
+<div class="callout warn"><code>actingUserID</code> को केवल उस स्रोत से लें जिसे सर्वर ने सत्यापित किया है: आपके <code>ServeHTTP</code> के लिए अनुरोध के <code>Mattermost-User-Id</code> हेडर, या हुक के संदर्भ का उपयोगकर्ता (एक पोस्ट के लेखक, या वह उपयोगकर्ता जिसने कमांड चलाया)। इसे कभी संदेश, वेबहुक पेयलोड, URL या किसी अन्य ऐप के अनुरोध से न लें: आपका ऐप किसी अन्य व्यक्ति की पहुंच खर्च करेगा।</div>
+<p>ये विधियाँ और <code>ai</code> पैकेज (<code>server/public/ai</code>) केवल Antimatter के मॉड्यूल के कॉपी में मौजूद हैं, Mattermost द्वारा प्रकाशित संस्करण में नहीं। इन्हें उपयोग करने के लिए, Antimatter के <code>server/public</code> के विरुद्ध बिल्ड करें, आपके <code>go.mod</code> में एक <code>replace</code> लाइन के साथ, उदाहरण के लिए <code>replace github.com/mattermost/mattermost/server/public =&gt; ../antimatter/server/public</code>। ऐसा ऐप केवल Antimatter पर चलेगा।</p>
 
 <h2 id="kv">डेटा स्टोर करना</h2>
 <p>हर ऐप के पास सर्वर के डेटाबेस में अपना अलग की-वैल्यू स्टोर होता है:</p>
@@ -172,17 +188,17 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <pre><code>export function isFusionUI(): boolean {
     return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
 }</code></pre>
-<p>बंडल्ड ऐप्स इसका उपयोग अलग-अलग रूप से ड्रॉ करने के लिए करते हैं। Polls अपने Poll कार्ड्स और अपने निर्माण डायलॉग को Fusion के स्टाइल में ड्रॉ करता है, और Fusion में <code>/poll</code> के लिए अपना खुद का डायलॉग खोलता है। कॉल और Voice channels वे साइडबार और टोस्ट कंपोनेंट्स छोड़ देते हैं जिन्हें Fusion अपने कॉल इंटरफेस से बदल देता है। Agents ऐप अपने AI एक्शन को होवर टूलबार के बजाय मैसेज मेन्यू के एक सबमेन्यू में रखता है। Fusion के अपने CSS क्लासेस (जिनके आगे <code>am-</code> प्रिफिक्स है) और उसका डायलॉग लेयर (<code>am-layer</code> एलिमेंट) वही चीज़ें हैं जिनका उपयोग ये ऐप्स इंटरफेस को मेल खाने के लिए करते हैं; ये एक दस्तावेजित, स्थिर API नहीं हैं।</p>
+<p>बंडल्ड ऐप्स इसका उपयोग अलग-अलग तरीके से रेंडर करने के लिए करते हैं। Polls, Fusion के स्टाइल में अपने पोल कार्ड और निर्माण डायलॉग बनाता है, और Fusion में <code>/poll</code> के लिए अपना खुद का डायलॉग खोलता है। Calls और Voice channels, Fusion के अपने कॉल इंटरफ़ेस से बदले जाने वाले साइडबार और टोस्ट कंपोनेंट्स को छोड़ देते हैं। Agents ऐप, होवर टूलबार के बजाय, संदेश मेन्यू में अपने AI कार्रवाओं को <b>अधिक कार्रवाएं</b> के तहत एक समूह के रूप में रखता है। Fusion के अपने CSS क्लासेस (जिनके प्रिफ़िक्स <code>am-</code> हैं) और उसका डायलॉग लेयर (<code>am-layer</code> एलिमेंट) ही वे हैं जिनका उपयोग ये ऐप्स इंटरफ़ेस को मेल खाने के लिए करते हैं; ये एक दस्तावेज़ीकृत, स्थिर API नहीं हैं।</p>
 <h3>Fusion में प्लगइन कंपोनेंट्स कहाँ दिखाई देते हैं</h3>
 <table>
 <thead><tr><th>रेजिस्ट्री मेथड</th><th>Fusion में यह कहाँ दिखाई देता है</th></tr></thead>
 <tbody>
 <tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>ऐप रेल, दाएँ किनारे पर आइकनों का स्तंभ, जो आपके अवतार और <b>Antimatter के बारे में</b> बटन के बीच में हय। चैनल हेडर के बटन भी वहाँ जाते हैं, न कि चैनल हेडर में। जब सिस्टम एडमिन <b>ऐप्स बार निष्क्रिय करें</b> (<code>ExperimentalSettings.DisableAppBar</code>, डिफ़ॉल्ट में बंद) चालू कर देता हय, तो यह छिप जाता हय।</td></tr>
-<tr><td><code>registerRightHandSidebarComponent</code></td><td>दाएँ ओर का पैनल। लोग इसकी किनारे को खींचकर इसका आकार बदल सकते हैं। यदि ऐप एक प्रोडक्ट भी हय, तो पैनल <b>पूरे पेज में खोलें</b> का विकलप देता हय।</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>दाईं ओर का पैनल। लोग इसे उसके किनारे को खींचकर आकार बदल सकते हैं, और इसे एक नए विंडो में खोल सकते हैं। यदि ऐप एक प्रोडक्ट भी है, तो पैनल <b>पूरे पेज में खोलें</b> का विकल्प प्रदान करता है। <a href="#panel-state">नए विंडो में पैनल</a> देखें।</td></tr>
 <tr><td><code>registerChannelHeaderIcon</code></td><td>चैनल हेडर में, कॉल बटनों के बाद आने वाले आइकन; फ़ोन पर, हेडर के <b>अधिक</b> मेनू में।</td></tr>
 <tr><td><code>registerCallButtonAction</code></td><td>चैनल हेडर का कॉल बटन; कई प्रोवाइडर एक <b>कॉल के अन्य तरीके</b> मेनू साझा करते हैं।</td></tr>
-<tr><td><code>registerPostDropdownMenuAction</code></td><td>संदेश का <b>अधिक कार्रवाएं</b> (⋯) मेनू, <b>संदेश कार्रवाई</b> सबमेनू में; साथ ही थ्रेड पैनल के <b>थ्रेड कार्रवाइयां</b> मेनू में, <b>अधिक कार्रवाएं</b> के नीचे।</td></tr>
-<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>उसी मेन्यू का अपना अलग सबमेन्यू, ऐप के नाम और आइकॉन के साथ।</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>संदेश की <b>संदेश कार्रवाई</b> (⋯) मेन्यू, इसकी <b>अधिक कार्रवाएं</b> सबमेन्यू में; साथ ही थ्रेड पैनल की <b>थ्रेड कार्रवाइयों</b> मेन्यू में, <b>अधिक कार्रवाएं</b> के तहत। Fusion हर कार्रवा के पहले ऐप का आइकन, भूरे रंग में, बनाता है: बंडल्ड ऐप्स के लिए उसका अपना आइकन, अन्यथा ऐप रेल में दिखाया गया आइकन, अन्यथा एक तटस्थ आइकन। कार्रवा के टेक्स्ट के आरंभ में टेक्स्ट के बिना कोई एलिमेंट (जो आइकन ऐप स्वयं बनाता है) छिपा दिया जाता है।</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>एक समूह, जिसमें एक हेडिंग है, उसी <b>अधिक कार्रवाएं</b> सबमेन्यू में, एकल कार्रवाओं के बाद। संदेश मेन्यू में किसी भी ऐप को अपना अलग प्रविष्टि नहीं मिलती।</td></tr>
 <tr><td><code>registerPostActionComponent</code></td><td>मैसेज होवर टूलबार, ⋯ बटन से पहले।</td></tr>
 <tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>मैसेज स्वयं: इसका बॉडी, इसके टेक्स्ट के नीचे, समय के बाद, और लिंक प्रीव्यू की जगह।</td></tr>
 <tr><td><code>registerChannelHeaderMenuAction</code></td><td>चैनल का <b>चैनल विकल्प</b> मेनू (साइडबार में चैनल पर ⋯, या राइट-क्लिक), जो प्लग आइकन के साथ आइटम के रूप में दिखाई देते हैं।</td></tr>
@@ -200,7 +216,7 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <tr><td><code>registerChannelTypeOption</code></td><td><b>चैनल बनाएं</b> डायलॉग के चैनल प्रकार।</td></tr>
 <tr><td><code>registerSearchComponents</code></td><td>चैनल हेडर की खोज बॉक्स: जब यह खाली होती है, तो ऐप स्कोप दिखाई देते हैं।</td></tr>
 <tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>Antimatter के बारे में</b> (ऐप रेल का निचला हिस्सा), <b>सहायता</b> के नीचे।</td></tr>
-<tr><td><code>registerProduct</code></td><td>उत्पाद के URL पर पूर्ण पृष्ठ, <b>Antimatter के बारे में</b> में <b>उत्पाद</b> के तहत सूचीबद्ध। उत्पाद पृष्ठ क्लासिक पृष्ठ फ्रेम बनाए रखते हैं।</td></tr>
+<tr><td><code>registerProduct</code></td><td>प्रोडक्ट के URL पर पूर्ण पृष्ठ, <b>Antimatter के बारे में</b> में <b>उत्पाद</b> के तहत सूचीबद्ध। प्रोडक्ट पृष्ठ क्लासिक पृष्ठ फ्रेम को बनाए रखते हैं, जिसका प्रोडक्ट मेन्यू तभी दिखाई देता है जब कोई ऐप एक प्रोडक्ट पंजीकृत करता है या उसमें एक प्रविष्टि जोड़ता है। बंडल्ड Kanban और Playbooks ऐप्स अब प्रोडक्ट पंजीकृत नहीं करते: उनके पृष्ठ उनके साइड पैनलों में खुलते हैं।</td></tr>
 <tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code> जैसे हुक्स</td><td>क्लासिक इंटरफ़ेस की तरह कार्य करें।</td></tr>
 <tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>सिस्टम कंसोल, जो दोनों इंटरफ़ेस में क्लासिक है।</td></tr>
 </tbody>
@@ -230,12 +246,21 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <thead><tr><th>विधि</th><th>यह क्या जोड़ता है</th></tr></thead>
 <tbody>
 <tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>संदेश बॉक्स के <b>+</b> मेनू में एक आइटम, दोनों इंटरफ़ेस में। <code>action</code> को <code>{channelId, rootId}</code> प्राप्त होता है।</td></tr>
-<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>संदेश बॉक्स के इमोजी पिकर की एक टैब, जैसे GIF या स्टिकर। Fusion में, <code>order</code> 10 से कम वाली टैबें इमोजी टैब से पहले आती हैं। कंपोनेंट <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> और <code>isFusion</code> प्राप्त करता है।</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>संदेश बॉक्स के इमोजी पिकर का एक टैब, जैसे GIFs या स्टिकर। Fusion में, 10 से कम <code>order</code> वाले टैब, इमोजी टैब से पहले आते हैं। कंपोनेंट <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code>, <code>isFusion</code> और, Fusion में, <code>pickerKit</code> (नीचे देखें) प्राप्त करता है।</td></tr>
 <tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>चैनल हेडर और संदेशों के बीच एक पैनल, उन चैनलों के लिए जो <code>matcher(state, channel)</code> चुनता है। यह संदेशों और कंपोज़र को छिपा सकता है (<code>setMessagesVisible</code>), जैसे वॉइस चैनल करते हैं।</td></tr>
 <tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>साइडबार में चैनल के नीचे एक पंक्ति, जैसे उसके कॉल में मौजूद लोग। यह <code>channel</code> प्राप्त करता है।</td></tr>
 <tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>केवल Fusion: <b>इंटीग्रेशन</b> पेज पर एक एंट्री, कस्टम इमोजी के पास। GIFs ऐप वहाँ अपने कस्टम GIFs और स्टिकर जोड़ता हय।</td></tr>
 </tbody>
 </table>
+<h3 id="picker-kit">इमोजी पिकर में व्यू जोड़ें और प्रबंधित करें</h3>
+<p>Fusion में, एक इमोजी पिकर टैब को <code>pickerKit</code> प्रॉप मिलता है: वे कंपोनेंट जो इमोजी टैब अपने add और manage व्यूज़ के लिए उपयोग करता है, ताकि टैब के व्यूज़ एक जैसे दिखें और पिकर के अंदर ही रहें। GIFs और Memes ऐप्स इसका उपयोग GIFs, स्टिकर और मीम टेम्पलेट जोड़ने और प्रबंधित करने के लिए करते हैं। इसमें <code>version</code> (1), हुक्स <code>usePickerView</code> और <code>useOnEscape</code>, और कंपोनेंट <code>PickerViewButtons</code> (सर्च बॉक्स के बगल में <b>+</b> और manage बटन), <code>PickerViewFrame</code> (अपनी बैक एरो वाला व्यू), <code>PickerNotice</code>, <code>PickerField</code>, <code>PickerSearch</code>, <code>PickerDropZone</code> और <code>PickerManageList</code> शामिल हैं। Escape दबाते ही व्यू से टैब के ग्रिड पर वापस चला जाता है। जांचें कि यह प्रॉप मौजूद है: अन्य होस्ट इसे छोड़ देते हैं, और तब टैब अपने डायलॉग्स को स्वयं संभालता है। टाइप्स <code>webapp/fusion/src/types/store/plugins.ts</code> (<code>EmojiPickerTabProps</code>) में और कंपोनेंट <code>webapp/fusion/src/fusion/popovers/picker_views.tsx</code> में हैं।</p>
+<h3 id="panel-state">नई विंडो में पैनल</h3>
+<p>Fusion, <code>registerRightHandSidebarComponent</code> के कंपोनेंट को दो और प्रॉप देता है, ताकि <b>नई विंडो में खोलें</b> पैनल को ऐप के होम पर नहीं, बल्कि जहाँ वह था, वहीं खोल सके:</p>
+<ul>
+<li><code>setPanelState(state)</code>: जब पैनल की जगह बदले, तो इसे कॉल करें, अपने ऐप द्वारा परिभाषित एक छोटे स्ट्रिंग के साथ, जैसे <code>'note/&lt;id&gt;'</code> या <code>'board/&lt;id&gt;/card/&lt;id&gt;'</code>, या होम पर <code>null</code>। यह विंडो के एड्रेस में जाता है, इसलिए इसमें कभी भी कोई गुप्त जानकारी न डालें। 512 कैरेक्टर से लंबा स्टेट, या कंट्रोल कैरेक्टर वाला स्टेट, हटा दिया जाता है।</li>
+<li><code>initialPanelState</code>: नई विंडो में, वह स्टेट जो पैनल के पास था, या <code>undefined</code>। इसे अविश्वास योग्य इनपुट के रूप में मानें: साइन-इन किए गए व्यक्ति के रूप में आइटम को फिर से फेच करें, और यदि वे इसे खोल नहीं पाते हैं, तो ऐप का होम या not-found व्यू दिखाएं।</li>
+</ul>
+<p>जब पैनल बंद होता है या किसी अन्य ऐप का पैनल उसकी जगह लेता है, तो स्टेट भूल जाता है। किसी पैनल की विंडो को स्वयं खोलने के लिए, <code>popoutRhsPlugin</code> (जो <code>window.WebappUtils.popouts</code> में भी है) स्टेट को एक वैकल्पिक पाँचवें आर्गुमेंट के रूप में लेता है। Notes, Whiteboard, Todo, Kanban और Playbooks इसका उपयोग करते हैं।</p>
 <p><code>fusionIcon</code> Fusion के आइकन सेट का एक आइकन नामित करता है (उदाहरण के लिए <code>poll</code>, <code>sticker</code>, <code>calendar</code> या <code>image</code>; देखें <code>webapp/fusion/src/fusion/components/icon</code>)। Fusion इसे <code>icon</code> की जगह दिखाता है, ताकि आइटम अन्य आइटम से मेल खाए।</p>
 
 <h2 id="settings">सेटिंग्स</h2>

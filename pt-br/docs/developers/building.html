@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Compilando a partir do código-fonte · Antimatter</title>
-<meta name="description" content="Como compilar o Antimatter a partir do código-fonte: o servidor Go, as interfaces web Fusion e clássica, um servidor de desenvolvimento, testes, arquivos de release, a imagem Docker e os aplicativos para desktop e mobile.">
+<meta name="description" content="Como compilar o Antimatter a partir do código-fonte: o servidor Go, as interfaces web Fusion e clássica, um servidor de desenvolvimento, testes, arquivos e pacotes de lançamento, a imagem Docker, e os aplicativos para desktop e mobile.">
 <meta property="og:title" content="Compilando a partir do código-fonte · Antimatter">
-<meta property="og:description" content="Como compilar o Antimatter a partir do código-fonte: o servidor Go, as interfaces web Fusion e clássica, um servidor de desenvolvimento, testes, arquivos de release, a imagem Docker e os aplicativos para desktop e mobile.">
+<meta property="og:description" content="Como compilar o Antimatter a partir do código-fonte: o servidor Go, as interfaces web Fusion e clássica, um servidor de desenvolvimento, testes, arquivos e pacotes de lançamento, a imagem Docker, e os aplicativos para desktop e mobile.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://antimatter.chat/pt-br/docs/developers/building.html">
 <meta property="og:locale" content="pt_BR">
@@ -137,7 +137,16 @@ npm run build    # the classic interface, then Fusion</code></pre>
 cd server
 make build-linux       # the antimatter and amctl binaries
 make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
-<p><code>make build</code> compila as interfaces web e os binários para Linux de uma só vez. O arquivo contém <code>bin/antimatter</code>, <code>bin/amctl</code>, um <code>config/config.json</code> padrão, ambas as interfaces web, os modelos, as fontes e as traduções. Outras plataformas: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>. Os arquivos não incluem os aplicativos incorporados; a imagem Docker inclui.</p>
+<p><code>make build</code> compila as interfaces web e os binários para Linux de uma só vez. O arquivo contém <code>bin/antimatter</code>, <code>bin/amctl</code>, um <code>config/config.json</code> padrão com um <code>README.md</code> sobre como alterar as configurações, ambas as interfaces web, os modelos, as fontes e as traduções. Outras plataformas: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>.</p>
+<h3>Aplicativos incluídos</h3>
+<p>Um simples <code>make package-linux</code> compila um arquivo sem aplicativos. Para incluí-los, como fazem os lançamentos publicados, primeiro obtenha os bundles de aplicativos assinados e passe a pasta correspondente:</p>
+<pre><code>build/package/fetch-apps.sh "$HOME/release-apps"   # needs gh, python3 and gpg
+make package-linux PREPACKAGED_PLUGINS_DIR="$HOME/release-apps"</code></pre>
+<p><code>fetch-apps.sh</code> baixa o lançamento mais recente no GitHub de cada aplicativo listado no <code>plugins.json</code> do antimatter-docker, com sua assinatura, e verifica a assinatura contra a chave de plugins do Antimatter. Por padrão, ele inclui Whiteboard, Voice channels, Calls, Agents, Todo, Polls, Notes, GIFs e Memes; <code>AM_BUNDLED_APPS</code> (nomes dos repositórios, separados por espaços) altera essa lista. Aplicativos sem lançamento ou sem assinatura são ignorados com um aviso. Os bundles são colocados na pasta <code>prepackaged_plugins/</code> do arquivo.</p>
+<h3>Pacotes .deb e .rpm</h3>
+<p><code>build/package/build-packages.sh &lt;archive&gt; &lt;amd64|arm64&gt; &lt;version&gt; &lt;out-dir&gt;</code> converte um arquivo de liberação em pacotes <code>.deb</code> e <code>.rpm</code> completos, usando <a href="https://nfpm.goreleaser.com">nfpm</a>. O guia do administrador descreve o que eles instalam: consulte <a href="../../../pt-br/docs/admins/install.html#packages">Instalar o pacote .deb ou .rpm</a>.</p>
+<h3>O fluxo de trabalho de lançamento</h3>
+<p>O workflow <code>antimatter-release.yml</code> do repositório do servidor executa tudo isso no GitHub: em uma tag <code>v*</code>, ele compila os arquivos e pacotes para <code>amd64</code> e <code>arm64</code>, com <code>SHA256SUMS</code>, e os publica como a liberação do GitHub da tag (uma pré-liberação para uma versão com <code>-</code>). Quando executado manualmente, ele numera a compilação como <code>0.9.0-dev.&lt;run&gt;</code> e mantém os arquivos como artefatos do workflow. Cada repositório de aplicativo tem um workflow <code>release.yml</code> que publica seu bundle assinado da mesma forma.</p>
 
 <h2 id="docker">A imagem Docker</h2>
 <p>O repositório <a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> compila as imagens publicadas, o servidor com seus aplicativos, inteiramente dentro do Docker:</p>
@@ -166,9 +175,9 @@ VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatt
 npm run build          # development build, into dist/
 npm start              # run it
 npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
-<p>As configurações de tempo de compilação, como servidores para pré-configurar, estão em <code>src/common/config/buildConfig.ts</code>.</p>
+<p>As configurações de compilação, como os servidores a pré-configurar, estão em <code>src/common/config/buildConfig.ts</code>. Sem um certificado da Apple, defina <code>AM_MAC_ADHOC_SIGN=true</code> para assinar o aplicativo macOS de forma ad hoc, sem notação: Macs com Apple silicon recusam código não assinado. O workflow <code>release.yml</code> do repositório compila pacotes não assinados para Linux, Windows e macOS em uma tag <code>v*</code>.</p>
 <h3>Aplicativo para celular</h3>
-<p>O <a href="https://github.com/AntimatterChat/mobile-app">aplicativo para celular</a> é um aplicativo React Native; seu README lista os comandos (<code>npm run ios</code>, <code>npm run android</code>). Para compilar sua própria cópia, você também precisa de suas próprias chaves de assinatura, um projeto Firebase para notificações no Android, uma chave APNs para iOS e um <a href="https://github.com/AntimatterChat/push-proxy">proxy de push</a> que armazene essas credenciais.</p>
+<p>O <a href="https://github.com/AntimatterChat/mobile-app">aplicativo móvel</a> é um aplicativo React Native; seu README lista os comandos (<code>npm run ios</code>, <code>npm run android</code>). Para compilar sua própria cópia, você também precisa de suas próprias chaves de assinatura, de um projeto Firebase para notificações no Android, de uma chave APNs para iOS e de um <a href="https://github.com/AntimatterChat/push-proxy">proxy de push</a> que armazene essas credenciais. O workflow <code>release.yml</code> do repositório compila o APK e o AAB do Android e um <code>.ipa</code> do iOS não assinado em uma tag <code>v*</code>, sem contas de loja; seu README lista os segredos que assinam a compilação do Android e configuram o Firebase.</p>
 <nav class="pager"><a class="prev" href="../../docs/developers/apps.html"><small>Anterior</small>Escrita de aplicativos</a><a class="next" href="../../docs/developers/contributing.html"><small>Próximo</small>Contribuindo</a></nav>
 </article>
 </div>

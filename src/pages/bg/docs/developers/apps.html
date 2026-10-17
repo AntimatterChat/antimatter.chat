@@ -1,10 +1,10 @@
 title: Създаване на приложения (плъгини)
-description: Как да напишете приложение (плъгин) за Antimatter: структурата на пакета и plugin.json, сървърните хукове и API, регистърът на уеб приложението, поддръжка на интерфейса Fusion, настройки, хранилище за ключ-стойност, преводи, опаковане и инсталиране.
+description: Как да напишете приложение (плъгин) за Antimatter: структурата на пакета и plugin.json, сървърните хукове и API, AI услугата, регистърът на уеб приложенията, поддръжка на интерфейса на Fusion, настройките, хранилището за ключ-стойност, преводите, опаковането и инсталирането.
 guide: developers
 order: 6
 nav: Създаване на приложения
 lead: Приложенията добавят функционалности в Antimatter от вътре: сървърна част на Go, която се хука в сървъра, и уеб част на React, която добавя менюта, панели, типове съобщения и страници. Тази страница показва как е структурирано приложение, като пример се използва вграденото приложение Polls, и какви промени има в интерфейса Fusion на Antimatter.
-source: d9c132cac759
+source: f2c14bacc2f3
 ---
 <h2 id="overview">Как работи едно приложение</h2>
 <ul>
@@ -131,6 +131,22 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 <li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: проверява кой може да направи какво, преди да действате от името на потребител.</li>
 </ul>
 <p>Приложението се изпълнява на всеки сървър в кластера. Запазвайте състоянието в хранилището за ключ-стойност или в базата данни, а не само в паметта.</p>
+<h3 id="ai">AI услугата</h3>
+<p>Сървърът на Antimatter извиква AI модели за приложенията чрез моделните връзки, които администраторът е конфигурирал (вижте <a href="{{root}}docs/admins/ai.html">AI</a> в ръководството за администратори). Приложението никога не съхранява ключ на доставчик: то посочва за кого и къде действа, а сървърът проверява дали този човек може да използва връзката там, прилага лимитите и бюджетите ѝ, отчита токените спрямо човека и приложението и води одит на извикването без неговото съдържание.</p>
+<table>
+<thead><tr><th>Метод</th><th>Какво прави</th></tr></thead>
+<tbody>
+<tr><td><code>AIChat(actingUserID, channelID, teamID, *ai.ChatRequest)</code></td><td>Chat завършване: съобщения, инструменти, структуриран изход (<code>JSONSchema</code>).</td></tr>
+<tr><td><code>AIChatStream(…)</code></td><td>Същото, но в поток: четете <code>Events</code> от потока, докато каналът се затвори, или го <code>Close</code>-нете, за да спрете извикването.</td></tr>
+<tr><td><code>AIEmbed(…, *ai.EmbedRequest)</code></td><td>Embeddings на текстове.</td></tr>
+<tr><td><code>AITranscribe(…, *ai.TranscribeRequest)</code></td><td>Говор в текст.</td></tr>
+<tr><td><code>AIDecide(…, *ai.DecideRequest)</code></td><td>Типизирани въпроси към модел за вземане на решения (да или не, избор, оценка) относно текст.</td></tr>
+<tr><td><code>AIConnectionsForUser(userID, channelID, teamID)</code></td><td>Връзките, които човек може да използва там, с техните модели и възможности, но никога с техните ключове.</td></tr>
+</tbody>
+</table>
+<p><code>ConnectionID</code> на всяко запитване избира връзката, а <code>Model</code> – един от моделите ѝ (празно за модел по подразбиране на връзката). <code>Operation</code> е кратка етикета за записите за използване и одит, никога не е съдържание. Минималната версия на сървъра е 11.11.</p>
+<div class="callout warn">Вземайте <code>actingUserID</code> само от източник, който сървърът е верифицирал: заглавието <code>Mattermost-User-Id</code> на запитване към вашия <code>ServeHTTP</code>, или потребителя от контекста на хук (автор на публикация, потребителят, който е изпълнил команда). Никога не го вземайте от съобщение, webhook payload, URL или запитване на друго приложение: приложението ви би разхарчило достъпа на някой друг.</div>
+<p>Тези методи и пакетът <code>ai</code> (<code>server/public/ai</code>) съществуват само в копото на Antimatter от модула, а не в версията, публикувана от Mattermost. За да ги използвате, компилирайте спрямо <code>server/public</code> на Antimatter с ред <code>replace</code> във вашия <code>go.mod</code>, например <code>replace github.com/mattermost/mattermost/server/public =&gt; ../antimatter/server/public</code>. Такова приложение работи само на Antimatter.</p>
 
 <h2 id="kv">Запазване на данни</h2>
 <p>Всяко приложение има собствено хранилище за ключ-стойност в базата данни на сървъра:</p>
@@ -172,17 +188,17 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <pre><code>export function isFusionUI(): boolean {
     return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
 }</code></pre>
-<p>Вградените приложения използват това, за да се изобразяват по различен начин. Приложението за анкети изчертава своите карти и диалогов прозорец за създаване в стила на Fusion и отваря собствен диалогов прозорец за <code>/poll</code> в Fusion. Обажданията и гласовите канали пропускат страничната лента и компонентите за известия, които Fusion замества със собствения си интерфейс за обаждания. Приложението за агенти поставя действията си за изкуствен интелект в подменю на менюто на съобщението, вместо в лентата за действия при посочване. Собствените CSS класове на Fusion (с префикс <code>am-</code>) и неговият слой за диалогови прозорци (елементът <code>am-layer</code>) са онова, което тези приложения използват, за да съответстват на интерфейса; те не са документиран, стабилен API.</p>
+<p>Вградените приложения използват това, за да се изобразяват по различен начин. Приложенията за анкети изобразяват картите на анкетите и диалоговия прозорец за създаване в стила на Fusion, а отварят собствен диалогов прозорец за <code>/poll</code> в Fusion. Обажданията и гласовите канали остават без страничната лента и компонентите за известия, които Fusion заменя със собствения си интерфейс за обаждания. Приложението за агенти поставя действията на изкуствения интелект в менюто на съобщението, като група под <b>Още действия</b>, вместо в плъзгащото се меню. Собствените CSS класове на Fusion (с префикс <code>am-</code>) и неговият слой за диалогови прозорци (елементът <code>am-layer</code>) са онова, което тези приложения използват, за да съответстват на интерфейса; те не са документизиран, стабилен API.</p>
 <h3>Къде Fusion показва компонентите на плъгините</h3>
 <table>
 <thead><tr><th>Метод на регистъра</th><th>Къде се появява в Fusion</th></tr></thead>
 <tbody>
 <tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>Лентата с приложения, колоната с икони на дясната страна, между вашия аватар и бутона <b>За Antimatter</b>. Там се поставят и бутоните в заглавието на канала, а не в самото заглавие. Скрива се, когато системният администратор активира <b>Забрани лентата с приложения</b> (<code>ExperimentalSettings.DisableAppBar</code>, изключено по подразбиране).</td></tr>
-<tr><td><code>registerRightHandSidebarComponent</code></td><td>Панелът от дясно. Потребителите могат да го променят по размер, като влачат неговия ръб. Ако приложението е и продукт, панелът предлага <b>Отваряне като цяла страница</b>.</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>Панелът от дясната страна. Потребителите могат да го променят по размер, като влачат ръба му, и да го отворят в нов прозорец. Ако приложението е и продукт, панелът предлага <b>Отваряне като цяла страница</b>. Вижте <a href="#panel-state">Панелът в нов прозорец</a>.</td></tr>
 <tr><td><code>registerChannelHeaderIcon</code></td><td>Икони в заглавието на канала, след бутоните за обаждане; на телефони, в менюто <b>Още</b> на заглавието.</td></tr>
 <tr><td><code>registerCallButtonAction</code></td><td>Бутонът за обаждане в заглавието на канала; няколко доставчика споделят меню <b>Други начини за обаждане</b>.</td></tr>
-<tr><td><code>registerPostDropdownMenuAction</code></td><td>Менюто <b>Още действия</b> (⋯) на съобщението, в подменюто <b>Действия върху съобщение</b>; също и в менюто <b>Действия с нишката</b> на панела за нишки, под <b>Още действия</b>.</td></tr>
-<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Собствено подменю на същите менюта, с името и иконата на приложението.</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>Менюто <b>Действия върху съобщение</b> (⋯) на съобщението, в подменюто му <b>Още действия</b>; също и в менюто <b>Действия с нишката</b> на панела за нишки, под <b>Още действия</b>. Fusion изобразява иконата на приложението преди всяко действие, в сиво: собствената икона за вградените приложения, в противен случай иконата, която приложението показва в лентата за приложения, в противен случай неутрална. Елемент без текст в началото на текста на действието (икона, която приложението изобразява само) се скрива.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Група с заглавие в същото подменю <b>Още действия</b>, след отделните действия. Нито едно приложение не получава собствен запис в менюто на съобщението.</td></tr>
 <tr><td><code>registerPostActionComponent</code></td><td>Лентата за действия при посочване на съобщението, преди бутона ⋯.</td></tr>
 <tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>Самото съобщение: неговото тяло, под текста му, след часа му и на мястото на превюто на линкове.</td></tr>
 <tr><td><code>registerChannelHeaderMenuAction</code></td><td>Менюто <b>Опции за канала</b> (⋯ върху канал в страничната лента, или десен клик), като елементи с икона на щепсел.</td></tr>
@@ -200,7 +216,7 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <tr><td><code>registerChannelTypeOption</code></td><td>Типове канали в диалоговия прозорец <b>Създаване на канал</b>.</td></tr>
 <tr><td><code>registerSearchComponents</code></td><td>Поле за търсене в заглавието на канала: обхватите на приложенията се показват, когато е празно.</td></tr>
 <tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>За Antimatter</b> (в долната част на лентата на приложението), под <b>Помощ</b>.</td></tr>
-<tr><td><code>registerProduct</code></td><td>Цели страници на адресите на продукта, изброени под <b>Продукти</b> в <b>За Antimatter</b>. Страниците на продуктите запазват класическия рамка на страницата.</td></tr>
+<tr><td><code>registerProduct</code></td><td>Цели страници на адреса на продукта, изброени под <b>Продукти</b> в <b>За Antimatter</b>. Страниците на продуктите запазват класическия рамка на страницата, чийто меню за продукти се показва само когато приложение регистрира продукт или добавя запис към него. Вградените приложения Kanban и Playbooks вече не регистрират продукти: страниците им се отварят в техните странични панели.</td></tr>
 <tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, хукове като <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>Работят както в класическия интерфейс.</td></tr>
 <tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>Системната конзола, която е класическа и в двата интерфейса.</td></tr>
 </tbody>
@@ -230,12 +246,21 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <thead><tr><th>Метод</th><th>Какво добавя</th></tr></thead>
 <tbody>
 <tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>Елемент в менюто <b>+</b> на кутията за съобщения, и в двата интерфейса. <code>action</code> получава <code>{channelId, rootId}</code>.</td></tr>
-<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Вкладка на изборника за емоджи в кутията за съобщения, например GIF или стикери. В Fusion вкладките с <code>order</code> под 10 се появяват преди вкладката Емоджи. Компонентът получава <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> и <code>isFusion</code>.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Вкладка на изборника за емоджи в кутията за съобщения, например GIF или стикери. В Fusion, вкладките с <code>order</code> под 10 идват преди вкладката Емоджи. Компонентът получава <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code>, <code>isFusion</code> и, в Fusion, <code>pickerKit</code> (вижте по-долу).</td></tr>
 <tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>Панел между заглавието на канала и съобщенията, предназначен за каналите, които <code>matcher(state, channel)</code> избира. Може да скрие съобщенията и редактора (<code>setMessagesVisible</code>), както правят гласовите канали.</td></tr>
 <tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>Ред под канал в страничната лента, например участниците в текущото обаждане. Получава <code>channel</code>.</td></tr>
 <tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Само Fusion: елемент на страниците <b>Интеграции</b>, до персонализираните емоджи. Приложението GIF добавя там своите персонализирани GIF и стикери.</td></tr>
 </tbody>
 </table>
+<h3 id="picker-kit">Добавяне и управление на изгледи в изборника за емоджи</h3>
+<p>В Fusion таблоидът за избор на емоджи получава свойството <code>pickerKit</code>: компонентите, които таблоидът Емоджи използва за собствените си изгледи за добавяне и управление, така че изгледите на таблоида да изглеждат еднакво и да остават в рамките на изборника. Приложенията GIFs и Memes го използват за добавяне и управление на GIF-ове, стикери и шаблони за меми. То съдържа <code>version</code> (1), хуковете <code>usePickerView</code> и <code>useOnEscape</code>, както и компонентите <code>PickerViewButtons</code> (бутоните <b>+</b> и за управление до полето за търсене), <code>PickerViewFrame</code> (изглед със стрелка за връщане), <code>PickerNotice</code>, <code>PickerField</code>, <code>PickerSearch</code>, <code>PickerDropZone</code> и <code>PickerManageList</code>. Клавишът Escape връща от изгледа към мрежата на таблоида. Проверете дали свойството присъства: други хостове го остават извън, и тогава таблоидът запазва собствените си диалогови прозорци. Типовете са в <code>webapp/fusion/src/types/store/plugins.ts</code> (<code>EmojiPickerTabProps</code>), а компонентите — в <code>webapp/fusion/src/fusion/popovers/picker_views.tsx</code>.</p>
+<h3 id="panel-state">Панелът в нов прозорец</h3>
+<p>Fusion предоставя на компонента на <code>registerRightHandSidebarComponent</code> още два свойства, така че <b>Отвори в нов прозорец</b> отваря панела там, където е бил, а не на началната страница на приложението:</p>
+<ul>
+<li><code>setPanelState(state)</code>: извиквайте го, когато панелът смени местоположението си, с кратка низа, дефинирана от вашето приложение, например <code>'note/&lt;id&gt;'</code> или <code>'board/&lt;id&gt;/card/&lt;id&gt;'</code>, или <code>null</code> на началната страница. Тази стойност се записва в адреса на прозореца, така че никога не поставяйте в нея поверителна информация. Състояние, по-дълго от 512 символа или съдържащо управляващи символи, се отхвърля.</li>
+<li><code>initialPanelState</code>: в новия прозорец това е състоянието, което панелът е имал, или <code>undefined</code>. Отнасяйте се към него като към ненадеен вход: заредете елемента отново като влязлия потребител и покажете началната страница на приложението или изглед „не е намерено“, ако потребителят не може да го отвори.</li>
+</ul>
+<p>Състоянието се забравя, когато панелът се затвори или панел на друго приложение заеме неговото място. За да отворите прозореца на панел сам, <code>popoutRhsPlugin</code> (намира се и в <code>window.WebappUtils.popouts</code>) приема състоянието като опционален пети аргумент. Бележки, Бяла дъска, Задачи, Kanban и Наръчници използват това.</p>
 <p><code>fusionIcon</code> задава име на икона от набора икони на Fusion (напр. <code>poll</code>, <code>sticker</code>, <code>calendar</code> или <code>image</code>; вижте <code>webapp/fusion/src/fusion/components/icon</code>). Fusion я показва вместо <code>icon</code>, за да съвпада с останалите елементи.</p>
 
 <h2 id="settings">Настройки</h2>

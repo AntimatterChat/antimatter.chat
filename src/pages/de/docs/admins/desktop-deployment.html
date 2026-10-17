@@ -1,0 +1,155 @@
+title: Bereitstellung der Desktop-App
+description: Installieren Sie die Antimatter-Desktop-App auf den Computern Ihrer Organisation und verwalten Sie sie zentral: das MSI-Paket und seine Eigenschaften, Group Policy und Intune, macOS-Konfigurationsprofile und die Linux-Richtlinien-Datei.
+guide: admins
+order: 13
+nav: Bereitstellung der Desktop-App
+lead: So installieren Sie die Antimatter-Desktop-App auf den Computern eines Unternehmens oder einer Schule und setzen die Server, den Benutzernamen und die Update-Prüfungen zentral auf Windows, macOS und Linux.
+source: 2f67d39c0dda
+---
+<h2 id="download">App herunterladen</h2>
+<p>Die Versionen der Desktop-App finden Sie auf GitHub unter <a href="https://github.com/AntimatterChat/desktop-app/releases">github.com/AntimatterChat/desktop-app/releases</a>. Wie der Server ist die App in der Beta-Phase: Eine Version, deren Versionsnummer nach einem Bindestrich ein Suffix trägt, ist als <b>Pre-release</b> markiert. Jede Version enthält eine <code>SHA256SUMS</code>-Datei mit den Prüfsummen aller Dateien. Prüfen Sie einen Download auf Linux mit <code>sha256sum --check --ignore-missing SHA256SUMS</code> oder vergleichen Sie die Ausgabe von <code>Get-FileHash &lt;file&gt; -Algorithm SHA256</code> in PowerShell mit der entsprechenden Zeile in <code>SHA256SUMS</code>.</p>
+<ul>
+<li><b>Windows</b> (x64 und arm64): der <code>.exe</code>-Installer, das <code>.msi</code>-Paket oder ein <code>.zip</code>-Archiv. Zum Beispiel <code>antimatter-desktop-&lt;version&gt;-win-x64.exe</code> und <code>antimatter-desktop-&lt;version&gt;-win-x64.msi</code>.</li>
+<li><b>macOS</b>: ein <code>.dmg</code>-Disc-Image oder ein <code>.zip</code>-Archiv, für Apple Silicon (<code>arm64</code>), Intel-Macs (<code>x64</code>) oder beides (<code>universal</code>).</li>
+<li><b>Linux</b> (x64 und arm64): ein .deb- oder .rpm-Paket, ein AppImage, ein Flatpak-Bundle oder ein <code>.tar.gz</code>-Archiv.</li>
+</ul>
+
+<h2 id="installers">Welchen Windows-Installer verwenden?</h2>
+<table>
+<thead><tr><th></th><th>Der .exe-Installer</th><th>Das .msi-Paket</th></tr></thead>
+<tbody>
+<tr><td>Für</td><td>Personen, die die App selbst installieren</td><td>Unternehmen, die die App auf ihren Computern bereitstellen</td></tr>
+<tr><td>Installation</td><td>Nur für das aktuelle Windows-Konto, in <code>%LOCALAPPDATA%\Programs\antimatter-desktop</code>, ohne Administratorrechte</td><td>Für alle Benutzer des Computers, in <code>C:\Program Files\Antimatter</code>, mit Administratorrechten</td></tr>
+<tr><td>Updates</td><td>Die App prüft auf neue Versionen und bietet an, die neue <code>.exe</code> herunterzuladen, die die installierte Kopie an Ort und Stelle aktualisiert</td><td>Die App prüft nicht auf neue Versionen: Sie stellen sie bereit</td></tr>
+</tbody>
+</table>
+<p>Die App prüft stündlich während der Ausführung auf GitHub nach neuen Versionen und erkennt dabei nur vollständige Releases, keine Vorabversionen. Wenn sie eine findet, informiert sie die Person und bietet einen Link zum Herunterladen an. Eine mit dem MSI installierte Kopie führt standardmäßig keine Prüfungen durch, da die Benutzer in der Regel keine Software installieren können. Sie können die Prüfungen über die Einstellung <code>EnableAutoUpdater</code> aktivieren: Das angebotene Download ist dann das neue <code>.msi</code>, das Administratorrechte erfordert.</p>
+<p>Verwenden Sie das MSI für eine verwaltete Bereitstellung mit SCCM (Configuration Manager), Intune oder der Softwareinstallation über Gruppenrichtlinien. Die Installation des MSI entfernt die <code>.exe</code>-Kopie des Kontos, das die Installation ausführt, sofern vorhanden.</p>
+
+<h2 id="settings">Die verwaltbaren Einstellungen</h2>
+<p>Die gleichen Einstellungen existieren auf jedem System. Auf Windows sind es Registry-Werte unter <code>SOFTWARE\Policies\Antimatter</code> in <code>HKEY_LOCAL_MACHINE</code> (für den Computer) oder <code>HKEY_CURRENT_USER</code> (für einen einzelnen Benutzer). Auf macOS und Linux sind es Schlüssel der verwalteten Einstellungen oder der Policy-Datei.</p>
+<table>
+<thead><tr><th>Einstellung</th><th>Auf Windows</th><th>Auf macOS und Linux</th><th>Funktion</th></tr></thead>
+<tbody>
+<tr><td><code>DefaultServerList</code></td><td>Ein Unterschlüssel mit einem String-Wert pro Server: Der Name des Werts ist der Name des Tabs, die Daten sind dessen URL</td><td>Ein Array von Dictionarys (Objekten auf Linux) mit <code>name</code> und <code>url</code></td><td>Fügt Server zur App hinzu. Benutzer können diese nicht bearbeiten oder entfernen.</td></tr>
+<tr><td><code>DefaultUsername</code></td><td>Ein String</td><td>Ein String</td><td>Füllt den Benutzernamen auf der Anmeldeseite dieser Server aus.</td></tr>
+<tr><td><code>EnableServerManagement</code></td><td>Ein DWORD, 0 oder 1</td><td>Ein Boolean</td><td>0 oder <code>false</code>: Benutzer können nur die Server verwenden, die über <code>DefaultServerList</code> festgelegt sind, und die App blendet die Optionen zum Hinzufügen, Bearbeiten und Entfernen von Servern aus. Nicht festgelegt: Benutzer können eigene Server hinzufügen.</td></tr>
+<tr><td><code>EnableAutoUpdater</code></td><td>Ein DWORD, 0 oder 1</td><td>Ein Boolean</td><td>0 oder <code>false</code>: Die App prüft nie nach neuen Versionen und blendet <b>Nach Updates suchen</b> aus. 1 oder <code>true</code>: Sie prüft, auch wenn sie mit dem MSI installiert wurde. Nicht festgelegt: Die <code>.exe</code>-Kopie prüft, die MSI-Kopie nicht.</td></tr>
+<tr><td><code>TrustedEmbeddedMediaOrigins</code></td><td>Ein Unterschlüssel mit String-Werten, wobei jeder ein JSON-Objekt mit <code>serverOrigin</code> und <code>embeddedOrigin</code> ist</td><td>Ein Array von Dictionarys mit <code>serverOrigin</code> und <code>embeddedOrigin</code></td><td>Erlaubt in den Seiten eines Servers eingebetteten Inhalten, wie z. B. einer Videokonferenzseite, die Kamera- und Mikrofonberechtigungen zu verwenden, die diesem Server gewährt wurden.</td></tr>
+</tbody>
+</table>
+<ul>
+<li><b>Der Benutzername</b> wird nur auf der Anmeldeseite der durch die Richtlinie festgelegten Server ausgefüllt, niemals auf einem Server, den eine Person hinzugefügt hat, und niemals über das, was jemand eingegeben hat. Personen können ihn weiterhin ändern. Umgebungsvariablen zwischen Prozentzeichen werden ersetzt, sodass ein Wert für alle passt: <code>%USERNAME%</code> unter Windows oder <code>%USER%</code> unter macOS und Linux liefert den Kontonamen, und <code>%USERNAME%@example.com</code> eine E-Mail-Adresse, die diesem Muster folgt. Wenn eine Variable nicht gesetzt ist, füllt die App nichts ein.</li>
+<li>Wenn Sie die Serververwaltung deaktivieren, fügen Sie mindestens einen Server in <code>DefaultServerList</code> ein.</li>
+<li>Unter Windows hat eine Computerrichtlinie (<code>HKEY_LOCAL_MACHINE</code>) Vorrang vor einer Benutzerrichtlinie (<code>HKEY_CURRENT_USER</code>). Die Serverlisten beider werden kombiniert.</li>
+<li>Die App liest die Einstellungen beim Start ein: Nach einer Änderung müssen Personen die App schließen und erneut öffnen.</li>
+</ul>
+
+<h2 id="msi">Windows: Stille Installation mit dem MSI</h2>
+<p>Das MSI akzeptiert öffentliche Eigenschaften, die die Einstellungen als Computerrichtlinien in <code>HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Antimatter</code> schreiben. Verwenden Sie diese in einer SCCM-Anwendung, einer Intune-App oder einem Skript. In PowerShell:</p>
+<pre><code>msiexec /i antimatter-desktop-&lt;version&gt;-win-x64.msi /qn SERVERURL=https://chat.example.com SERVERNAME=Chat DEFAULTUSERNAME='%USERNAME%' AUTOUPDATE=0 SERVERMANAGEMENT=0</code></pre>
+<table>
+<thead><tr><th>Eigenschaft</th><th>Schreibt</th><th>Wenn nicht angegeben</th></tr></thead>
+<tbody>
+<tr><td><code>SERVERURL</code></td><td>Ein Server in <code>DefaultServerList</code> mit dieser URL</td><td>Kein Server</td></tr>
+<tr><td><code>SERVERNAME</code></td><td>Der Name des Tabs für diesen Server</td><td><code>Antimatter</code></td></tr>
+<tr><td><code>DEFAULTUSERNAME</code></td><td><code>DefaultUsername</code></td><td>Nichts</td></tr>
+<tr><td><code>AUTOUPDATE</code></td><td><code>EnableAutoUpdater</code>, 0 oder 1</td><td>Nichts: Die MSI-Kopie prüft nicht auf Updates</td></tr>
+<tr><td><code>SERVERMANAGEMENT</code></td><td><code>EnableServerManagement</code>, 0 oder 1</td><td>Nichts: Personen können Server hinzufügen</td></tr>
+</tbody>
+</table>
+<ul>
+<li>Eine nicht angegebene Eigenschaft schreibt nichts, überschreibt also keinen durch die Gruppenrichtlinie gesetzten Wert. <code>AUTOUPDATE</code> und <code>SERVERMANAGEMENT</code> akzeptieren nur 0 oder 1. Das MSI setzt einen Server: Verwenden Sie die Gruppenrichtlinie für mehrere.</li>
+<li><code>DEFAULTUSERNAME</code> muss dem Installer als Text <code>%USERNAME%</code> übergeben werden, damit die App ihn für jede Person ersetzt. Andernfalls ersetzt die Shell, die die Installation ausführt, ihn durch ihren eigenen Kontonamen. In PowerShell die einfachen Anführungszeichen beibehalten. In einer <code>.bat</code>-Datei <code>%%USERNAME%%</code> schreiben. Nach einer Testinstallation in der Registry prüfen, ob <code>DefaultUsername</code> <code>%USERNAME%</code> enthält.</li>
+<li><b>Die Eigenschaften bei jedem Upgrade erneut übergeben.</b> Die Installation einer neuen MSI-Version entfernt die alte, einschließlich der von ihr geschriebenen Werte, und schreibt dann die Werte der neuen Befehlszeile. SCCM und Intune behalten die Befehlszeile einer Anwendung bei: Wiederverwenden Sie sie für jede neue Version. Oder setzen Sie die Richtlinien stattdessen mit der Gruppenrichtlinie oder Intune, die Upgrades nicht betreffen.</li>
+<li>Die MSI und die Gruppenrichtlinie schreiben dieselben Registrierungswerte. Verwenden Sie für jede Einstellung entweder die eine oder die andere Methode: Wenn Sie die MSI deinstallieren, werden die von ihr geschriebenen Werte gelöscht, auch wenn die Gruppenrichtlinie sie ebenfalls gesetzt hat.</li>
+<li>Die MSI protokolliert außerdem ihren Installationsordner unter <code>HKEY_LOCAL_MACHINE\SOFTWARE\Antimatter\Desktop</code> (<code>InstallDir</code>). So weiß die App, dass sie über die MSI installiert wurde.</li>
+</ul>
+<p>Zur Deinstallation: <code>msiexec /x antimatter-desktop-&lt;version&gt;-win-x64.msi /qn</code>. In Intune akzeptiert der Typ „Windows-App (Win32)“ dieselben Befehlszeilen. Für den Typ „Branchenapp“ fügen Sie die Eigenschaften als Befehlszeilenargumente hinzu.</p>
+
+<h2 id="group-policy">Windows: Gruppenrichtlinie und Intune</h2>
+<p>Die Verwaltungsvorlagen <code>antimatter.admx</code> und <code>en-US\antimatter.adml</code> befinden sich im <code>gpo</code>-Ordner der installierten App (<code>C:\Program Files\Antimatter\gpo</code> für die MSI) sowie im Ordner <a href="https://github.com/AntimatterChat/desktop-app/tree/main/resources/windows/gpo">resources/windows/gpo</a> im Repository der App. Sie zeigen diese Richtlinien unter <b>Administrative Vorlagen › Antimatter</b> an:</p>
+<table>
+<thead><tr><th>Richtlinie</th><th>Registrierungswert</th><th>Konfiguration</th></tr></thead>
+<tbody>
+<tr><td><b>Server (DefaultServerList)</b></td><td>Unterschlüssel <code>DefaultServerList</code></td><td>Computer und Benutzer</td></tr>
+<tr><td><b>Vorzupełlender Benutzername (DefaultUsername)</b></td><td><code>DefaultUsername</code></td><td>Computer und Benutzer</td></tr>
+<tr><td><b>Server hinzufügen und entfernen zulassen (EnableServerManagement)</b></td><td><code>EnableServerManagement</code></td><td>Computer und Benutzer</td></tr>
+<tr><td><b>Über neue Versionen benachrichtigen (EnableAutoUpdater)</b></td><td><code>EnableAutoUpdater</code></td><td>nur Computer</td></tr>
+<tr><td><b>Vertrauenswürdige eingebettete Medienursprünge (TrustedEmbeddedMediaOrigins)</b></td><td>Unterschlüssel <code>TrustedEmbeddedMediaOrigins</code></td><td>Computer und Benutzer</td></tr>
+</tbody>
+</table>
+<h3>Gruppenrichtlinie in einer Domäne</h3>
+<ol>
+<li>Kopieren Sie <code>antimatter.admx</code> in den zentralen Speicherort <code>\\&lt;domain&gt;\SYSVOL\&lt;domain&gt;\Policies\PolicyDefinitions</code> und <code>antimatter.adml</code> in dessen <code>en-US</code>-Ordner.</li>
+<li>Öffnen Sie im Gruppenrichtlinienverwaltungs-Editor <b>Computereinstellungen</b> (oder <b>Benutzereinstellungen</b>) › <b>Richtlinien</b> › <b>Administrative Vorlagen</b> › <b>Antimatter</b>.</li>
+<li>Bearbeiten Sie eine Richtlinie, wählen Sie <b>Aktiviert</b> und füllen Sie sie aus. Bei <b>Server</b> klicken Sie auf <b>Anzeigen</b> und fügen Sie je eine Zeile pro Server hinzu: Der Wertname ist der Tab-Name, der Wert ist die Server-URL, z. B. <code>https://chat.example.com</code>.</li>
+</ol>
+<p>Wenn Sie <b>Server hinzufügen und entfernen zulassen</b> oder <b>Über neue Versionen benachrichtigen</b> aktivieren, wird 1 geschrieben; bei Deaktivierung wird 0 geschrieben.</p>
+<h3>Intune</h3>
+<p>Verwenden Sie in <b>Geräte › Konfiguration</b> die Option <b>ADMX importieren</b>, um <code>antimatter.admx</code> zusammen mit <code>en-US\antimatter.adml</code> zu importieren. Erstellen Sie anschließend ein Profil aus <b>Vorlagen › Importierte Verwaltungsvorlagen</b> und legen Sie darin die Antimatter-Richtlinien fest.</p>
+<h3>Ein einzelner Computer oder ein Skript</h3>
+<p>Kopieren Sie die Vorlagen nach <code>C:\Windows\PolicyDefinitions</code>, um sie in <code>gpedit.msc</code> (Windows Pro und Enterprise) zu verwenden. Oder schreiben Sie die Registry-Werte direkt, indem Sie eine <code>.reg</code>-Datei als Administrator importieren (<code>reg import antimatter-policies.reg</code>), wie in diesem Beispiel. Die Datei <code>example-policies.reg</code> im selben Ordner enthält diese Werte mit Kommentaren.</p>
+<pre><code>REGEDIT4
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Antimatter]
+"EnableServerManagement"=dword:00000000
+"EnableAutoUpdater"=dword:00000000
+"DefaultUsername"="%USERNAME%"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Antimatter\DefaultServerList]
+"Chat"="https://chat.example.com"</code></pre>
+
+<h2 id="macos">macOS: ein Konfigurationsprofil</h2>
+<p>Unter macOS liest die App ihre Einstellungen aus den verwalteten Präferenzen ihres Bundle-Identifiers <code>chat.antimatter.desktop</code> mit den Schlüsseln aus <a href="#settings">der Einstellungstabelle</a>. Stellen Sie sie über Ihr MDM (Jamf, Intune, Kandji, Mosyle und andere) als Konfigurationsprofil bereit.</p>
+<ul>
+<li>Der Ordner <a href="https://github.com/AntimatterChat/desktop-app/tree/main/resources/mac/mdm">resources/mac/mdm</a> im Repository der App enthält ein Beispielprofil, <code>antimatter.mobileconfig</code>. Passen Sie dessen Werte an, vergeben Sie eigene Werte für <code>PayloadIdentifier</code> und <code>PayloadUUID</code> (<code>uuidgen</code> erzeugt neue UUIDs) und laden Sie es als benutzerdefiniertes Profil hoch.</li>
+<li>Die meisten MDMs akzeptieren auch nur die Schlüssel, als „Benutzerdefinierte Einstellungen“- oder „Präferenzbereich“-Payload für <code>chat.antimatter.desktop</code>. Im selben Ordner finden Sie diese in <code>example-managed-preferences.plist</code>.</li>
+</ul>
+<p>Die Einstellungen im Payload des Profils:</p>
+<pre><code>&lt;key&gt;PayloadType&lt;/key&gt;
+&lt;string&gt;chat.antimatter.desktop&lt;/string&gt;
+&lt;key&gt;DefaultServerList&lt;/key&gt;
+&lt;array&gt;
+    &lt;dict&gt;
+        &lt;key&gt;name&lt;/key&gt;
+        &lt;string&gt;Chat&lt;/string&gt;
+        &lt;key&gt;url&lt;/key&gt;
+        &lt;string&gt;https://chat.example.com&lt;/string&gt;
+    &lt;/dict&gt;
+&lt;/array&gt;
+&lt;key&gt;DefaultUsername&lt;/key&gt;
+&lt;string&gt;%USER%&lt;/string&gt;
+&lt;key&gt;EnableServerManagement&lt;/key&gt;
+&lt;false/&gt;
+&lt;key&gt;EnableAutoUpdater&lt;/key&gt;
+&lt;false/&gt;</code></pre>
+<p>Boolesche Werte können auch als die Ganzzahlen 0 und 1 angegeben werden.</p>
+
+<h2 id="linux">Linux: die Policy-Datei</h2>
+<p>Unter Linux liest die App <code>/etc/antimatter-desktop/policies.json</code>, ein JSON-Objekt mit den Schlüsseln aus <a href="#settings">der Einstellungstabelle</a>:</p>
+<pre><code>{
+    "DefaultServerList": [
+        {"name": "Chat", "url": "https://chat.example.com"}
+    ],
+    "DefaultUsername": "%USER%",
+    "EnableServerManagement": false,
+    "EnableAutoUpdater": false,
+    "TrustedEmbeddedMediaOrigins": []
+}</code></pre>
+<p>Stellen Sie es mit Ihrem Konfigurationsverwaltungstool (Ansible, Puppet, Salt und andere) bereit, mit root als Eigentümer, lesbar für alle und nur für root beschreibbar:</p>
+<pre><code>sudo install -d /etc/antimatter-desktop
+sudo install -m 644 policies.json /etc/antimatter-desktop/policies.json</code></pre>
+<p>Eine Datei, die kein gültiges JSON ist, wird ignoriert, mit einer Warnung im Protokoll der App. Die Flatpak-Version sieht das <code>/etc</code> des Hostsystems nicht: Gewähren Sie ihr Lesezugriff, dann liest sie die Datei aus <code>/run/host/etc/antimatter-desktop/policies.json</code>:</p>
+<pre><code>sudo flatpak override --system --filesystem=host-etc:ro chat.antimatter.desktop</code></pre>
+
+<h2 id="mattermost-policies">Richtlinien, die für die Mattermost-Desktop-App festgelegt sind</h2>
+<p>Unter Windows liest die App als Fallback auch die für die Mattermost-Desktop-App festgelegten Richtlinien unter <code>SOFTWARE\Policies\Mattermost</code>. Sie liest sie nach Ort: die Werte direkt unter dem Richtlinien-Schlüssel, den Unterschlüssel <code>DefaultServerList</code> und den Unterschlüssel <code>TrustedEmbeddedMediaOrigins</code>. Für jeden dieser drei Orte liest sie den Mattermost-Schlüssel nur, wenn der Antimatter-Schlüssel dort in keinem der beiden Bienenstöcke Werte enthält. Sobald also ein Wert direkt unter dem Antimatter-Schlüssel gesetzt ist, beispielsweise über die <code>AUTOUPDATE</code>-Eigenschaft des MSI, werden keine der Werte direkt unter dem Mattermost-Schlüssel mehr gelesen. Verschieben Sie alle Ihre Richtlinien auf einmal in den Antimatter-Schlüssel.</p>
+<p>Auf macOS werden die verwalteten Einstellungen der Mattermost-Desktop-App (<code>com.mattermost.desktop</code>) nicht gelesen: Richten Sie diese für <code>chat.antimatter.desktop</code> ein.</p>
+
+<h2 id="unsigned">Nicht signierte Builds</h2>
+<p>Die Builds der Desktop-App sind noch nicht mit einem Verlegerzertifikat signiert.</p>
+<ul>
+<li><b>Windows.</b> Wenn eine Person eine heruntergeladene <code>.exe</code>- oder <code>.msi</code>-Datei öffnet, meldet Microsoft Defender SmartScreen, dass Windows den Computer geschützt hat, und nennt einen unbekannten Verleger. Die Person wählt <b>Weitere Informationen</b> und dann <b>Trotzdem ausführen</b>. SmartScreen prüft Dateien, die Personen nach einem Download öffnen, daher sehen Personen diese Warnung nicht, wenn Sie die App über SCCM, Intune oder Gruppenrichtlinien bereitstellen. Wenn Ihre Computer nur Software von genehmigten Verlegern ausführen (AppLocker- oder App Control for Business-Regeln), erlauben Sie die App stattdessen über ihren Installationspfad oder den Datei-Hash.</li>
+<li><b>macOS.</b> Die App ist ad hoc signiert, aber nicht von Apple notariert. Beim ersten Öffnen einer heruntergeladenen Kopie meldet macOS, dass es nicht überprüfen kann, ob die App frei von Malware ist, und öffnet sie nicht. Auf macOS 15 und neuer öffnen die Person <b>Systemeinstellungen › Datenschutz &amp; Sicherheit</b> und wählen <b>Trotzdem öffnen</b>. Auf früheren Versionen klicken sie mit der Steuerungs-Taste auf die App und wählen <b>Öffnen</b>. Gatekeeper prüft nur Dateien, die als heruntergeladen markiert sind (mit dem Quarantäne-Attribut): Wenn Sie die App mit Ihren eigenen Tools installieren, entfernen Sie die Markierung in Ihrem Installationsskript mit <code>xattr -dr com.apple.quarantine /Applications/Antimatter.app</code>.</li>
+</ul>

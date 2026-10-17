@@ -1,14 +1,14 @@
 title: Збирання з початкового коду
-description: Як зібрати Antimatter з початкового коду: сервер на Go, вебінтерфейси Fusion та класичний, сервер для розробки, тести, архіви для випуску, образ Docker, а також застосунки для настільних і мобільних пристроїв.
+description: Як зібрати Antimatter із вихідного коду: сервер на Go, вебінтерфейси Fusion і класичний, сервер для розробки, тести, архіви та пакети для випуску, образ Docker, а також застосунки для настільних і мобільних пристроїв.
 guide: developers
 order: 7
 nav: Збирання з початкового коду
 lead: На цій сторінці описано, як зібрати та запустити Antimatter з початкового коду — для роботи над ним або для створення власних збірок. Сторінка охоплює сервер і вебінтерфейси, які зберігаються в одному репозиторії, а також образ Docker і застосунки.
-source: dfdf67f34f6e
+source: 04025042c2ad
 ---
 <h2 id="requirements">Що потрібно</h2>
 <ul>
-<li><b>Перейти</b>, у версії з <code>server/go.mod</code> (1.26.7 станом на момент написання).</li>
+<li><b>Go</b> версії, зазначеної у <code>server/go.mod</code> (1.26.7 на момент написання).</li>
 <li><b>Node.js і npm</b> версій, зазначених у <code>.nvmrc</code> та <code>webapp/package.json</code> (Node 24.11.1 з npm 11.6.2). За допомогою <a href="https://mise.jdx.dev">mise</a> файл <code>mise.toml</code> у репозиторії встановлює потрібну версію Node.</li>
 <li><b>Docker</b> з Compose: для налаштування середовища розробки PostgreSQL та кілька інших служб запускаються в контейнерах.</li>
 <li><b>make</b>, <b>git</b> та комп’ютер з Linux або macOS.</li>
@@ -68,7 +68,16 @@ npm run build    # the classic interface, then Fusion</code></pre>
 cd server
 make build-linux       # the antimatter and amctl binaries
 make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
-<p><code>make build</code> збирає веб-інтерфейси та Linux-бінарні файли одним кроком. Архів містить <code>bin/antimatter</code>, <code>bin/amctl</code>, типовий <code>config/config.json</code>, обидва веб-інтерфейси, шаблони, шрифти та переклади. Інші платформи: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>. Архіви не містять вбудованих додатків; Docker-образ їх містить.</p>
+<p><code>make build</code> збирає вебінтерфейси та бінарні файли для Linux одним кроком. Архів містить <code>bin/antimatter</code>, <code>bin/amctl</code>, типовий <code>config/config.json</code> з <code>README.md</code> щодо зміни налаштувань, обидва вебінтерфейси, шаблони, шрифти та переклади. Інші платформи: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>.</p>
+<h3>Вбудовані додатки</h3>
+<p>Звичайний <code>make package-linux</code> збирає архів без застосунків. Щоб додати їх, як у публічних випусках, спочатку отримайте підписані пакети застосунків і вкажіть їхню папку:</p>
+<pre><code>build/package/fetch-apps.sh "$HOME/release-apps"   # needs gh, python3 and gpg
+make package-linux PREPACKAGED_PLUGINS_DIR="$HOME/release-apps"</code></pre>
+<p><code>fetch-apps.sh</code> завантажує останній випуск GitHub для кожного застосунка зі списку в <code>plugins.json</code> репозиторію antimatter-docker, разом із підписом, і перевіряє підпис за ключем плагінів Antimatter. Типово включаються Whiteboard, Voice channels, Calls, Agents, Todo, Polls, Notes, GIFs і Memes; <code>AM_BUNDLED_APPS</code> (назви репозиторіїв, розділені пробілами) змінює цей список. Застосунки без випуску або без підпису пропускаються з попередженням. Пакети потрапляють у <code>prepackaged_plugins/</code> архіву.</p>
+<h3>Пакети .deb і .rpm</h3>
+<p><code>build/package/build-packages.sh &lt;archive&gt; &lt;amd64|arm64&gt; &lt;version&gt; &lt;out-dir&gt;</code> перетворює архів випуску на універсальні пакети <code>.deb</code> та <code>.rpm</code> за допомогою <a href="https://nfpm.goreleaser.com">nfpm</a>. Адміністративний посібник описує, що саме вони встановлюють: див. <a href="{{root}}docs/admins/install.html#packages">Встановлення пакета .deb або .rpm</a>.</p>
+<h3>Процес випуску</h3>
+<p>Процес <code>antimatter-release.yml</code> у репозиторії сервера виконує все це на GitHub: за тегом <code>v*</code> він збирає архіви та пакети для <code>amd64</code> і <code>arm64</code>, з <code>SHA256SUMS</code>, і публікує їх як випуск GitHub для цього тега (превипуск для версії з <code>-</code>). Якщо запустити вручну, він нумерує збірку як <code>0.9.0-dev.&lt;run&gt;</code> і зберігає файли як артефакти процесу. Кожен репозиторій застосунка має процес <code>release.yml</code>, який публікує його підписаний пакет аналогічним чином.</p>
 
 <h2 id="docker">Docker-образ</h2>
 <p>Репозиторій <a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> збирає опубліковані образи, сервер із його додатками, повністю всередині Docker:</p>
@@ -97,6 +106,6 @@ VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatt
 npm run build          # development build, into dist/
 npm start              # run it
 npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
-<p>Налаштування під час збірки, наприклад сервери для попереднього налаштування, зберігаються у <code>src/common/config/buildConfig.ts</code>.</p>
+<p>Налаштування часу збірки, наприклад сервери для попередньої конфігурації, містяться у файлі <code>src/common/config/buildConfig.ts</code>. Якщо немає сертифіката Apple, встановіть <code>AM_MAC_ADHOC_SIGN=true</code>, щоб підписати застосунок для macOS ad hoc без нотаризації: Mac на процесорах Apple відмовляються запускати непідписаний код. Робочий процес <code>release.yml</code> у репозиторії збирає непідписані пакети для Linux, Windows та macOS за тегом <code>v*</code>.</p>
 <h3>Мобільний додаток</h3>
-<p><a href="https://github.com/AntimatterChat/mobile-app">Мобільний додаток</a> — це застосунок React Native; у його README наведено команди (<code>npm run ios</code>, <code>npm run android</code>). Щоб зібрати власну копію, також потрібні власні ключі підпису, проєкт Firebase для сповіщень на Android, ключ APNs для iOS та <a href="https://github.com/AntimatterChat/push-proxy">проксі для push-сповіщень</a>, що зберігає ці облікові дані.</p>
+<p><a href="https://github.com/AntimatterChat/mobile-app">Мобільний застосунок</a> — це застосунок на React Native; у його файлі README наведено команди (<code>npm run ios</code>, <code>npm run android</code>). Для збірки власної копії також потрібні власні ключі підпису, проєкт Firebase для сповіщень на Android, ключ APNs для iOS та <a href="https://github.com/AntimatterChat/push-proxy">проксі-сервер для push-сповіщень</a>, що зберігає ці облікові дані. Робочий процес <code>release.yml</code> у репозиторії збирає Android APK та AAB, а також непідписаний iOS <code>.ipa</code> за тегом <code>v*</code>, без акаунтів магазинів; у його файлі README наведено секрети для підпису збірки Android та налаштування Firebase.</p>

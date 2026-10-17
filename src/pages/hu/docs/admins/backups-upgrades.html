@@ -4,19 +4,21 @@ guide: admins
 order: 10
 nav: Biztonsági mentések és frissítések
 lead: Mit kell menteni, hogyan állítható vissza új gazdagépen, hogyan frissíthető, és hogyan helyezhető át egy Mattermost-szerver vagy egy közösség Antimatterre.
-source: b0797af8b6e7
+source: 531ec332715c
 ---
 <h2 id="what">Mit kell menteni</h2>
 <table>
-<thead><tr><th>Mit</th><th>A site compose-fájllal</th><th>Kiadási archívummal</th></tr></thead>
+<thead><tr><th>Mit</th><th>A site compose-fájllal</th><th>Kiadási archívummal</th><th>A .deb vagy .rpm csomag használata esetén</th></tr></thead>
 <tbody>
-<tr><td>Az adatbázis: üzenetek, felhasználók, közösségek, csatornák és, a site compose-fájllal, a konfiguráció</td><td><code>antimatter_postgres</code> kötet, <code>pg_dump</code> segítségével</td><td>PostgreSQL-adatbázis</td></tr>
-<tr><td>Feltöltött fájlok, képek és telepített alkalmazások</td><td><code>antimatter_files</code> kötet (az S3-tárhely)</td><td><code>FileSettings.Directory</code>, alapértelmezetten <code>./data/</code></td></tr>
-<tr><td>A konfigurációs fájl</td><td>(az adatbázisban)</td><td><code>config/config.json</code></td></tr>
-<tr><td>GIF-ek és matricák</td><td><code>antimatter_gifs</code> kötet</td><td>a GIF-szolgáltatás adattárhelye</td></tr>
-<tr><td>Titkok</td><td><code>.env</code> (és <code>compose.override.yaml</code>)</td><td>környezeti fájl</td></tr>
+<tr><td>Az adatbázis: üzenetek, felhasználók, közösségek, csatornák és, a site compose-fájllal, a konfiguráció</td><td><code>antimatter_postgres</code> kötet, <code>pg_dump</code> segítségével</td><td>PostgreSQL-adatbázis</td><td>PostgreSQL-adatbázis</td></tr>
+<tr><td>Feltöltött fájlok, képek és telepített alkalmazások</td><td><code>antimatter_files</code> kötet (az S3-tárhely)</td><td><code>FileSettings.Directory</code>, alapértelmezetten <code>./data/</code></td><td><code>/var/lib/antimatter</code></td></tr>
+<tr><td>A konfigurációs fájl</td><td>(az adatbázisban)</td><td><code>config/config.json</code></td><td><code>/etc/antimatter/config/config.json</code></td></tr>
+<tr><td>GIF-ek és matricák</td><td><code>antimatter_gifs</code> kötet</td><td>a GIF-szolgáltatás adattárhelye</td><td><code>/var/lib/gifs-server</code></td></tr>
+<tr><td>Titkok</td><td><code>.env</code> (és <code>compose.override.yaml</code>)</td><td>környezeti fájl</td><td><code>/etc/antimatter/antimatter.env</code>, <code>/etc/gifs-server</code></td></tr>
+<tr><td>Az AI titkosítási kulcs, amely a modellkapcsolatok kulcsait titkosítja</td><td><code>AM_AI_ENCRYPTION_KEY</code> a <code>.env</code> fájlban (ajánlott), vagy az <code>ai-encryption.key</code> fájl az <code>antimatter_data</code> kötetben</td><td><code>AM_AI_ENCRYPTION_KEY</code>, vagy <code>data/ai-encryption.key</code></td><td><code>AM_AI_ENCRYPTION_KEY</code> az <code>antimatter.env</code> fájlban, vagy <code>/var/lib/antimatter/data/ai-encryption.key</code></td></tr>
 </tbody>
 </table>
+<p>Az AI titkosítási kulcs nélkül a visszaállított szerver nem tudja beolvasni a modellkapcsolatok API-kulcsait, és mindegyiket újra be kell gépelni. Őrizzen meg egy példányt a kulcsról a adatbázis mentésektől elkülönítve, hogy egy ellopott mentés ne tartalmazza mindkettőt. Lásd: <a href="{{root}}docs/admins/ai.html#encryption-key">A titkosítási kulcs</a>.</p>
 <p>Az adatbázis és a fájlok egymáshoz tartoznak: egyszerre mentse őket, és tartsa a másolatokat a szerveren kívül. A kötetnevek a compose-projekt névvel kezdődnek, <code>antimatter</code> (<code>docker volume ls</code> sorolja fel őket).</p>
 
 <h2 id="backup">Biztonsági mentés</h2>
@@ -27,19 +29,20 @@ docker compose stop antimatter
 # Database
 docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
     &gt; "backups/antimatter-db-$stamp.dump"
-# File storage and GIF service
-for v in files gifs; do
+# File storage, GIF service and the data directory (the AI key file)
+for v in files gifs data; do
     docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
         alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
 done
 docker compose start antimatter
 # Secrets
 cp .env "backups/env-$stamp"</code></pre>
+<p>Ha nem állított be <code>AM_AI_ENCRYPTION_KEY</code> értéket, a szerver kulcsfájlja a <code>data</code> kötetben található, amelyet a fenti ciklus a többi fájllal együtt ment. Jobb, ha a tartalmát a <code>.env</code> fájlban tárolja, ahogy a <a href="{{root}}docs/admins/ai.html#encryption-key">A titkosítási kulcs</a> rész ismertet, és őrizzon meg egy példányt a kulcsról a adatbázis mentésektől elkülönítve.</p>
 <p>Futtassa cronból napi mentésekhez, és másolja a <code>backups/</code> könyvtárat másik gépre. A <code>.env</code> másolatait ugyanolyan biztonságban tartsa, mint a szervert: azok tartalmazzák a jelszavakat.</p>
 <p>Ha a feltöltött fájlokat objektumonként szeretné másolni (például másik S3-tárhelyre), használja a <code>bucket</code> szolgáltatás AWS parancssori eszközét:</p>
 <pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
     "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
-<p>Kiadási archívummal az adatbázist <code>pg_dump -Fc</code> segítségével, a <code>data/</code> és <code>config/</code> könyvtárakat pedig a szokásos eszközeivel mentse.</p>
+<p>Kiadási archívum esetén a <code>pg_dump -Fc</code> paranccsal mentse az adatbázist, a <code>data/</code> és <code>config/</code> könyvtárakat pedig a szokásos eszközeivel (<code>data/</code> tartalmazza az AI kulcsfájlt). Csomagok esetén az adatbázist ugyanígy mentse, valamint a <code>/etc/antimatter</code>, <code>/var/lib/antimatter</code>, <code>/etc/gifs-server</code> és <code>/var/lib/gifs-server</code> könyvtárakat is.</p>
 
 <h2 id="restore">Visszaállítás új gazdagépen</h2>
 <p>Helyezze el a <code>compose.yaml</code>-t, a mentett <code>.env</code>-t és a biztonsági mentéseket egy új könyvtárban, majd:</p>
@@ -48,15 +51,16 @@ docker compose create           # creates the volumes, starts nothing
 docker compose up -d postgres
 docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
     &lt; "backups/antimatter-db-$stamp.dump"
-for v in files gifs; do
+for v in files gifs data; do
     docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
         alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
 done
 docker compose up -d</code></pre>
-<p>Használja ugyanazt a <code>.env</code>-t: a tárhelynek és az adatbázisnak meg kell őriznie a korábbi jelszavait. Ha az új gazdagépnek más címe van, frissítse a <code>SITE_URL</code>-t (és a <code>DOMAIN</code>-t).</p>
+<p>Használja ugyanazt a <code>.env</code> fájlt: a tárhelynek és az adatbázisnak meg kell őriznie a korábbi jelszavait, a modellkapcsolatoknak pedig ugyanaz az AI titkosítási kulcs kell. Ha az új gazdagépnek más címe van, frissítse a <code>SITE_URL</code> (és a <code>DOMAIN</code>) értéket.</p>
 <p>Időnként állítsa vissza a biztonsági mentéseket másik gépen, hogy tesztelje őket.</p>
 
 <h2 id="upgrade">Frissítés</h2>
+<div class="callout warn">A 2026. október 17. előtt letöltött Compose fájlok nem tartalmaztak <code>data</code> kötetet: az AI kulcsfájl a konténerben volt. Mielőtt a új <code>compose.yaml</code> fájlt használná, és ha a <code>.env</code> fájl nem tartalmaz <code>AM_AI_ENCRYPTION_KEY</code> értéket, mentse el a szerver által generált kulcsot: <code>echo "AM_AI_ENCRYPTION_KEY=$(docker compose exec -T antimatter cat /antimatter/data/ai-encryption.key)" &gt;&gt; .env</code>. Ha a parancs nem talál fájlt, az azt jelenti, hogy még egyetlen modellkapcsolat sem mentett el kulcsot.</div>
 <ol>
 <li>Készítsen biztonsági mentést.</li>
 <li>Módosítsa a <code>.env</code> fájlban lévő képküszöböt (<code>ANTIMATTER_IMAGE</code>), ha rögzített verziót használ, ahogy ajánlott.</li>
@@ -65,12 +69,45 @@ docker compose up -d</code></pre>
 docker compose up -d
 docker compose logs -f antimatter</code></pre></li>
 </ol>
-<p>Induláskor a szerver frissíti a adatbázis sémét (a folyamatot a naplóban követheted; nagyobb szerver esetén ez több percet is igénybe vehet), és telepíti a képhez tartozó alkalmazások újabb verzióit. Kiadási archívum esetén: állítsd le a szervert, cseréld le minden más tartalmat a <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> és <code>client/plugins/</code> mappák kivételével az új archívum tartalmára, majd indítsd újra.</p>
+<p>Induláskor a szerver frissíti a adatbázis sémét (a folyamatot a naplóban követheted; nagyobb szerver esetén ez több percet is igénybe vehet), és telepíti a képhez csatolt alkalmazások újabb verzióit. Kiadási archívum esetén: állítsd le a szervert, cseréld le minden más tartalmat a <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> és <code>client/plugins/</code> könyvtárak kivételével az új archívum tartalmára, majd indítsd újra. .deb vagy .rpm csomag esetén a <a href="{{root}}docs/admins/install.html#packages">Csomag frissítése</a> fejezetben leírtak szerint telepítsd az új csomagot.</p>
 <div class="callout warn">A frissítések csak előre irányulnak. Amint egy újabb szerververzió frissítette az adatbázist, a régebbi verzió már nem használhatja: a visszaváltáshoz állítsd vissza a frissítés előtt készített mentést. Ez a szabály éppúgy vonatkozik a <code>antimatter-next</code>-ről a <code>antimatter</code>-re való átvándorlásra is.</div>
 <h3>Verziók</h3>
-<p>Az Antimatter szerver jelzi, melyik Mattermost verziósávon alapul (jelenleg a 12.0.0). A képeket a <code>main</code> ágakból állítják össze: az <code>antimatter-next</code> verziót minden éjszaka (címkék: <code>nightly-&lt;YYYYMMDD&gt;</code>), mindkét képet pedig minden módosítás esetén (címkék: <code>sha-&lt;commit&gt;</code>). Rögzítsd az egyik ilyen címkét, szándékosan frissíts, és jegyezd fel a korábbi címkét is, hogy tudd, melyik mentés tartozik hozzá.</p>
+<p>Az Antimatter szerver jelzi, melyik Mattermost verziósávon alapul (jelenleg a 12.0.0). A GitHubon megjelenő kiadások, archívumaikkal és csomagjaikkal, saját verziószámmal rendelkeznek, a béta időszakban a 0.9.0 sorozatban: az <code>antimatter version</code> parancs ezt a <b>Kiadás száma</b> mezőben mutatja. A képeket a <code>main</code> ágakból állítják elő: az <code>antimatter-next</code> éjszaka (címkék: <code>nightly-&lt;YYYYMMDD&gt;</code>), mindkét kép pedig minden módosításnál (címkék: <code>sha-&lt;commit&gt;</code>). Rögzítsd (pin) az egyik ilyen címkét, szándékosan frissíts, és jegyezd fel az előző címkét, hogy tudd, melyik mentés tartozik hozzá.</p>
 <h3>PostgreSQL főverziók</h3>
 <p>A compose fájl a <code>postgres:17-alpine</code> verziót használja. Az Antimatter PostgreSQL 15 vagy újabb verziót igényel. Egy új PostgreSQL főverzió nem tudja beolvasni a korábbi verzió adatkönyvtárát: az átvándorláshoz készíts dumpot az adatbázisról, indítsd el az új verziót egy új köteten, és állítsd vissza a dumpot ebbe.</p>
+
+<h2 id="v090">Frissítés a 0.9.0 verzióra</h2>
+<p>A 0.9.0 verzió (vagy a 2026. október 17-től készült képek) első indításakor néhány egyszeri módosítás történik az adatokban. Mindegyik csak egyszer fut le, és rögzítésre kerül az adatbázisban. Ezek azokat az értékeket állítják be, amelyek korábban a régi alapértelmezett beállítások szerint maradtak, miközben az adminisztrátor által kifejezetten választott beállításokat nem érintik. A folyamatot a naplóban követheted.</p>
+<div class="callout warn">If Antimatter is for a company or an organisation, set <b>Kind of new communities</b> to <b>Workplace</b> <em>before</em> you upgrade: <code>AM_TEAMSETTINGS_DEFAULTCOMMUNITYKIND=workplace</code>. The upgrade gives every community the kind this setting has at that moment, and calls are off by default in the channels of communities of the <b>Community</b> kind. See <a href="{{root}}docs/admins/configuration.html#community-kind">Workplace or community</a>.</div>
+<table>
+<thead><tr><th>Mit</th><th>A módosítás</th></tr></thead>
+<tbody>
+<tr><td>Közösségtípusok</td><td>Minden közösség kap egy típust: <b>Közösség</b> vagy <b>Munkahely</b>, amelynek értéke a <b>Új közösségek típusa</b> (<code>TeamSettings.DefaultCommunityKind</code>) beállítás első indításkori állapota. A már beállított típusok megmaradnak. A közösség adminisztrátorai később is módosíthatják a közösség típusát a <b>Csapatbeállítások › Csatornák › Közösség típusa</b> menüben.</td></tr>
+<tr><td>Ki archiválhatja a csatornákat</td><td>A csatorna tagjai már nem archiválják a csatornáikat: ezt a közösség adminisztrátorai végzik. Munkahelyi környezetben a csatorna adminisztrátorai (az, aki létrehozta, és azok, akiket adminisztrátorrá neveztek ki) is archiválhatják. Ez a rendszereséma szerepeit módosítja; a rendszeradminisztrátor által egyes közösségek számára létrehozott jogosultságesémák változatlanul maradnak.</td></tr>
+<tr><td>A elrendezési sablonok Moderators szerepe</td><td>A közösségek elrendezési sablonból kapott <b>Moderators</b> szerepét a <b>Emberek eltávolítása</b> jogosultsággal látják el, amelyre a tagok időbeli kizárásához és eltávolításához szükség van. Csak azok a szerepek változnak, amelyek pontosan a sablon által meghatározottak; a felhasználó által szerkesztett szerepek érintetlenek maradnak.</td></tr>
+<tr><td>Az <b>Administrator</b> jogosultsággal rendelkező szerepek</td><td>A közösségi szerep, amelynek <b>Administrator</b> kapcsolója be van kapcsolva, mostantól mindent megtesz, amit a közösség adminisztrátorai tehetnek, ahogy a kapcsoló is jelzi, nem csak a közösségi beállításokat.</td></tr>
+<tr><td>A tagok száma</td><td>A <b>Maximális tagok száma közösségenként</b> (<code>TeamSettings.MaxUsersPerTeam</code>) értéke 50-ről (a régi alapérték) 0-ra (korlát nélkül) változik. Minden más érték, valamint az <code>AM_TEAMSETTINGS_MAXUSERSPERTEAM</code> környezeti változóval beállított korlát is megmarad.</td></tr>
+<tr><td>Modellkapcsolatok</td><td>A rendszeradminisztrátorok a modellkapcsolatok kezelését kapják meg, a közösségi adminisztrátorok (és az <b>Administrator</b> jogosultsággal rendelkező szerepek) pedig a saját közösségükéit. Az Agents alkalmazás AI-szolgáltatásai szerver-szintű <a href="{{root}}docs/admins/ai.html#connections">modellkapcsolatokká</a> válnak, lásd alább.</td></tr>
+<tr><td>A Town Square átkeresztelése Generalre</td><td>Minden közösség alapértelmezett csatornáját átkeresztelik <code>town-square</code> (Town Square) névről <code>general</code> (General) névre. Az azonosítója, tagjai, üzenetei és beállításai, valamint az adminisztrátorok által választott megjelenő név változatlanul maradnak. A régi, <code>town-square</code> névre mutató hivatkozások továbbra is ide vezetnek. Ha egy közösségben már létezik <code>general</code> nevű csatorna (még archivált is), akkor a <code>town-square</code> marad az alapértelmezett csatorna; ugyanez igaz, ha a <code>town-square</code> archiválva van: a napló ezeket a közösségeket felsorolja, és adminisztrátoruk átnevezheti a csatornákat.</td></tr>
+<tr><td>Kedvencek</td><td>Mindenki Kedvencek oldalsáv-kategóriáját átkeresztelik Favouritesre, ahogy a felület most is jelzi. Azok a kategóriák, amelyeket a felhasználók ezzel a névvel hoztak létre, változatlanul maradnak.</td></tr>
+</tbody>
+</table>
+<h3>Az Agents alkalmazás szolgáltatásai</h3>
+<p>A frissítés másolja az Agents app minden AI-szolgáltatását szerver-szintű modellkapcsolattá, amelyet minden közösség megoszt, és mindenki használhat, vendégek kivételével (a <b>Vendégek is</b> bekapcsolásával engedélyezhetők). A kulcsok titkosítva átkerülnek, ezért a szervernek szüksége van az AI titkosítási kulcsára: ha a fájlok S3-ban vannak, előbb állítsa be a <code>AM_AI_ENCRYPTION_KEY</code> értéket, különben a másolás a következő indítást várja. Ezután ellenőrizze a <b>Rendszerkonzol › AI › Modellkapcsolatok</b> menüpontot:</p>
+<ul>
+<li>Minden kapcsolat megtartja a hozzá tartozó szolgáltatás azonosítóját, így az app ügynökei és az Agents-szolgáltatáshoz beállított automatikus fordítás továbbra is megtalálja.</li>
+<li>Az OpenAI, OpenAI-kompatibilis, Anthropic, Mistral, Cohere és Gemini szolgáltatások a megfelelő OpenAI-kompatibilis (vagy Anthropic) végpont felé mutató kapcsolattá alakulnak. Az Azure-szolgáltatás a erőforrás OpenAI-kompatibilis végpontjára mutató kapcsolattá válik: tesztelje.</li>
+<li>Az AWS Bedrock, Google Vertex AI és Cohere North szolgáltatások, valamint az ismeretlen típusok <b>Figyelmet igényel</b> állapotot kapnak, a hiba okával. A felhő-kredenciálok nem másolódnak: mutassa rá a szolgáltató OpenAI-kompatibilis végpontjára vagy egy LiteLLM-szerű kapura, majd mentse.</li>
+<li>A beágyazási (embedding) szolgáltatás a <b>Beágyazások</b> modelljévé válik a ugyanazon című és kulcsú kapcsolatban, vagy saját kapcsolattá. A transzkripciós szolgáltatás a <code>whisper-1</code> modellt kapja.</li>
+<li>Ha a szövegátírásnak és a összefoglalóknak még nincs kapcsolata, akkor az app alapértelmezett ügynökének szolgáltatását és modeljét kapják.</li>
+</ul>
+<p>Az Agents app saját beállításai és adatai változatlanok maradnak: az ügynökei továbbra is a saját szolgáltatásaikat használják.</p>
+<h3>Egyéb alapértelmezések módosítása</h3>
+<ul>
+<li><b>Hívások</b>: a <b>Próba mód</b> alapértelmezetten kikapcsolva, a <b>Videó engedélyezése</b> pedig bekapcsolva. A konfigurációban mentett beállítások megmaradnak. A hívások a közösség típusát is követik (lásd: <a href="{{root}}docs/admins/calls.html#where-calls">Hívások és hang</a>).</li>
+<li>Az üzenetek kitűzését a csatorna adminisztrátorai, a közösség adminisztrátorai és moderátorai (a <b>Üzenetek kezelése</b> jogosultsággal) végezhetik; a közvetlen vagy csoportos üzenetek tagjai továbbra is tehetik.</li>
+<li>Az archivált csatornákba új tagok csatlakozhatnak, akik elolvashatják az előzményeket. Senki nem posztol, nem reagál és nem módosít semmit bennük.</li>
+</ul>
 
 <h2 id="mattermost">Átvándorlás Mattermostból</h2>
 <p>Az Antimatter a Mattermost adatbázis-sémáját használja, és saját táblákat ad hozzá, ezért átveheti egy Mattermost szerver PostgreSQL-adatbázisát és fájljait. Először egy másolaton próbáld ki:</p>
@@ -86,6 +123,7 @@ docker compose logs -f antimatter</code></pre></li>
 <ul>
 <li>a Mattermost push-értesítési szervere szerepel a beállításokban, de soha nem kerül használatba;</li>
 <li>A Mattermost piactér (<b>Piactér URL</b>) és a termékértesítések címmezése kiürül;</li>
+<li>a Mattermost alapértelmezett app letöltő linkjei (<b>Antimatter Apps Download Page Link</b>, <b>Android App letöltő linkje</b> és <b>iOS App letöltő link</b>) helyett az Antimatter appok GitHub-on található letöltő oldalai kerülnek be; a saját maga által beállított linkek megmaradnak;</li>
 <li>a Hívások alkalmazás a Mattermost helyett a Cloudflare nyilvános STUN szerverét használja, anélkül, hogy a mentett beállítást módosítaná (lásd: <a href="{{root}}docs/admins/calls.html#network">Hívások</a>);</li>
 <li>a biztonsági frissítések ellenőrzése és a hibajelentés eltűnt, ahogy a hozzájuk tartozó Rendszerkonzol-beállítások (<b>Biztonsági figyelmeztetések engedélyezése</b>, <b>Diagnosztika és hibajelentés engedélyezése</b>) és a <b>Közlemények</b> oldal is.</li>
 </ul>

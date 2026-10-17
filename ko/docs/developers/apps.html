@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>앱(플러그인) 작성 · Antimatter</title>
-<meta name="description" content="Antimatter 앱(플러그인) 작성 방법: 번들 레이아웃과 plugin.json, 서버 훅과 API, 웹 앱 레지스트리, Fusion 인터페이스 지원, 설정, 키-값 저장소, 번역, 패키징 및 설치.">
+<meta name="description" content="Antimatter 앱(플러그인) 작성 방법: 번들 레이아웃과 plugin.json, 서버 훅과 API, AI 서비스, 웹 앱 레지스트리, Fusion 인터페이스 지원, 설정, 키-값 저장소, 번역, 패키징 및 설치.">
 <meta property="og:title" content="앱(플러그인) 작성 · Antimatter">
-<meta property="og:description" content="Antimatter 앱(플러그인) 작성 방법: 번들 레이아웃과 plugin.json, 서버 훅과 API, 웹 앱 레지스트리, Fusion 인터페이스 지원, 설정, 키-값 저장소, 번역, 패키징 및 설치.">
+<meta property="og:description" content="Antimatter 앱(플러그인) 작성 방법: 번들 레이아웃과 plugin.json, 서버 훅과 API, AI 서비스, 웹 앱 레지스트리, Fusion 인터페이스 지원, 설정, 키-값 저장소, 번역, 패키징 및 설치.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://antimatter.chat/ko/docs/developers/apps.html">
 <meta property="og:locale" content="ko">
@@ -200,6 +200,22 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 <li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: 사용자 대신 작업을 수행하기 전에 누가 무엇을 할 수 있는지 확인합니다.</li>
 </ul>
 <p>앱은 클러스터의 모든 서버에서 실행됩니다. 상태는 메모리에만 저장하지 말고 키-값 저장소 또는 데이터베이스에 저장하세요.</p>
+<h3 id="ai">AI 서비스</h3>
+<p>Antimatter 서버는 관리자가 설정한 모델 연결을 통해 앱용 AI 모델을 호출합니다(관리자 가이드의 <a href="../../../ko/docs/admins/ai.html">AI</a> 참고). 앱은 제공자의 키를 절대 보유하지 않습니다. 대신 앱은 자신이 대리하는 사람과 위치를 지정하고, 서버는 해당 사람이 해당 위치에서 연결을 사용할 수 있는지 확인한 후 제한 사항과 예산을 적용하며, 토큰을 해당 사람과 앱 기준으로 집계하고, 콘텐츠 없이 호출을 감사 기록합니다.</p>
+<table>
+<thead><tr><th>메서드</th><th>기능</th></tr></thead>
+<tbody>
+<tr><td><code>AIChat(actingUserID, channelID, teamID, *ai.ChatRequest)</code></td><td>채팅 완성: 메시지, 도구, 구조화된 출력(<code>JSONSchema</code>).</td></tr>
+<tr><td><code>AIChatStream(…)</code></td><td>동일한 기능의 스트리밍: 채널이 닫힐 때까지 스트림의 <code>Events</code>를 읽거나, 호출을 중단하려면 <code>Close</code>를 호출합니다.</td></tr>
+<tr><td><code>AIEmbed(…, *ai.EmbedRequest)</code></td><td>텍스트 임베딩.</td></tr>
+<tr><td><code>AITranscribe(…, *ai.TranscribeRequest)</code></td><td>음성에서 텍스트로 변환.</td></tr>
+<tr><td><code>AIDecide(…, *ai.DecideRequest)</code></td><td>텍스트에 대한 의사결정 모델(예/아니오, 선택, 점수)에 대한 유형화된 질문.</td></tr>
+<tr><td><code>AIConnectionsForUser(userID, channelID, teamID)</code></td><td>해당 위치에서 사람이 사용할 수 있는 연결, 그 모델과 기능, 그리고 절대 포함되지 않는 키.</td></tr>
+</tbody>
+</table>
+<p>각 요청의 <code>ConnectionID</code>는 연결을 선택하고, <code>Model</code>은 해당 연결의 모델 중 하나를 선택합니다(공백이면 연결의 기본 모델). <code>Operation</code>은 사용 및 감사 기록을 위한 짧은 레이블이며, 콘텐츠가 아닙니다. 최소 서버 버전은 11.11입니다.</p>
+<div class="callout warn"><code>actingUserID</code>는 서버가 검증한 출처에서만 가져오세요: <code>ServeHTTP</code>에 대한 요청의 <code>Mattermost-User-Id</code> 헤더, 또는 훅 컨텍스트의 사용자(게시글 작성자, 명령을 실행한 사용자). 메시지, 웹훅 페이로드, URL 또는 다른 앱의 요청에서 가져오지 마세요: 그러면 다른 사람의 접근 권한을 소모하게 됩니다.</div>
+<p>이러한 메서드와 <code>ai</code> 패키지(<code>server/public/ai</code>)는 Mattermost가 게시한 버전이 아닌 Antimatter의 모듈 복사본에만 존재합니다. 이를 사용하려면 <code>go.mod</code>에 <code>replace</code> 줄을 추가하여 Antimatter의 <code>server/public</code>에 대해 빌드해야 합니다. 예를 들어 <code>replace github.com/mattermost/mattermost/server/public =&gt; ../antimatter/server/public</code>. 이러한 앱은 Antimatter에서만 실행됩니다.</p>
 
 <h2 id="kv">데이터 저장</h2>
 <p>각 앱은 서버 데이터베이스에 자체 키-값 저장소를 가집니다:</p>
@@ -241,17 +257,17 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <pre><code>export function isFusionUI(): boolean {
     return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
 }</code></pre>
-<p>번들 앱은 이를 통해 다른 방식으로 렌더링됩니다. 투표 앱은 Fusion 스타일로 투표 카드와 생성 대화 상자를 그리고, Fusion에서 <code>/poll</code>을 실행할 때 자체 대화 상자를 엽니다. 통화 및 음성 채널은 Fusion이 자체 통화 인터페이스로 대체하는 사이드바와 토스트 구성 요소를 제외합니다. 에이전트 앱은 호버 툴바 대신 메시지 메뉴의 하위 메뉴에 AI 작업을 배치합니다. Fusion의 자체 CSS 클래스(<code>am-</code> 접두사)와 대화 상자 레이어(<code>am-layer</code> 요소)는 이러한 앱이 인터페이스를 일치시키기 위해 사용하는 요소이며, 문서화된 안정적인 API가 아닙니다.</p>
+<p>번들 앱은 이를 사용하여 다르게 렌더링합니다. 투표 앱은 Fusion 스타일로 투표 카드와 생성 대화 상자를 그리고, Fusion에서 <code>/poll</code>을 열 때 자체 대화 상자를 엽니다. 통화 및 음성 채널은 Fusion이 자체 통화 인터페이스로 대체하는 사이드바와 토스트 구성 요소를 제외합니다. 에이전트 앱은 호버 툴바 대신 메시지 메뉴의 <b>더 많은 작업</b> 그룹 아래에 AI 작업을 배치합니다. Fusion의 자체 CSS 클래스(<code>am-</code> 접두사)와 대화 상자 레이어(<code>am-layer</code> 요소)는 이러한 앱이 인터페이스를 일치시키기 위해 사용하는 요소이며, 문서화된 안정적인 API가 아닙니다.</p>
 <h3>Fusion에서 플러그인 구성 요소가 표시되는 위치</h3>
 <table>
 <thead><tr><th>레지스트리 메서드</th><th>Fusion에서의 표시 위치</th></tr></thead>
 <tbody>
 <tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>앱 레일, 즉 오른쪽 가장자리에 있는 아이콘 열입니다. 아바타와 <b>Antimatter 정보</b> 버튼 사이에 위치하며, 채널 헤더 버튼도 여기에 표시됩니다. 시스템 관리자가 <b>앱 바를 비활성화합니다</b>(<code>ExperimentalSettings.DisableAppBar</code>, 기본값: 끔)를 켜면 숨겨집니다.</td></tr>
-<tr><td><code>registerRightHandSidebarComponent</code></td><td>오른쪽 패널입니다. 사용자는 가장자리를 드래그하여 크기를 조절할 수 있습니다. 앱이 제품이기도 한 경우, 패널에서 <b>전체 페이지로 열기</b> 옵션을 제공합니다.</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>오른쪽 패널입니다. 사용자는 가장자리를 드래그하여 크기를 조절할 수 있으며, 새 창에서 열 수 있습니다. 앱이 제품이기도 한 경우, 패널에서 <b>전체 페이지로 열기</b>를 제공합니다. <a href="#panel-state">새 창에서 패널</a>을 참조하세요.</td></tr>
 <tr><td><code>registerChannelHeaderIcon</code></td><td>통화 버튼 뒤의 채널 헤더 아이콘입니다. 모바일에서는 헤더의 <b>더 보기</b> 메뉴에 표시됩니다.</td></tr>
 <tr><td><code>registerCallButtonAction</code></td><td>채널 헤더의 통화 버튼입니다. 여러 제공자가 <b>다른 통화 방법</b> 메뉴를 공유합니다.</td></tr>
-<tr><td><code>registerPostDropdownMenuAction</code></td><td>메시지의 <b>더 많은 작업</b>(⋯) 메뉴 내 <b>메시지 작업</b> 하위 메뉴입니다. 또한 글타래 패널의 <b>글타래 작업</b> 메뉴 내 <b>더 많은 작업</b> 항목 하위에도 표시됩니다.</td></tr>
-<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>해당 메뉴의 자체 하위 메뉴로, 앱 이름과 아이콘이 표시됩니다.</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>메시지의 <b>메시지 작업</b>(⋯) 메뉴, 그 중 <b>더 많은 작업</b> 하위 메뉴; 또한 글타래 패널의 <b>글타래 작업</b> 메뉴, <b>더 많은 작업</b> 아래에도 있습니다. Fusion은 각 작업 앞에 앱의 아이콘을 회색으로 그립니다: 번들 앱의 경우 자체 아이콘, 그렇지 않은 경우 앱 레일에서 앱이 표시하는 아이콘, 그도 아니면 중립적인 아이콘. 작업 텍스트의 시작 부분에 텍스트가 없는 요소(앱이 자체적으로 그리는 아이콘)는 숨겨집니다.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>단일 작업 이후, 동일한 <b>더 많은 작업</b> 하위 메뉴에 제목이 있는 그룹입니다. 앱은 메시지 메뉴에 자체 항목을 받지 않습니다.</td></tr>
 <tr><td><code>registerPostActionComponent</code></td><td>⋯ 버튼 앞의 메시지 호버 툴바입니다.</td></tr>
 <tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>메시지 자체입니다. 본문, 텍스트 아래, 시간 이후, 링크 미리보기 대신 표시됩니다.</td></tr>
 <tr><td><code>registerChannelHeaderMenuAction</code></td><td>채널의 <b>채널 옵션</b> 메뉴(사이드바의 채널에서 ⋯ 또는 우클릭)로, 플러그인 아이콘이 있는 항목으로 표시됩니다.</td></tr>
@@ -269,7 +285,7 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <tr><td><code>registerChannelTypeOption</code></td><td><b>채널 만들기</b> 대화상자의 채널 유형.</td></tr>
 <tr><td><code>registerSearchComponents</code></td><td>채널 헤더의 검색 상자: 비어 있을 때 앱 범위가 표시됩니다.</td></tr>
 <tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>Antimatter 정보</b>(앱 레일 하단), <b>도움말</b> 아래.</td></tr>
-<tr><td><code>registerProduct</code></td><td>제품 URL의 전체 페이지, <b>Antimatter 정보</b>의 <b>제품</b> 아래에 나열됩니다. 제품 페이지는 클래식 페이지 프레임을 유지합니다.</td></tr>
+<tr><td><code>registerProduct</code></td><td>제품 URL의 전체 페이지, <b>Antimatter 정보</b>의 <b>제품</b> 아래에 나열됩니다. 제품 페이지는 클래식 페이지 프레임을 유지하며, 제품 메뉴는 앱이 제품을 등록하거나 항목을 추가할 때만 표시됩니다. 번들 Kanban 및 Playbooks 앱은 더 이상 제품을 등록하지 않습니다:它们的 페이지는 사이드 패널에서 열립니다.</td></tr>
 <tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code>와 같은 훅</td><td>클래식 인터페이스와 동일하게 작동합니다.</td></tr>
 <tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>시스템 콘솔, 두 인터페이스 모두 클래식 버전입니다.</td></tr>
 </tbody>
@@ -299,12 +315,21 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <thead><tr><th>메서드</th><th>추가하는 기능</th></tr></thead>
 <tbody>
 <tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>두 인터페이스 모두 메시지 상자의 <b>+</b> 메뉴에 항목을 추가합니다. <code>action</code>는 <code>{channelId, rootId}</code>를 수신합니다.</td></tr>
-<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>메시지 상자의 이모지 선택기 탭으로, GIF나 스티커 등이 있습니다. Fusion에서는 <code>order</code> 값이 10 미만인 탭이 이모지 탭 앞에 표시됩니다. 이 컴포넌트는 <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> 및 <code>isFusion</code>를 수신합니다.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>메시지 박스 이모지 피커의 탭, 예를 들어 GIF 또는 스티커. Fusion에서 <code>order</code>가 10 미만인 탭은 이모지 탭 앞에 옵니다. 구성 요소는 <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code>, <code>isFusion</code>를 수신하며, Fusion에서는 <code>pickerKit</code>도 수신합니다(아래 참조).</td></tr>
 <tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>채널 헤더와 메시지 사이를 차지하는 패널로, <code>matcher(state, channel)</code>가 선택한 채널에 표시됩니다. 음성 채널처럼 메시지를 작성하는 영역과 메시지 목록을 숨길 수 있습니다(<code>setMessagesVisible</code>).</td></tr>
 <tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>사이드바의 채널 아래에 표시되는 한 줄로, 예를 들어 해당 채널의 통화 참여자 목록입니다. <code>channel</code>을 수신합니다.</td></tr>
 <tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Fusion 전용: <b>통합</b> 페이지의 항목으로, 사용자 정의 이모지 옆에 위치합니다. GIF 앱은 사용자 정의 GIF와 스티커를 여기에 추가합니다.</td></tr>
 </tbody>
 </table>
+<h3 id="picker-kit">이모지 피커에서 보기 추가 및 관리</h3>
+<p>Fusion에서 이모지 피커 탭은 <code>pickerKit</code> prop을 받습니다. 이 prop은 이모지 탭이 자체 추가 및 관리 뷰에 사용하는 컴포넌트를 포함하며, 탭의 뷰가 일관된 외관을 유지하고 피커 안에 머물 수 있도록 합니다. GIF 및 밈 앱은 이를 사용하여 GIF, 스티커 및 밈 템플릿을 추가하고 관리합니다. 여기에는 <code>version</code>(1), 훅 <code>usePickerView</code>와 <code>useOnEscape</code>, 그리고 컴포넌트 <code>PickerViewButtons</code>(검색 상자 옆의 <b>+</b> 및 관리 버튼), <code>PickerViewFrame</code>(뒤로 가기 화살표가 있는 뷰), <code>PickerNotice</code>, <code>PickerField</code>, <code>PickerSearch</code>, <code>PickerDropZone</code> 및 <code>PickerManageList</code>가 포함됩니다. Escape 키는 뷰에서 탭의 그리드로 돌아가게 합니다. 해당 prop이 존재하는지 확인하세요. 다른 호스트는 이를 제외하며, 이 경우 탭은 자체 다이얼로그를 유지합니다. 타입은 <code>webapp/fusion/src/types/store/plugins.ts</code>(<code>EmojiPickerTabProps</code>)에, 컴포넌트는 <code>webapp/fusion/src/fusion/popovers/picker_views.tsx</code>에 있습니다.</p>
+<h3 id="panel-state">새 창에서 열기</h3>
+<p>Fusion은 <code>registerRightHandSidebarComponent</code>의 컴포넌트에 두 가지 prop을 더 제공합니다. 이를 통해 <b>새 창에서 열기</b>를 사용하면 앱의 홈 화면이 아니라 패널이 있던 위치에 패널이 열립니다:</p>
+<ul>
+<li><code>setPanelState(state)</code>: 패널의 위치가 변경될 때 호출하며, 앱이 정의한 짧은 문자열(예: <code>'note/&lt;id&gt;'</code> 또는 <code>'board/&lt;id&gt;/card/&lt;id&gt;'</code>)을 전달합니다. 홈 화면으로 돌아갈 때는 <code>null</code>을 전달합니다. 이 값은 창 주소에 포함되므로 기밀 정보를 포함하지 마세요. 길이가 512자를 초과하거나 제어 문자가 포함된 상태는 삭제됩니다.</li>
+<li><code>initialPanelState</code>: 새 창에서 패널이 가졌던 상태 또는 <code>undefined</code>입니다. 이를 신뢰할 수 없는 입력으로 간주하세요. 로그인한 사용자로 다시 항목을 가져오고, 열 수 없다면 앱의 홈 화면 또는 찾을 수 없는 뷰를 표시하세요.</li>
+</ul>
+<p>패널이 닫히거나 다른 앱의 패널이 그 자리를 차지하면 상태는 잊힙니다. 패널의 창을 직접 열려면 <code>popoutRhsPlugin</code>(또는 <code>window.WebappUtils.popouts</code>에 있는)를 사용하며, 상태는 선택적인 다섯 번째 인수로 전달됩니다. 메모, 화이트보드, 할 일, 칸반 및 플레이북이 이를 사용합니다.</p>
 <p><code>fusionIcon</code>은 Fusion 아이콘 세트를 나타내는 이름입니다(예: <code>poll</code>, <code>sticker</code>, <code>calendar</code> 또는 <code>image</code>; <code>webapp/fusion/src/fusion/components/icon</code> 참고). Fusion에서는 <code>icon</code> 대신 이 아이콘을 표시하여 다른 항목과 일관성을 유지합니다.</p>
 
 <h2 id="settings">설정</h2>

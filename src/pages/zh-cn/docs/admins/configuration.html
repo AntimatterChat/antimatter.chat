@@ -4,13 +4,13 @@ guide: admins
 order: 3
 nav: 配置
 lead: Antimatter 存储设置的位置、三种修改方式（系统控制台、环境变量、amctl）以及日志的存放位置。
-source: e2d6546121d3
+source: 6a785009ab32
 ---
 <h2 id="where">设置存储在哪里</h2>
 <p>每个服务器设置都有一个由部分（section）和键（key）组成的名称，例如 <code>ServiceSettings.SiteURL</code> 或 <code>EmailSettings.SMTPServer</code>。它们共同构成一个配置，存储在以下两个位置之一：</p>
 <ul>
 <li><b>在数据库中。</b> 站点的 compose 文件将 <code>AM_CONFIG</code> 设置为 PostgreSQL 连接 URL，因此配置是数据库中的一行记录，容器在磁盘上不保留任何数据。共享同一个数据库的多个服务器也会共享它们的配置。</li>
-<li><b>在文件中。</b> 如果没有设置 <code>AM_CONFIG</code>，服务器会读取其 <code>bin/</code> 目录旁边的 <code>config/config.json</code>（在 Docker 镜像中为 <code>/antimatter/config/config.json</code>）。antimatter-docker 的发布归档和生产环境 compose 文件就是这样工作的。请确保此文件仅对服务器用户可读：其中包含密码和密钥。</li>
+<li><b>在文件中。</b>如果没有设置 <code>AM_CONFIG</code>，服务器会读取其 <code>bin/</code> 目录旁边的 <code>config/config.json</code>（在 Docker 镜像中为 <code>/antimatter/config/config.json</code>）。antimatter-docker 的发布压缩包和生产环境 compose 文件均采用此方式，.deb 和 .rpm 包也是如此，其文件路径为 <code>/etc/antimatter/config/config.json</code>。请确保此文件仅对服务器用户可读：其中包含密码和密钥。</li>
 </ul>
 <p><code>AM_CONFIG</code>（或 <code>antimatter</code> 命令的 <code>--config</code> 标志）接受文件路径或 <code>postgres://</code> URL。未指定的设置将采用其默认值。</p>
 <p>要将现有配置从文件迁移到数据库，请在服务器上运行此命令，然后将 <code>AM_CONFIG</code> 设置为相同的 URL 并启动服务器：</p>
@@ -47,10 +47,11 @@ source: e2d6546121d3
       AM_LOGSETTINGS_CONSOLELEVEL: INFO</code></pre>
 <p>使用 <code>docker compose up -d</code> 应用更改，这会重新创建容器。</p>
 <h3>应用程序读取的变量</h3>
+<p>有几个变量不属于设置项，也没有对应的系统控制台字段：<code>AM_CONFIG</code>（配置文件的存储位置），以及 <code>AM_AI_ENCRYPTION_KEY</code> 和 <code>AM_AI_ENCRYPTION_PREVIOUS_KEYS</code>，即用于加密模型连接 API 密钥的密钥（参见 <a href="{{root}}docs/admins/ai.html#encryption-key">AI</a>）。</p>
 <p>少数应用程序会读取设置在 <code>antimatter</code> 服务上的专属变量：Calls 应用程序读取 <code>AM_CALLS_*</code>（参见 <a href="{{root}}docs/admins/calls.html">通话和语音</a>），GIFs 应用程序读取 <code>AM_GIFS_SERVICE_URL</code>、<code>AM_GIFS_API_KEY</code> 和 <code>AM_GIFS_UPLOAD_KEY</code>（参见 <a href="{{root}}docs/admins/apps.html">内置应用程序</a>）。</p>
 
 <h2 id="console">系统控制台</h2>
-<p>系统控制台是 Web 应用的管理区域，供系统管理员使用。要打开它，请点击您的头像并选择<b>系统控制台</b>，或访问 <code>https://chat.example.com/admin_console</code>。其侧栏包含一个<b>文件设置</b>框，可搜索所有页面。</p>
+<p>系统控制台是 Web 应用的管理区域，供系统管理员使用。要打开它，请点击应用侧栏顶部的头像，然后选择<b>系统控制台</b>，或者访问 <code>https://chat.example.com/admin_console</code>。其侧栏有一个<b>文件设置</b>框，可搜索所有页面。</p>
 <figure><img src="{{root}}assets/img/shots/admin.webp" alt="The System Console, with its sidebar of sections on the left and the SAML 2.0 settings page on the right."><figcaption>系统控制台。侧栏将页面分组为报告、用户管理和环境等部分。</figcaption></figure>
 <p>其部分包括：</p>
 <ul>
@@ -60,6 +61,7 @@ source: e2d6546121d3
 <li><b>环境</b>：Web 服务器、数据库、文件存储、图像代理、SMTP、推送通知、速率限制、日志记录、会话时长、性能监控。</li>
 <li><b>站点配置</b>：品牌、用户和团队、通知、帖子、文件共享以及其他服务器范围的行为。</li>
 <li><b>身份验证</b>：注册、电子邮件和密码登录、多因素认证（MFA）、AD/LDAP、SAML 2.0、OAuth 2.0、OpenID Connect 以及访客访问。</li>
+<li><b>AI</b>：模型连接和内置 AI 功能（重写、摘要、自动翻译、文本转语音）。参见 <a href="{{root}}docs/admins/ai.html">AI</a>。</li>
 <li><b>插件</b>：应用管理以及每个已安装应用的设置。</li>
 <li><b>集成</b>：Webhook、斜杠命令、机器人账号、GIF、文本转语音、CORS。</li>
 <li><b>合规性</b>：数据保留、合规性导出与监控、审计日志、自定义服务条款。</li>
@@ -68,14 +70,25 @@ source: e2d6546121d3
 <p>在本指南中，设置的书写格式为：其在系统控制台中的路径，然后是标签，最后是配置键。例如 <b>系统控制台 › 站点配置 › 成员和团队 › 启用忽略、屏蔽和消息请求</b>（<code>PrivacySettings.EnableUserBlocking</code>）。</p>
 <p>大多数更改在点击 <b>保存</b> 后立即生效。少数设置（如监听地址、部分数据库和缓存设置）需要重启才能生效，页面中会有相应说明。</p>
 
+<h2 id="community-kind">工作区或社区</h2>
+<p>每个社区都有一个类型，该类型决定了其部分默认设置：</p>
+<ul>
+<li><b>社区</b>，适用于公共或兴趣社区：其频道中的通话功能默认关闭（人们在语音频道中交流），且只有其管理员以及拥有频道管理权限的角色才能归档频道。</li>
+<li><b>工作区</b>，适用于公司或组织：其频道中的通话功能默认开启，且频道的管理员（创建者及其指定的管理员）也可以归档该频道。</li>
+</ul>
+<p><b>系统控制台 › 站点配置 › 成员和团队 › 新社区类型</b>（<code>TeamSettings.DefaultCommunityKind</code>，<code>AM_TEAMSETTINGS_DEFAULTCOMMUNITYKIND</code>）决定了此后创建的社区类型：<code>community</code>（默认值）或 <code>workplace</code>。创建社区时选择的布局预设会设定其自身的类型。每个社区的管理员之后可以在<b>团队设置 › 频道 › 社区类型</b>中更改其类型。</p>
+<div class="callout">对于公司，请在创建第一个社区之前，或将现有服务器升级到 0.9.0 之前，将其设置为<b>工作场所</b>：升级操作会将该设置当时的值赋予所有现有社区（参见<a href="{{root}}docs/admins/backups-upgrades.html#v090">升级到 0.9.0</a>）。</div>
+
 <h2 id="amctl">amctl 命令行工具</h2>
 <p><code>amctl</code> 用于通过命令行管理服务器：用户、社区、频道、应用、配置、任务等。它通过以下两种方式之一与服务器通信。</p>
 <h3>本地模式（在服务器上）</h3>
-<p>本地模式允许 <code>amctl</code> 通过 Unix 套接字与服务器通信，无需登录。Docker 镜像中默认开启此模式。对于通过归档文件安装的服务器，可通过 <b>ServiceSettings.EnableLocalMode</b>（<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>）开启。套接字路径默认为 <code>/var/tmp/antimatter_local.socket</code>（<code>ServiceSettings.LocalModeSocketLocation</code>）。</p>
+<p>本地模式允许 <code>amctl</code> 通过 Unix 套接字与服务器通信，而无需登录。Docker 镜像以及 .deb 和 .rpm 软件包默认已启用此模式。对于从归档文件安装的服务器，请通过 <b>ServiceSettings.EnableLocalMode</b>（<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>）开启该模式。套接字默认位于 <code>/var/tmp/antimatter_local.socket</code>（<code>ServiceSettings.LocalModeSocketLocation</code>）。</p>
 <pre><code># with Docker Compose
 docker compose exec antimatter amctl --local system status
 # with a release archive
-sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code></pre>
+sudo -u antimatter /opt/antimatter/bin/amctl --local system status
+# with the .deb or .rpm package
+sudo -u antimatter amctl --local system status</code></pre>
 <div class="callout warn">任何能够使用该套接字或在主机上运行 <code>docker compose exec</code> 的用户，都拥有完整的系统管理员权限。</div>
 <h3>远程模式（使用账号）</h3>
 <p>从任意机器，使用系统管理员账号（或个人访问令牌）登录，然后针对该服务器运行命令：</p>
@@ -116,5 +129,5 @@ EOF</code></pre>
 <p>该站点的 compose 文件已关闭文件日志（<code>AM_LOGSETTINGS_ENABLEFILE=false</code>），因此日志仅存在于容器的输出中：</p>
 <pre><code>docker compose logs -f antimatter
 docker compose logs --since 1h antimatter | grep -i error</code></pre>
-<p>控制台日志级别默认为 <code>DEBUG</code>，输出较为详细。在繁忙的服务器上，建议设置为 <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code>。如果使用 systemd 管理发布包，控制台输出会写入日志（<code>journalctl -u antimatter</code>），文件日志则位于 <code>/opt/antimatter/logs/antimatter.log</code>。</p>
+<p>控制台日志级别默认为 <code>DEBUG</code>，输出较为详细。在繁忙的服务器上，请设置 <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code>。发布归档文件和软件包中的 <code>config.json</code> 已将其设置为 <code>INFO</code>。对于使用 systemd 管理的发布归档文件，控制台输出会写入日志（<code>journalctl -u antimatter</code>），文件日志则位于 <code>/opt/antimatter/logs/antimatter.log</code>。软件包已关闭文件日志记录，因此其日志仅存在于日志系统中。</p>
 <p>当文件日志开启时，系统管理员还可以在<b>系统控制台 › 报告 › 服务器日志</b>中查看最新的日志行，或使用 <code>amctl logs</code> 命令查看。</p>

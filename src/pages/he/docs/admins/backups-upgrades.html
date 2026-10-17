@@ -4,19 +4,21 @@ guide: admins
 order: 10
 nav: גיבויים ושדרוגים
 lead: מה לגבות, איך לשחזר על מארח חדש, איך לשדרג, ואיך להעביר שרת Mattermost או קהילה בודדת ל-Antimatter.
-source: b0797af8b6e7
+source: 531ec332715c
 ---
 <h2 id="what">מה לגבות</h2>
 <table>
-<thead><tr><th>מה</th><th>עם קובץ compose של האתר</th><th>עם ארכיון גרסה</th></tr></thead>
+<thead><tr><th>מה</th><th>עם קובץ compose של האתר</th><th>עם ארכיון גרסה</th><th>עם חבילת .deb או .rpm</th></tr></thead>
 <tbody>
-<tr><td>מסד הנתונים: הודעות, משתמשים, קהילות, ערוצים ו, עם קובץ compose של האתר, התצורה</td><td>נפח <code>antimatter_postgres</code>, באמצעות <code>pg_dump</code></td><td>מסד הנתונים PostgreSQL שלך</td></tr>
-<tr><td>קבצים שהועלו, תמונות ואפליקציות מותקנות</td><td>נפח <code>antimatter_files</code> (אחסון S3)</td><td><code>FileSettings.Directory</code>, ברירת המחדל <code>./data/</code></td></tr>
-<tr><td>קובץ התצורה</td><td>(במסד הנתונים)</td><td><code>config/config.json</code></td></tr>
-<tr><td>GIF וстикеры</td><td>נפח <code>antimatter_gifs</code></td><td>ספריית הנתונים של שירות GIF</td></tr>
-<tr><td>סודות</td><td><code>.env</code> (וגם <code>compose.override.yaml</code>)</td><td>קובץ הסביבה שלך</td></tr>
+<tr><td>מסד הנתונים: הודעות, משתמשים, קהילות, ערוצים ו, עם קובץ compose של האתר, התצורה</td><td>נפח <code>antimatter_postgres</code>, באמצעות <code>pg_dump</code></td><td>מסד הנתונים PostgreSQL שלך</td><td>מסד הנתונים PostgreSQL שלך</td></tr>
+<tr><td>קבצים שהועלו, תמונות ואפליקציות מותקנות</td><td>נפח <code>antimatter_files</code> (אחסון S3)</td><td><code>FileSettings.Directory</code>, ברירת המחדל <code>./data/</code></td><td><code>/var/lib/antimatter</code></td></tr>
+<tr><td>קובץ התצורה</td><td>(במסד הנתונים)</td><td><code>config/config.json</code></td><td><code>/etc/antimatter/config/config.json</code></td></tr>
+<tr><td>GIF וстикеры</td><td>נפח <code>antimatter_gifs</code></td><td>ספריית הנתונים של שירות GIF</td><td><code>/var/lib/gifs-server</code></td></tr>
+<tr><td>סודות</td><td><code>.env</code> (וגם <code>compose.override.yaml</code>)</td><td>קובץ הסביבה שלך</td><td><code>/etc/antimatter/antimatter.env</code>, <code>/etc/gifs-server</code></td></tr>
+<tr><td>מפתח ההצפנה של ה־AI, המצפין את מפתחות חיבורי המודלים</td><td><code>AM_AI_ENCRYPTION_KEY</code> ב־<code>.env</code> (מומלץ), או הקובץ <code>ai-encryption.key</code> ב־volume <code>antimatter_data</code></td><td><code>AM_AI_ENCRYPTION_KEY</code>, או <code>data/ai-encryption.key</code></td><td><code>AM_AI_ENCRYPTION_KEY</code> ב־<code>antimatter.env</code>, או <code>/var/lib/antimatter/data/ai-encryption.key</code></td></tr>
 </tbody>
 </table>
+<p>ללא מפתח ההצפנה של ה־AI, שרת שחוקר לא יכול לקרוא את מפתחות ה־API של חיבורי המודלים, וכל אחד מהם צריך להקלד מחדש. שמרו עותק של המפתח בנפרד מגיבויי בסיס הנתונים, כדי שגיבוי אחד שנחטף לא יכיל את שניהם. ראו <a href="{{root}}docs/admins/ai.html#encryption-key">מפתח ההצפנה</a>.</p>
 <p>מסד הנתונים והקבצים שייכים זה לזה: גיבו אותם בו-זמנית, ושמרו עותקים מחוץ לשרת. שמות הנפחים מתחילים בשם פרויקט compose, <code>antimatter</code> (<code>docker volume ls</code> מציג אותם).</p>
 
 <h2 id="backup">גיבוי</h2>
@@ -27,19 +29,20 @@ docker compose stop antimatter
 # Database
 docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
     &gt; "backups/antimatter-db-$stamp.dump"
-# File storage and GIF service
-for v in files gifs; do
+# File storage, GIF service and the data directory (the AI key file)
+for v in files gifs data; do
     docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
         alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
 done
 docker compose start antimatter
 # Secrets
 cp .env "backups/env-$stamp"</code></pre>
+<p>אם לא הגדרתם <code>AM_AI_ENCRYPTION_KEY</code>, קובץ המפתח של השרת נמצא ב־volume <code>data</code>, שהלולאה למעלה שומרת יחד עם הקבצים. עדיף להכניס את תוכנו ל־<code>.env</code> כפי שמסביר <a href="{{root}}docs/admins/ai.html#encryption-key">מפתח ההצפנה</a>, ולשמור עותק בנפרד מגיבויי בסיס הנתונים.</p>
 <p>הריצו אותו מ-cron לגיבויים יומיים, והעתיקו את ספריית <code>backups/</code> למכונה אחרת. שמרו את העותקים של <code>.env</code> באותה מידה של אבטחה כמו השרת: הם מכילים את סיסמאותיו.</p>
 <p>כדי להעתיק את הקבצים שהועלו אובייקט-אחר-אובייקט (למשל לאחסון S3 אחר), השתמשו בכלי שורת הפקודה של AWS של שירות <code>bucket</code>:</p>
 <pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
     "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
-<p>עם ארכיון גרסה, גיבו את מסד הנתונים עם <code>pg_dump -Fc</code>, ואת ספריות <code>data/</code> ו-<code>config/</code> עם הכלים הרגילים שלכם.</p>
+<p>עם ארכיון שחרור, גיבוי בסיס הנתונים עם <code>pg_dump -Fc</code>, ואת התיקיות <code>data/</code> ו־<code>config/</code> עם הכלים הרגילים שלכם (<code>data/</code> מכילה את קובץ מפתח ה־AI). עם החבילות, גיבוי בסיס הנתונים באותה דרך, ואת <code>/etc/antimatter</code>, <code>/var/lib/antimatter</code>, <code>/etc/gifs-server</code> ו־<code>/var/lib/gifs-server</code>.</p>
 
 <h2 id="restore">שחזור על מארח חדש</h2>
 <p>שמו את <code>compose.yaml</code>, את <code>.env</code> ששמרתם ואת הגיבויים בספרייה חדשה, ואז:</p>
@@ -48,15 +51,16 @@ docker compose create           # creates the volumes, starts nothing
 docker compose up -d postgres
 docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
     &lt; "backups/antimatter-db-$stamp.dump"
-for v in files gifs; do
+for v in files gifs data; do
     docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
         alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
 done
 docker compose up -d</code></pre>
-<p>השתמשו באותו <code>.env</code>: האחסון ומסד הנתונים חייבים לשמור על הסיסמאות שהיו להם. אם למארח החדש יש כתובת אחרת, עדכנו את <code>SITE_URL</code> (וגם <code>DOMAIN</code>).</p>
+<p>השתמשו באותו <code>.env</code>: האחסון ובסיס הנתונים חייבים לשמור על הסיסמאות שהיו להם, וחיבורי המודלים זקוקים לאותו מפתח הצפנה של ה־AI. אם למוזיקה החדשה יש כתובת אחרת, עדכנו את <code>SITE_URL</code> (וגם <code>DOMAIN</code>).</p>
 <p>בדקו את הגיבויים שלכם על ידי שחזורם על מכונה אחרת מעת לעת.</p>
 
 <h2 id="upgrade">שדרוג</h2>
+<div class="callout warn">קבצי Compose שהורדו לפני 17 באוקטובר 2026 לא כללו volume <code>data</code>: קובץ מפתח ה־AI היה בתוך ה־container. לפני השימוש ב־<code>compose.yaml</code> החדש, ואם <code>.env</code> אינו מכיל <code>AM_AI_ENCRYPTION_KEY</code>, שמרו את המפתח שהשרת יצר: <code>echo "AM_AI_ENCRYPTION_KEY=$(docker compose exec -T antimatter cat /antimatter/data/ai-encryption.key)" &gt;&gt; .env</code>. אם הפקודה לא מוצאת קובץ, אף חיבור מודל לא שמר מפתח עדיין.</div>
 <ol>
 <li>עשו גיבוי.</li>
 <li>שנו את תג התמונה ב-<code>.env</code> (<code>ANTIMATTER_IMAGE</code>), אם אתם נועלים גרסה, כפי שמומלץ.</li>
@@ -65,12 +69,45 @@ docker compose up -d</code></pre>
 docker compose up -d
 docker compose logs -f antimatter</code></pre></li>
 </ol>
-<p>בהפעלה, השרת מעלה את תבנית המסד הנתונים (עקבו אחרי התהליך ביומן; שרת גדול יכול לקחת כמה דקות) ומתקין את הגרסאות החדשות יותר של האפליקציות המצורפות מהדמות. בארכיון שחרור: עצרו את השרת, החליפו את כל התוכן מלבד <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> ו-<code>client/plugins/</code> בתוכן הארכיון החדש, והפעילו שוב.</p>
+<p>בהפעלה, השרת שודרג את תבנית המסד הנתונים (עקבו אחר התהליך ביומן; שרת גדול יכול לקחת כמה דקות) ומתקין את הגרסאות החדשות יותר של האפליקציות המצורפות מהדמות. בארכיון שחרור: עצרו את השרת, החליפו את כל התוכן מלבד <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> ו-<code>client/plugins/</code> בתוכן הארכיון החדש, והפעילו שוב. בחבילת .deb או .rpm, התקינו את החבילה החדשה כפי שמסביר <a href="{{root}}docs/admins/install.html#packages">שדרוג חבילה</a>.</p>
 <div class="callout warn">שדרוגים מתבצעים רק קדימה. לאחר ששרת חדש יותר העלה את המסד הנתונים, גרסה ישנה יותר לא יכולה להשתמש בו: כדי לחזור אחורה, שחזרו את הגיבוי שנלקח לפני השדרוג. הדבר נכון גם לגבי מעבר מ-<code>antimatter-next</code> חזרה ל-<code>antimatter</code>.</div>
 <h3>גרסאות</h3>
-<p>שרת Antimatter מדווח על גרסת שורת Mattermost שהוא מבוסס עליה (כיום 12.0.0). הדמות נבנית מחדש מהענפים <code>main</code>: <code>antimatter-next</code> כל לילה (תגיות <code>nightly-&lt;YYYYMMDD&gt;</code>), ושתי הדמות בכל שינוי (תגיות <code>sha-&lt;commit&gt;</code>). נעצו אחת מתגיות אלו, בצעו שדרוג בכוונה, ושמרו תיעוד של התגיה הקודמת כדי לדעת איזה גיבוי תואם לה.</p>
+<p>שרת Antimatter מדווח על גרסת שורת Mattermost שהוא מבוסס עליה (כיום 12.0.0). השחרורים ב-GitHub, עם הארכיונים והחבילות שלהם, נושאים מספרי גרסה משלהם, בסדרת 0.9.0 במהלך הבטא: <code>antimatter version</code> מציג זאת כ<b>מספר בנייה</b>. הדמות נבנית מחדש מהענפים <code>main</code>: <code>antimatter-next</code> כל לילה (תגיות <code>nightly-&lt;YYYYMMDD&gt;</code>), ושתיהן בכל שינוי (תגיות <code>sha-&lt;commit&gt;</code>). ציפו אחת מתגיות אלו, שדרגו במודע, ושמרו את התגית הקודמת מרשומה כדי שתדעו איזו גיבוי תואם לה.</p>
 <h3>גרסאות ראשיות של PostgreSQL</h3>
 <p>קובץ compose משתמש ב-<code>postgres:17-alpine</code>. Antimatter דורש PostgreSQL 15 או חדש יותר. גרסה ראשית חדשה של PostgreSQL לא יכולה לקרוא את תיקיית הנתונים של הגרסה הקודמת: כדי לעבור אליה, בצעו dump של המסד הנתונים, הפעילו את הגרסה החדשה על נפח חדש ושחזרו את ה-dump אליו.</p>
+
+<h2 id="v090">שדרוג ל-0.9.0</h2>
+<p>ההפעלה הראשונה של גרסה 0.9.0 (או של דמות שנבנתה מ-17 באוקטובר 2026 ואילך) מבצעת כמה שינויים חד-פעמיים בנתונים. כל אחד רץ פעם אחת, ונרשם במסד הנתונים. הם מביאים את מה שנשאר ברירת-הברך הישנה לחדשה, ומשאירים כפי שהם מה שבחר מנהל. עקבו אחריהם ביומן.</p>
+<div class="callout warn">אם Antimatter מיועד לחברה או לארגון, הגדירו את <b>סוג קהילות חדשות</b> ל<b>מקום עבודה</b> <em>לפני</em> השדרוג: <code>AM_TEAMSETTINGS_DEFAULTCOMMUNITYKIND=workplace</code>. השדרוג מעניק לכל קהילה את הסוג שיש להגדרה הזו באותו רגע, ושיחות כבויות ברירת ברך בערוצים של קהילות מסוג <b>קהילה</b>. ראו <a href="{{root}}docs/admins/configuration.html#community-kind">מקום עבודה או קהילה</a>.</div>
+<table>
+<thead><tr><th>מה</th><th>השינוי</th></tr></thead>
+<tbody>
+<tr><td>סוגי קהילות</td><td>לכל קהילה יש סוג, <b>קהילה</b> או <b>מקום עבודה</b>: הערך של <b>סוג קהילות חדשות</b> (<code>TeamSettings.DefaultCommunityKind</code>) בהפעלה הראשונה. סוג שכבר הוגדר נשמר. מנהלי קהילות יכולים לשנות את סוג הקהילה שלהם מאוחר יותר, ב<b>הגדרות צוות › ערוצים › סוג קהילה</b>.</td></tr>
+<tr><td>מי מעביר ערוצים לארכיון</td><td>חברי ערוצים אינם מעבירים יותר את הערוצים שבהם הם נמצאים לארכיון; מנהלי הקהילה הם שמעבירים אותם. במקום עבודה, גם מנהלי הערוץ (מי שייסד אותו, ואלה שהעניק להם את תפקיד המנהל) מעבירים אותו לארכיון. שינוי זה משנה את התפקידים של תוכנית המערכת; תוכניות הרשאות שנוצרו על ידי מנהל המערכת עבור קהילות מסוימות נשארות כפי שהן.</td></tr>
+<tr><td>תפקיד המנהלים (Moderators) של תבניות המבנה</td><td>תפקיד <b>מנהלים</b> שקהילות קיבלו מתבנית מבנה מקבל את הרשאת <b>הסרת אנשים</b>, שנדרשת להדחת אנשים והסרתם. רק תפקידים שנשארו בדיוק כפי שנוצרו על ידי התבנית משתנים; תפקיד שמישהו ערך נשאר כפי שהוא.</td></tr>
+<tr><td>תפקידים עם <b>מנהל</b></td><td>תפקיד קהילה שבו מתג <b>מנהל</b> מופעל כעת כולל את כל הפעולות שמנהלי הקהילה יכולים לבצע, כפי שמעיד המתג, ולא רק את הגדרות הקהילה.</td></tr>
+<tr><td>מגבלת החברים</td><td><b>מספר החברים המרבי לקהילה</b> (<code>TeamSettings.MaxUsersPerTeam</code>) משתנה מ־50, שהיה ברירת המחדל הקודמת, ל־0 (ללא מגבלה). כל ערך אחר נשמר, וכך גם מגבלה שנקבעה באמצעות <code>AM_TEAMSETTINGS_MAXUSERSPERTEAM</code>.</td></tr>
+<tr><td>חיבורי דגמים</td><td>מנהלי מערכת מקבלים את הניהול של חיבורי דגמים, ומנהלי קהילה (וגם תפקידים עם <b>מנהל</b>) מקבלים את ניהול חיבורי הדגמים של קהילתם. שירותי ה־AI של אפליקציית Agents הופכים ל<a href="{{root}}docs/admins/ai.html#connections">חיבורי דגמים</a> ברמת השרת, ראו להלן.</td></tr>
+<tr><td>Town Square הופך ל־General</td><td>ערוץ ברירת המחדל של כל קהילה שונה שמו מ־<code>town-square</code> (Town Square) ל־<code>general</code> (General). הערוץ שומר את המזהה, החברים, ההודעות וההגדרות שלו, וכן את שם התצוגה שבחרו המנהלים. קישורים ישנים וחיפושים לפי <code>town-square</code> עדיין מובילים אליו. קהילה שיש לה כבר ערוץ בשם <code>general</code>, גם אם הוא בארכיון, שומרת את <code>town-square</code> כערוץ ברירת המחדל שלה; כך גם קהילה ש־<code>town-square</code> שלה בארכיון: יומן השינויים מציין זאת, ומנהלי הקהילה יכולים לשנות את שמות הערוצים.</td></tr>
+<tr><td>מועדפים</td><td>קטגוריית הסרגל הצד "מועדפים של כולם" שונה ל"Favourites", כפי שמופיע כעת בממשק. קטגוריות שנוצרו על ידי משתמשים עם השם הזה נשארו כפי שהן.</td></tr>
+</tbody>
+</table>
+<h3>שירותי אפליקציית Agents</h3>
+<p>השדרוג מועתק כל שירות AI של אפליקציית Agents לחיבור מודל ברמת השרת, משותף לכל הקהילות וזמין לכולם מלבד אורחים (יש להפעיל <b>גם אורחים</b> כדי לאפשר זאת). המפתחות מוצפנים בדרך, ולכן השרת זקוק למפתח הצפנת ה-AI שלו: בקלאסטר שבו הקבצים נשמרים ב-S3, יש להגדיר תחילה את <code>AM_AI_ENCRYPTION_KEY</code>, אחרת ההעתקה תמתין להפעלה הבאה. לאחר מכן יש לבדוק <b>קונסולת מערכת › AI › חיבורי מודל</b>:</p>
+<ul>
+<li>כל חיבור שומר את המזהה (ID) של השירות שלו, כך שהסוכנים של האפליקציה וגיבוי תרגום אוטומטי שהוגדר לשירות Agents עדיין ימצאו אותו.</li>
+<li>שירותי OpenAI, OpenAI-совместимые, Anthropic, Mistral, Cohere ו-Gemini הופכים לחיבורים לנקודת הקצה OpenAI-совместимая (או Anthropic) שלהם. שירות Azure הופך לחיבור לנקודת הקצה OpenAI-совместимая של המשאב: יש לבדוק זאת.</li>
+<li>שירותי AWS Bedrock, Google Vertex AI ו-Cohere North, וסוגים לא ידועים, מסומנים <b>דורשים תשומת לב</b>, עם הסיבה. האסימונים הענניים שלהם אינם מועתקים: יש להפנות אותם לנקודת הקצה OpenAI-совместимая של הספק או לשער כמו LiteLLM, ולאחר מכן לשמור.</li>
+<li>שירות ההטמעה (Embedding) הופך למודל <b>Embeddings</b> של החיבור עם הכתובת והמפתח זהים, או לחיבור עצמאי. שירות התמלול מקבל את המודל <code>whisper-1</code>.</li>
+<li>כאשר לרישום מחדש ולסיכומים אין עדיין חיבור, הם מקבלים את השירות והמודל של הסוכן ברירת המחדל של האפליקציה.</li>
+</ul>
+<p>ההגדרות והנתונים של אפליקציית Agents נשארים כפי שהיו: הסוכנים שלה ממשיכים להשתמש בשירותים שלה.</p>
+<h3>שינויים אחרים ברירת המחדל</h3>
+<ul>
+<li><b>שיחות</b>: <b>מצב בדיקה</b> כבוי ו<b>הפעלת וידאו</b> דלוקה כברירת מחדל. בחירה שנוצבה בהגדרות נשמרת. שיחות עוקבות גם אחר סוג הקהילה (ראו <a href="{{root}}docs/admins/calls.html#where-calls">שיחות וקול</a>).</li>
+<li>הצמדת הודעות למעלה מיועדת למנהלי הערוץ, למנהלי הקהילה ולמודרטורים (עם <b>ניהול הודעות</b>); חברי הודעה ישירה או הודעת קבוצה עדיין יכולים לעשות זאת.</li>
+<li>ערוצים שהועברו לארכיון יכולים לקבל חברים חדשים, שקוראים את ההיסטוריה שלהם. אף אחד לא פוסט, לא מגיב ולא משנה בהם כלום.</li>
+</ul>
 
 <h2 id="mattermost">מעבר מ-Mattermost</h2>
 <p>Antimatter משתמש בתבנית מסד הנתונים של Mattermost ומוסיף לו שדות משלו, ולכן הוא יכול לקחת על עצמו את מסד הנתונים PostgreSQL והקבצים של שרת Mattermost. נסו זאת תחילה על העתק:</p>
@@ -79,15 +116,16 @@ docker compose logs -f antimatter</code></pre></li>
 <li>שחזרו את מסד הנתונים אל PostgreSQL של Antimatter, או ציינו ל-Antimatter העתק שלו (<code>AM_SQLSETTINGS_DATASOURCE</code>).</li>
 <li>העתיקו את הקבצים לאחסון של Antimatter, תוך שמירת הנתיבים שלהם: לסל <code>antimatter</code> באמצעות כלי S3, או ל-<code>data/</code> באמצעות ארכיון שחרור.</li>
 <li>שבו ונצלו את ההגדרות שלכם: העתיקו את <code>config.json</code>, או העבירו אותו אל המסד הנתונים באמצעות <code>amctl --local config migrate</code> (ראו <a href="{{root}}docs/admins/configuration.html">הגדרות</a>). משתני הסביבה <code>MM_</code> שלכם ממשיכים לפעול; שנו את שמם ל-<code>AM_</code> כשיהיה לכם נוח.</li>
-<li>הפעילו את Antimatter ועקבו אחר הלוג בזמן שהוא שודרג את בסיס הנתונים. לאחר מכן, בדקו ב<b>קונסולת מערכת › תוספים › ניהול פלאגינים</b>. Antimatter מתקין את הגרסאות שלו של Calls, Playbooks, Kanban (Boards), Agents והאינטגרציות, כאשר הן חדשות יותר מהגרסה המותקנת. אם Mattermost הכיל גרסה חדשה יותר של אחד מהתוספים, הסירו אותו והפעילו מחדש את Antimatter כדי שיוקנה הבנייה שלו.</li>
-<li>הגדירו שוב התראות Push באמצעות שרת ייצוג (proxy) משלכם: Antimatter לא שולח התראות לשירותי ה-Push של Mattermost, בין אם הם שירותי בדיקה או שירותים מנוהלים, שכן הם משדרים רק לאפליקציות של Mattermost עצמו. עד שתשנו את <b>שרת התראות Push</b>, השרת לא ישלח התראות Push (ראו <a href="{{root}}docs/admins/email-push.html#push">התראות Push</a>).</li>
+<li>יש להפעיל את Antimatter ולעקוב אחר הלוג בזמן שהוא שודרג את בסיס הנתונים. לאחר מכן יש לבדוק <b>קונסולת מערכת › תוספים › ניהול פלאגינים</b>. Antimatter מתקינה את הבנייה שלה של Calls, Playbooks, Kanban (לוחות), Agents והאינטגרציות כאשר הן חדשות מהגרסה המותקנת. אם Mattermost היה בעל גרסה חדשה יותר של אחד מהם, יש להסיר את האפליקציה הזו ולהפעיל מחדש את Antimatter, כך שהבנייה שלה תותקן.</li>
+<li>הגדרו שוב התראות Push באמצעות פרוקסי Push משלכם: Antimatter אינו שולח התראות לשירותי ה-Push של Mattermost, בין אם בסביבת בדיקות ובין אם בשירות מנוהל, שמשלמים התראות רק לאפליקציות של Mattermost עצמו. עד שתשנו את <b>שרת התראות Push</b>, השרת לא ישלח התראות Push (ראו <a href="{{root}}docs/admins/email-push.html#push">התראות Push</a>).</li>
 </ol>
 <p>Antimatter אינה מתקשרת עם שום שירות שמופעל על ידי Mattermost, Inc. (ראו <a href="{{root}}docs/admins/security.html#outbound">חיבורים לשירותים חיצוניים</a>), גם אם ההגדרות שלכם עדיין מציינות שירות כזה:</p>
 <ul>
 <li>שרת התראות דחיפה של Mattermost נשמר בהגדרות, אך אינו נעשה שימוש בו;</li>
-<li>כתובות Mattermost לשוק התוספים (<b>כתובת (URL) של שוק התוספים</b>) ולעדכוני מוצר נמחקות;</li>
+<li>כתובות Mattermost עבור שוק התוספים (<b>כתובת (URL) של שוק התוספים</b>) ועבור הודעות על המוצר נוקו;</li>
+<li>קישורי ההורדה שהיו ברירת המחדל של Mattermost (<b>קישור לעמוד הורדת אפליקציות Antimatter</b>, <b>קישור להורדת אפליקציית Android</b> ו-<b>קישור להורדת אפליקציית iOS</b>) הוחלפו בעמודי ההורדה של אפליקציות Antimatter ב-GitHub; קישורים שהגדרתם בעצמכם נשמרו;</li>
 <li>אפליקציית השיחות (Calls) משתמשת בשרת STUN הציבורי של Cloudflare במקום בשרת של Mattermost, ללא שינוי בהגדרה השמורה (ראו <a href="{{root}}docs/admins/calls.html#network">שיחות</a>);</li>
-<li>בדיקת עדכוני אבטחה ודיווח על תקלות מוסרים, ויחד איתן גם הגדרות קונסולת המערכת המתאימות (<b>הפעלת התראות אבטחה</b>, <b>הפעלת אבחון ודיווח על שגיאות</b>) ודף <b>הודעות מערכת</b>.</li>
+<li>בדיקת עדכוני האבטחה ודיווח השגיאות הוסרו, ויחד איתן גם הגדרות קונסולת המערכת שלהם (<b>הפעלת התראות אבטחה</b>, <b>הפעלת אבחון ודיווח שגיאות</b>) ודף <b>הודעות מערכת</b>.</li>
 </ul>
 <p>גרב (Socket) של מצב מקומי הוא כעת <code>/var/tmp/antimatter_local.socket</code>; <code>amctl</code> מנסה גם את <code>/var/tmp/mattermost_local.socket</code> הישן. Mattermost תומך רק ב-PostgreSQL בגרסאות האחרונות, וכך גם Antimatter: יש להעביר תחילה בסיס נתונים MySQL ל-PostgreSQL. חזרה ל-Mattermost לאחר ש-Antimatter שגררה את בסיס הנתונים דורשת שחזור גיבוי של Mattermost.</p>
 

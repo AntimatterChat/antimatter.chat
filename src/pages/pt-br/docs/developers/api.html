@@ -4,7 +4,7 @@ guide: developers
 order: 2
 nav: API REST
 lead: Tudo o que os aplicativos do Antimatter fazem passa pela mesma API HTTP, então seus scripts também podem. Esta página explica como autenticar, os recursos que você mais usará, como as respostas e os erros se parecem e como acompanhar eventos em tempo real via WebSocket.
-source: dccc67af2fb2
+source: a18155751d3e
 ---
 <h2 id="basics">Fundamentos</h2>
 <ul>
@@ -14,7 +14,7 @@ source: dccc67af2fb2
 <li><b>Comunidades são equipes</b>: a API as chama de <code>teams</code>, com um <code>team_id</code>.</li>
 <li><b>Você mesmo</b>: sempre que um caminho aceita um <code>user_id</code>, <code>me</code> significa o usuário conectado, como em <code>GET /users/me</code>.</li>
 </ul>
-<p>A lista completa de endpoints está no código do servidor: as rotas são declaradas em <code>server/channels/api4/*.go</code> e os tipos em <code>server/public/model</code>. A descrição OpenAPI na pasta <code>api/v4/source</code> do repositório cobre os endpoints herdados do Mattermost, não as adições do Antimatter.</p>
+<p>A lista completa de endpoints está no código do servidor: as rotas são declaradas em <code>server/channels/api4/*.go</code> e os tipos em <code>server/public/model</code>. A descrição OpenAPI na pasta <code>api/v4/source</code> do repositório cobre os endpoints herdados do Mattermost, bem como algumas das adições do Antimatter: mover tópicos, conexões de modelos e ações de mensagem. Os demais existem apenas no código.</p>
 
 <h2 id="auth">Autenticação</h2>
 <p>Cada solicitação, exceto o login e alguns endpoints públicos, requer um token no cabeçalho <code>Authorization</code>:</p>
@@ -144,7 +144,7 @@ func main() {
 <tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> mesmo caminho<br><code>PATCH</code>, <code>DELETE …/fields/{field_id}</code></td><td>Atributos da comunidade: os campos de perfil definidos pelos administradores da comunidade para seus membros (até 20). Os membros podem lê-los; os administradores da comunidade os criam e modificam.</td></tr>
 <tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> mesmo caminho<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>Os valores dos atributos de um membro, como <code>{field_id: value}</code>. Os membros definem os próprios (exceto os gerenciados por administradores); os administradores definem os de qualquer pessoa. A pesquisa aceita <code>{"user_ids": [...]}</code> (até 200).</td></tr>
 <tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>Suspensões: <code>{"until": time, "reason": "…"}</code> impede que alguém publique, reaja ou envie arquivos na comunidade até o horário especificado (no máximo 28 dias); <code>"until": 0</code> remove a suspensão. A visão de moderação mostra quando o membro entrou e quanto publicou recentemente.</td></tr>
-<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Mensagens mantidas no topo de um canal (até 10). <code>{"duration": ms}</code>, no máximo 30 dias; 0 mantém até ser removida. Exige o direito de publicar no canal.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Mensagens mantidas no topo de um canal (até 10). <code>{"duration": ms}</code>, no máximo 30 dias; 0 mantém até ser removida. Qualquer pessoa que possa ler o canal as lista. Colocar uma mensagem no topo ou removê-la exige o direito de publicar no canal e, em um canal de uma comunidade, ser administrador do canal ou da comunidade, ou ter <b>Gerenciar mensagens</b> (<code>delete_others_posts</code>) nele. Em uma mensagem direta ou de grupo, seus membros podem. Recusado em canais arquivados.</td></tr>
 <tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>Age sobre a solicitação de mensagem própria: <code>{"action": "accept"}</code>, <code>"dismiss"</code> ou <code>"request"</code> para colocar uma conversa novamente entre as solicitações. Retorna seu membro do canal.</td></tr>
 <tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>O que um papel ou uma pessoa pode fazer em um canal, e quais papéis veem um canal restrito por papel.</td></tr>
 <tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>As categorias de canais compartilhadas pela comunidade, e as substituições que se aplicam a todos os canais de uma categoria.</td></tr>
@@ -152,13 +152,75 @@ func main() {
 <tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>Testa as regras de autolinks da comunidade em um texto.</td></tr>
 <tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>Baixa as mensagens de um canal como CSV (até 50.000), para pessoas que podem ler o canal.</td></tr>
 <tr><td><code>GET /posts/{post_id}/speech</code></td><td>A mensagem lida em voz alta, como áudio, quando a conversão de texto em fala estiver configurada.</td></tr>
+<tr><td><code>POST /posts/{post_id}/move_to_channel</code></td><td>Move um tópico para outro canal da mesma comunidade: veja <a href="#move-thread">Mover um tópico</a>.</td></tr>
+<tr><td><code>GET</code>, <code>POST /ai/connections</code><br><code>GET</code>, <code>PATCH</code>, <code>DELETE /ai/connections/{connection_id}</code><br><code>GET /ai/connections/usable</code></td><td>Conexões de modelos, os provedores de IA usados pelos recursos e aplicativos de IA do servidor: veja <a href="#ai-connections">Conexões de modelos</a>.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/message_actions</code><br><code>POST /posts/{post_id}/message_actions/{hook_id}</code><br><code>GET</code>, <code>POST /hooks/outgoing/{hook_id}/icon</code></td><td>Ações de mensagem: webhooks de saída que as pessoas executam a partir do menu da mensagem. Veja <a href="{{root}}docs/developers/webhooks.html#message-actions">Ações de mensagem</a>.</td></tr>
 </tbody>
 </table>
 <h3>Novos campos</h3>
 <ul>
-<li><b>Comunidades</b> (<code>Team</code>, e <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (todos estão em todos os canais que podem ver), <code>default_channel_id</code> (onde os novos membros chegam; vazio significa Town Square), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> e <code>autolinks</code> (ambas strings JSON).</li>
+<li><b>Comunidades</b> (<code>Team</code>, e <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (todos estão em todos os canais que podem ver), <code>default_channel_id</code> (onde os novatos chegam; vazio significa Geral), <code>kind</code> (<code>community</code> ou <code>workplace</code>: em um workplace, os administradores de canal também podem arquivar seus canais; novas comunidades recebem o <code>TeamSettings.DefaultCommunityKind</code> do servidor, <code>community</code> por padrão), <code>member_list_view</code> (como a lista de membros agrupa os membros: <code>choice</code>, o padrão, permite que cada membro escolha; <code>roles</code> ou <code>teams</code> fixa isso), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> e <code>autolinks</code> (ambas strings JSON).</li>
+<li>O <b>Canal padrão</b> de uma nova comunidade é <code>general</code> (<b>Geral</b>), não <code>town-square</code>. A atualização 0.9.0 renomeia o <code>town-square</code> de cada comunidade para <code>general</code>, mantendo seu ID, a menos que a comunidade já tenha um canal <code>general</code>. Os nomes antigos continuam funcionando: <code>GET /teams/{team_id}/channels/name/town-square</code>, <code>GET /teams/name/{team}/channels/name/town-square</code> e o campo <code>channel</code> de um webhook recebido retornam o canal padrão da comunidade quando nenhum canal tem esse nome. Use <code>default_channel_id</code> ou o nome <code>general</code> em novo código.</li>
+<li><b>Links de canais</b>: <code>#channel-name</code> vincula um canal, assim como <code>~channel-name</code>. A propriedade <code>channel_mentions</code> da publicação lista os canais vinculados de qualquer uma das formas; um <code>#word</code> que não nomeia nenhum canal permanece como uma hashtag. A interface web e o aplicativo móvel do Antimatter escrevem <code>#name</code>.</li>
+<li><b>Canais Arquivados</b> ainda aceitam novos membros (<code>POST /channels/{channel_id}/members</code>), que podem ler o histórico. Ninguém pode publicar, reagir, fixar, colocar uma mensagem no topo, renomear o canal ou alterar as funções dos membros lá.</li>
 <li><b>Respostas inline</b>: uma publicação com <code>"props": {"reply_to": "&lt;post id&gt;"}</code> cita aquela mensagem do mesmo canal. Adicione <code>"reply_to_mention": false</code> para não notificar seu autor. O servidor preenche <code>metadata.reply_to</code> com uma breve descrição da mensagem citada.</li>
 <li><b>Spoilers</b>: <code>"props": {"spoiler": true}</code> oculta o texto e os arquivos de uma publicação até que o leitor escolha vê-los.</li>
 <li><b>Ignorar e bloquear</b> são preferências: categoria <code>user_block</code>, nomeada com o ID da outra pessoa, com o valor <code>ignore</code> ou <code>block</code>. Se uma mensagem direta espera como uma solicitação está no <code>notify_props.dm_request</code> do seu membro de canal (<code>pending</code>, <code>accepted</code> ou <code>dismissed</code>).</li>
 <li><b>Anexos de mensagem</b> podem carregar <code>stages</code> e um <code>chart</code>: veja <a href="{{root}}docs/developers/webhooks.html#cards">Cartões</a>.</li>
 </ul>
+
+<h2 id="move-thread">Mover um tópico</h2>
+<p><code>POST /posts/{post_id}/move_to_channel</code> move um tópico, sua primeira mensagem e todas as suas respostas, para outro canal da mesma comunidade. <code>post_id</code> pode ser a primeira mensagem ou qualquer resposta.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts/$POST_ID/move_to_channel \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$TARGET_CHANNEL_ID'", "flatten": false}'</code></pre>
+<ul>
+<li><code>channel_id</code> (obrigatório): o canal para o qual o tópico será movido.</li>
+<li><code>flatten</code> (padrão <code>false</code>): <code>true</code> faz com que as respostas se tornem mensagens do canal de destino em vez de um tópico. O <b>Tornar em canal</b> do Fusion usa isso.</li>
+</ul>
+<p>As mensagens mantêm seus autores, horários, reações e arquivos. Suas cópias carregam a propriedade <code>silent_notification</code>, de modo que não notificam ninguém. As mensagens originais são excluídas. A resposta é a primeira mensagem movida, com seu novo ID.</p>
+<h3>Quem pode mover um tópico</h3>
+<ul>
+<li>Você deve ser capaz de ler o tópico e de publicar no canal de destino.</li>
+<li>Os administradores do canal, os administradores da comunidade, pessoas com <b>Gerenciar mensagens</b> (<code>delete_others_posts</code>) no canal e administradores do sistema podem mover qualquer tópico.</li>
+<li>O autor do tópico pode movê-lo quando ambos os canais são públicos, ou quando todas as mensagens do tópico são dele. Caso contrário, a resposta é <code>403</code> com o ID <code>api.post.move_thread.private_needs_moderator.app_error</code>.</li>
+<li>Ambos os canais devem estar na mesma comunidade (sem mensagens diretas ou de grupo), ser diferentes e não estar arquivados. Mensagens do sistema e mensagens que se eliminam após a leitura não podem ser movidas.</li>
+<li>Um tópico com mais de <code>WranglerSettings.MoveThreadMaxCount</code> mensagens (100 por padrão; 0 para sem limite) é recusado.</li>
+</ul>
+<h3>O ponteiro e a nota</h3>
+<p>A movimentação deixa duas mensagens do sistema do tipo <code>system_wrangler</code>: um ponteiro no canal de origem ("Um tópico com 13 mensagens foi movido para #target") e uma nota no canal de destino ("Este tópico foi movido de #source"), abaixo do tópico movido ou, com <code>flatten</code>, após as suas mensagens. Além do texto da mensagem, as propriedades permitem que o cliente exiba o nome do canal como um link:</p>
+<ul>
+<li>O ponteiro: <code>MovedThreadPermalink</code>, <code>NumMessages</code>, <code>MovedThreadChannelId</code>, <code>MovedThreadTeamName</code>, <code>MovedThreadPostId</code> e, para um destino público, <code>MovedThreadChannelName</code> e <code>MovedThreadChannelDisplayName</code>.</li>
+<li>A nota: <code>MovedFromChannelId</code>, <code>MovedFromTeamName</code>, <code>MovedFromPostId</code> (o ponteiro), <code>MovedFromPermalink</code> e, para uma origem pública, <code>MovedFromChannelName</code> e <code>MovedFromChannelDisplayName</code>.</li>
+</ul>
+<p>Ambas também têm um <code>TranslationID</code>. O nome de um canal privado é omitido: os leitores veem "outro canal". O próprio <code>POST /posts/{post_id}/move</code> do Mattermost permanece desativado no Antimatter; use este endpoint.</p>
+
+<h2 id="ai-connections">Conexões de modelos</h2>
+<p>Uma conexão de modelo é o endereço e a chave de um provedor de IA, configurados por um administrador. Os recursos de IA do servidor e os aplicativos que chamam o serviço de IA os utilizam. Os administradores do sistema gerenciam as conexões de todo o servidor (<code>manage_ai_connections</code>); os administradores de uma comunidade gerenciam as conexões da própria comunidade (<code>manage_team_ai_connections</code>). As chaves são somente para gravação: nenhuma resposta as contém, apenas <code>api_key_set</code> e <code>api_key_last4</code>.</p>
+<table>
+<thead><tr><th>Endpoint</th><th>O que faz</th></tr></thead>
+<tbody>
+<tr><td><code>GET /ai/connections?scope=</code></td><td>As conexões que você gerencia. <code>scope</code> é <code>server</code> ou o ID de uma comunidade; sem ele, todos os escopos que você gerencia.</td></tr>
+<tr><td><code>POST /ai/connections</code></td><td>Adiciona uma conexão (responde <code>201</code>).</td></tr>
+<tr><td><code>POST /ai/connections/test</code>, <code>POST /ai/connections/models</code></td><td>Testa uma conexão, ou lista os seus modelos, antes de ela ser salva. O mesmo corpo que para adicionar uma; nada é armazenado.</td></tr>
+<tr><td><code>GET</code>, <code>PATCH</code> (ou <code>PUT</code>), <code>DELETE /ai/connections/{connection_id}</code></td><td>Lê, altera ou exclui uma conexão. Um patch contém apenas os campos a alterar; omita <code>api_key</code> para manter a chave.</td></tr>
+<tr><td><code>POST /ai/connections/{connection_id}/test</code></td><td>Testa uma conexão salva: <code>{"ok", "error", "status_code", "latency_ms", "model_count"}</code>.</td></tr>
+<tr><td><code>GET /ai/connections/{connection_id}/models</code></td><td>Os modelos oferecidos pelo provedor.</td></tr>
+<tr><td><code>GET /ai/connections/{connection_id}/usage</code></td><td>As solicitações e tokens deste mês.</td></tr>
+<tr><td><code>GET /ai/connections/usable?channel_id=&amp;team_id=</code></td><td>Para qualquer pessoa conectada: as conexões que você pode usar lá, com seus modelos e capacidades, nunca suas chaves ou endereços.</td></tr>
+</tbody>
+</table>
+<p>O corpo de uma nova conexão:</p>
+<pre><code>{
+  "name": "Local models",
+  "scope": "server",
+  "provider": "openai_compatible",
+  "base_url": "http://llm.internal:8000/v1",
+  "api_key": "…",
+  "extra_headers": {},
+  "models": {"chat": "qwen3-32b", "embeddings": "", "transcription": "", "decisions": ""},
+  "limits": {"requests_per_minute": 0, "monthly_token_budget": 0, "per_user_requests_per_minute": 0, "per_user_monthly_token_budget": 0},
+  "sharing": {"all_teams": true, "team_ids": []},
+  "audience": {"everyone": true, "group_ids": [], "roles": [], "allow_guests": false}
+}</code></pre>
+<p><code>provider</code> é <code>openai_compatible</code> ou <code>anthropic</code>. <code>scope</code> tem como padrão <code>server</code>; o ID de uma comunidade torna-a a conexão daquela comunidade. Em <code>limits</code>, 0 significa sem limite; as solicitações por minuto são contadas em cada servidor, e os orçamentos de tokens por mês civil (UTC) para todo o cluster. <code>sharing</code> indica quais comunidades podem usar uma conexão em nível de servidor (mensagens diretas e de grupo exigem <code>all_teams</code>), e <code>audience</code> quem pode usá-la; convidados apenas com <code>allow_guests</code>. As alterações são gravadas no log de auditoria. O guia do administrador explica as configurações: veja <a href="{{root}}docs/admins/ai.html">IA</a>.</p>

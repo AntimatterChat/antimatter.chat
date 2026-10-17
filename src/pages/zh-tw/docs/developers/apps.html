@@ -1,10 +1,10 @@
 title: 撰寫應用程式（外掛程式）
-description: 如何撰寫 Antimatter 應用程式（外掛程式）：bundle 結構與 plugin.json、伺服器 hooks 與 API、Web 應用程式註冊表、支援 Fusion 介面、設定、金鑰-值儲存、翻譯、打包與安裝。
+description: 如何撰寫 Antimatter 應用程式（外掛）：bundle 結構與 plugin.json、伺服器掛鉤與 API、AI 服務、Web 應用程式註冊表、支援 Fusion 介面、設定、鍵值儲存、翻譯、打包與安裝。
 guide: developers
 order: 6
 nav: 撰寫應用程式
 lead: 應用程式從內部為 Antimatter 新增功能：一個以 Go 撰寫、掛載到伺服器的伺服器端，以及一個以 React 撰寫、新增選單、面板、訊息類型與頁面的 Web 應用程式端。本頁以隨附的投票（Polls）應用程式為例，展示應用程式的結構，以及 Antimatter 的 Fusion 介面有何不同。
-source: d9c132cac759
+source: f2c14bacc2f3
 ---
 <h2 id="overview">應用程式的運作方式</h2>
 <ul>
@@ -131,6 +131,22 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 <li><code>GetUser</code>、<code>GetChannel</code>、<code>HasPermissionToChannel</code>：在代表使用者執行操作之前，檢查誰可以執行什麼。</li>
 </ul>
 <p>應用程式會執行在叢集的每台伺服器上。請將狀態儲存在金鑰-值儲存區或資料庫中，而不是只放在記憶體裡。</p>
+<h3 id="ai">AI 服務</h3>
+<p>Antimatter 的伺服器會透過管理員設定的模型連線（請參閱管理員指南中的 <a href="{{root}}docs/admins/ai.html">AI</a>）為應用程式呼叫 AI 模型。應用程式絕不持有提供者的金鑰：它只需指定代表誰、在何處執行，伺服器會檢查該使用者是否能在該處使用此連線，套用其限制與預算，將 token 計入該使用者與應用程式，並稽核呼叫內容（不含實際內容）。</p>
+<table>
+<thead><tr><th>方法</th><th>功能說明</th></tr></thead>
+<tbody>
+<tr><td><code>AIChat(actingUserID, channelID, teamID, *ai.ChatRequest)</code></td><td>聊天補全：訊息、工具、結構化輸出（<code>JSONSchema</code>）。</td></tr>
+<tr><td><code>AIChatStream(…)</code></td><td>相同功能，但採用串流方式：讀取串流的 <code>Events</code> 直到頻道關閉，或呼叫 <code>Close</code> 以停止呼叫。</td></tr>
+<tr><td><code>AIEmbed(…, *ai.EmbedRequest)</code></td><td>文字嵌入（Embeddings）。</td></tr>
+<tr><td><code>AITranscribe(…, *ai.TranscribeRequest)</code></td><td>語音轉文字。</td></tr>
+<tr><td><code>AIDecide(…, *ai.DecideRequest)</code></td><td>向決策模型提出有型別的問題（是或否、選擇、評分），針對特定文字。</td></tr>
+<tr><td><code>AIConnectionsForUser(userID, channelID, teamID)</code></td><td>使用者可在該處使用的連線，包含其模型與功能，但不包含金鑰。</td></tr>
+</tbody>
+</table>
+<p>每個請求的 <code>ConnectionID</code> 用於選擇連線，<code>Model</code> 用於選擇該連線中的一個模型（留空則使用連線的預設模型）。<code>Operation</code> 是用於使用記錄與稽核的簡短標籤，絕非內容。這些功能的最低伺服器版本要求為 11.11。</p>
+<div class="callout warn">請僅從伺服器已驗證的來源取得 <code>actingUserID</code>：例如發送到您的 <code>ServeHTTP</code> 的請求中的 <code>Mattermost-User-Id</code> 標頭，或掛鉤上下文中的使用者（例如貼文的作者、執行指令的使用者）。切勿從訊息、Webhook 負載、URL 或其他應用程式的請求中取得：否則您的應用程式將消耗他人的存取權限。</div>
+<p>這些方法與 <code>ai</code> 套件（<code>server/public/ai</code>）僅存在於 Antimatter 的模組副本中，而非 Mattermost 發布的版本。若要使用它們，請針對 Antimatter 的 <code>server/public</code> 進行建置，並在您的 <code>go.mod</code> 中添加一行 <code>replace</code>，例如 <code>replace github.com/mattermost/mattermost/server/public =&gt; ../antimatter/server/public</code>。此類應用程式僅能在 Antimatter 上執行。</p>
 
 <h2 id="kv">儲存資料</h2>
 <p>每個應用程式都在伺服器的資料庫中擁有自己的金鑰-值儲存區：</p>
@@ -172,17 +188,17 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <pre><code>export function isFusionUI(): boolean {
     return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
 }</code></pre>
-<p>內建應用程式使用此功能以呈現不同的外觀。投票應用程式會以 Fusion 的樣式繪製其投票卡片與建立對話框，並在 Fusion 中開啟自己的 <code>/poll</code> 對話框。通話與語音頻道會省略 Fusion 已用自己的通話介面取代的側邊欄與吐司元件。代理程式應用程式會將其 AI 動作放在訊息選單的子選單中，而非懸停工具列。Fusion 自身的 CSS 類別（前綴為 <code>am-</code>）及其對話框層（<code>am-layer</code> 元素）是這些應用程式用來匹配介面的方式；這些並非文件化且穩定的 API。</p>
+<p>內建應用程式使用此功能以呈現不同的視覺樣式。投票應用程式會以 Fusion 的風格繪製其投票卡片與建立對話框，並在 Fusion 中開啟自己的 <code>/poll</code> 對話框。通話與語音頻道會省略側邊欄與吐司通知元件，因為 Fusion 會以自己的通話介面取代這些元件。代理程式應用程式會將其 AI 動作放在訊息選單中，作為 <b>更多動作</b> 下的一個群組，而不是放在懸停工具列中。Fusion 自身的 CSS 類別（以 <code>am-</code> 為前綴）及其對話框層（<code>am-layer</code> 元素）是這些應用程式用來匹配介面的方式；這些並非文件化的穩定 API。</p>
 <h3>Fusion 顯示外掛元件的位置</h3>
 <table>
 <thead><tr><th>註冊方法</th><th>在 Fusion 中的出現位置</th></tr></thead>
 <tbody>
 <tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>應用程式橫列，即右側邊緣的圖示欄，位於您的頭像與<b>關於 Antimatter</b>按鈕之間。頻道標題按鈕也放在這裡，而非頻道標題中。當系統管理員啟用<b>停用應用程式橫列</b>（<code>ExperimentalSettings.DisableAppBar</code>，預設為停用）時，此橫列會隱藏。</td></tr>
-<tr><td><code>registerRightHandSidebarComponent</code></td><td>右側面板。使用者可拖曳其邊緣來調整大小。如果該應用程式也是一個產品，面板會提供<b>以完整頁面開啟</b>選項。</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>右側面板。使用者可以拖曳其邊緣來調整大小，並將其開啟在新的視窗中。如果該應用程式也是一個產品，面板會提供 <b>以完整頁面開啟</b> 選項。請參閱 <a href="#panel-state">在新視窗中的面板</a>。</td></tr>
 <tr><td><code>registerChannelHeaderIcon</code></td><td>頻道標題中的圖示，位於通話按鈕之後；在手機上，則位於標題的 <b>更多</b> 選單中。</td></tr>
 <tr><td><code>registerCallButtonAction</code></td><td>頻道標題中的通話按鈕；多個提供者共用一個 <b>其他通話方式</b> 選單。</td></tr>
-<tr><td><code>registerPostDropdownMenuAction</code></td><td>訊息的<b>更多動作</b>（⋯）選單，位於<b>訊息動作</b>子選單中；也位於討論串面板的<b>討論串操作</b>選單中，<b>更多動作</b>之下。</td></tr>
-<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>這些選單中獨立的子選單，包含應用程式的名稱與圖示。</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>訊息的 <b>訊息動作</b>（⋯）選單，位於其 <b>更多動作</b> 子選單中；也位於討論串面板的 <b>討論串操作</b> 選單中，位於 <b>更多動作</b> 之下。Fusion 會在每個動作前繪製應用程式的圖示，顏色為灰色：對於內建應用程式使用其自身的圖示，否則使用應用程式在應用程式欄中顯示的圖示，若無則使用中性的圖示。若動作文字開頭沒有文字（即應用程式自行繪製的圖示），該元素將被隱藏。</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>在相同的 <b>更多動作</b> 子選單中，位於單一動作之後的一個帶有標題的群組。沒有應用程式會在訊息選單中擁有自己的獨立項目。</td></tr>
 <tr><td><code>registerPostActionComponent</code></td><td>訊息懸停工具列，位於 ⋯ 按鈕之前。</td></tr>
 <tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>訊息本身：其內容、文字下方、時間之後，以及取代連結預覽的位置。</td></tr>
 <tr><td><code>registerChannelHeaderMenuAction</code></td><td>頻道的 <b>頻道選項</b> 選單（側邊欄中頻道的 ⋯，或右鍵），作為帶有插頭圖示的項目。</td></tr>
@@ -200,7 +216,7 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <tr><td><code>registerChannelTypeOption</code></td><td><b>建立頻道</b>對話框中的頻道類型。</td></tr>
 <tr><td><code>registerSearchComponents</code></td><td>頻道標題列中的搜尋框：當其為空時，會顯示應用程式範圍。</td></tr>
 <tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>關於 Antimatter</b>（應用程式欄底部），位於 <b>說明</b> 之下。</td></tr>
-<tr><td><code>registerProduct</code></td><td>位於產品 URL 的完整頁面，列於 <b>關於 Antimatter</b> 中的 <b>產品</b> 之下。產品頁面保留經典頁面框架。</td></tr>
+<tr><td><code>registerProduct</code></td><td>位於產品 URL 的完整頁面，列於 <b>關於 Antimatter</b> 中的 <b>產品</b> 之下。產品頁面保留經典的頁面框架，其產品選單僅在應用程式註冊產品或向其新增項目時才會顯示。內建的看板與操作手冊應用程式不再註冊產品：其頁面會在側邊面板中開啟。</td></tr>
 <tr><td><code>registerRootComponent</code>、<code>registerGlobalComponent</code>，以及 <code>registerMessageWillBePostedHook</code>、<code>registerSlashCommandWillBePostedHook</code>、<code>registerMessageWillFormatHook</code>、<code>registerFilesWillUploadHook</code>、<code>registerDesktopNotificationHook</code>、<code>registerWebSocketEventHandler</code>、<code>registerReducer</code>、<code>registerTranslations</code> 等掛鉤。</td><td>運作方式與經典介面相同。</td></tr>
 <tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>系統控制台，在兩種介面中皆為經典版本。</td></tr>
 </tbody>
@@ -230,12 +246,21 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <thead><tr><th>方法</th><th>新增的內容</th></tr></thead>
 <tbody>
 <tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>在兩種介面中，訊息框 <b>+</b> 選單中的一個項目。<code>action</code> 接收 <code>{channelId, rootId}</code>。</td></tr>
-<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>訊息框表情符號選擇器中的一個分頁，例如 GIF 或貼紙。在 Fusion 中，<code>order</code> 小於 10 的分頁會顯示在「表情符號」分頁之前。該元件會接收 <code>channelId</code>、<code>rootId</code>、<code>filter</code>、<code>onFilterChange</code>、<code>onSelectDone</code>、<code>insertText</code> 以及 <code>isFusion</code>。</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>訊息框表情符號選擇器的一個分頁，例如 GIF 或貼紙。在 Fusion 中，<code>order</code> 低於 10 的分頁會排在表情符號分頁之前。該元件接收 <code>channelId</code>、<code>rootId</code>、<code>filter</code>、<code>onFilterChange</code>、<code>onSelectDone</code>、<code>insertText</code>、<code>isFusion</code>，以及在 Fusion 中的 <code>pickerKit</code>（見下文）。</td></tr>
 <tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>位於頻道標題與訊息之間的面板，用於 <code>matcher(state, channel)</code> 所選取的頻道。它可以隱藏訊息與輸入框（<code>setMessagesVisible</code>），就像語音頻道那樣。</td></tr>
 <tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>側邊欄中頻道下方的一行，例如顯示該頻道通話中的人員。它會接收 <code>channel</code>。</td></tr>
 <tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>僅限 Fusion：在<b>整合</b>頁面上，自訂表情符號旁邊的項目。GIFs 應用程式會將其自訂 GIF 和貼紙新增到該處。</td></tr>
 </tbody>
 </table>
+<h3 id="picker-kit">在表情符號選擇器中新增及管理檢視</h3>
+<p>在 Fusion 中，表情符號選擇器分頁會收到一個 <code>pickerKit</code> 屬性：這是表情符號分頁用於其新增與管理檢視的元件，讓分頁的檢視保持一致並保持在選擇器內。GIFs 和 Memes 應用程式使用它來新增和管理 GIF、貼紙和迷因模板。它包含 <code>version</code> (1)、鉤子 <code>usePickerView</code> 和 <code>useOnEscape</code>，以及元件 <code>PickerViewButtons</code>（搜尋框旁邊的 <b>+</b> 和管理按鈕）、<code>PickerViewFrame</code>（帶有返回箭頭的檢視）、<code>PickerNotice</code>、<code>PickerField</code>、<code>PickerSearch</code>、<code>PickerDropZone</code> 和 <code>PickerManageList</code>。按 Esc 鍵會從檢視返回到分頁的網格。請確認該屬性存在：其他宿主會省略它，此時分頁會保留自己的對話框。類型定義位於 <code>webapp/fusion/src/types/store/plugins.ts</code>（<code>EmojiPickerTabProps</code>），元件位於 <code>webapp/fusion/src/fusion/popovers/picker_views.tsx</code>。</p>
+<h3 id="panel-state">在新視窗中的面板</h3>
+<p>Fusion 會為 <code>registerRightHandSidebarComponent</code> 的元件提供另外兩個屬性，以便 <b>在新視窗中開啟</b> 能在面板原本的位置開啟，而不是在應用程式首頁：</p>
+<ul>
+<li><code>setPanelState(state)</code>：當面板位置變更時呼叫，並傳入一個由您的應用程式定義的短字串，例如 <code>'note/&lt;id&gt;'</code> 或 <code>'board/&lt;id&gt;/card/&lt;id&gt;'</code>，或在首頁時傳入 <code>null</code>。它會進入視窗網址，因此切勿在其中放入機密資訊。長度超過 512 個字元或包含控制字元的狀態會被捨棄。</li>
+<li><code>initialPanelState</code>：在新視窗中，這是面板之前的狀態，或 <code>undefined</code>。請將其視為不可信的輸入：請以登入者的身分重新取得該項目，如果他們無法開啟，則顯示應用程式首頁或找不到檢視。</li>
+</ul>
+<p>當面板關閉或另一個應用程式的面板取代它時，狀態會被遺忘。若要自行開啟面板視窗，<code>popoutRhsPlugin</code>（也位於 <code>window.WebappUtils.popouts</code>）接受狀態作為可選的第五個參數。筆記、白板、待辦事項、看板和操作手冊使用此功能。</p>
 <p><code>fusionIcon</code> 指定 Fusion 圖示集中的某個圖示（例如 <code>poll</code>、<code>sticker</code>、<code>calendar</code> 或 <code>image</code>；請參閱 <code>webapp/fusion/src/fusion/components/icon</code>）。Fusion 會顯示此圖示而非 <code>icon</code>，以確保該項目與其他項目保持一致。</p>
 
 <h2 id="settings">設定</h2>

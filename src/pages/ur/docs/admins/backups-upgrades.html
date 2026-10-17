@@ -4,19 +4,21 @@ guide: admins
 order: 10
 nav: بیک اپس اور اپ گریڈز
 lead: کیا چیزیں بیک اپ کرنی ہیں، نئے ہوسٹ پر کیسے بحال کرنی ہیں، کیسے اپ گریڈ کرنا ہے، اور Antimatter پر Mattermost سرور یا ایک کومونٹی کیسے منتقل کرنی ہے۔
-source: b0797af8b6e7
+source: 531ec332715c
 ---
 <h2 id="what">کیا چیزیں بیک اپ کرنی ہیں</h2>
 <table>
-<thead><tr><th>کیا</th><th>سائٹ کے compose فائل کے ساتھ</th><th>ریلیس آرکائیو کے ساتھ</th></tr></thead>
+<thead><tr><th>کیا</th><th>سائٹ کے compose فائل کے ساتھ</th><th>ریلیس آرکائیو کے ساتھ</th><th>.deb یا .rpm پیکج کے ساتھ</th></tr></thead>
 <tbody>
-<tr><td>ڈیٹا بیس: پیغامات، صارفین، کومونٹیز، چینلز اور، سائٹ کے compose فائل کے ساتھ، کنفیگریشن</td><td>وولیوم <code>antimatter_postgres</code>، <code>pg_dump</code> کے ذریعے</td><td>آپ کا PostgreSQL ڈیٹا بیس</td></tr>
-<tr><td>اپ لوڈ شدہ فائلیں، تصاویر اور انسٹال شدہ ایپس</td><td>وولیوم <code>antimatter_files</code> (S3 اسٹوریج)</td><td><code>FileSettings.Directory</code>، پہلے سے طے شدہ <code>./data/</code></td></tr>
-<tr><td>کنفیگریشن فائل</td><td>(ڈیٹا بیس میں)</td><td><code>config/config.json</code></td></tr>
-<tr><td>GIFs اور اسٹیکرز</td><td>وولیوم <code>antimatter_gifs</code></td><td>GIF سروس کا ڈیٹا ڈائریکٹری</td></tr>
-<tr><td>راز (Secrets)</td><td><code>.env</code> (اور <code>compose.override.yaml</code>)</td><td>آپ کا ماحول فائل</td></tr>
+<tr><td>ڈیٹا بیس: پیغامات، صارفین، کومونٹیز، چینلز اور، سائٹ کے compose فائل کے ساتھ، کنفیگریشن</td><td>وولیوم <code>antimatter_postgres</code>، <code>pg_dump</code> کے ذریعے</td><td>آپ کا PostgreSQL ڈیٹا بیس</td><td>آپ کا PostgreSQL ڈیٹا بیس</td></tr>
+<tr><td>اپ لوڈ شدہ فائلیں، تصاویر اور انسٹال شدہ ایپس</td><td>وولیوم <code>antimatter_files</code> (S3 اسٹوریج)</td><td><code>FileSettings.Directory</code>، پہلے سے طے شدہ <code>./data/</code></td><td><code>/var/lib/antimatter</code></td></tr>
+<tr><td>کنفیگریشن فائل</td><td>(ڈیٹا بیس میں)</td><td><code>config/config.json</code></td><td><code>/etc/antimatter/config/config.json</code></td></tr>
+<tr><td>GIFs اور اسٹیکرز</td><td>وولیوم <code>antimatter_gifs</code></td><td>GIF سروس کا ڈیٹا ڈائریکٹری</td><td><code>/var/lib/gifs-server</code></td></tr>
+<tr><td>راز (Secrets)</td><td><code>.env</code> (اور <code>compose.override.yaml</code>)</td><td>آپ کا ماحول فائل</td><td><code>/etc/antimatter/antimatter.env</code>, <code>/etc/gifs-server</code></td></tr>
+<tr><td>AI انکرپشن کلید، جو ماڈل کنکشنز کی کلیدز کو انکرپٹ کرتی ہے</td><td><code>.env</code> میں <code>AM_AI_ENCRYPTION_KEY</code> (تجویز کردہ)، یا <code>antimatter_data</code> وولوم میں <code>ai-encryption.key</code> فائل</td><td><code>AM_AI_ENCRYPTION_KEY</code>، یا <code>data/ai-encryption.key</code></td><td><code>antimatter.env</code> میں <code>AM_AI_ENCRYPTION_KEY</code>، یا <code>/var/lib/antimatter/data/ai-encryption.key</code></td></tr>
 </tbody>
 </table>
+<p>AI انکرپشن کلید کے بغیر، بحال شدہ سرور اپنے ماڈل کنکشنز کی API کلیدز نہیں پڑھ سکتا، اور ہر ایک کو دوبارہ ٹائپ کرنا پڑتا ہے۔ کلید کی ایک کاپی ڈیٹا بیس بیک اپس سے الگ رکھیں، تاکہ ایک چوری شدہ بیک اپ میں دونوں موجود نہ ہوں۔ دیکھیں <a href="{{root}}docs/admins/ai.html#encryption-key">انکرپشن کلید</a>۔</p>
 <p>ڈیٹا بیس اور فائلیں ایک ساتھ ہیں: انہیں ایک ہی وقت میں بیک اپ کریں، اور کاپیاں سرور سے باہر رکھیں۔ وولیوم کے نام compose پروجیکٹ کے نام، <code>antimatter</code> سے شروع ہوتے ہیں (<code>docker volume ls</code> انہیں فہرست کرتا ہے)۔</p>
 
 <h2 id="backup">بیک اپ کریں</h2>
@@ -27,19 +29,20 @@ docker compose stop antimatter
 # Database
 docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
     &gt; "backups/antimatter-db-$stamp.dump"
-# File storage and GIF service
-for v in files gifs; do
+# File storage, GIF service and the data directory (the AI key file)
+for v in files gifs data; do
     docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
         alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
 done
 docker compose start antimatter
 # Secrets
 cp .env "backups/env-$stamp"</code></pre>
+<p>اگر آپ نے <code>AM_AI_ENCRYPTION_KEY</code> سیٹ نہیں کیا ہے، تو سرور کی کلید فائل <code>data</code> وولوم میں ہے، جسے اوپر والا لوپ فائلوں کے ساتھ محفوظ کرتا ہے۔ بہتر ہے کہ اس کا مواد <code>.env</code> میں رکھیں، جیسا کہ <a href="{{root}}docs/admins/ai.html#encryption-key">انکرپشن کلید</a> میں بیان کیا گیا ہے، اور اس کی ایک کاپی ڈیٹا بیس بیک اپس سے الگ رکھیں۔</p>
 <p>روزانہ کے بیک اپ کے لیے cron سے چلائیں، اور <code>backups/</code> ڈائریکٹری کو کسی اور مشین پر کاپی کریں۔ <code>.env</code> کی کاپیاں سرور جتنی محفوظ رکھیں: ان میں اس کے پاس ورڈز ہیں۔</p>
 <p>اپ لوڈ شدہ فائلوں کو آئیٹم بہ آئیٹم کاپی کرنے کے لیے (مثلاً کسی اور S3 اسٹوریج پر)، <code>bucket</code> سروس کا AWS کمانڈ لائن ٹول استعمال کریں:</p>
 <pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
     "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
-<p>ریلیس آرکائیو کے ساتھ، ڈیٹا بیس کو <code>pg_dump -Fc</code> سے بیک اپ کریں، اور <code>data/</code> اور <code>config/</code> ڈائریکٹریز کو اپنے معمول کے ٹولز سے۔</p>
+<p>ریلیس آرکائیو کے ساتھ، ڈیٹا بیس کو <code>pg_dump -Fc</code> کے ساتھ بیک اپ کریں، اور <code>data/</code> اور <code>config/</code> ڈائریکٹریز کو اپنے معمول کے ٹولز کے ساتھ (<code>data/</code> میں AI کلید فائل ہوتی ہے)۔ پیکجز کے ساتھ، ڈیٹا بیس کو اسی طرح بیک اپ کریں، اور <code>/etc/antimatter</code>، <code>/var/lib/antimatter</code>، <code>/etc/gifs-server</code> اور <code>/var/lib/gifs-server</code>۔</p>
 
 <h2 id="restore">نئے ہوسٹ پر بحال کریں</h2>
 <p><code>compose.yaml</code>، محفوظ شدہ <code>.env</code> اور بیک اپس کو ایک نئے ڈائریکٹری میں رکھیں، پھر:</p>
@@ -48,15 +51,16 @@ docker compose create           # creates the volumes, starts nothing
 docker compose up -d postgres
 docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
     &lt; "backups/antimatter-db-$stamp.dump"
-for v in files gifs; do
+for v in files gifs data; do
     docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
         alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
 done
 docker compose up -d</code></pre>
-<p>وہی <code>.env</code> استعمال کریں: اسٹوریج اور ڈیٹا بیس کو اپنے پرانے پاس ورڈز برقرار رکھنے ہوں گے۔ اگر نئے ہوسٹ کا پتہ مختلف ہے، تو <code>SITE_URL</code> (اور <code>DOMAIN</code>) کو اپ ڈیٹ کریں۔</p>
+<p>ایسی ہی <code>.env</code> استعمال کریں: اسٹوریج اور ڈیٹا بیس کو ان کے پاس موجود پاس ورڈز برقرار رکھنے ہوں گے، اور ماڈل کنکشنز کو وہی AI انکرپشن کلید درکار ہوگی۔ اگر نئے ہوسٹ کا پتہ مختلف ہے، تو <code>SITE_URL</code> (اور <code>DOMAIN</code>) کو اپ ڈیٹ کریں۔</p>
 <p>کبھی کبھار بیک اپس کی جانچ کے لیے انہیں کسی اور مشین پر بحال کریں۔</p>
 
 <h2 id="upgrade">اپ گریڈ کریں</h2>
+<div class="callout warn">17 اکتوبر 2026 سے پہلے ڈاؤن لوڈ کیے گئے Compose فائلوں میں <code>data</code> وولوم نہیں تھا: AI کلید فائل کنٹینر میں تھی۔ جب آپ نئی <code>compose.yaml</code> استعمال کرنے سے پہلے، اور اگر <code>.env</code> میں <code>AM_AI_ENCRYPTION_KEY</code> موجود نہیں ہے، تو سرور نے جو کلید بنائی ہے اسے محفوظ کریں: <code>echo "AM_AI_ENCRYPTION_KEY=$(docker compose exec -T antimatter cat /antimatter/data/ai-encryption.key)" &gt;&gt; .env</code>۔ اگر کمانڈ کو کوئی فائل نہیں ملتی، تو اس کا مطلب ہے کہ ابھی تک کوئی ماڈل کنکشن نے کوئی کلید محفوظ نہیں کی ہے۔</div>
 <ol>
 <li>بیک اپ لیں۔</li>
 <li>اگر آپ ایک پین کرتے ہیں، جیسا کہ تجویز کیا گیا ہے، تو <code>.env</code> میں امیج ٹیگ (<code>ANTIMATTER_IMAGE</code>) کو تبدیل کریں۔</li>
@@ -65,12 +69,45 @@ docker compose up -d</code></pre>
 docker compose up -d
 docker compose logs -f antimatter</code></pre></li>
 </ol>
-<p>شروع پر، سرور ڈیٹا بیس اسکیمے کو اپ گریڈ کرتا ہے (اسے لاگ میں دیکھیں؛ بڑے سرور کے لیے یہ کئی منٹ لگ سکتے ہیں) اور امیج سے شامل ایپس کے نئے ورژن انسٹال کرتا ہے۔ ریلیز آرکائیو کے ساتھ: سرور روکیں، <code>config/</code>، <code>data/</code>، <code>logs/</code>، <code>plugins/</code> اور <code>client/plugins/</code> کے علاوہ ہر چیز کو نئے آرکائیو کے مواد سے تبدیل کریں، اور دوبارہ شروع کریں۔</p>
+<p>شروع پر، سرور ڈیٹا بیس اسکیمے کو اپ گریڈ کرتا ہے (اسے لاگ میں دیکھیں؛ بڑے سرور کے لیے یہ کئی منٹ لگ سکتا ہے) اور امیج سے شامل ایپس کے نئے ورژن انسٹال کرتا ہے۔ ریلیس آرکائیو کے ساتھ: سرور روکیں، <code>config/</code>، <code>data/</code>، <code>logs/</code>، <code>plugins/</code> اور <code>client/plugins/</code> کے علاوہ ہر چیز کو نئے آرکائیو کے مواد سے تبدیل کریں، اور دوبارہ شروع کریں۔ .deb یا .rpm پیکیج کے ساتھ، نئے پیکیج کو اس طرح انسٹال کریں جیسا کہ <a href="{{root}}docs/admins/install.html#packages">پیکیج اپ گریڈ</a> میں بیان کیا گیا ہے۔</p>
 <div class="callout warn">اپ گریڈ صرف آگے بڑھتے ہیں۔ ایک بار جب نیا سرور ڈیٹا بیس کو اپ گریڈ کر دے، تو پرانا ورژن اس کا استعمال نہیں کر سکتا: واپسی کے لیے، اپ گریڈ سے پہلے لیا گیا بیک اپ بحال کریں۔ یہی بات <code>antimatter-next</code> سے <code>antimatter</code> کی واپسی پر بھی لاگو ہوتی ہے۔</div>
 <h3>ورژنز</h3>
-<p>Antimatter کا سرور اس Mattermost لائن کے ورژن کی رپورٹ کرتا ہے جس پر یہ مبنی ہے (حالیہ ورژن 12.0.0 ہے)۔ امیجز <code>main</code> برانچز سے دوبارہ تعمیر ہوتی ہیں: <code>antimatter-next</code> ہر رات (ٹیگز <code>nightly-&lt;YYYYMMDD&gt;</code>)، اور ہر تبدیلی پر دونوں امیجز (ٹیگز <code>sha-&lt;commit&gt;</code>)۔ ان میں سے ایک ٹیگ کو فکس کریں، جان بوجھ کر اپ گریڈ کریں، اور پچھلی ٹیگ کو نوٹ کر رکھیں تاکہ آپ کو معلوم ہو کہ کون سا بیک اپ اس کے ساتھ جڑا ہوا ہے۔</p>
+<p>Antimatter کا سرور اس Mattermost لائن کے ورژن کی رپورٹ کرتا ہے جس پر یہ مبنی ہے (حالیہ ورژن 12.0.0 ہے)۔ GitHub پر دستیاب ریلیز، جن کے ساتھ آرکائیوز اور پیکیجز ہیں، اپنے اپنے ورژن نمبرز رکھتی ہیں، بیٹا کے دوران یہ 0.9.0 سیریز میں ہیں: <code>antimatter version</code> اسے <b>بلڈ نمبر</b> کے طور پر دکھاتا ہے۔ امیجز <code>main</code> برانچز سے دوبارہ تعمیر کی جاتی ہیں: <code>antimatter-next</code> ہر رات (ٹیگز <code>nightly-&lt;YYYYMMDD&gt;</code>)، اور ہر تبدیلی پر دونوں امیجز (ٹیگز <code>sha-&lt;commit&gt;</code>)۔ ان میں سے ایک ٹیگ کو فکس کریں، ارادتی طور پر اپ گریڈ کریں، اور پچھلی ٹیگ کو نوٹ کر رکھیں تاکہ آپ کو معلوم ہو کہ کون سا بیک اپ اس کے ساتھ جاتا ہے۔</p>
 <h3>PostgreSQL کے بڑے ورژنز</h3>
 <p>کمپوز فائل <code>postgres:17-alpine</code> استعمال کرتی ہے۔ Antimatter کو PostgreSQL 15 یا اس سے نئے ورژن کی ضرورت ہے۔ PostgreSQL کا نیا بڑا ورژن پچھلے ورژن کا ڈیٹا ڈائریکٹری نہیں پڑھ سکتا: اسے منتقل کرنے کے لیے، ڈیٹا بیس ڈمپ کریں، نئے ورژن کو نئے وولوم پر شروع کریں اور ڈمپ کو اس میں بحال کریں۔</p>
+
+<h2 id="v090">0.9.0 میں اپ گریڈ</h2>
+<p>ورژن 0.9.0 (یا 17 اکتوبر 2026 کے بعد سے بنائی گئی امیج) کا پہلا شروع ڈیٹا میں کچھ ایک بار کے تبدیلیاں کرتا ہے۔ ہر تبدیلی ایک بار چلتی ہے اور ڈیٹا بیس میں ریکارڈ کی جاتی ہے۔ یہ پرانے ڈیفالٹ پر چھوڑے گئے چیزوں کو نئے ڈیفالٹ تک لاتی ہیں، اور ایڈمنسٹریٹر کے منتخب کردہ چیزوں کو ہاتھ نہیں لگاتی۔ انہیں لاگ میں دیکھیں۔</p>
+<div class="callout warn">If Antimatter is for a company or an organisation, set <b>Kind of new communities</b> to <b>Workplace</b> <em>before</em> you upgrade: <code>AM_TEAMSETTINGS_DEFAULTCOMMUNITYKIND=workplace</code>. The upgrade gives every community the kind this setting has at that moment, and calls are off by default in the channels of communities of the <b>Community</b> kind. See <a href="{{root}}docs/admins/configuration.html#community-kind">Workplace or community</a>.</div>
+<table>
+<thead><tr><th>کیا</th><th>تبدیلی</th></tr></thead>
+<tbody>
+<tr><td>کمیونٹی کی اقسام</td><td>ہر کمیونٹی کو ایک قسم ملتی ہے، <b>کمیونٹی</b> یا <b>ورک پلیس</b>: پہلے شروع پر <b>نئی کمیونٹیز کی قسم</b> (<code>TeamSettings.DefaultCommunityKind</code>) کی قدر۔ پہلے سے سیٹ کردہ قسم برقرار رہتی ہے۔ کمیونٹی ایڈمنسٹریٹرز بعد میں اپنی کمیونٹی کی قسم بدل سکتے ہیں، <b>ٹیم کی ترتیبات › چینلز › کمیونٹی کی قسم</b> میں۔</td></tr>
+<tr><td>کون چینلز آرکائیو کرتا ہے</td><td>چینلز کے اراکین اب ان چینلز کو آرکائیو نہیں کرتے جن میں وہ شامل ہیں؛ یہ کام کمیونٹی کے ایڈمنسٹریٹرز کرتے ہیں۔ ایک ورک پلیس میں، چینل کے ایڈمنسٹریٹرز (جو اسے بنائے اور جنہیں انہوں نے ایڈمنسٹریٹرز بنایا) بھی چینل کو آرکائیو کرتے ہیں۔ اس تبدیلی سے سسٹم اسکیم کے کردار بدل جاتے ہیں؛ تاہم، سسٹم ایڈمنسٹریٹر کی طرف سے کچھ کمیونٹیز کے لیے بنائے گئے پرمیشن اسکیمز کو ویسے ہی چھوڑ دیا جاتا ہے۔</td></tr>
+<tr><td>لی آؤٹ پری سیٹس کا Moderators کردار</td><td>کمیونٹیز کو لی آؤٹ پری سیٹ سے ملنے والا <b>Moderators</b> کردار اب <b>لوگوں کو ہٹائیں</b> کی صلاحیت حاصل کرتا ہے، جو لوگوں کو وقت کی بنیاد پر ہٹانے اور انہیں بالکل خارج کرنے کے لیے ضروری ہے۔ صرف وہی کردار تبدیل ہوتے ہیں جو پری سیٹ کے مطابق بالکل ویسے ہی ہیں؛ کسی کے طرف سے ایڈٹ شدہ کردار کو چھوڑ دیا جاتا ہے۔</td></tr>
+<tr><td><b>ایڈمنسٹریٹر</b> کے ساتھ کردار</td><td>کمیونٹی کا وہ کردار جس میں <b>ایڈمنسٹریٹر</b> سوئچ آن ہے، اب کمیونٹی کے ایڈمنسٹریٹرز کے تمام اختیارات حاصل کرتا ہے، جیسا کہ سوئچ بتاتا ہے، صرف کمیونٹی کی ترتیبات تک محدود نہیں رہتا۔</td></tr>
+<tr><td>ارکان کی حد</td><td><b>ہر کمیونٹی میں زیادہ سے زیادہ اراکین</b> (<code>TeamSettings.MaxUsersPerTeam</code>) 50 (پرانے ڈیفالٹ) سے 0 (کوئی حد نہیں) تک تبدیل ہو جاتا ہے۔ کوئی اور قیمت برقرار رہتی ہے، اور <code>AM_TEAMSETTINGS_MAXUSERSPERTEAM</code> کے ذریعے سیٹ کی گئی حد بھی برقرار رہتی ہے۔</td></tr>
+<tr><td>ماڈل کنکشنز</td><td>سسٹم ایڈمنسٹریٹرز کو ماڈل کنکشنز کی نگرانی کا اختیار ملتا ہے، اور کمیونٹی ایڈمنسٹریٹرز (اور <b>ایڈمنسٹریٹر</b> کے ساتھ کردار) کو اپنی کمیونٹی کے کنکشنز کی نگرانی کا اختیار ملتا ہے۔ ایجنٹس ایپ کے AI سروسز سرور-وائیڈ <a href="{{root}}docs/admins/ai.html#connections">ماڈل کنکشنز</a> بن جاتے ہیں، تفصیل کے لیے نیچے دیکھیں۔</td></tr>
+<tr><td>ٹاؤن اسکوئر جنرل بن جاتا ہے</td><td>ہر کمیونٹی کا ڈیفالٹ چینل <code>town-square</code> (Town Square) سے <code>general</code> (General) کے نام سے دوبارہ نامزد کیا جاتا ہے۔ اس کا ID، ارکان، پیغامات اور ترتیبات برقرار رہتے ہیں، اور ایڈمنسٹریٹرز کے منتخب کردہ ڈسپلے نام بھی برقرار رہتا ہے۔ پرانے لنکس اور <code>town-square</code> کے ذریعے تلاش اب بھی اس چینل کو لے جاتی ہیں۔ اگر کسی کمیونٹی میں پہلے سے <code>general</code> نام کا چینل موجود ہے (چاہے آرکائیو شدہ ہو)، تو اس کا <code>town-square</code> ڈیفالٹ چینل کے طور پر برقرار رہتا ہے، اور اسی طرح اگر <code>town-square</code> آرکائیو شدہ ہو۔ لاگ میں ان کمیونٹیز کے نام درج ہوتے ہیں، اور ان کے ایڈمنسٹریٹرز چینلز کے نام دوبارہ تبدیل کر سکتے ہیں۔</td></tr>
+<tr><td>پسندیدہ</td><td>ہر فرد کے Favorites سائیڈ بار کیٹیگری کا نام Favourites کر دیا جاتا ہے، جیسا کہ انٹرفیس اب ظاہر کرتا ہے۔ لوگوں کی طرف سے اس نام سے بنائی گئی کیٹیگریز کو چھوڑ دیا جاتا ہے۔</td></tr>
+</tbody>
+</table>
+<h3>ایجنٹس ایپ کے سروسز</h3>
+<p>اپ گریڈ کے دوران ایجنٹس ایپ کے ہر AI سروس کو سرور کے پورے ماڈل کنکشن میں تبدیل کیا جاتا ہے، جو ہر کمیونٹی کے ساتھ شیئر ہوتا ہے اور مہمانوں کے علاوہ ہر کوئی اس کا استعمال کر سکتا ہے (انہیں بھی اجازت دینے کے لیے <b>مہمانوں کو بھی</b> کو آن کریں)۔ راستے میں کلز کو انکرپٹ کیا جاتا ہے، اس لیے سرور کو اپنا AI انکرپشن کل درکار ہے: اگر کلسٹر کی فائلیں S3 میں ہیں تو پہلے <code>AM_AI_ENCRYPTION_KEY</code> سیٹ کریں، ورنہ کاپی اگلے شروع ہونے تک انتظار کرے گی۔ پھر <b>سسٹم کنسول › AI › ماڈل کنکشنز</b> کو چیک کریں:</p>
+<ul>
+<li>ہر کنکشن اپنی سروس کا ID برقرار رکھتا ہے، تاکہ ایپ کے ایجنٹس اور ایجنٹس سروس پر سیٹ خودکار ترجمہ اسے پھر بھی ڈھونڈ سکیں۔</li>
+<li>OpenAI، OpenAI-compatibile، Anthropic، Mistral، Cohere اور Gemini سروسز ان کے OpenAI-compatibile (یا Anthropic) اینڈ پوائنٹ کے کنکشن بن جاتی ہیں۔ Azure سروس ریسورس کے OpenAI-compatibile اینڈ پوائنٹ کے کنکشن بن جاتی ہے: اسے ٹیسٹ کریں۔</li>
+<li>AWS Bedrock، Google Vertex AI اور Cohere North سروسز، اور نامعلوم اقسام کو <b>توجہ درکار</b> کے طور پر نشان زد کیا جاتا ہے، وجہ کے ساتھ۔ ان کے کلاؤڈ کریڈنشلز کاپی نہیں کیے جاتے: انہیں پرووائڈر کے OpenAI-compatibile اینڈ پوائنٹ یا LiteLLM جیسے گیٹ وے پر سیٹ کریں، پھر محفوظ کریں۔</li>
+<li>ایمبیڈنگ سروس اسی ایڈریس اور کل والے کنکشن کا <b>ایمبیڈنگز</b> ماڈل بن جاتی ہے، یا اپنا الگ کنکشن۔ ٹرانسکرپشن سروس کو <code>whisper-1</code> ماڈل ملتا ہے۔</li>
+<li>اگر ری رائٹ اور ریکپس کے پاس ابھی کوئی کنکشن نہیں ہے، تو انہیں ایپ کے ڈیفالٹ ایجنٹ کی سروس اور ماڈل مل جاتے ہیں۔</li>
+</ul>
+<p>ایجنٹس ایپ کی اپنی ترتیبات اور ڈیٹا ویسے ہی رہتے ہیں جیسے تھے: اس کے ایجنٹس اس کی سروسز کا استعمال جاری رکھتے ہیں۔</p>
+<h3>ڈیفالٹس میں دیگر تبدیلیاں</h3>
+<ul>
+<li><b>کالز</b>: <b>ٹیسٹ موڈ</b> آف اور <b>ویڈیو فعال کریں</b> ڈیفالٹ طور پر آن ہے۔ کنفیگریشن میں محفوظ شدہ انتخاب برقرار رہتا ہے۔ کالز کمیونٹی کی قسم کے پیروی بھی کرتی ہیں (دیکھیں <a href="{{root}}docs/admins/calls.html#where-calls">کالز اور وائس</a>)۔</li>
+<li>پیغامات کو اوپر لانے کا حق چینل کے ایڈمنز، کمیونٹی کے ایڈمنز اور مڈریٹرز (جن کے پاس <b>پیغامات کا انتظام</b> ہے) کو ہے؛ براہِ راست یا گروپ پیغام کے ارکان اب بھی یہ کر سکتے ہیں۔</li>
+<li>آرکائیو شدہ چینلز نئے ارکان قبول کر سکتے ہیں، جو ان کی تاریخ پڑھ سکتے ہیں۔ کوئی بھی ان میں پوسٹ نہیں کر سکتا، ردعمل نہیں دے سکتا یا کچھ نہیں بدل سکتا۔</li>
+</ul>
 
 <h2 id="mattermost">Mattermost سے منتقلی</h2>
 <p>Antimatter، Mattermost کے ڈیٹا بیس اسکیمے کا استعمال کرتا ہے اور اپنی کچھ ٹیبلز شامل کرتا ہے، اس لیے یہ Mattermost سرور کے PostgreSQL ڈیٹا بیس اور فائلز کو اپنانے کے قابل ہے۔ پہلے اسے کسی کاپی پر آزمائیں:</p>
@@ -86,8 +123,9 @@ docker compose logs -f antimatter</code></pre></li>
 <ul>
 <li>Mattermost پر موجود پش نوٹیفیکیشن سرور ترتیبات میں محفوظ رہتا ہے لیکن کبھی استعمال نہیں ہوتا؛</li>
 <li>ایپ مارکیٹ پلیس (<b>مارکیٹ پلیس URL</b>) اور پروڈکٹ نوٹسز کے لیے Mattermost کے ایڈریس خالی کر دیے جاتے ہیں؛</li>
+<li>ایپ ڈاؤن لوڈ لنکس جو Mattermost کے ڈیفالٹ تھے (<b>Antimatter Apps Download Page Link</b>، <b>Android ایپ ڈاؤن لوڈ لنک</b> اور <b>iOS ایپ ڈاؤن لوڈ لنک</b>) Antimatter کے ایپس کے GitHub پر ڈاؤن لوڈ پیجز سے تبدیل کر دیے گئے ہیں؛ آپ کے خود سیٹ کیے گئے لنکس برقرار رہتے ہیں؛</li>
 <li>Calls ایپ Mattermost کے بجائے Cloudflare کے پبلک STUN سرور کا استعمال کرتی ہے، محفوظ شدہ ترتیب کو تبدیل کیے بغیر (دیکھیں <a href="{{root}}docs/admins/calls.html#network">Calls</a>)؛</li>
-<li>سیکیورٹی اپڈیٹ چیک اور کریش رپورٹنگ ختم ہو گئی ہیں، اور ان کے ساتھ سسٹم کنسول کی ترتیبات (<b>سیکیورٹی الرٹس فعال کریں</b>، <b>ڈائیگنوسٹکس اور ایرر رپورٹنگ فعال کریں</b>) اور <b>اطلاعات</b> پیج بھی ختم ہو گئے ہیں۔</li>
+<li>سیکیوٹی اپڈیٹ چیک اور کریش رپورٹنگ ختم ہو گئی ہیں، اور ان کے سسٹم کنسول کی ترتیبات (<b>سیکیوٹی الرٹس فعال کریں</b>، <b>ڈائیگنوسٹکس اور ایرر رپورٹنگ فعال کریں</b>) اور <b>اطلاعات</b> پیج بھی ختم ہو گئے ہیں۔</li>
 </ul>
 <p>لوکل موڈ سوکیٹ اب <code>/var/tmp/antimatter_local.socket</code> ہے؛ <code>amctl</code> پرانے <code>/var/tmp/mattermost_local.socket</code> کی کوشش بھی کرتا ہے۔ Mattermost اپنے حالیہ ورژنز میں صرف PostgreSQL کو سپورٹ کرتا ہے، اور Antimatter بھی ایسا ہی کرتا ہے: پہلے MySQL ڈیٹا بیس کو PostgreSQL پر منتقل کریں۔ Antimatter کے ڈیٹا بیس اپ گریڈ کرنے کے بعد Mattermost پر واپس جانا اس کا مطلب ہے کہ آپ کو اپنا Mattermost بیک اپ بحال کرنا ہوگا۔</p>
 

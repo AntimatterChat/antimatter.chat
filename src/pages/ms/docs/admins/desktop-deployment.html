@@ -1,0 +1,155 @@
+title: Menyediakan aplikasi desktop
+description: Pasang aplikasi desktop Antimatter pada komputer organisasi anda dan uruskannya secara berpusat: pakej MSI dan sifat-sifatnya, Group Policy dan Intune, profil konfigurasi macOS dan fail dasar Linux.
+guide: admins
+order: 13
+nav: Penyediaan aplikasi desktop
+lead: Cara memasang aplikasi desktop Antimatter pada komputer syarikat atau sekolah, serta menetapkan pelayan, nama pengguna dan semakan kemas kini secara berpusat pada Windows, macOS dan Linux.
+source: 2f67d39c0dda
+---
+<h2 id="download">Muat turun aplikasi</h2>
+<p>Pelepasan aplikasi desktop terdapat di GitHub, di <a href="https://github.com/AntimatterChat/desktop-app/releases">github.com/AntimatterChat/desktop-app/releases</a>. Seperti pelayan, aplikasi ini masih dalam beta: pelepasan yang mempunyai sufiks selepas tanda sengkang pada versinya ditandakan <b>Pre-release</b>. Setiap pelepasan mempunyai fail <code>SHA256SUMS</code> yang mengandungi checksum bagi setiap fail. Semak muat turun dengan <code>sha256sum --check --ignore-missing SHA256SUMS</code> pada Linux, atau bandingkan keluaran <code>Get-FileHash &lt;file&gt; -Algorithm SHA256</code> dalam PowerShell dengan baris yang sepadan dalam <code>SHA256SUMS</code>.</p>
+<ul>
+<li><b>Windows</b> (x64 dan arm64): pemasang <code>.exe</code>, pakej <code>.msi</code>, atau arkib <code>.zip</code>. Contohnya <code>antimatter-desktop-&lt;version&gt;-win-x64.exe</code> dan <code>antimatter-desktop-&lt;version&gt;-win-x64.msi</code>.</li>
+<li><b>macOS</b>: imej cakera <code>.dmg</code> atau <code>.zip</code>, untuk Apple silicon (<code>arm64</code>), Mac Intel (<code>x64</code>) atau kedua-duanya (<code>universal</code>).</li>
+<li><b>Linux</b> (x64 dan arm64): pakej .deb atau .rpm, AppImage, bundle Flatpak atau arkib <code>.tar.gz</code>.</li>
+</ul>
+
+<h2 id="installers">Pemasang Windows yang perlu digunakan</h2>
+<table>
+<thead><tr><th></th><th>Pemasang .exe</th><th>Pakej .msi</th></tr></thead>
+<tbody>
+<tr><td>Untuk</td><td>Individu yang memasang aplikasi sendiri</td><td>Syarikat yang menyediakannya pada komputer mereka</td></tr>
+<tr><td>Pemasangan</td><td>Hanya untuk akaun Windows semasa, di <code>%LOCALAPPDATA%\Programs\antimatter-desktop</code>, tanpa kebenaran pentadbir</td><td>Untuk setiap pengguna komputer, di <code>C:\Program Files\Antimatter</code>, dengan kebenaran pentadbir</td></tr>
+<tr><td>Kemas kini</td><td>Aplikasi akan menyemak versi baharu dan menawarkan untuk memuat turun <code>.exe</code> baharu, yang akan mengemas kini salinan yang dipasang di tempatnya</td><td>Aplikasi tidak menyemak versi baharu: anda yang menyediakannya</td></tr>
+</tbody>
+</table>
+<p>Aplikasi ini memeriksa versi baharu di GitHub setiap jam semasa ia berjalan, dan hanya melihat keluaran penuh, bukan prapelancaran. Apabila ia menemui satu, ia memaklumkan pengguna dan menawarkan pautan untuk memuat turunnya. Salinan yang dipasang dengan MSI tidak memeriksa secara lalai, kerana pengguna biasanya tidak dapat memasang perisian. Anda boleh memulakan pemeriksaan untuknya dengan tetapan <code>EnableAutoUpdater</code>: muat turun yang ditawarkan kemudian ialah <code>.msi</code> baharu, yang memerlukan kebenaran pentadbir.</p>
+<p>Gunakan MSI untuk pelaburan yang diurus dengan SCCM (Configuration Manager), Intune atau pemasangan perisian Dasar Kumpulan. Memasang MSI akan memadam salinan <code>.exe</code> untuk akaun yang menjalankan pemasangan, jika ada.</p>
+
+<h2 id="settings">Tetapan yang boleh anda urus</h2>
+<p>Tetapan yang sama wujud pada setiap sistem. Pada Windows, ia ialah nilai registri di bawah <code>SOFTWARE\Policies\Antimatter</code>, dalam <code>HKEY_LOCAL_MACHINE</code> (untuk komputer) atau <code>HKEY_CURRENT_USER</code> (untuk satu pengguna). Pada macOS dan Linux, ia ialah kunci bagi preferensi yang diurus atau bagi fail dasar.</p>
+<table>
+<thead><tr><th>Tetapan</th><th>Pada Windows</th><th>Pada macOS dan Linux</th><th>Fungsinya</th></tr></thead>
+<tbody>
+<tr><td><code>DefaultServerList</code></td><td>Subkunci dengan satu nilai string untuk setiap pelayan: nama nilai ialah nama tabnya, dan datanya ialah URL-nya</td><td>Susunan kamus (objek pada Linux) dengan <code>name</code> dan <code>url</code></td><td>Menambah pelayan ke aplikasi. Pengguna tidak boleh menyunting atau memadamnya.</td></tr>
+<tr><td><code>DefaultUsername</code></td><td>String</td><td>String</td><td>Mengisi nama pengguna pada halaman log masuk pelayan ini.</td></tr>
+<tr><td><code>EnableServerManagement</code></td><td>DWORD, 0 atau 1</td><td>Boolean</td><td>0 atau <code>false</code>: pengguna hanya boleh menggunakan pelayan yang ditetapkan oleh <code>DefaultServerList</code>, dan aplikasi menyembunyikan pilihan untuk menambah, menyunting dan memadam pelayan. Tidak ditetapkan: pengguna boleh menambah pelayan mereka sendiri.</td></tr>
+<tr><td><code>EnableAutoUpdater</code></td><td>DWORD, 0 atau 1</td><td>Boolean</td><td>0 atau <code>false</code>: aplikasi tidak pernah memeriksa versi baharu, dan menyembunyikan <b>Check for Updates</b>. 1 atau <code>true</code>: ia memeriksa, walaupun dipasang dengan MSI. Tidak ditetapkan: salinan <code>.exe</code> memeriksa, salinan MSI tidak.</td></tr>
+<tr><td><code>TrustedEmbeddedMediaOrigins</code></td><td>Subkunci dengan nilai string, setiap satu objek JSON dengan <code>serverOrigin</code> dan <code>embeddedOrigin</code></td><td>Susunan kamus dengan <code>serverOrigin</code> dan <code>embeddedOrigin</code></td><td>Membolehkan kandungan yang terbenam dalam halaman pelayan, seperti halaman mesyuarat video, menggunakan kebenaran kamera dan mikrofon yang diberikan kepada pelayan tersebut.</td></tr>
+</tbody>
+</table>
+<ul>
+<li><b>Nama pengguna</b> hanya diisi pada halaman log masuk bagi pelayan yang ditetapkan oleh dasar, tidak pernah pada pelayan yang ditambah oleh pengguna, dan tidak pernah menimpa apa yang diketik oleh seseorang. Pengguna masih boleh mengubahnya. Pemboleh ubah persekitaran antara tanda peratus akan diganti, jadi satu nilai sesuai untuk semua: <code>%USERNAME%</code> pada Windows atau <code>%USER%</code> pada macOS dan Linux memberikan nama akaun, dan <code>%USERNAME%@example.com</code> memberikan alamat e-mel yang mengikuti corak ini. Jika pemboleh ubah tidak ditetapkan, aplikasi tidak mengisi apa-apa.</li>
+<li>Jika anda mematikan pengurusan pelayan, tetapkan sekurang-kurangnya satu pelayan dalam <code>DefaultServerList</code>.</li>
+<li>Pada Windows, dasar komputer (<code>HKEY_LOCAL_MACHINE</code>) menang berbanding dasar pengguna (<code>HKEY_CURRENT_USER</code>). Senarai pelayan bagi kedua-duanya digabungkan.</li>
+<li>Aplikasi membaca tetapan apabila ia bermula: selepas perubahan, pengguna mesti keluar dan membukanya semula.</li>
+</ul>
+
+<h2 id="msi">Windows: pemasangan senyap dengan MSI</h2>
+<p>MSI mengambil sifat awam yang menulis tetapan sebagai dasar komputer, dalam <code>HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Antimatter</code>. Gunakan mereka dalam aplikasi SCCM, aplikasi Intune atau skrip. Dalam PowerShell:</p>
+<pre><code>msiexec /i antimatter-desktop-&lt;version&gt;-win-x64.msi /qn SERVERURL=https://chat.example.com SERVERNAME=Chat DEFAULTUSERNAME='%USERNAME%' AUTOUPDATE=0 SERVERMANAGEMENT=0</code></pre>
+<table>
+<thead><tr><th>Sifat</th><th>Menulis</th><th>Jika tidak diberikan</th></tr></thead>
+<tbody>
+<tr><td><code>SERVERURL</code></td><td>Pelayan dalam <code>DefaultServerList</code>, dengan URL ini</td><td>Tiada pelayan</td></tr>
+<tr><td><code>SERVERNAME</code></td><td>Nama tab pelayan tersebut</td><td><code>Antimatter</code></td></tr>
+<tr><td><code>DEFAULTUSERNAME</code></td><td><code>DefaultUsername</code></td><td>Tiada</td></tr>
+<tr><td><code>AUTOUPDATE</code></td><td><code>EnableAutoUpdater</code>, 0 atau 1</td><td>Tiada: salinan MSI tidak memeriksa kemas kini</td></tr>
+<tr><td><code>SERVERMANAGEMENT</code></td><td><code>EnableServerManagement</code>, 0 atau 1</td><td>Tiada: pengguna boleh menambah pelayan</td></tr>
+</tbody>
+</table>
+<ul>
+<li>Sifat yang tidak diberikan tidak menulis apa-apa, jadi ia tidak menimpa nilai yang ditetapkan oleh Dasar Kumpulan. <code>AUTOUPDATE</code> dan <code>SERVERMANAGEMENT</code> hanya menerima 0 atau 1. MSI menetapkan satu pelayan: gunakan Dasar Kumpulan untuk lebih banyak.</li>
+<li><code>DEFAULTUSERNAME</code> mesti mencapai pemasang sebagai teks <code>%USERNAME%</code>, supaya aplikasi menggantikannya untuk setiap orang. Jika tidak, shell yang menjalankan pemasangan akan menggantikannya dengan nama akaunnya sendiri. Dalam PowerShell, kekalkan tanda petik tunggal. Dalam fail <code>.bat</code>, tulis <code>%%USERNAME%%</code>. Selepas pemasangan ujian, semak dalam registri bahawa <code>DefaultUsername</code> memegang <code>%USERNAME%</code>.</li>
+<li><b>Lalukan sifat-sifat ini semula pada setiap peningkatan.</b> Memasang versi baharu MSI akan memadam yang lama, bersama nilai yang ditulisnya, kemudian menulis nilai baris arahan baharu. SCCM dan Intune menyimpan baris arahan aplikasi: gunakan semula untuk setiap versi baharu. Atau tetapkan dasar dengan Dasar Kumpulan atau Intune sebaliknya, yang tidak disentuh oleh peningkatan.</li>
+<li>MSI dan Dasar Kumpulan menulis nilai registri yang sama. Untuk setiap tetapan, gunakan salah satu: membatalkan pemasangan MSI akan memadam nilai yang ditulisnya, walaupun Dasar Kumpulan juga telah menetapkannya.</li>
+<li>MSI juga merekodkan folder pemasangannya dalam <code>HKEY_LOCAL_MACHINE\SOFTWARE\Antimatter\Desktop</code> (<code>InstallDir</code>). Ini adalah cara aplikasi mengetahui bahawa ia dipasang menggunakan MSI.</li>
+</ul>
+<p>Untuk membatalkan pemasangan: <code>msiexec /x antimatter-desktop-&lt;version&gt;-win-x64.msi /qn</code>. Dalam Intune, jenis "Windows app (Win32)" menggunakan baris arahan yang sama. Untuk jenis "Line-of-business app", tambah sifat-sifat tersebut ke dalam argumen baris arahnya.</p>
+
+<h2 id="group-policy">Windows: Dasar Kumpulan dan Intune</h2>
+<p>Templat pentadbiran, <code>antimatter.admx</code> dan <code>en-US\antimatter.adml</code>, terdapat dalam folder <code>gpo</code> aplikasi yang dipasang (<code>C:\Program Files\Antimatter\gpo</code> untuk MSI), dan dalam folder <a href="https://github.com/AntimatterChat/desktop-app/tree/main/resources/windows/gpo">resources/windows/gpo</a> dalam repositori aplikasi. Ia menunjukkan dasar-dasar ini, di bawah <b>Administrative Templates › Antimatter</b>:</p>
+<table>
+<thead><tr><th>Dasar</th><th>Nilai registri</th><th>Konfigurasi</th></tr></thead>
+<tbody>
+<tr><td><b>Servers (DefaultServerList)</b></td><td>Subkunci <code>DefaultServerList</code></td><td>komputer dan pengguna</td></tr>
+<tr><td><b>Username to prefill (DefaultUsername)</b></td><td><code>DefaultUsername</code></td><td>komputer dan pengguna</td></tr>
+<tr><td><b>Let people add and remove servers (EnableServerManagement)</b></td><td><code>EnableServerManagement</code></td><td>komputer dan pengguna</td></tr>
+<tr><td><b>Notify about new versions (EnableAutoUpdater)</b></td><td><code>EnableAutoUpdater</code></td><td>komputer sahaja</td></tr>
+<tr><td><b>Trusted embedded media origins (TrustedEmbeddedMediaOrigins)</b></td><td>Subkunci <code>TrustedEmbeddedMediaOrigins</code></td><td>komputer dan pengguna</td></tr>
+</tbody>
+</table>
+<h3>Dasar Kumpulan dalam domain</h3>
+<ol>
+<li>Salin <code>antimatter.admx</code> ke stor pusat, <code>\\&lt;domain&gt;\SYSVOL\&lt;domain&gt;\Policies\PolicyDefinitions</code>, dan <code>antimatter.adml</code> ke folder <code>en-US</code> miliknya.</li>
+<li>Dalam Penyunting Pengurusan Dasar Kumpulan, buka <b>Computer Configuration</b> (atau <b>User Configuration</b>) › <b>Policies</b> › <b>Administrative Templates</b> › <b>Antimatter</b>.</li>
+<li>Sunting dasar, pilih <b>Dihidupkan</b> dan isikannya. Untuk <b>Servers</b>, klik <b>Tunjuk</b> dan tambah satu baris untuk setiap pelayan: nama nilai ialah nama tab, dan nilainya ialah URL pelayan, seperti <code>https://chat.example.com</code>.</li>
+</ol>
+<p>Menghidupkan <b>Let people add and remove servers</b> atau <b>Notify about new versions</b> akan menulis 1; mematikannya akan menulis 0.</p>
+<h3>Intune</h3>
+<p>Di <b>Peranti › Konfigurasi</b>, gunakan <b>Import ADMX</b> untuk mengimport <code>antimatter.admx</code> bersama <code>en-US\antimatter.adml</code>. Kemudian, cipta profil daripada <b>Templat › Templat Pentadbiran Diimport</b>, dan tetapkan dasar Antimatter di dalamnya.</p>
+<h3>Satu komputer, atau skrip</h3>
+<p>Salin templat ke <code>C:\Windows\PolicyDefinitions</code> untuk menggunakannya dalam <code>gpedit.msc</code> (Windows Pro dan Enterprise). Atau tulis nilai registri secara langsung, dengan fail <code>.reg</code> yang diimport sebagai pentadbir (<code>reg import antimatter-policies.reg</code>), seperti yang berikut. Fail <code>example-policies.reg</code> dalam folder yang sama mengandungi nilai-nilai ini, dengan komen.</p>
+<pre><code>REGEDIT4
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Antimatter]
+"EnableServerManagement"=dword:00000000
+"EnableAutoUpdater"=dword:00000000
+"DefaultUsername"="%USERNAME%"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Antimatter\DefaultServerList]
+"Chat"="https://chat.example.com"</code></pre>
+
+<h2 id="macos">macOS: profil konfigurasi</h2>
+<p>Pada macOS, aplikasi membaca tetapan daripada preferensi terurus bagi pengenal pasti bundelnya, <code>chat.antimatter.desktop</code>, dengan kunci daripada <a href="#settings">jadual tetapan</a>. Serahkan profil konfigurasi ini menggunakan MDM anda (Jamf, Intune, Kandji, Mosyle dan lain-lain).</p>
+<ul>
+<li>Folder <a href="https://github.com/AntimatterChat/desktop-app/tree/main/resources/mac/mdm">resources/mac/mdm</a> dalam repositori aplikasi mempunyai profil contoh, <code>antimatter.mobileconfig</code>. Edit nilai-nilainya, berikan nilai <code>PayloadIdentifier</code> dan <code>PayloadUUID</code> anda sendiri (<code>uuidgen</code> menghasilkan UUID baharu), dan muat naik sebagai profil tersuai.</li>
+<li>Kebanyakan MDM juga menerima kunci sahaja, sebagai muatan "tetapan tersuai" atau "domain preferensi" untuk <code>chat.antimatter.desktop</code>. Folder yang sama mengandungi kunci-kunci ini dalam <code>example-managed-preferences.plist</code>.</li>
+</ul>
+<p>Tetapan di dalam muatan profil:</p>
+<pre><code>&lt;key&gt;PayloadType&lt;/key&gt;
+&lt;string&gt;chat.antimatter.desktop&lt;/string&gt;
+&lt;key&gt;DefaultServerList&lt;/key&gt;
+&lt;array&gt;
+    &lt;dict&gt;
+        &lt;key&gt;name&lt;/key&gt;
+        &lt;string&gt;Chat&lt;/string&gt;
+        &lt;key&gt;url&lt;/key&gt;
+        &lt;string&gt;https://chat.example.com&lt;/string&gt;
+    &lt;/dict&gt;
+&lt;/array&gt;
+&lt;key&gt;DefaultUsername&lt;/key&gt;
+&lt;string&gt;%USER%&lt;/string&gt;
+&lt;key&gt;EnableServerManagement&lt;/key&gt;
+&lt;false/&gt;
+&lt;key&gt;EnableAutoUpdater&lt;/key&gt;
+&lt;false/&gt;</code></pre>
+<p>Nilai Boolean juga boleh diberikan sebagai integer 0 dan 1.</p>
+
+<h2 id="linux">Linux: fail dasar</h2>
+<p>Pada Linux, aplikasi membaca <code>/etc/antimatter-desktop/policies.json</code>, iaitu objek JSON dengan kunci daripada <a href="#settings">jadual tetapan</a>:</p>
+<pre><code>{
+    "DefaultServerList": [
+        {"name": "Chat", "url": "https://chat.example.com"}
+    ],
+    "DefaultUsername": "%USER%",
+    "EnableServerManagement": false,
+    "EnableAutoUpdater": false,
+    "TrustedEmbeddedMediaOrigins": []
+}</code></pre>
+<p>Serahkan fail ini menggunakan alat pengurusan konfigurasi anda (Ansible, Puppet, Salt dan lain-lain), dimiliki oleh root, boleh dibaca oleh semua orang dan boleh ditulis hanya oleh root:</p>
+<pre><code>sudo install -d /etc/antimatter-desktop
+sudo install -m 644 policies.json /etc/antimatter-desktop/policies.json</code></pre>
+<p>Fail yang bukan JSON sah akan diabaikan, dengan amaran dalam log aplikasi. Versi Flatpak tidak melihat <code>/etc</code> hos: berikan akses baca, dan ia akan membaca fail dari <code>/run/host/etc/antimatter-desktop/policies.json</code>:</p>
+<pre><code>sudo flatpak override --system --filesystem=host-etc:ro chat.antimatter.desktop</code></pre>
+
+<h2 id="mattermost-policies">Dasar yang ditetapkan untuk aplikasi desktop Mattermost</h2>
+<p>Pada Windows, aplikasi ini juga membaca dasar yang ditetapkan untuk aplikasi desktop Mattermost, di bawah <code>SOFTWARE\Policies\Mattermost</code>, sebagai cadangan. Ia membacanya mengikut lokasi: nilai yang terletak terus di bawah kunci dasar, subkunci <code>DefaultServerList</code> dan subkunci <code>TrustedEmbeddedMediaOrigins</code>. Untuk setiap tiga lokasi ini, ia hanya membaca kunci Mattermost apabila kunci Antimatter tiada nilai di sana, dalam mana-mana hive. Oleh itu, sebaik sahaja satu nilai ditetapkan terus di bawah kunci Antimatter, contohnya melalui sifat <code>AUTOUPDATE</code> MSI, tiada nilai yang terletak terus di bawah kunci Mattermost akan dibaca. Pindahkan semua dasar anda ke kunci Antimatter serentak.</p>
+<p>Pada macOS, preferens yang dikawal untuk aplikasi desktop Mattermost (<code>com.mattermost.desktop</code>) tidak dibaca: tetapkannya untuk <code>chat.antimatter.desktop</code>.</p>
+
+<h2 id="unsigned">Binaan tanpa tandatangan</h2>
+<p>Binaan aplikasi desktop ini belum ditandatangani dengan sijil penerbit.</p>
+<ul>
+<li><b>Windows.</b> Apabila seseorang membuka <code>.exe</code> atau <code>.msi</code> yang dimuat turun, Microsoft Defender SmartScreen memaklumkan bahawa Windows telah melindungi komputer dan menamakan penerbit yang tidak dikenali. Mereka memilih <b>Maklumat Lanjut</b>, kemudian <b>jalankan juga</b>. SmartScreen menyemak fail yang dibuka orang selepas muat turun, jadi pengguna tidak akan melihat amaran ini apabila anda mengedarkan aplikasi melalui SCCM, Intune atau Group Policy. Jika komputer anda hanya menjalankan perisian daripada penerbit yang diluluskan (peraturan AppLocker atau App Control for Business), benarkan aplikasi ini melalui laluan pemasangan atau hash failnya.</li>
+<li><b>macOS.</b> Aplikasi ini ditandatangani secara ad hoc, tetapi tidak dinotaris oleh Apple. Pada kali pertama seseorang membuka salinan yang dimuat turun, macOS memaklumkan bahawa ia tidak dapat mengesahkan bahawa aplikasi ini bebas daripada perisian perosak, dan tidak membukanya. Pada macOS 15 dan kemudian, mereka membuka <b>Tetapan Sistem › Privasi &amp; Keselamatan</b> dan memilih <b>Buka Juga</b>. Pada versi sebelumnya, mereka klik-kawalan aplikasi dan memilih <b>buka</b>. Gatekeeper hanya menyemak fail yang ditanda sebagai dimuat turun (dengan atribut kuarantin): apabila anda memasang aplikasi dengan alat anda sendiri, buang tanda ini dalam skrip pemasangan anda, dengan <code>xattr -dr com.apple.quarantine /Applications/Antimatter.app</code>.</li>
+</ul>

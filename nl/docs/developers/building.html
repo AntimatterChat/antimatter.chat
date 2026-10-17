@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Bouwen vanuit broncode · Antimatter</title>
-<meta name="description" content="Hoe je Antimatter bouwt vanuit de broncode: de Go-server, de Fusion- en klassieke webinterfaces, een ontwikkelserver, tests, release-archieven, het Docker-image en de desktop- en mobiele apps.">
+<meta name="description" content="Hoe je Antimatter bouwt vanuit de broncode: de Go-server, de Fusion- en klassieke webinterfaces, een ontwikkelserver, tests, release-archieven en pakketten, het Docker-image en de desktop- en mobiele apps.">
 <meta property="og:title" content="Bouwen vanuit broncode · Antimatter">
-<meta property="og:description" content="Hoe je Antimatter bouwt vanuit de broncode: de Go-server, de Fusion- en klassieke webinterfaces, een ontwikkelserver, tests, release-archieven, het Docker-image en de desktop- en mobiele apps.">
+<meta property="og:description" content="Hoe je Antimatter bouwt vanuit de broncode: de Go-server, de Fusion- en klassieke webinterfaces, een ontwikkelserver, tests, release-archieven en pakketten, het Docker-image en de desktop- en mobiele apps.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://antimatter.chat/nl/docs/developers/building.html">
 <meta property="og:locale" content="nl">
@@ -137,7 +137,16 @@ npm run build    # the classic interface, then Fusion</code></pre>
 cd server
 make build-linux       # the antimatter and amctl binaries
 make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
-<p><code>make build</code> bouwt de webinterfaces en de Linux-binaries in één keer. Het archief bevat <code>bin/antimatter</code>, <code>bin/amctl</code>, een standaard <code>config/config.json</code>, beide webinterfaces, de sjablonen, de lettertypen en de vertalingen. Andere platforms: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>. De archieven bevatten niet de gebundelde apps; het Docker-image wél.</p>
+<p><code>make build</code> bouwt de webinterfaces en de Linux-binaire bestanden in één keer. Het archief bevat <code>bin/antimatter</code>, <code>bin/amctl</code>, een standaard <code>config/config.json</code> met een <code>README.md</code> over het wijzigen van instellingen, beide webinterfaces, de sjablonen, de lettertypen en de vertalingen. Andere platforms: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>.</p>
+<h3>Inbegrepen apps</h3>
+<p>Een gewone <code>make package-linux</code> bouwt een archief zonder apps. Om ze mee te bundelen, zoals bij de gepubliceerde releases, haal je eerst de ondertekende app-bundels op en geef je hun map door:</p>
+<pre><code>build/package/fetch-apps.sh "$HOME/release-apps"   # needs gh, python3 and gpg
+make package-linux PREPACKAGED_PLUGINS_DIR="$HOME/release-apps"</code></pre>
+<p><code>fetch-apps.sh</code> downloadt de laatste GitHub-release van elke app die in <code>plugins.json</code> van antimatter-docker staat, met de bijbehorende handtekening, en controleert de handtekening tegen de plugin-sleutel van Antimatter. Standaard worden Whiteboard, Voice channels, Calls, Agents, Todo, Polls, Notes, GIFs en Memes meegenomen; <code>AM_BUNDLED_APPS</code> (naam van de repository, gescheiden door spaties) wijzigt de lijst. Apps zonder release, of zonder handtekening, worden overgeslagen met een waarschuwing. De bundels komen terecht in <code>prepackaged_plugins/</code> van het archief.</p>
+<h3>.deb- en .rpm-pakketten</h3>
+<p><code>build/package/build-packages.sh &lt;archive&gt; &lt;amd64|arm64&gt; &lt;version&gt; &lt;out-dir&gt;</code> zet een release-archief om in alles-in-één <code>.deb</code>- en <code>.rpm</code>-pakketten, met <a href="https://nfpm.goreleaser.com">nfpm</a>. De beheerdersgids beschrijft wat er wordt geïnstalleerd: zie <a href="../../../nl/docs/admins/install.html#packages">Het .deb- of .rpm-pakket installeren</a>.</p>
+<h3>De release-workflow</h3>
+<p>De workflow <code>antimatter-release.yml</code> in de server-repository doet al dit werk op GitHub: bij een <code>v*</code>-tag bouwt hij de archieven en pakketten voor <code>amd64</code> en <code>arm64</code>, met <code>SHA256SUMS</code>, en publiceert ze als de GitHub-release van die tag (een pre-release voor een versie met een <code>-</code>). Handmatig uitgevoerd, nummer hij de build als <code>0.9.0-dev.&lt;run&gt;</code> en bewaart de bestanden als workflow-artefacten. Elke app-repository heeft een <code>release.yml</code>-workflow die op dezelfde manier de ondertekende bundel publiceert.</p>
 
 <h2 id="docker">Het Docker-image</h2>
 <p>De <a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a>-repository bouwt de gepubliceerde images, de server met zijn apps, volledig binnen Docker:</p>
@@ -166,9 +175,9 @@ VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatt
 npm run build          # development build, into dist/
 npm start              # run it
 npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
-<p>Build-instellingen, zoals servers die vooraf geconfigureerd moeten worden, staan in <code>src/common/config/buildConfig.ts</code>.</p>
+<p>Instellingen voor de build, zoals servers die vooraf geconfigureerd moeten worden, staan in <code>src/common/config/buildConfig.ts</code>. Zonder Apple-certificaat, stel <code>AM_MAC_ADHOC_SIGN=true</code> in om de macOS-app ad hoc te ondertekenen, zonder notarisation: Macs met Apple-silicon weigeren ongetekende code. De workflow <code>release.yml</code> in de repository bouwt ongetekende pakketten voor Linux, Windows en macOS bij een <code>v*</code>-tag.</p>
 <h3>Mobiele app</h3>
-<p>De <a href="https://github.com/AntimatterChat/mobile-app">mobiele app</a> is een React Native-app; de README noemt de commando's (<code>npm run ios</code>, <code>npm run android</code>). Om een eigen kopie te bouwen heb je ook eigen ondertekeningskeys nodig, een Firebase-project voor Android-meldingen, een APNs-key voor iOS en een <a href="https://github.com/AntimatterChat/push-proxy">push-proxy</a> met die gegevens.</p>
+<p>De <a href="https://github.com/AntimatterChat/mobile-app">mobiele app</a> is een React Native-app; de README vermeldt de opdrachten (<code>npm run ios</code>, <code>npm run android</code>). Om een eigen kopie te bouwen heb je ook je eigen ondertekeningskeys nodig, een Firebase-project voor Android-meldingen, een APNs-key voor iOS en een <a href="https://github.com/AntimatterChat/push-proxy">push-proxy</a> die deze gegevens bewaart. De workflow <code>release.yml</code> in de repository bouwt de Android APK en AAB en een ongetekende iOS <code>.ipa</code> bij een <code>v*</code>-tag, zonder winkelaccounts; de README vermeldt de secrets die de Android-build ondertekenen en Firebase instellen.</p>
 <nav class="pager"><a class="prev" href="../../docs/developers/apps.html"><small>Vorige</small>Apps schrijven</a><a class="next" href="../../docs/developers/contributing.html"><small>Volgende</small>Bijdragen</a></nav>
 </article>
 </div>

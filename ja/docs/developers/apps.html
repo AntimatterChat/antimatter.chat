@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>アプリ（プラグイン）の作成 · Antimatter</title>
-<meta name="description" content="Antimatterアプリ（プラグイン）の作成方法：バンドル構成とplugin.json、サーバーフックとAPI、Webアプリレジストリ、Fusionインターフェースへの対応、設定、キーバリューストア、翻訳、パッケージングとインストール。">
+<meta name="description" content="Antimatterアプリ(プラグイン)の作成方法:バンドル構成とplugin.json、サーバーフックとAPI、AIサービス、Webアプリレジストリ、Fusionインターフェースへの対応、設定、キーバリューストア、翻訳、パッケージングとインストール。">
 <meta property="og:title" content="アプリ（プラグイン）の作成 · Antimatter">
-<meta property="og:description" content="Antimatterアプリ（プラグイン）の作成方法：バンドル構成とplugin.json、サーバーフックとAPI、Webアプリレジストリ、Fusionインターフェースへの対応、設定、キーバリューストア、翻訳、パッケージングとインストール。">
+<meta property="og:description" content="Antimatterアプリ(プラグイン)の作成方法:バンドル構成とplugin.json、サーバーフックとAPI、AIサービス、Webアプリレジストリ、Fusionインターフェースへの対応、設定、キーバリューストア、翻訳、パッケージングとインストール。">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://antimatter.chat/ja/docs/developers/apps.html">
 <meta property="og:locale" content="ja">
@@ -200,6 +200,22 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 <li><code>GetUser</code>、<code>GetChannel</code>、<code>HasPermissionToChannel</code>：ユーザーに代わって操作する前に、誰が何をできるかを確認します。</li>
 </ul>
 <p>アプリはクラスタのすべてのサーバーで実行されます。状態はメモリだけでなく、キーバリューストアまたはデータベースに保持してください。</p>
+<h3 id="ai">AIサービス</h3>
+<p>Antimatterのサーバーは、管理者が設定したモデル接続(管理ガイドの<a href="../../../ja/docs/admins/ai.html">AI</a>を参照)を通じて、アプリのためにAIモデルを呼び出します。アプリはプロバイダーのキーを保持しません。アプリは、誰のために、どこで動作しているかを指定し、サーバーはその人物がその場所で接続を使用できるかを確認し、制限と予算を適用し、トークンをその人物とアプリに対して計数し、コンテンツを含まずに呼び出しを監査します。</p>
+<table>
+<thead><tr><th>メソッド</th><th>機能</th></tr></thead>
+<tbody>
+<tr><td><code>AIChat(actingUserID, channelID, teamID, *ai.ChatRequest)</code></td><td>チャット補完:メッセージ、ツール、構造化出力(<code>JSONSchema</code>)。</td></tr>
+<tr><td><code>AIChatStream(…)</code></td><td>ストリーミング版:チャネルが閉じるまでストリームの<code>Events</code>を読み取るか、呼び出しを停止するために<code>Close</code>します。</td></tr>
+<tr><td><code>AIEmbed(…, *ai.EmbedRequest)</code></td><td>テキストの埋め込み(Embeddings)。</td></tr>
+<tr><td><code>AITranscribe(…, *ai.TranscribeRequest)</code></td><td>音声からテキストへの変換。</td></tr>
+<tr><td><code>AIDecide(…, *ai.DecideRequest)</code></td><td>テキストに関する決定モデルへの型付き質問(はい/いいえ、選択肢、スコア)。</td></tr>
+<tr><td><code>AIConnectionsForUser(userID, channelID, teamID)</code></td><td>その場所で人物が使用できる接続、およびそのモデルと機能(キーは含まれません)。</td></tr>
+</tbody>
+</table>
+<p>各リクエストの<code>ConnectionID</code>が接続を選択し、<code>Model</code>はその中の1つのモデルを選択します(空の場合は接続のデフォルトを使用)。<code>Operation</code>は使用状況と監査記録のための短いラベルであり、コンテンツではありません。これらにはサーバーバージョン11.11以上が必要です。</p>
+<div class="callout warn"><code>actingUserID</code>は、サーバーが検証したソースからのみ取得してください:あなたの<code>ServeHTTP</code>へのリクエストの<code>Mattermost-User-Id</code>ヘッダー、またはフックのコンテキスト内のユーザー(投稿の作成者、コマンドを実行したユーザー)。メッセージ、Webhookペイロード、URL、または他のアプリのリクエストからは取得しないでください。そうすると、他の人のアクセス権を消費することになります。</div>
+<p>これらのメソッドと<code>ai</code>パッケージ(<code>server/public/ai</code>)は、Mattermostが公開したバージョンではなく、Antimatterのモジュールのコピーにのみ存在します。これらを使用するには、<code>go.mod</code>に<code>replace</code>行を追加して、Antimatterの<code>server/public</code>に対してビルドしてください。例:<code>replace github.com/mattermost/mattermost/server/public =&gt; ../antimatter/server/public</code>。このようなアプリはAntimatterでのみ実行できます。</p>
 
 <h2 id="kv">データの保存</h2>
 <p>各アプリには、サーバーのデータベースに独自のキーバリューストアがあります。</p>
@@ -241,17 +257,17 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <pre><code>export function isFusionUI(): boolean {
     return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
 }</code></pre>
-<p>バンドルアプリはこれを使用して、異なる描画を行います。PollsはFusionのスタイルで投票カードと作成ダイアログを描画し、Fusion内の<code>/poll</code>には独自のダイアログを開きます。CallsとVoice channelsは、Fusionが独自の通話インターフェースで置き換えるサイドバーとトーストコンポーネントを省略します。Agentsアプリは、ホバーツールバーではなく、メッセージメニューのサブメニューにAIアクションを配置します。Fusion独自のCSSクラス（<code>am-</code>プレフィックス付き）とダイアログレイヤー（<code>am-layer</code>要素）は、これらのアプリがインターフェースに合わせるために使用しますが、文書化された安定したAPIではありません。</p>
+<p>バンドルアプリは、これを使用して異なる描画を行います。Pollsは、Fusionのスタイルで投票カードと作成ダイアログを描画し、Fusion内の<code>/poll</code>には独自のダイアログを開きます。CallsとVoice channelsは、Fusionが独自の通話インターフェースに置き換えるサイドバーとトーストコンポーネントを除外します。Agentsアプリは、ホバーツールバーではなく、<b>その他のアクション</b>の下にあるグループとして、AIアクションをメッセージメニューに配置します。Fusion独自のCSSクラス（<code>am-</code>プレフィックス付き）とダイアログレイヤー（<code>am-layer</code>要素）は、これらのアプリがインターフェースに合わせるために使用しますが、文書化された安定したAPIではありません。</p>
 <h3>Fusionでプラグインコンポーネントが表示される場所</h3>
 <table>
 <thead><tr><th>レジストリメソッド</th><th>Fusionでの表示場所</th></tr></thead>
 <tbody>
 <tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>アプリレール（右端のアイコン列）で、アバターと<b>Antimatterについて</b>ボタンの間です。チャンネルヘッダーのボタンもここに表示され、チャンネルヘッダー内ではありません。システム管理者が<b>App Barを無効にする</b>（<code>ExperimentalSettings.DisableAppBar</code>、デフォルトではオフ）をオンにした場合、非表示になります。</td></tr>
-<tr><td><code>registerRightHandSidebarComponent</code></td><td>右側パネルです。ユーザーはエッジをドラッグしてサイズを変更できます。アプリがプロダクトでもある場合、パネルには<b>ページ全体で開く</b>が提供されます。</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>右側のパネルです。ユーザーはエッジをドラッグしてサイズを変更でき、新しいウィンドウで開くこともできます。アプリがプロダクトでもある場合、パネルには<b>ページ全体で開く</b>が提供されます。<a href="#panel-state">新しいウィンドウでのパネル</a>を参照してください。</td></tr>
 <tr><td><code>registerChannelHeaderIcon</code></td><td>チャンネルヘッダー内の通話ボタンの後のアイコンです。スマートフォンでは、ヘッダーの<b>さらに</b>メニュー内に表示されます。</td></tr>
 <tr><td><code>registerCallButtonAction</code></td><td>チャンネルヘッダーの通話ボタンです。複数のプロバイダーが<b>その他の通話方法</b>メニューを共有します。</td></tr>
-<tr><td><code>registerPostDropdownMenuAction</code></td><td>メッセージの<b>その他のアクション</b>（⋯）メニュー内の<b>メッセージアクション</b>サブメニューです。また、スレッドパネルの<b>スレッドの操作</b>メニュー内の<b>その他のアクション</b>の下にも表示されます。</td></tr>
-<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>同じメニューの独自のサブメニューで、アプリ名とアイコンが表示されます。</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>メッセージの<b>メッセージアクション</b>（⋯）メニューの<b>その他のアクション</b>サブメニュー内、およびスレッドパネルの<b>スレッドの操作</b>メニューの<b>その他のアクション</b>下に表示されます。Fusionは、各アクションの前にアプリのアイコンをグレーで描画します。バンドルアプリには独自のアイコン、それ以外の場合はアプリレールに表示されるアイコン、さらにそれ以外の場合はニュートラルなアイコンが表示されます。アクションテキストの先頭にテキストがない要素（アプリが自分で描画するアイコン）は非表示になります。</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>単一アクションの後に、同じ<b>その他のアクション</b>サブメニュー内にある見出し付きグループです。メッセージメニューにアプリ固有のエントリは作成されません。</td></tr>
 <tr><td><code>registerPostActionComponent</code></td><td>メッセージのホバーツールバーで、⋯ボタンの前です。</td></tr>
 <tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>メッセージ本体です。テキストの下、時刻の後、リンクプレビューの代わりに表示されます。</td></tr>
 <tr><td><code>registerChannelHeaderMenuAction</code></td><td>チャンネルの<b>チャンネルオプション</b>メニュー（サイドバーのチャンネルの⋯、または右クリック）で、プラグインアイコン付きの項目として表示されます。</td></tr>
@@ -269,7 +285,7 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <tr><td><code>registerChannelTypeOption</code></td><td><b>チャンネルを作成</b>ダイアログのチャンネルタイプ。</td></tr>
 <tr><td><code>registerSearchComponents</code></td><td>チャンネルヘッダーの検索ボックス：空欄の場合にアプリのスコープが表示されます。</td></tr>
 <tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>Antimatterについて</b>（アプリレールの下部）、<b>ヘルプ</b>の下。</td></tr>
-<tr><td><code>registerProduct</code></td><td>プロダクトのURLにある全ページ。<b>Antimatterについて</b>内の<b>プロダクト</b>にリストされています。プロダクトページはクラシックなページフレームを維持します。</td></tr>
+<tr><td><code>registerProduct</code></td><td>プロダクトのURLにある全ページで、<b>Antimatterについて</b>内の<b>プロダクト</b>の下にリスト表示されます。プロダクトページは、従来のページフレームを維持します。プロダクトメニューは、アプリがプロダクトを登録するか、そのプロダクトにエントリを追加した場合にのみ表示されます。バンドルされたKanbanとPlaybooksアプリは、もはやプロダクトを登録しません。これらのページはサイドパネルで開かれます。</td></tr>
 <tr><td><code>registerRootComponent</code>、<code>registerGlobalComponent</code>、<code>registerMessageWillBePostedHook</code>、<code>registerSlashCommandWillBePostedHook</code>、<code>registerMessageWillFormatHook</code>、<code>registerFilesWillUploadHook</code>、<code>registerDesktopNotificationHook</code>、<code>registerWebSocketEventHandler</code>、<code>registerReducer</code>、<code>registerTranslations</code>などのフック</td><td>クラシックなインターフェースと同様に動作します。</td></tr>
 <tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>システムコンソール。両方のインターフェースでクラシックなものです。</td></tr>
 </tbody>
@@ -299,12 +315,21 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <thead><tr><th>メソッド</th><th>追加されるもの</th></tr></thead>
 <tbody>
 <tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>両方のインターフェースで、メッセージボックスの<b>+</b>メニュー内の項目。<code>action</code>は<code>{channelId, rootId}</code>を受け取ります。</td></tr>
-<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>メッセージボックスの絵文字ピッカーのタブです。GIFやステッカーなどが該当します。Fusionでは、<code>order</code>が10未満のタブは絵文字タブの前に表示されます。このコンポーネントは<code>channelId</code>、<code>rootId</code>、<code>filter</code>、<code>onFilterChange</code>、<code>onSelectDone</code>、<code>insertText</code>、<code>isFusion</code>を受け取ります。</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>メッセージボックスの絵文字ピッカーのタブ（GIFやステッカーなど）です。Fusionでは、<code>order</code>が10未満のタブは絵文字タブの前に表示されます。コンポーネントは<code>channelId</code>、<code>rootId</code>、<code>filter</code>、<code>onFilterChange</code>、<code>onSelectDone</code>、<code>insertText</code>、<code>isFusion</code>、およびFusionでは<code>pickerKit</code>（下記参照）を受け取ります。</td></tr>
 <tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>チャンネルヘッダーとメッセージの間に配置されるパネルです。<code>matcher(state, channel)</code>が選択したチャンネルに表示されます。音声チャンネルのように、メッセージとコンポーザーを非表示にすることもできます（<code>setMessagesVisible</code>）。</td></tr>
 <tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>サイドバーのチャンネルの下に表示される行です。例えば、その通話に参加しているメンバーなどが該当します。<code>channel</code>を受け取ります。</td></tr>
 <tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Fusion専用: <b>統合機能</b>ページの項目で、カスタム絵文字の隣にあります。GIFアプリは、そのカスタムGIFやステッカーをここに表示します。</td></tr>
 </tbody>
 </table>
+<h3 id="picker-kit">絵文字ピッカーでのビューの追加と管理</h3>
+<p>Fusionでは、絵文字ピッカーのタブに<code>pickerKit</code>プロパティが渡されます。これは、絵文字タブが独自の追加ビューと管理ビューで使用するためのコンポーネント群であり、タブ内のビューが同じ外観を保ち、ピッカー内に留まるようにします。GIFsとMemesアプリは、GIF、ステッカー、ミームテンプレートの追加と管理にこれを使用します。このプロパティには<code>version</code>（1）、フックの<code>usePickerView</code>と<code>useOnEscape</code>、コンポーネントの<code>PickerViewButtons</code>（検索ボックス横の<b>+</b>ボタンと管理ボタン）、<code>PickerViewFrame</code>（戻る矢印付きビュー）、<code>PickerNotice</code>、<code>PickerField</code>、<code>PickerSearch</code>、<code>PickerDropZone</code>、<code>PickerManageList</code>が含まれます。Escapeキーは、ビューからタブのグリッドへ戻ります。このプロパティが存在することを確認してください。他のホストではこれが省略されることがあり、その場合タブは独自のダイアログを使用します。型は<code>webapp/fusion/src/types/store/plugins.ts</code>（<code>EmojiPickerTabProps</code>）、コンポーネントは<code>webapp/fusion/src/fusion/popovers/picker_views.tsx</code>にあります。</p>
+<h3 id="panel-state">新しいウィンドウ内のパネル</h3>
+<p>Fusionは、<code>registerRightHandSidebarComponent</code>のコンポーネントに2つのプロパティを追加します。これにより、<b>新しいウィンドウで開く</b>を実行した際、パネルがアプリのホームではなく、元に表示されていた場所で開かれます。</p>
+<ul>
+<li><code>setPanelState(state)</code>: パネルの場所が変わった際に呼び出します。引数には、<code>'note/&lt;id&gt;'</code>や<code>'board/&lt;id&gt;/card/&lt;id&gt;'</code>のようなアプリが定義する短い文字列を渡します。ホームに戻す場合は<code>null</code>を渡します。この値はウィンドウのアドレスバーに反映されるため、秘密情報を含めないでください。512文字を超える状態、または制御文字を含む状態は破棄されます。</li>
+<li><code>initialPanelState</code>: 新しいウィンドウでは、パネルが保持していた状態、または<code>undefined</code>です。これを信頼できない入力として扱い、ログイン中のユーザーとしてアイテムを再取得してください。アクセスできない場合は、アプリのホームまたは「見つかりません」ビューを表示します。</li>
+</ul>
+<p>パネルが閉じられたり、別のアプリのパネルがその場所を占めたりすると、状態は破棄されます。パネルのウィンドウを自分で開くには、<code>popoutRhsPlugin</code>（<code>window.WebappUtils.popouts</code>にも存在）を使用し、状態を任意の第5引数として渡します。Notes、Whiteboard、Todo、Kanban、Playbooksはこの方法を使用しています。</p>
 <p><code>fusionIcon</code>は、Fusionのアイコンセットのアイコンを指定します（例: <code>poll</code>、<code>sticker</code>、<code>calendar</code>、<code>image</code>。詳細は<code>webapp/fusion/src/fusion/components/icon</code>を参照）。Fusionでは<code>icon</code>の代わりにこれを表示するため、他の項目と一貫した外観になります。</p>
 
 <h2 id="settings">設定</h2>

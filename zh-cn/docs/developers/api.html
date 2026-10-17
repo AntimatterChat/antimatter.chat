@@ -70,7 +70,7 @@
 <aside class="docs-nav" aria-label="基于 Antimatter 进行开发">
 <a class="docs-home" href="../../docs/index.html">文档</a>
 <label class="docs-guide"><span class="sr">指南</span><select onchange="location.href=this.value"><option value="../../docs/users/index.html">使用 Antimatter</option><option value="../../docs/admins/index.html">运行服务器</option><option value="../../docs/communities/index.html">运营社区</option><option value="../../docs/developers/index.html" selected>基于 Antimatter 进行开发</option></select></label>
-<ul><li><a href="../../docs/developers/index.html">概述</a></li><li><a href="../../docs/developers/api.html" aria-current="page">REST API</a><ul class="toc"><li><a href="#basics">基础</a></li><li><a href="#auth">身份验证</a></li><li><a href="#resources">主要资源</a></li><li><a href="#pagination">分页</a></li><li><a href="#errors">错误</a></li><li><a href="#rate-limits">速率限制</a></li><li><a href="#websocket">WebSocket 事件流</a></li><li><a href="#clients">客户端库</a></li><li><a href="#antimatter">Antimatter 对 API 的扩展</a></li></ul></li><li><a href="../../docs/developers/webhooks.html">Webhook</a></li><li><a href="../../docs/developers/commands.html">斜杠命令</a></li><li><a href="../../docs/developers/bots.html">机器人</a></li><li><a href="../../docs/developers/apps.html">编写应用</a></li><li><a href="../../docs/developers/building.html">从源代码构建</a></li><li><a href="../../docs/developers/contributing.html">参与贡献</a></li></ul>
+<ul><li><a href="../../docs/developers/index.html">概述</a></li><li><a href="../../docs/developers/api.html" aria-current="page">REST API</a><ul class="toc"><li><a href="#basics">基础</a></li><li><a href="#auth">身份验证</a></li><li><a href="#resources">主要资源</a></li><li><a href="#pagination">分页</a></li><li><a href="#errors">错误</a></li><li><a href="#rate-limits">速率限制</a></li><li><a href="#websocket">WebSocket 事件流</a></li><li><a href="#clients">客户端库</a></li><li><a href="#antimatter">Antimatter 对 API 的扩展</a></li><li><a href="#move-thread">移动话题</a></li><li><a href="#ai-connections">模型连接</a></li></ul></li><li><a href="../../docs/developers/webhooks.html">Webhook</a></li><li><a href="../../docs/developers/commands.html">斜杠命令</a></li><li><a href="../../docs/developers/bots.html">机器人</a></li><li><a href="../../docs/developers/apps.html">编写应用</a></li><li><a href="../../docs/developers/building.html">从源代码构建</a></li><li><a href="../../docs/developers/contributing.html">参与贡献</a></li></ul>
 </aside>
 <article class="docs-body prose">
 <h1>REST API</h1>
@@ -78,27 +78,27 @@
 <h2 id="basics">基础</h2>
 <ul>
 <li><b>基础 URL</b>：<code>https://chat.example.com/api/v4</code>。以下所有端点均相对于此 URL。</li>
-<li><b>格式</b>：输入和输出均为 JSON，文件上传除外（multipart）。请发送 <code>Content-Type: application/json</code>。</li>
+<li><b>格式</b>：输入和输出均为 JSON，文件上传除外（使用 multipart）。请发送 <code>Content-Type: application/json</code>。</li>
 <li><b>ID</b>：每个对象都有一个 26 个字符的 <code>id</code>。时间表示自 Unix 纪元以来的毫秒数（<code>create_at</code>、<code>update_at</code>、<code>delete_at</code>；0 表示“未删除”）。</li>
 <li><b>社区即团队</b>：API 将其称为 <code>teams</code>，并带有 <code>team_id</code>。</li>
 <li><b>您自己</b>：在任何接受 <code>user_id</code> 的路径中，<code>me</code> 表示当前登录的用户，例如 <code>GET /users/me</code>。</li>
 </ul>
-<p>完整的端点列表位于服务器代码中：路由声明在 <code>server/channels/api4/*.go</code> 中，类型定义在 <code>server/public/model</code> 中。仓库 <code>api/v4/source</code> 文件夹中的 OpenAPI 描述涵盖了从 Mattermost 继承的端点，而非 Antimatter 的添加内容。</p>
+<p>完整的端点列表位于服务器代码中：路由声明在 <code>server/channels/api4/*.go</code> 中，类型定义在 <code>server/public/model</code> 中。仓库 <code>api/v4/source</code> 文件夹中的 OpenAPI 描述涵盖了从 Mattermost 继承的端点，以及 Antimatter 的一些新增功能：移动话题、模型连接和消息操作。其余部分仅在代码中提供。</p>
 
 <h2 id="auth">身份验证</h2>
-<p>除登录和少数公共端点外，每个请求都需要在 <code>Authorization</code> 头中包含令牌：</p>
+<p>除登录和少数公开端点外，每个请求都需要在 <code>Authorization</code> 头中包含令牌：</p>
 <pre><code>curl -H "Authorization: Bearer $TOKEN" https://chat.example.com/api/v4/users/me</code></pre>
 <p>此处接受三种类型的令牌：个人访问令牌、会话令牌和 OAuth 访问令牌。也接受 <code>Authorization: Token …</code>。查询字符串中的令牌（<code>?access_token=</code>）仅对 OAuth 访问令牌有效。</p>
 
 <h3>个人访问令牌（推荐用于脚本）</h3>
 <p>个人访问令牌代表您进行操作，除非您设置了过期日期，否则不会过期，并且可以随时撤销。个人访问令牌默认处于关闭状态：</p>
 <ol>
-<li>系统管理员需在<b>系统控制台 › 集成 › 集成管理</b>中开启<b>开启个人访问令牌</b>（<code>ServiceSettings.EnableUserAccessTokens</code>、<code>AM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS</code>）。</li>
+<li>系统管理员需在 <b>系统控制台 › 集成 › 集成管理</b> 中开启 <b>开启个人访问令牌</b>（<code>ServiceSettings.EnableUserAccessTokens</code>、<code>AM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS</code>）。</li>
 <li>对于每位可能创建令牌的用户，系统管理员需打开 <b>系统控制台 › 用户管理 › 用户</b>，在该用户的菜单中选择 <b>管理角色</b>，并勾选 <b>允许此账户生成个人访问令牌</b>。系统管理员始终可以创建令牌。</li>
-<li>该用户打开右上角的头像，然后进入 <b>个人资料与设置 › 安全</b>。在 <b>个人访问令牌</b> 部分，描述该令牌的用途，然后选择 <b>创建新令牌</b>。令牌仅显示一次：请复制它。</li>
+<li>该用户点击屏幕右上角的头像，然后进入 <b>个人资料与设置 › 安全</b>。在 <b>个人访问令牌</b> 部分，描述该令牌的用途，然后选择 <b>创建新令牌</b>。令牌仅显示一次：请复制它。</li>
 </ol>
 <p>通过 API：<code>POST /users/{user_id}/tokens</code>，请求体为 <code>{"description": "backup script", "expires_at": 0}</code>（<code>expires_at</code> 以毫秒为单位；0 表示永不过期）。响应中的 <code>token</code> 字段即为密钥；其 <code>id</code> 用于撤销该令牌（<code>POST /users/tokens/revoke</code>，请求体为 <code>{"token_id": "…"}</code>）。从命令行：<code>amctl token generate &lt;user&gt; &lt;description&gt;</code>。</p>
-<p>系统管理员可以在同一系统控制台页面通过 <b>个人访问令牌最长生命周期（天）</b> 来限制令牌的生命周期。</p>
+<p>系统管理员可以在同一系统控制台页面上，通过 <b>个人访问令牌最长生命周期（天）</b> 设置令牌的最长有效期。</p>
 
 <h3>会话令牌</h3>
 <p>使用密码登录会在 <code>Token</code> 响应头中返回一个会话令牌，这与应用程序使用的会话类型相同：</p>
@@ -106,15 +106,15 @@
   -H 'Content-Type: application/json' \
   -d '{"login_id": "maya", "password": "…"}'</code></pre>
 <p>对于启用了多因素认证的账户，请添加 <code>"token": "123456"</code>。会话的过期时间遵循服务器的会话设置，且登录端点受到速率限制（每秒 5 次请求）。<code>POST /users/logout</code> 用于结束会话。</p>
-<div class="callout">浏览器使用 Cookie 进行身份验证。对于除 GET 以外的任何请求，通过 Cookie 进行身份验证的请求还必须发送 <code>X-CSRF-Token</code> 头；而在 <code>Authorization</code> 头中提供的令牌则无需 CSRF 头。</div>
+<div class="callout">浏览器使用 Cookie 进行身份验证。对于除 GET 以外的任何请求，通过 Cookie 进行身份验证的请求还必须发送 <code>X-CSRF-Token</code> 头；而 <code>Authorization</code> 头中的令牌则无需 CSRF 头。</div>
 
 <h3>OAuth 2.0 应用</h3>
-<p>要允许用户使用其 Antimatter 账户登录您的应用程序，请注册一个 OAuth 2.0 应用。此时 Antimatter 充当 OAuth 服务提供商：</p>
+<p>若要允许用户使用其 Antimatter 账户登录您的应用程序，请注册一个 OAuth 2.0 应用。此时 Antimatter 充当 OAuth 服务提供商：</p>
 <ol>
-<li>必须开启 <b>启动 OAuth 2.0 服务提供商</b>（<b>系统控制台 › 集成 › 集成管理</b>，<code>ServiceSettings.EnableOAuthServiceProvider</code>，默认开启）。</li>
-<li>拥有管理 OAuth 应用权限的人员（默认为系统管理员）打开其头像，然后进入 <b>集成 › OAuth 2.0 应用</b>，添加该应用及其回调 URL。他们将获得一个客户端 ID 和一个客户端密钥。</li>
-<li>您的应用将用户重定向到 <code>https://chat.example.com/oauth/authorize</code>，并附带 <code>response_type=code</code>、<code>client_id</code>、<code>redirect_uri</code> 和 <code>state</code>。支持使用 <code>code_challenge_method=S256</code> 的 PKCE。</li>
-<li>随后，应用通过 <code>POST https://chat.example.com/oauth/access_token</code> 交换授权码（使用 <code>grant_type=authorization_code</code>，之后使用 <code>refresh_token</code> 进行续期），并在调用 API 时携带 <code>Authorization: Bearer &lt;access token&gt;</code>。</li>
+<li>必须开启 <b>启动 OAuth 2.0 服务提供商</b>（位于 <b>系统控制台 › 集成 › 集成管理</b>，配置项为 <code>ServiceSettings.EnableOAuthServiceProvider</code>，默认开启）。</li>
+<li>拥有管理 OAuth 应用权限的人员（默认为系统管理员）点击自己的头像，然后进入 <b>集成 › OAuth 2.0 应用</b>，添加该应用及其回调 URL。他们将获得一个客户端 ID 和一个客户端密钥。</li>
+<li>您的应用将用户重定向至 <code>https://chat.example.com/oauth/authorize</code>，并附带 <code>response_type=code</code>、<code>client_id</code>、<code>redirect_uri</code> 和 <code>state</code>。支持使用 <code>code_challenge_method=S256</code> 的 PKCE。</li>
+<li>随后，应用通过 <code>POST https://chat.example.com/oauth/access_token</code> 交换授权码（<code>grant_type=authorization_code</code>，之后使用 <code>refresh_token</code> 进行续期），并在调用 API 时携带 <code>Authorization: Bearer &lt;access token&gt;</code>。</li>
 </ol>
 <p>用户可以在 <b>个人资料与设置 › 安全 › 您已授权的应用</b> 中查看已授权的应用。</p>
 
@@ -122,32 +122,32 @@
 <table>
 <thead><tr><th>内容</th><th>端点</th></tr></thead>
 <tbody>
-<tr><td>您和其他用户</td><td><code>GET /users/me</code>、<code>GET /users/{user_id}</code>、<code>GET /users/username/{username}</code>、<code>POST /users/ids</code>（返回 ID 列表）、<code>POST /users/search</code>、<code>GET /users?in_team=…&amp;in_channel=…</code></td></tr>
+<tr><td>您和其他用户</td><td><code>GET /users/me</code>、<code>GET /users/{user_id}</code>、<code>GET /users/username/{username}</code>、<code>POST /users/ids</code>（ID 列表）、<code>POST /users/search</code>、<code>GET /users?in_team=…&amp;in_channel=…</code></td></tr>
 <tr><td>团队</td><td><code>GET /users/me/teams</code>, <code>GET /teams/{team_id}</code>, <code>GET /teams/name/{name}</code>, <code>PUT /teams/{team_id}/patch</code>, <code>GET /teams/{team_id}/members</code>, <code>POST /teams/{team_id}/members</code></td></tr>
 <tr><td>频道</td><td><code>GET /users/me/teams/{team_id}/channels</code>、<code>GET /teams/name/{team}/channels/name/{channel}</code>、<code>POST /channels</code>、<code>POST /channels/direct</code>（两个用户 ID）、<code>POST /channels/group</code>、<code>POST /channels/{channel_id}/members</code></td></tr>
-<tr><td>消息</td><td><code>POST /posts</code>, <code>GET /posts/{post_id}</code>, <code>PUT /posts/{post_id}/patch</code>, <code>DELETE /posts/{post_id}</code>, <code>GET /channels/{channel_id}/posts</code>, <code>GET /posts/{post_id}/thread</code>, <code>POST /teams/{team_id}/posts/search</code></td></tr>
+<tr><td>消息（帖子）</td><td><code>POST /posts</code>, <code>GET /posts/{post_id}</code>, <code>PUT /posts/{post_id}/patch</code>, <code>DELETE /posts/{post_id}</code>, <code>GET /channels/{channel_id}/posts</code>, <code>GET /posts/{post_id}/thread</code>, <code>POST /teams/{team_id}/posts/search</code></td></tr>
 <tr><td>表情回应</td><td><code>POST /reactions</code>，参数为 <code>{"user_id", "post_id", "emoji_name"}</code>；<code>DELETE /users/{user_id}/posts/{post_id}/reactions/{emoji_name}</code></td></tr>
-<tr><td>文件</td><td><code>POST /files</code>（multipart 格式：包含 <code>channel_id</code> 和 <code>files</code>），然后将返回的 ID 放入消息的 <code>file_ids</code> 中；<code>GET /files/{file_id}</code></td></tr>
+<tr><td>文件</td><td><code>POST /files</code>（multipart 格式：包含 <code>channel_id</code> 和 <code>files</code>），然后将返回的 ID 放入帖子的 <code>file_ids</code> 字段；<code>GET /files/{file_id}</code></td></tr>
 <tr><td>偏好设置</td><td><code>GET /users/me/preferences</code>, <code>PUT /users/me/preferences</code></td></tr>
 <tr><td>集成</td><td><code>/hooks/incoming</code>、<code>/hooks/outgoing</code>、<code>/commands</code>、<code>/bots</code>、<code>/oauth/apps</code>（详见后续页面）</td></tr>
 <tr><td>服务器</td><td><code>GET /system/ping</code>（健康检查，无需令牌）、<code>GET /config/client?format=old</code>（客户端可见的设置）</td></tr>
 </tbody>
 </table>
 
-<h3>发送消息</h3>
+<h3>发布消息</h3>
 <pre><code>curl -X POST https://chat.example.com/api/v4/posts \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"channel_id": "'$CHANNEL_ID'", "message": "Backup finished: **42 GB** in 3 min"}'</code></pre>
-<p>消息使用 Markdown 格式。添加 <code>"root_id"</code>（话题的首条消息）可在话题中回复，添加 <code>"file_ids"</code> 用于文件，添加 <code>"props"</code> 用于附件及其他扩展信息（参见 <a href="../../../zh-cn/docs/developers/webhooks.html#attachments">附件</a>）。</p>
+<p>消息使用 Markdown 格式。添加 <code>"root_id"</code>（话题的首条帖子）可在话题中回复；添加 <code>"file_ids"</code> 用于文件；添加 <code>"props"</code> 用于附件及其他附加信息（参见 <a href="../../../zh-cn/docs/developers/webhooks.html#attachments">附件</a>）。</p>
 
 <h3>查找频道 ID</h3>
 <pre><code>curl -H "Authorization: Bearer $TOKEN" \
   https://chat.example.com/api/v4/teams/name/lumen-labs/channels/name/ops-alerts</code></pre>
-<p>名称即频道链接中的部分：<code>/lumen-labs/channels/ops-alerts</code>。</p>
+<p>名称即频道链接中的名称：<code>/lumen-labs/channels/ops-alerts</code>。</p>
 
 <h2 id="pagination">分页</h2>
 <p>列表端点接受 <code>page</code>（从 0 开始）和 <code>per_page</code>（默认 60，最大 200）。持续请求下一页，直到返回的页面长度小于 <code>per_page</code> 为止。</p>
-<p>频道的消息（<code>GET /channels/{channel_id}/posts</code>）也接受 <code>since</code>（时间：返回自该时间点以来发生变化的所有内容），或 <code>before</code> 和 <code>after</code>（帖子 ID）。返回结果为帖子列表：<code>{"order": [IDs, newest first], "posts": {ID: post}, "next_post_id", "prev_post_id"}</code>。</p>
+<p>频道的消息（<code>GET /channels/{channel_id}/posts</code>）也接受 <code>since</code>（时间：返回自该时间点以来发生的所有变更），或 <code>before</code> 和 <code>after</code>（帖子 ID）。返回结果为帖子列表：<code>{"order": [IDs, newest first], "posts": {ID: post}, "next_post_id", "prev_post_id"}</code>。</p>
 
 <h2 id="errors">错误</h2>
 <p>错误使用标准的 HTTP 状态码（400 输入错误，401 未登录，403 权限不足，404 未找到，501 功能已关闭）以及 JSON 响应体：</p>
@@ -162,10 +162,10 @@
 
 <h2 id="rate-limits">速率限制</h2>
 <p>速率限制默认关闭。当系统管理员启用它（<b>系统控制台 › 环境 › 速率限制</b>）时，每个客户端默认每秒 10 次请求，突发上限为 100 次，按 IP 地址或用户计数。响应包含 <code>X-RateLimit-Limit</code>、<code>X-RateLimit-Remaining</code> 和 <code>X-RateLimit-Reset</code>；超出限制时，服务器返回 <code>429</code> 并附带以秒为单位的 <code>Retry-After</code> 头。某些端点（如登录）无论设置如何都有独立的限制。</p>
-<p>编写脚本以在遇到 429 时等待并重试，并避免轮询：请改用 WebSocket。</p>
+<p>编写脚本，在遇到 429 时等待并重试，并避免轮询：请改用 WebSocket。</p>
 
 <h2 id="websocket">WebSocket 事件流</h2>
-<p>连接到 <code>wss://chat.example.com/api/v4/websocket</code>。认证方式有两种：在连接请求中使用 <code>Authorization: Bearer</code> 头，或发送此消息作为第一条消息：</p>
+<p>连接到 <code>wss://chat.example.com/api/v4/websocket</code>。认证方式有两种：在连接请求中使用 <code>Authorization: Bearer</code> 头，或发送以下消息作为第一条消息：</p>
 <pre><code>{"seq": 1, "action": "authentication_challenge", "data": {"token": "…"}}</code></pre>
 <p>服务器发送 <code>hello</code> 事件，随后发送您有权查看的所有事件：</p>
 <pre><code>{
@@ -175,13 +175,13 @@
   "seq": 4
 }</code></pre>
 <p>注意 <code>data.post</code> 是作为 JSON 字符串的帖子。常见事件包括：<code>posted</code>、<code>post_edited</code>、<code>post_deleted</code>、<code>reaction_added</code>、<code>reaction_removed</code>、<code>typing</code>、<code>status_change</code>、<code>user_added</code>、<code>direct_added</code>。应用发送其自身的事件，命名为 <code>custom_&lt;app id&gt;_&lt;event&gt;</code>。</p>
-<p>您也可以发送操作，每个操作带有递增的 <code>seq</code>：<code>user_typing</code> 附带 <code>{"channel_id", "parent_id"}</code>，或 <code>get_statuses</code>。当连接断开时重新连接，并使用 <code>since</code> 获取遗漏的内容（参见 <a href="#pagination">分页</a>）。</p>
+<p>您还可以发送操作，每个操作带有递增的 <code>seq</code>：<code>user_typing</code> 附带 <code>{"channel_id", "parent_id"}</code>，或 <code>get_statuses</code>。连接断开时重新连接，并使用 <code>since</code> 获取遗漏的内容（参见 <a href="#pagination">分页</a>）。</p>
 <p>Antimatter 添加了以下事件：<code>community_attributes_updated</code>、<code>member_timeouts_updated</code>、<code>post_put_on_top</code>、<code>post_removed_from_top</code>、<code>server_categories_updated</code>、<code>channel_overrides_updated</code> 和 <code>category_overrides_updated</code>。</p>
 
 <h2 id="clients">客户端库</h2>
 <ul>
-<li><b>Go</b>：位于 <code>server/public/model</code> 中的 <code>model.Client4</code>（导入 <code>github.com/mattermost/mattermost/server/public/model</code>）。使用 <code>model.NewAPIv4Client(url)</code>，然后调用 <code>client.SetToken(token)</code>；<code>model.NewWebSocketClient4(wsURL, token)</code> 用于跟踪事件。Antimatter 的副本为其自身端点添加了方法，例如 <code>UpdateMessageRequest</code>、<code>PutPostOnTop</code> 和 <code>ExportChannel</code>。</li>
-<li><b>TypeScript</b>：<code>@mattermost/client</code> 中的 <code>Client4</code> 类，位于 <code>webapp/platform/client</code>，其类型定义位于 <code>webapp/platform/types</code>。Antimatter 仓库中的副本包含 Antimatter 的端点；Mattermost 在 npm 上发布的包则不包含。</li>
+<li><b>Go</b>：位于 <code>server/public/model</code> 中的 <code>model.Client4</code>（导入 <code>github.com/mattermost/mattermost/server/public/model</code>）。使用 <code>model.NewAPIv4Client(url)</code>，然后调用 <code>client.SetToken(token)</code>；<code>model.NewWebSocketClient4(wsURL, token)</code> 用于跟踪事件。Antimatter 的副本为其自身的端点添加了方法，例如 <code>UpdateMessageRequest</code>、<code>PutPostOnTop</code> 和 <code>ExportChannel</code>。</li>
+<li><b>TypeScript</b>：<code>@mattermost/client</code> 中的 <code>Client4</code> 类，位于 <code>webapp/platform/client</code>，其类型定义位于 <code>webapp/platform/types</code>。Antimatter 仓库中的副本包含 Antimatter 的端点；而 Mattermost 在 npm 上发布的包则不包含。</li>
 </ul>
 <pre><code>package main
 
@@ -210,27 +210,89 @@ func main() {
 <table>
 <thead><tr><th>端点</th><th>功能说明</th></tr></thead>
 <tbody>
-<tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> 相同路径<br><code>PATCH</code>、<code>DELETE …/fields/{field_id}</code></td><td>社区属性：社区管理员为其成员定义的个人资料字段（最多 20 个）。成员可以读取这些字段；社区管理员可以创建和修改它们。</td></tr>
+<tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> 相同路径<br><code>PATCH</code>、<code>DELETE …/fields/{field_id}</code></td><td>社区属性：社区管理员为其成员定义的个人资料字段（最多 20 个）。成员可以读取这些字段；社区管理员负责创建和修改它们。</td></tr>
 <tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> 相同路径<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>成员的属性值，格式为 <code>{field_id: value}</code>。成员可以设置自己的值（管理员管理的字段除外）；管理员可以设置任何人的值。搜索接受 <code>{"user_ids": [...]}</code>（最多 200 个）。</td></tr>
-<tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>超时设置：<code>{"until": time, "reason": "…"}</code> 会在指定时间之前（最长 28 天）阻止用户在社区中发帖、添加表情回应或上传内容；<code>"until": 0</code> 则会解除该限制。管理视图会显示用户加入的时间以及近期的发帖数量。</td></tr>
-<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>将消息固定在频道顶部（最多 10 条）。<code>{"duration": ms}</code>，最长 30 天；设为 0 则保留至手动移除。需要拥有在该频道发帖的权限。</td></tr>
+<tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>超时设置：<code>{"until": time, "reason": "…"}</code> 会在指定时间之前（最长 28 天）阻止该用户在社区中发帖、发送表情回应或上传内容；<code>"until": 0</code> 则会解除限制。管理视图会显示该用户的加入时间以及近期的发帖量。</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>将消息固定在频道顶部（最多 10 条）。<code>{"duration": ms}</code>，最长 30 天；设为 0 则一直保留直到移除。任何能读取该频道的人都可以查看列表。将消息置顶或取消置顶需要拥有在该频道发帖的权限，并且，在社区频道中，还需是频道或社区的管理员，或拥有 <b>管理消息</b>（<code>delete_others_posts</code>）权限。在私信或群组消息中，其成员可以执行此操作。已归档的频道中不允许此操作。</td></tr>
 <tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>处理您自己的消息请求：<code>{"action": "accept"}</code>、<code>"dismiss"</code> 或 <code>"request"</code>（将对话重新放回请求列表）。返回您的频道成员信息。</td></tr>
-<tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>角色或个人可在频道中执行的操作，以及哪些角色可以查看受角色限制的频道。</td></tr>
-<tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>社区共享的频道分类，以及适用于该分类下所有频道的覆盖设置。</td></tr>
-<tr><td><code>GET /groups/{group_id}/team_role</code><br><code>PUT …/team_role/permissions</code></td><td>社区角色所授予的权限。</td></tr>
-<tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>使用社区的自动链接规则测试一段文本。</td></tr>
-<tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>将频道的消息下载为 CSV 文件（最多 50,000 条），适用于有权读取该频道的人员。</td></tr>
-<tr><td><code>GET /posts/{post_id}/speech</code></td><td>当配置了文本转语音功能时，以音频形式朗读的消息。</td></tr>
+<tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>角色或个人在频道中可以执行的操作，以及哪些角色可以看到受角色限制的频道。</td></tr>
+<tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>社区共享的频道分类，以及适用于该分类中所有频道的覆盖设置。</td></tr>
+<tr><td><code>GET /groups/{group_id}/team_role</code><br><code>PUT …/team_role/permissions</code></td><td>社区角色授予的权限。</td></tr>
+<tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>使用社区的自动链接规则处理文本。</td></tr>
+<tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>将频道的消息下载为 CSV 文件（最多 50,000 条），适用于能读取该频道的人员。</td></tr>
+<tr><td><code>GET /posts/{post_id}/speech</code></td><td>当配置了文本转语音时，以音频形式朗读的消息。</td></tr>
+<tr><td><code>POST /posts/{post_id}/move_to_channel</code></td><td>将话题移动到同一社区的另一个频道：参见 <a href="#move-thread">移动话题</a>。</td></tr>
+<tr><td><code>GET</code>, <code>POST /ai/connections</code><br><code>GET</code>, <code>PATCH</code>, <code>DELETE /ai/connections/{connection_id}</code><br><code>GET /ai/connections/usable</code></td><td>模型连接，即服务器 AI 功能和应用程序使用的 AI 提供商：参见 <a href="#ai-connections">模型连接</a>。</td></tr>
+<tr><td><code>GET /channels/{channel_id}/message_actions</code><br><code>POST /posts/{post_id}/message_actions/{hook_id}</code><br><code>GET</code>, <code>POST /hooks/outgoing/{hook_id}/icon</code></td><td>消息操作：用户从消息菜单触发的出站 Webhook。参见 <a href="../../../zh-cn/docs/developers/webhooks.html#message-actions">消息操作</a>。</td></tr>
 </tbody>
 </table>
 <h3>新字段</h3>
 <ul>
-<li><b>社区</b>（<code>Team</code>，以及 <code>PUT /teams/{team_id}/patch</code>）：<code>all_channels_membership</code>（所有人均可加入其有权查看的所有频道）、<code>default_channel_id</code>（新成员加入的默认频道；为空则默认为 Town Square）、<code>hide_role_colors</code>、<code>require_team_badges</code>、<code>onboarding</code> 和 <code>autolinks</code>（均为 JSON 字符串）。</li>
+<li><b>社区</b>（<code>Team</code>，以及 <code>PUT /teams/{team_id}/patch</code>）：<code>all_channels_membership</code>（所有成员都加入他们可见的所有频道）、<code>default_channel_id</code>（新成员加入的频道；为空表示 General）、<code>kind</code>（<code>community</code> 或 <code>workplace</code>：在工作区中，频道管理员也可以归档他们的频道；新社区使用服务器的 <code>TeamSettings.DefaultCommunityKind</code>，默认为 <code>community</code>）、<code>member_list_view</code>（成员列表如何分组：<code>choice</code>（默认值）允许每位成员自行选择；<code>roles</code> 或 <code>teams</code> 则固定分组方式）、<code>hide_role_colors</code>、<code>require_team_badges</code>、<code>onboarding</code> 和 <code>autolinks</code>（均为 JSON 字符串）。</li>
+<li>新社区的<b>默认频道</b>是 <code>general</code>（<b>General</b>），而不是 <code>town-square</code>。0.9.0 升级会将每个社区的 <code>town-square</code> 重命名为 <code>general</code>，并保留其 ID，除非该社区已经存在 <code>general</code> 频道。旧名称仍然有效：当没有频道使用这些名称时，<code>GET /teams/{team_id}/channels/name/town-square</code>、<code>GET /teams/name/{team}/channels/name/town-square</code> 以及传入 Webhook 的 <code>channel</code> 都会返回该社区的默认频道。在新代码中，请使用 <code>default_channel_id</code> 或名称 <code>general</code>。</li>
+<li><b>频道链接</b>：<code>#channel-name</code> 用于链接频道，<code>~channel-name</code> 同样有效。帖子的 <code>channel_mentions</code> 属性会列出通过这两种方式链接的频道；如果 <code>#word</code> 不对应任何频道，则它保持为标签。Antimatter 的 Web 界面和移动应用使用 <code>#name</code> 格式。</li>
+<li><b>已归档的频道</b> 仍然可以添加新成员（<code>POST /channels/{channel_id}/members</code>），新成员可以阅读历史记录。但任何人都无法在其中发帖、添加表情回应、固定消息、置顶消息、重命名频道或更改成员角色。</li>
 <li><b>内联回复</b>：包含 <code>"props": {"reply_to": "&lt;post id&gt;"}</code> 的帖子会引用同一频道中的该消息。添加 <code>"reply_to_mention": false</code> 可避免通知原作者。服务器会在 <code>metadata.reply_to</code> 中填入被引用消息的简短描述。</li>
 <li><b>剧透</b>：<code>"props": {"spoiler": true}</code> 会隐藏帖子的文本和文件，直到读者选择显示。</li>
-<li><b>忽略和屏蔽</b>属于偏好设置：分类为 <code>user_block</code>，名称为对方的 ID，值为 <code>ignore</code> 或 <code>block</code>。私信是否作为请求等待处理，取决于您频道成员中的 <code>notify_props.dm_request</code>（<code>pending</code>、<code>accepted</code> 或 <code>dismissed</code>）。</li>
+<li><b>忽略和屏蔽</b>是偏好设置：类别为 <code>user_block</code>，名称为对方的 ID，值为 <code>ignore</code> 或 <code>block</code>。私信是否作为请求等待，取决于你的频道成员设置中的 <code>notify_props.dm_request</code>（<code>pending</code>、<code>accepted</code> 或 <code>dismissed</code>）。</li>
 <li><b>消息附件</b>可以包含 <code>stages</code> 和 <code>chart</code>：请参阅 <a href="../../../zh-cn/docs/developers/webhooks.html#cards">卡片</a>。</li>
 </ul>
+
+<h2 id="move-thread">移动话题</h2>
+<p><code>POST /posts/{post_id}/move_to_channel</code> 将话题、其第一条消息及所有回复移动到同一社区的另一个频道。<code>post_id</code> 可以是第一条消息或任何回复。</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts/$POST_ID/move_to_channel \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$TARGET_CHANNEL_ID'", "flatten": false}'</code></pre>
+<ul>
+<li><code>channel_id</code>（必填）：话题要移动到的目标频道。</li>
+<li><code>flatten</code>（默认为 <code>false</code>）：设置为 <code>true</code> 时，回复消息将作为目标频道的普通消息，而不是话题。Fusion 的 <b>Make it a channel</b> 功能使用了此参数。</li>
+</ul>
+<p>消息将保留其作者、时间、表情回应和文件。其副本带有 <code>silent_notification</code> 属性，因此不会通知任何人。原始消息将被删除。返回值为移动后的第一条消息，包含其新的 ID。</p>
+<h3>谁可以移动话题</h3>
+<ul>
+<li>您必须能够读取该话题，并且能够在目标频道中发布消息。</li>
+<li>频道管理员、社区管理员、在频道中拥有 <b>管理消息</b>（<code>delete_others_posts</code>）权限的人员以及系统管理员可以移动任何话题。</li>
+<li>当两个频道均为公共频道，或者话题中的所有消息均由话题作者发布时，话题作者可以移动该话题。否则，返回值为 <code>403</code>，ID 为 <code>api.post.move_thread.private_needs_moderator.app_error</code>。</li>
+<li>两个频道必须位于同一社区（不能是私信或群组消息）、互不相同且未归档。系统消息和阅后即焚消息无法移动。</li>
+<li>长度超过 <code>WranglerSettings.MoveThreadMaxCount</code> 条消息（默认为 100；0 表示无限制）的话题将被拒绝。</li>
+</ul>
+<h3>指针和笔记</h3>
+<p>移动操作会在旧频道中留下两条类型为 <code>system_wrangler</code> 的系统消息：一条是指向新位置的指针（“一个包含 13 条消息的话题已移动到 #target”），另一条是目标频道中的笔记（“此话题从 #source 移动而来”），位于移动后的话题下方，或者在使用 <code>flatten</code> 时位于其消息之后。除了消息文本外，它们的属性允许客户端将频道名称渲染为链接：</p>
+<ul>
+<li>指针：包含 <code>MovedThreadPermalink</code>、<code>NumMessages</code>、<code>MovedThreadChannelId</code>、<code>MovedThreadTeamName</code>、<code>MovedThreadPostId</code>，以及针对公共目标频道的 <code>MovedThreadChannelName</code> 和 <code>MovedThreadChannelDisplayName</code>。</li>
+<li>笔记：包含 <code>MovedFromChannelId</code>、<code>MovedFromTeamName</code>、<code>MovedFromPostId</code>（指向指针）、<code>MovedFromPermalink</code>，以及针对公共源频道的 <code>MovedFromChannelName</code> 和 <code>MovedFromChannelDisplayName</code>。</li>
+</ul>
+<p>两者还包含 <code>TranslationID</code>。私有频道的名称会被省略：读者看到的是“另一个频道”。Mattermost 自身的 <code>POST /posts/{post_id}/move</code> 在 Antimatter 中保持关闭；请使用此端点。</p>
+
+<h2 id="ai-connections">模型连接</h2>
+<p>模型连接是 AI 提供商的地址和密钥，由管理员进行配置。服务器的 AI 功能以及调用 AI 服务的应用程序都会使用这些连接。系统管理员管理服务器范围的连接（<code>manage_ai_connections</code>）；社区管理员管理其社区自己的连接（<code>manage_team_ai_connections</code>）。密钥是只写的：任何响应都不会包含密钥，仅返回 <code>api_key_set</code> 和 <code>api_key_last4</code>。</p>
+<table>
+<thead><tr><th>端点</th><th>功能说明</th></tr></thead>
+<tbody>
+<tr><td><code>GET /ai/connections?scope=</code></td><td>您管理的连接。<code>scope</code> 为 <code>server</code> 或社区 ID；如果不指定，则返回您管理的所有范围的连接。</td></tr>
+<tr><td><code>POST /ai/connections</code></td><td>添加连接（返回 <code>201</code>）。</td></tr>
+<tr><td><code>POST /ai/connections/test</code>, <code>POST /ai/connections/models</code></td><td>在保存之前测试连接或列出其模型。请求体与添加连接时相同；不会存储任何数据。</td></tr>
+<tr><td><code>GET</code>、<code>PATCH</code>（或 <code>PUT</code>）、<code>DELETE /ai/connections/{connection_id}</code></td><td>读取、修改或删除连接。补丁（Patch）仅包含需要更改的字段；如果省略 <code>api_key</code>，则保留现有密钥。</td></tr>
+<tr><td><code>POST /ai/connections/{connection_id}/test</code></td><td>测试已保存的连接：<code>{"ok", "error", "status_code", "latency_ms", "model_count"}</code>。</td></tr>
+<tr><td><code>GET /ai/connections/{connection_id}/models</code></td><td>该提供商提供的模型。</td></tr>
+<tr><td><code>GET /ai/connections/{connection_id}/usage</code></td><td>本月的请求数和令牌数。</td></tr>
+<tr><td><code>GET /ai/connections/usable?channel_id=&amp;team_id=</code></td><td>面向任何已登录用户：显示您在该处可用的连接，包括其模型和功能，但绝不包含密钥或地址。</td></tr>
+</tbody>
+</table>
+<p>新连接的请求体：</p>
+<pre><code>{
+  "name": "Local models",
+  "scope": "server",
+  "provider": "openai_compatible",
+  "base_url": "http://llm.internal:8000/v1",
+  "api_key": "…",
+  "extra_headers": {},
+  "models": {"chat": "qwen3-32b", "embeddings": "", "transcription": "", "decisions": ""},
+  "limits": {"requests_per_minute": 0, "monthly_token_budget": 0, "per_user_requests_per_minute": 0, "per_user_monthly_token_budget": 0},
+  "sharing": {"all_teams": true, "team_ids": []},
+  "audience": {"everyone": true, "group_ids": [], "roles": [], "allow_guests": false}
+}</code></pre>
+<p><code>provider</code> 为 <code>openai_compatible</code> 或 <code>anthropic</code>。<code>scope</code> 默认为 <code>server</code>；如果指定社区 ID，则成为该社区的连接。在 <code>limits</code> 中，0 表示无限制；每分钟请求数在每台服务器上单独计数，令牌预算按整个集群的日历月（UTC）计算。<code>sharing</code> 指定哪些社区可以使用服务器范围的连接（私信和群组消息需要 <code>all_teams</code>），<code>audience</code> 指定谁可以使用该连接；访客仅在 <code>allow_guests</code> 为真时可用。更改会写入审计日志。管理员指南解释了这些设置：请参阅 <a href="../../../zh-cn/docs/admins/ai.html">AI</a>。</p>
 <nav class="pager"><a class="prev" href="../../docs/developers/index.html"><small>上一页</small>概述</a><a class="next" href="../../docs/developers/webhooks.html"><small>下一页</small>Webhook</a></nav>
 </article>
 </div>

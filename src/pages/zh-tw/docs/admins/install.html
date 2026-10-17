@@ -1,10 +1,10 @@
 title: 安裝 Antimatter
-description: 使用 Docker Compose 或從發行版檔案安裝 Antimatter，選擇映像檔、首次啟動並建立第一位系統管理員。
+description: 使用 Docker Compose、.deb 與 .rpm 套件或發行版檔案安裝 Antimatter，選擇映像檔、首次啟動並建立第一位系統管理員。
 guide: admins
 order: 2
 nav: 安裝
-lead: 使用現成的 compose 檔案安裝 Antimatter，選擇正確的映像檔，或從發行版檔案執行伺服器。接著建立第一個管理員帳號。
-source: 64cd522c4946
+lead: 使用現成的 compose 檔案、發行版的 .deb 或 .rpm 套件，或發行版檔案安裝 Antimatter。然後建立第一個管理員帳號。
+source: bb05a35899c4
 ---
 <h2 id="compose">使用 Docker Compose 安裝</h2>
 <p>這是建議的方式。一個 compose 檔案即可執行 Antimatter、PostgreSQL、檔案儲存空間以及 GIF 服務。您需要一台配備 Docker Engine 及其 Compose 外掛程式（<code>docker compose</code>）、2 個 CPU 核心以及 4 GB 以上記憶體的 Linux 伺服器。</p>
@@ -20,9 +20,10 @@ SITE_URL=http://localhost:8065
 POSTGRES_PASSWORD=$(openssl rand -hex 24)
 S3_SECRET_KEY=$(openssl rand -hex 24)
 GIFS_API_KEY=$(openssl rand -hex 24)
+AM_AI_ENCRYPTION_KEY=$(openssl rand -base64 32)
 EOF
 chmod 600 .env</code></pre>
-<p>將 <code>SITE_URL</code> 設為使用者會在瀏覽器中輸入的地址，例如區域網路中的 <code>http://192.168.1.20:8065</code>，或搭配網域的 <code>https://chat.example.com</code>。請保留 <code>.env</code> 檔案：資料庫與儲存空間在首次啟動時會使用這些密碼，且還原備份時也需要相同的檔案。</p>
+<p>將 <code>SITE_URL</code> 設為使用者會在瀏覽器輸入的地址，例如區域網路上的 <code>http://192.168.1.20:8065</code>，或搭配網域的 <code>https://chat.example.com</code>。保留 <code>.env</code> 檔案：資料庫和儲存空間使用首次啟動時的這些密碼，AI 模型連線的 API 金鑰使用 <code>AM_AI_ENCRYPTION_KEY</code> 加密，且還原備份時也需要同一個檔案。</p>
 
 <h3>3. 啟動</h3>
 <pre><code>docker compose up -d
@@ -38,7 +39,8 @@ docker compose ps</code></pre>
 <tr><td><code>POSTGRES_PASSWORD</code></td><td>必要</td><td><code>antimatter</code> 資料庫使用者的密碼。</td></tr>
 <tr><td><code>S3_SECRET_KEY</code></td><td>必要</td><td>檔案儲存空間的金鑰。</td></tr>
 <tr><td><code>GIFS_API_KEY</code></td><td>必要</td><td>Antimatter 呼叫 GIF 服務時使用的金鑰。</td></tr>
-<tr><td><code>GIFS_UPLOAD_KEY</code></td><td>留空</td><td>讓使用者能從選擇器中加入自訂的 GIF 和貼紙。留空則關閉上傳功能。</td></tr>
+<tr><td><code>AM_AI_ENCRYPTION_KEY</code></td><td>留空</td><td>用於加密 AI 模型連線 API 金鑰的金鑰（<code>openssl rand -base64 32</code>）。留空時，伺服器會在 <code>data</code> 磁碟區中建立金鑰檔案。請參閱<a href="{{root}}docs/admins/ai.html#encryption-key">加密金鑰</a>。</td></tr>
+<tr><td><code>GIFS_UPLOAD_KEY</code></td><td>留空</td><td>讓使用者能從選擇器新增自己的 GIF 和貼紙，並刪除它們。留空則停用上傳功能。</td></tr>
 <tr><td><code>DOMAIN</code></td><td>留空</td><td>您的網域名稱，用於 <code>https</code> 設定檔。</td></tr>
 <tr><td><code>HTTP_PORT</code></td><td><code>8065</code></td><td>Antimatter 網頁伺服器的主機埠號。</td></tr>
 <tr><td><code>CALLS_PORT</code></td><td><code>8443</code></td><td>通話音訊與影片的 UDP 和 TCP 埠號。</td></tr>
@@ -52,7 +54,7 @@ docker compose ps</code></pre>
 <table>
 <thead><tr><th>服務</th><th>映像檔</th><th>角色</th></tr></thead>
 <tbody>
-<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>伺服器、網頁應用程式以及內建應用程式。會公開 <code>HTTP_PORT</code> 和 <code>CALLS_PORT</code>。</td></tr>
+<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>伺服器、網頁應用程式和內建應用程式。公開 <code>HTTP_PORT</code> 和 <code>CALLS_PORT</code>。其資料目錄為 <code>data</code> 磁碟區。</td></tr>
 <tr><td><code>postgres</code></td><td><code>postgres:17-alpine</code></td><td>資料庫，位於 <code>postgres</code> 磁碟區中。</td></tr>
 <tr><td><code>files</code></td><td><code>rustfs/rustfs</code></td><td>用於上傳檔案與已安裝應用程式的 S3 相容儲存空間，位於 <code>files</code> 卷中。</td></tr>
 <tr><td><code>bucket</code></td><td><code>amazon/aws-cli</code></td><td>建立 <code>antimatter</code> 儲存桶後結束。</td></tr>
@@ -62,7 +64,7 @@ docker compose ps</code></pre>
 </tbody>
 </table>
 <p>PostgreSQL、儲存空間與 GIF 服務位於一個沒有網際網路存取權限的內部網路（<code>private</code>）上，只有 Antimatter 會加入該網路。這些服務均未發布任何埠。</p>
-<p>Antimatter 容器不在磁碟上保留任何資料：其設定位於資料庫中（<code>AM_CONFIG</code> 指向該資料庫），檔案與應用程式則位於儲存服務中。您可以隨時移除並重新建立容器。所有需要備份的內容都在 <code>postgres</code>、<code>files</code> 和 <code>gifs</code> 卷中，以及您的 <code>.env</code> 檔案。</p>
+<p>Antimatter 容器不在磁碟上保留任何內容：其設定位於資料庫中（<code>AM_CONFIG</code> 指向該資料庫），檔案和應用程式位於儲存服務中。您可以隨時移除並重新建立容器。其 <code>data</code> 磁碟區僅存放 AI 加密金鑰檔案，當 <code>AM_AI_ENCRYPTION_KEY</code> 為空時由伺服器建立。所有需要備份的內容都在 <code>postgres</code>、<code>files</code>、<code>gifs</code> 和 <code>data</code> 磁碟區中，以及您的 <code>.env</code> 檔案。</p>
 
 <h2 id="images">選擇映像檔</h2>
 <p>已發布兩個 Antimatter 映像檔，均支援 <code>linux/amd64</code> 和 <code>linux/arm64</code>，且皆從每個儲存庫的 <code>main</code> 分支建置：</p>
@@ -99,14 +101,154 @@ docker compose exec antimatter amctl --local team users add main admin</code></p
 <p>然後在 <code>SITE_URL</code> 登入。在指令前加一個空格，以避免密碼進入 shell 歷史記錄（需設定 <code>HISTCONTROL=ignorespace</code>），或在登入後變更密碼。</p>
 <p>進入系統後的下一步：</p>
 <ol>
+<li>對於公司或組織，請將<b>新社群類型</b>設為<b>工作場所</b>，並在設定中變更已建立社群的類型：<a href="{{root}}docs/admins/configuration.html#community-kind">工作場所或社群</a>。</li>
 <li>決定誰可以建立帳戶：<a href="{{root}}docs/admins/authentication.html">登入與帳戶</a>。</li>
 <li>設定電子郵件，以便邀請和密碼重設功能正常運作：<a href="{{root}}docs/admins/email-push.html">電子郵件與推送通知</a>。</li>
 <li>在防火牆中開啟通話埠：<a href="{{root}}docs/admins/calls.html">通話與語音</a>。</li>
 <li>檢查哪些應用程式已啟用：<a href="{{root}}docs/admins/apps.html">內建應用程式</a>。</li>
 </ol>
 
+<h2 id="releases">下載發行版</h2>
+<p>若不使用 Docker，請從 GitHub 上的發行版檔案安裝 Antimatter：<a href="https://github.com/AntimatterChat/antimatter/releases">github.com/AntimatterChat/antimatter/releases</a>。每個發行版都有版本號碼（例如 <code>0.9.0</code>），其標籤為在前面加上 <code>v</code> 的相同數字（<code>v0.9.0</code>）。</p>
+<div class="callout">Antimatter 目前處於測試階段：其版本號為 0.9.0 系列。若版本號在連字號後帶有後綴，例如 <code>0.9.0-rc.1</code>，則會在 GitHub 上標記為 <b>Pre-release</b>。這是測試版本，於正式發布前釋出。</div>
+<p>每個發布版本都包含以下檔案，適用於 <code>amd64</code> 和 <code>arm64</code> 伺服器：</p>
+<table>
+<thead><tr><th>檔案</th><th>說明</th></tr></thead>
+<tbody>
+<tr><td><code>antimatter_&lt;version&gt;-1_amd64.deb</code>, <code>antimatter_&lt;version&gt;-1_arm64.deb</code></td><td>適用於 Debian、Ubuntu 及基於它們的發行版的套件。</td></tr>
+<tr><td><code>antimatter-&lt;version&gt;-1.x86_64.rpm</code>, <code>antimatter-&lt;version&gt;-1.aarch64.rpm</code></td><td>適用於 Fedora、RHEL 及與 RHEL 相容的發行版的套件。</td></tr>
+<tr><td><code>antimatter-&lt;version&gt;-linux-amd64.tar.gz</code>, <code>antimatter-&lt;version&gt;-linux-arm64.tar.gz</code></td><td>發布檔案，適用於任何 Linux 發行版，需手動設定。</td></tr>
+<tr><td><code>SHA256SUMS</code></td><td>發布版本中所有檔案的 SHA-256 校驗和。</td></tr>
+</tbody>
+</table>
+<p>套件與檔案包含相同的程式：伺服器（<code>antimatter</code>）、命令列工具（<code>amctl</code>）、兩個 Web 應用程式（預設介面與經典介面）、內建應用程式、電子郵件範本以及翻譯。套件額外提供了 systemd 服務和設定檔，因此每個套件都是一體化的安裝：您只需新增一個 PostgreSQL 資料庫。沒有獨立的二進位下載：二進位檔案位於檔案的 <code>antimatter/bin/</code> 目錄中。它們是靜態編譯的，因此可在其架構的任何 Linux 發行版上執行。</p>
+<p>在套件名稱中，預發布版本的連字號會變為波浪號，以便套件管理器將預發布版本排在正式發布版本之前：版本 <code>0.9.0-rc.1</code> 對應 <code>antimatter_0.9.0~rc.1-1_amd64.deb</code> 和 <code>antimatter-0.9.0~rc.1-1.x86_64.rpm</code>。檔案保留連字號。</p>
+<p><code>antimatter version</code> 會將發布版本印出為 <b>組建編號</b>，並將其建置所用的提交印出為 <b>組建雜湊值</b>。其 <b>版本</b> 行是 Antimatter 所基於的 Mattermost 系列的版本。</p>
+
+<h3>檢查下載</h3>
+<p>將您需要的檔案和 <code>SHA256SUMS</code> 下載到同一目錄中，可從發布頁面或使用 <code>curl</code> 下載，然後檢查檔案：</p>
+<pre><code>curl -fLO https://github.com/AntimatterChat/antimatter/releases/download/v&lt;version&gt;/antimatter_&lt;version&gt;-1_amd64.deb
+curl -fLO https://github.com/AntimatterChat/antimatter/releases/download/v&lt;version&gt;/SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS</code></pre>
+<p>您下載的每個檔案都必須列出並顯示 <code>OK</code>。任何其他結果都表示檔案損毀或不完整：請重新下載，並不要安裝它。<code>SHA256SUMS</code> 未簽名：它僅檢測損毀的下載，其證明力不超過從 GitHub 透過 HTTPS 下載。</p>
+
+<h2 id="packages">安裝 .deb 或 .rpm 套件</h2>
+<p>該套件將 Antimatter 安裝為 systemd 服務，啟動時僅需要一個資料庫。請在具有 systemd 的 64 位元 Debian、Ubuntu、Fedora 或與 RHEL 相容的伺服器上使用。</p>
+
+<h3>套件安裝的內容</h3>
+<table>
+<thead><tr><th>路徑</th><th>內容</th></tr></thead>
+<tbody>
+<tr><td><code>/opt/antimatter</code></td><td>程式本體：<code>bin/antimatter</code>、<code>bin/amctl</code>、Web 應用程式（<code>client/</code>、<code>client-fusion/</code>）、內建應用程式（<code>prepackaged_plugins/</code>）、範本、翻譯檔與字型。每次升級都會取代這些檔案。</td></tr>
+<tr><td><code>/etc/antimatter/antimatter.env</code></td><td>服務設定，以 <code>AM_</code> 變數形式存在：資料庫、網站 URL、GIF 服務。僅 root 使用者可讀取。升級時會保留這些設定。</td></tr>
+<tr><td><code>/etc/antimatter/config/config.json</code></td><td>設定檔，伺服器會在此儲存於系統控制台中所變更的設定。此檔案會在首次安裝時從 <code>/opt/antimatter/defaults/config.json</code> 建立，之後絕不會被取代。</td></tr>
+<tr><td><code>/var/lib/antimatter</code></td><td>上傳的檔案（<code>data/</code>）與已安裝的應用程式（<code>plugins/</code>、<code>client-plugins/</code>）。</td></tr>
+<tr><td><code>/var/log/antimatter</code></td><td>日誌檔案（若啟用檔案記錄功能）。預設為停用：日誌會輸出至系統日誌（journal）。</td></tr>
+<tr><td><code>/usr/lib/systemd/system/antimatter.service</code></td><td>服務。</td></tr>
+<tr><td><code>/usr/bin/amctl</code></td><td>指向 <code>/opt/antimatter/bin/amctl</code> 的連結。</td></tr>
+</tbody>
+</table>
+<p>伺服器在 <code>/opt/antimatter</code> 中寫入的目錄（<code>config</code>、<code>data</code>、<code>plugins</code>、<code>client/plugins</code> 與 <code>logs</code>）皆是連結，分別指向 <code>/etc/antimatter</code>、<code>/var/lib/antimatter</code> 與 <code>/var/log/antimatter</code>。因此，升級時雖然會取代 <code>/opt/antimatter</code>，但絕不會影響您的資料。套件也會建立系統使用者 <code>antimatter</code>，由其執行伺服器並擁有這些目錄。</p>
+<p>此套件依賴 <code>ca-certificates</code>。建議安裝 PostgreSQL（Debian 與 Ubuntu 為 <code>postgresql</code>，Fedora 與 RHEL 為 <code>postgresql-server</code>）、<code>media-types</code>（.rpm 為 <code>mailcap</code>）以及 <code>gifs-server</code>（GIF 服務，有獨立的發行版本，詳見<a href="#gifs-push-packages">下方</a>）。apt 與 dnf 在找到建議套件時會自動安裝。另建議安裝 <code>poppler-utils</code>、<code>wv</code>、<code>unrtf</code> 與 <code>tidy</code>（.rpm 不含 <code>wv</code>）：這些工具可提取上傳文件中的文字，讓搜尋功能能找到文件內部的內容。若需要此功能，請自行安裝。</p>
+
+<h3>1. 安裝套件</h3>
+<p>下載對應您系統架構的 Antimatter 套件與 GIF 服務套件，依上方所示進行驗證，並使用單一指令安裝兩者，以滿足 <code>gifs-server</code> 的建議依賴（該套件不在發行版的套件庫中）：</p>
+<pre><code># Debian, Ubuntu
+sudo apt install ./antimatter_&lt;version&gt;-1_amd64.deb ./gifs-server_*_amd64.deb
+# Fedora, RHEL
+sudo dnf install ./antimatter-&lt;version&gt;-1.x86_64.rpm ./gifs-server-*.x86_64.rpm</code></pre>
+<p>保留 <code>./</code>：它告訴 apt 和 dnf 要安裝的是本地檔案。若要安裝但不包含 GIF 服務，請略過該套件。該套件會啟用 <code>antimatter</code> 服務，但不會啟動它，並會顯示後續步驟。</p>
+
+<h3>2. 建立資料庫</h3>
+<p>Antimatter 需要 PostgreSQL 15 或更新版本，可安裝在此伺服器或另一台伺服器上。使用 <code>psql --version</code> 檢查您發行版的 PostgreSQL 版本。如果版本較舊，請從 PostgreSQL 專案的官方套件庫安裝較新版本，或使用另一台伺服器上的資料庫。在 Debian 和 Ubuntu 上，<code>postgresql</code> 套件會啟動資料庫。在 Fedora 和 RHEL 上，請先建立並啟動它：</p>
+<pre><code>sudo postgresql-setup --initdb
+sudo systemctl enable --now postgresql</code></pre>
+<p>然後為 Antimatter 建立使用者和資料庫：</p>
+<pre><code>sudo -u postgres psql -c "CREATE USER antimatter WITH PASSWORD 'a-long-password'"
+sudo -u postgres psql -c "CREATE DATABASE antimatter OWNER antimatter"</code></pre>
+<p>PostgreSQL 必須接受來自 <code>127.0.0.1</code> 的密碼連線：在 <code>pg_hba.conf</code> 檔案的 <code>host</code> 行中，使用 <code>scram-sha-256</code> 方法。</p>
+
+<h3>3. 設定資料庫和網站網址</h3>
+<p>編輯 <code>/etc/antimatter/antimatter.env</code>（<code>sudoedit /etc/antimatter/antimatter.env</code>）。移除您使用的那些行前面的 <code>#</code>，並設定資料庫以及人們將要開啟的網址：</p>
+<pre><code>AM_SQLSETTINGS_DRIVERNAME=postgres
+AM_SQLSETTINGS_DATASOURCE=postgres://antimatter:a-long-password@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10
+AM_SERVICESETTINGS_SITEURL=https://chat.example.com</code></pre>
+<p>任何設定都可以寫入此檔案，格式為 <code>AM_&lt;SECTION&gt;_&lt;SETTING&gt;</code>：例如，<code>SqlSettings.DataSource</code> 對應 <code>AM_SQLSETTINGS_DATASOURCE</code>。在此設定的項目無法在系統控制台中修改。請參閱<a href="{{root}}docs/admins/configuration.html">設定</a>。每次變更後請重新啟動伺服器：<code>sudo systemctl restart antimatter</code>。</p>
+<p>該服務也會設定一些預設值，這些值可被 <code>antimatter.env</code> 中的行覆蓋：記錄到檔案的功能是關閉的（<code>AM_LOGSETTINGS_ENABLEFILE=false</code>、<code>AM_NOTIFICATIONLOGSETTINGS_ENABLEFILE=false</code>），本地模式是開啟的（<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>），以便 <code>amctl --local</code> 能在伺服器上運作。</p>
+
+<h3>4. 啟動</h3>
+<pre><code>sudo systemctl start antimatter
+journalctl -u antimatter -f
+sudo -u antimatter amctl --local system status</code></pre>
+<p>首次啟動時，伺服器會建立資料表，然後監聽 8065 埠。開啟 <code>http://&lt;server&gt;:8065</code>，或在設定反向代理後開啟您的網域（請參閱 <a href="{{root}}docs/admins/https.html">網域與 HTTPS</a>），並立即建立第一個帳號：該帳號將成為系統管理員。若要改用命令列建立，請使用 <a href="#first-admin">建立第一位管理員</a> 中的 <code>amctl</code> 指令，並以 <code>sudo -u antimatter amctl --local</code> 取代 <code>docker compose exec antimatter amctl --local</code>。</p>
+
+<h3>5. 啟用 GIFs</h3>
+<p>GIFs 應用程式已隨附並處於啟用狀態，且 <code>antimatter.env</code> 已將其指向同一伺服器上的 GIF 服務（<code>AM_GIFS_SERVICE_URL=http://127.0.0.1:8080/v2</code>）。但仍需要該服務的 API 金鑰。<code>gifs-server</code> 套件在安裝時已生成了一個金鑰：</p>
+<pre><code>sudo systemctl start gifs-server-stickers    # imports the sticker pack, about a minute and a half
+sudo systemctl start gifs-server
+sudo grep -v '^#' /etc/gifs-server/api-keys</code></pre>
+<p>將金鑰填入 <code>antimatter.env</code> 中的 <code>AM_GIFS_API_KEY=&lt;key&gt;</code> 並重新啟動 Antimatter，或在 <b>系統控制台 › 擴充程式 › GIFs</b> 中輸入 <b>API 金鑰</b>。如果 GIF 服務運行在其他伺服器上，請將 <code>AM_GIFS_SERVICE_URL</code> 設定為該伺服器的位址。若要讓使用者新增自己的 GIFs 和貼紙，請參閱 <a href="{{root}}docs/admins/apps.html#gifs">GIFs</a>。</p>
+
+<h3>服務</h3>
+<ul>
+<li>它以 <code>antimatter</code> 使用者身分運行，位於 <code>/opt/antimatter</code>，並讀取 <code>/etc/antimatter/antimatter.env</code>。systemd 會在伺服器退出時重新啟動它，並給予最多一小時的啟動時間，因為新版本的資料庫遷移可能需要較長時間。</li>
+<li>其日誌位於 journal 中：<code>journalctl -u antimatter</code>。</li>
+<li>它已進行強化：<code>/usr</code> 和 <code>/etc</code> 對伺服器而言為唯讀，但 <code>/etc/antimatter/config</code> 除外，且它無法看到 <code>/home</code>、<code>/root</code> 或 <code>/run/user</code>。如果您移動檔案儲存位置（<code>FileSettings.Directory</code>），請選擇這些目錄之外、且由 <code>antimatter</code> 擁有的目錄。</li>
+<li>升級會取代服務檔案。若要修改它，請使用 <code>sudo systemctl edit antimatter</code>，這會將您的變更保留在單獨的檔案中。</li>
+</ul>
+
+<h3>升級套件</h3>
+<ol>
+<li>先進行備份（請參閱 <a href="{{root}}docs/admins/backups-upgrades.html">備份與升級</a>）。</li>
+<li>下載新的套件和 <code>SHA256SUMS</code>，並進行驗證。</li>
+<li>停止伺服器，在舊套件上安裝新套件，然後再次啟動：
+<pre><code>sudo systemctl stop antimatter
+sudo apt install ./antimatter_&lt;new version&gt;-1_amd64.deb     # or: sudo dnf install ./antimatter-&lt;new version&gt;-1.x86_64.rpm
+sudo systemctl start antimatter
+journalctl -u antimatter -f</code></pre></li>
+</ol>
+<p>套件本身不會重新啟動伺服器。升級完成後，系統會顯示 <code>Antimatter was upgraded; restart it to run the new version: sudo systemctl restart antimatter</code>：如果您先前未停止伺服器，請立即重新啟動。升級過程會取代 <code>/opt/antimatter</code> 與服務檔案，但會保留 <code>antimatter.env</code>、<code>config.json</code>、<code>/var/lib/antimatter</code> 以及日誌。伺服器啟動時，會升級資料庫並安裝隨附應用程式的較新版本。</p>
+<p>如果新版本變更了預設的 <code>antimatter.env</code>，apt 會詢問您是否要保留目前的版本：請選擇保留。dnf 會保留您的版本，並將新版本儲存為 <code>/etc/antimatter/antimatter.env.rpmnew</code>。升級只能向前進行：請勿在較新版本上安裝較舊的版本。</p>
+
+<h3>移除套件</h3>
+<p><code>sudo apt remove antimatter</code> 或 <code>sudo dnf remove antimatter</code> 會停止並停用服務，並移除程式。此操作會保留資料（<code>/var/lib/antimatter</code>）、設定（<code>/etc/antimatter</code>）、資料庫以及 <code>antimatter</code> 使用者：若要完全移除 Antimatter，請自行刪除這些項目。</p>
+
+<h2 id="release-apps">套件與檔案庫中的應用程式</h2>
+<p>套件與檔案庫包含這些應用程式的最新簽名發行版，位於 <code>prepackaged_plugins/</code> 中：Agents、Calls、GIFs、Memes、Notes、Polls、Todo、Voice Channels 和 Whiteboard。若伺服器發行版建置時某應用程式尚無發行版，則不會包含在內：執行 <code>ls /opt/antimatter/prepackaged_plugins</code> 即可查看您的發行版包含哪些應用程式。Memes 和 Todo 已包含但未啟用：<a href="{{root}}docs/admins/apps.html#manage">Bundled apps</a> 說明如何安裝並啟用它們。</p>
+<p>Docker 映像檔中的其他應用程式未包含在套件或檔案庫中：Kanban、Playbooks、Mail、Calendar、GitHub、GitLab、Jira 和 Metrics。請從各自的發行版安裝每個應用程式：</p>
+<table>
+<thead><tr><th>應用程式</th><th>發行版</th><th>應用程式 ID</th></tr></thead>
+<tbody>
+<tr><td>Kanban</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-boards/releases">antimatter-plugin-boards</a></td><td><code>focalboard</code></td></tr>
+<tr><td>Playbooks</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-playbooks/releases">antimatter-plugin-playbooks</a></td><td><code>playbooks</code></td></tr>
+<tr><td>Mail</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-mail/releases">antimatter-plugin-mail</a></td><td><code>com.antimatterchat.mail</code></td></tr>
+<tr><td>Calendar</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-calendar/releases">antimatter-plugin-calendar</a></td><td><code>com.antimatterchat.calendar</code></td></tr>
+<tr><td>GitHub</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-github/releases">antimatter-plugin-github</a></td><td><code>github</code></td></tr>
+<tr><td>GitLab</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-gitlab/releases">antimatter-plugin-gitlab</a></td><td><code>com.github.manland.mattermost-plugin-gitlab</code></td></tr>
+<tr><td>Jira</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-jira/releases">antimatter-plugin-jira</a></td><td><code>jira</code></td></tr>
+<tr><td>指標</td><td><a href="https://github.com/AntimatterChat/Antimatter-plugin-metrics/releases">Antimatter-plugin-metrics</a></td><td><code>com.mattermost.mattermost-plugin-metrics</code></td></tr>
+</tbody>
+</table>
+<p>每個應用程式版本都包含應用程式的捆綁包（<code>.tar.gz</code> 檔案）、其簽章（同名加上 <code>.sig</code>）以及 <code>SHA256SUMS</code> 檔案。若要安裝應用程式，請先允許上傳，然後使用 <code>amctl</code> 新增捆綁包：</p>
+<pre><code># 1. In /etc/antimatter/antimatter.env, add this line, then restart Antimatter
+AM_PLUGINSETTINGS_ENABLEUPLOADS=true
+sudo systemctl restart antimatter
+# 2. Download the bundle where the antimatter user can read it, and install it
+cd /tmp
+curl -fLO https://github.com/AntimatterChat/antimatter-plugin-boards/releases/download/v&lt;version&gt;/&lt;bundle&gt;.tar.gz
+sudo -u antimatter amctl --local plugin add &lt;bundle&gt;.tar.gz
+sudo -u antimatter amctl --local plugin enable focalboard</code></pre>
+<p>若要升級以此方式安裝的應用程式，請使用 <code>plugin add --force</code> 新增新的捆綁包：套件升級只會升級捆綁的應用程式。之後您可以再次移除 <code>AM_PLUGINSETTINGS_ENABLEUPLOADS</code> 這一行。其他安裝應用程式的方式，請參閱<a href="{{root}}docs/admins/apps.html#other-apps">安裝其他應用程式</a>。</p>
+
+<h3>應用程式簽章</h3>
+<p>應用程式捆綁包使用 Antimatter 應用程式簽章金鑰進行簽章：每個 <code>.tar.gz.sig</code> 檔案都是其捆綁包的獨立 GPG 簽章。伺服器在安裝捆綁應用程式之前會檢查這些簽章。若要自行檢查捆綁包：</p>
+<pre><code>curl -fsSLO https://raw.githubusercontent.com/AntimatterChat/antimatter-docker/main/keys/antimatter-plugin-signing.asc
+gpg --import antimatter-plugin-signing.asc
+gpg --verify &lt;bundle&gt;.tar.gz.sig &lt;bundle&gt;.tar.gz</code></pre>
+<p>gpg 必須報告來自 <code>Antimatter Plugin Signing</code> 的有效簽章，指紋為 <code>06C8 1032 4677 0F08 BBA7 78B9 E69B 05C3 92A6 9A45</code>。它也會警告該金鑰未以受信任的簽章認證：對於您未自行簽章的金鑰來說，這是正常的。沒有 <code>.sig</code> 檔案的應用程式版本為未簽章，其發行說明也會如此註明。</p>
+
 <h2 id="archive">從發行版檔案安裝</h2>
-<p>若未使用 Docker，伺服器將從名為 <code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code>（例如 <code>antimatter-linux-amd64.tar.gz</code>）的檔案包執行。該檔案包含一個 <code>antimatter/</code> 目錄，其中有 <code>bin/antimatter</code>、<code>bin/amctl</code>、<code>config/config.json</code>、網頁應用程式（<code>client/</code> 和 <code>client-fusion/</code>）、電子郵件範本以及翻譯檔。</p>
+<p>壓縮檔 <code>antimatter-&lt;version&gt;-linux-&lt;arch&gt;.tar.gz</code>（例如 <code>antimatter-0.9.0-linux-amd64.tar.gz</code>）適用於沒有 .deb 或 .rpm 套件的發行版，或您自訂的佈局。它包含一個 <code>antimatter/</code> 目錄，其中有 <code>bin/antimatter</code>、<code>bin/amctl</code>、<code>config/config.json</code>、Web 應用程式（<code>client/</code> 和 <code>client-fusion/</code>）、捆綁的應用程式（<code>prepackaged_plugins/</code>，請參閱<a href="#release-apps">上方</a>）、電子郵件範本以及翻譯。</p>
 
 <h3>1. 準備 PostgreSQL</h3>
 <p>Antimatter 僅支援 PostgreSQL 15 或更新版本（較舊的版本會啟動，但日誌中會出現錯誤）。請建立使用者和資料庫：</p>
@@ -116,7 +258,7 @@ CREATE DATABASE antimatter OWNER antimatter;
 EOF</code></pre>
 
 <h3>2. 解壓縮並設定</h3>
-<pre><code>sudo tar -xzf antimatter-linux-amd64.tar.gz -C /opt
+<pre><code>sudo tar -xzf antimatter-&lt;version&gt;-linux-amd64.tar.gz -C /opt
 sudo useradd --system --user-group antimatter
 sudo mkdir -p /opt/antimatter/data
 sudo chown -R antimatter:antimatter /opt/antimatter</code></pre>
@@ -152,6 +294,34 @@ sudo systemctl enable --now antimatter
 journalctl -u antimatter -f</code></pre>
 <p>伺服器監聽 8065 埠。開啟 <code>http://&lt;server&gt;:8065</code>，或在設定反向代理後開啟您的網域（請參閱<a href="{{root}}docs/admins/https.html">網域與 HTTPS</a>），並建立第一個帳戶：該帳戶將成為系統管理員。</p>
 <p><code>bin/amctl</code> 可從命令列管理執行中的伺服器。在伺服器本機上，它可透過本機模式運作而無需登入：設定 <code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>，然後執行 <code>sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code>。</p>
+<p>若要使用 GIF，請安裝 GIF 服務（見下方），並依照<a href="#packages">套件步驟 5</a>設定 <code>AM_GIFS_SERVICE_URL</code> 和 <code>AM_GIFS_API_KEY</code>。</p>
+
+<h2 id="gifs-push-packages">GIF 服務與推送代理套件</h2>
+<p>GIF 服務與推送代理程式有各自的版本發布，規則與伺服器相同：包含 <code>.tar.gz</code> 壓縮檔、適用於 <code>amd64</code> 和 <code>arm64</code> 的 .deb 與 .rpm 套件，以及 <code>SHA256SUMS</code> 檔案。帶有連字號的版本為預發布版本。如同伺服器，請使用 <code>sha256sum --check --ignore-missing SHA256SUMS</code> 來驗證下載檔案。</p>
+
+<h3>GIF 服務 (gifs-server)</h3>
+<p>版本發布：<a href="https://github.com/AntimatterChat/gifs-server/releases">github.com/AntimatterChat/gifs-server/releases</a>。壓縮檔命名為 <code>gifs-server-&lt;version&gt;-linux-&lt;arch&gt;.tar.gz</code>；套件命名為 <code>gifs-server</code>。</p>
+<pre><code>sudo apt install ./gifs-server_*_amd64.deb      # Debian, Ubuntu
+sudo dnf install ./gifs-server-*.x86_64.rpm     # Fedora, RHEL</code></pre>
+<p>套件會安裝：</p>
+<ul>
+<li><code>/usr/bin/gifs-server</code>，以及 <code>gifs-server</code> 服務，該服務以 <code>gifs-server</code> 使用者身分執行，並將目錄儲存在 <code>/var/lib/gifs-server</code>；</li>
+<li><code>gifs-server-stickers</code> 服務，在您啟動它時會匯入或更新 <code>/usr/share/gifs-server/stickers</code> 中的貼紙包，然後停止；</li>
+<li>其設定檔 <code>/etc/gifs-server/gifs-server.env</code>（包含 <code>AM_GIFS_</code> 變數，升級時會保留）以及 <code>/etc/gifs-server/api-keys</code>，每行一個 API 金鑰，首次安裝時會產生隨機金鑰。</li>
+</ul>
+<p>它監聽 <code>127.0.0.1:8080</code>，因此只有同一台伺服器上的 Antimatter 才能存取。如果 Antimatter 執行在其他地方，請在 <code>gifs-server.env</code> 中設定 <code>AM_GIFS_LISTEN=:8080</code>，並使用防火牆限制對該端口的存取。該檔案列出了其他設定：<code>AM_GIFS_UPLOAD_KEYS</code>（允許新增 GIF 和貼紙，以及刪除使用這些金鑰新增項目的金鑰）、<code>AM_GIFS_PUBLIC_URL</code>、<code>AM_GIFS_TRUST_PROXY</code> 和 <code>AM_GIFS_LOG_LEVEL</code>。套件建議安裝 <code>ffmpeg</code>、<code>gifsicle</code>、<code>librsvg2-bin</code>（.rpm 為 <code>librsvg2-tools</code>）以及 DejaVu 字型：服務在匯入或接收檔案時使用它們來製作 GIF、影片和貼紙格式，若未安裝這些工具，服務仍可執行。</p>
+<p>與伺服器相同，服務在安裝時已啟用但未啟動。請依照<a href="#packages">套件步驟 5</a>所示啟動它。升級後請重新啟動：<code>sudo systemctl restart gifs-server</code>。移除套件時，<code>/var/lib/gifs-server</code> 中的目錄會保留。</p>
+
+<h3>推送代理程式</h3>
+<p>發行版本：<a href="https://github.com/AntimatterChat/push-proxy/releases">github.com/AntimatterChat/push-proxy/releases</a>。檔案庫為 <code>antimatter-push-proxy-&lt;version&gt;-linux-&lt;arch&gt;.tar.gz</code>；套件名稱為 <code>antimatter-push-proxy</code>。該套件會安裝 <code>/usr/bin/antimatter-push-proxy</code> 與 <code>antimatter-push-proxy</code> 服務，該服務以 <code>antimatter-push-proxy</code> 使用者身分執行，並讀取 <code>/etc/antimatter-push-proxy/antimatter-push-proxy.json</code>（升級時會保留）。Apple 與 Firebase 憑證請存放於 <code>/etc/antimatter-push-proxy/certs</code>：<a href="{{root}}docs/admins/email-push.html#push">推播通知</a> 說明這些憑證的來源。</p>
+<pre><code>sudo apt install ./antimatter-push-proxy_*_amd64.deb      # or: sudo dnf install ./antimatter-push-proxy-*.x86_64.rpm
+sudo install -o root -g antimatter-push-proxy -m 0640 \
+    AuthKey_ABCDE12345.p8 firebase-service-account.json /etc/antimatter-push-proxy/certs/
+sudoedit /etc/antimatter-push-proxy/antimatter-push-proxy.json
+sudo systemctl start antimatter-push-proxy
+journalctl -u antimatter-push-proxy -f</code></pre>
+<p>在設定檔中，路徑相對於 <code>/etc/antimatter-push-proxy</code>：例如 <code>"AppleAuthKeyFile": "./certs/AuthKey_ABCDE12345.p8"</code> 與 <code>"ServiceFileLocation": "./certs/firebase-service-account.json"</code>。接著在 Antimatter 中將 <b>推播通知伺服器</b> 設為 <code>http://&lt;proxy host&gt;:8066</code>。升級後請重新啟動：<code>sudo systemctl restart antimatter-push-proxy</code>。</p>
+<div class="callout warn">推播代理程式會監聽所有位址上的 8066 埠，且不檢查呼叫者身分。請將該埠保留在私人網路中，或置於限制存取的反向代理程式之後。</div>
 
 <h2 id="other-commands">其他伺服器指令</h2>
 <p>除了執行伺服器（<code>antimatter</code> 或 <code>antimatter server</code>）外，該二進位檔還包含幾個維護指令。它們讀取的設定與伺服器相同。</p>

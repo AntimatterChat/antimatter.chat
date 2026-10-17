@@ -1,0 +1,155 @@
+title: 部署桌面應用程式
+description: 在組織的電腦上安裝 Antimatter 桌面應用程式並進行集中管理：MSI 及其屬性、群組原則與 Intune、macOS 設定描述檔以及 Linux 原則檔案。
+guide: admins
+order: 13
+nav: 桌面應用程式部署
+lead: 如何在公司或學校的電腦上安裝 Antimatter 桌面應用程式，並在 Windows、macOS 和 Linux 上集中設定伺服器、使用者名稱與更新檢查。
+source: 2f67d39c0dda
+---
+<h2 id="download">下載應用程式</h2>
+<p>桌面應用程式的發行版本位於 GitHub 的 <a href="https://github.com/AntimatterChat/desktop-app/releases">github.com/AntimatterChat/desktop-app/releases</a>。與伺服器一樣，該應用程式目前處於測試階段：版本號中連字號後有後綴的發行版本會標記為 <b>Pre-release</b>。每個發行版本都包含一個 <code>SHA256SUMS</code> 檔案，其中列出了所有檔案的校驗和。您可以在 Linux 上使用 <code>sha256sum --check --ignore-missing SHA256SUMS</code> 來驗證下載，或在 PowerShell 中將 <code>Get-FileHash &lt;file&gt; -Algorithm SHA256</code> 的輸出與 <code>SHA256SUMS</code> 中的對應行進行比對。</p>
+<ul>
+<li><b>Windows</b>（x64 和 arm64）：<code>.exe</code> 安裝程式、<code>.msi</code> 套件，或 <code>.zip</code> 壓縮檔。例如 <code>antimatter-desktop-&lt;version&gt;-win-x64.exe</code> 和 <code>antimatter-desktop-&lt;version&gt;-win-x64.msi</code>。</li>
+<li><b>macOS</b>：<code>.dmg</code> 磁碟映像檔或 <code>.zip</code>，適用於 Apple 晶片（<code>arm64</code>）、Intel Mac（<code>x64</code>）或兩者皆支援（<code>universal</code>）。</li>
+<li><b>Linux</b>（x64 和 arm64）：.deb 或 .rpm 套件、AppImage、Flatpak 套件或 <code>.tar.gz</code> 壓縮檔。</li>
+</ul>
+
+<h2 id="installers">應使用哪種 Windows 安裝程式</h2>
+<table>
+<thead><tr><th></th><th>.exe 安裝程式</th><th>.msi 套件</th></tr></thead>
+<tbody>
+<tr><td>適用對象</td><td>自行安裝應用程式的使用者</td><td>將應用程式部署到公司電腦的企業</td></tr>
+<tr><td>安裝方式</td><td>僅針對目前的 Windows 帳戶，安裝於 <code>%LOCALAPPDATA%\Programs\antimatter-desktop</code>，無需管理員權限</td><td>針對電腦上的所有使用者，安裝於 <code>C:\Program Files\Antimatter</code>，需要管理員權限</td></tr>
+<tr><td>更新</td><td>應用程式會檢查新版本，並提供下載新的 <code>.exe</code> 選項，以就地更新已安裝的副本</td><td>應用程式不會檢查新版本：由您負責部署更新</td></tr>
+</tbody>
+</table>
+<p>應用程式會在執行期間每小時檢查 GitHub 上的新版本，且僅檢視正式發行版，不檢視預先發行版。找到新版本時，會通知使用者並提供下載連結。透過 MSI 安裝的副本預設不會進行檢查，因為使用它的通常無法安裝軟體。您可以透過 <code>EnableAutoUpdater</code> 設定為其開啟檢查功能：此時提供的下載檔案將為新的 <code>.msi</code>，需要管理員權限。</p>
+<p>請使用 MSI 透過 SCCM (Configuration Manager)、Intune 或群組原則軟體安裝進行受管部署。安裝 MSI 時，若執行安裝的使用者帳戶存在 <code>.exe</code> 副本，將予以移除。</p>
+
+<h2 id="settings">您可以管理的設定</h2>
+<p>相同的設定存在於所有系統上。在 Windows 上，它們是 <code>HKEY_LOCAL_MACHINE</code>（針對電腦）或 <code>HKEY_CURRENT_USER</code>（針對單一使用者）下 <code>SOFTWARE\Policies\Antimatter</code> 的登錄值。在 macOS 和 Linux 上，它們是受管偏好設定或策略檔案中的金鑰。</p>
+<table>
+<thead><tr><th>設定</th><th>在 Windows 上</th><th>在 macOS 和 Linux 上</th><th>功能說明</th></tr></thead>
+<tbody>
+<tr><td><code>DefaultServerList</code></td><td>包含每個伺服器一個字串值的子金鑰：值的名稱為其分頁名稱，資料為其 URL</td><td>包含 <code>name</code> 和 <code>url</code> 的字典（Linux 上為物件）陣列</td><td>將伺服器新增至應用程式。使用者無法編輯或移除它們。</td></tr>
+<tr><td><code>DefaultUsername</code></td><td>字串</td><td>字串</td><td>在這些伺服器的登入頁面上填入使用者名稱。</td></tr>
+<tr><td><code>EnableServerManagement</code></td><td>DWORD，0 或 1</td><td>布林值</td><td>0 或 <code>false</code>：使用者只能使用由 <code>DefaultServerList</code> 設定的伺服器，且應用程式會隱藏新增、編輯和移除伺服器的選項。未設定：使用者可以新增自己的伺服器。</td></tr>
+<tr><td><code>EnableAutoUpdater</code></td><td>DWORD，0 或 1</td><td>布林值</td><td>0 或 <code>false</code>：應用程式永不檢查新版本，並隱藏<b>檢查更新</b>。1 或 <code>true</code>：會進行檢查，即使透過 MSI 安裝也是如此。未設定：<code>.exe</code> 副本會檢查，MSI 副本不會。</td></tr>
+<tr><td><code>TrustedEmbeddedMediaOrigins</code></td><td>包含字串值的子金鑰，每個值為包含 <code>serverOrigin</code> 和 <code>embeddedOrigin</code> 的 JSON 物件</td><td>包含 <code>serverOrigin</code> 和 <code>embeddedOrigin</code> 的字典陣列</td><td>允許嵌入在伺服器頁面中的內容（例如視訊會議頁面）使用已授予該伺服器的相機和麥克風權限。</td></tr>
+</tbody>
+</table>
+<ul>
+<li><b>使用者名稱</b> 僅在由策略設定的伺服器登入頁面上自動填入，不會在個人自行加入的伺服器上填入，也不會覆蓋使用者手動輸入的內容。使用者仍可隨時修改。百分號之間的環境變數會被取代，因此單一值即可適用於所有人：Windows 上的 <code>%USERNAME%</code> 或 macOS 與 Linux 上的 <code>%USER%</code> 會填入帳號名稱，而 <code>%USERNAME%@example.com</code> 則會填入符合此模式的電子郵件地址。如果變數未設定，應用程式將不會填入任何內容。</li>
+<li>如果您關閉伺服器管理功能，請在 <code>DefaultServerList</code> 中設定至少一個伺服器。</li>
+<li>在 Windows 上，電腦策略（<code>HKEY_LOCAL_MACHINE</code>）的優先級高於使用者策略（<code>HKEY_CURRENT_USER</code>）。兩者的伺服器清單會合併。</li>
+<li>應用程式在啟動時讀取設定：變更後，使用者必須結束並重新開啟應用程式。</li>
+</ul>
+
+<h2 id="msi">Windows：使用 MSI 進行靜默安裝</h2>
+<p>MSI 接受公開屬性，用於將設定寫入電腦策略，位置在 <code>HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Antimatter</code>。您可以在 SCCM 應用程式、Intune 應用程式或腳本中使用這些屬性。在 PowerShell 中：</p>
+<pre><code>msiexec /i antimatter-desktop-&lt;version&gt;-win-x64.msi /qn SERVERURL=https://chat.example.com SERVERNAME=Chat DEFAULTUSERNAME='%USERNAME%' AUTOUPDATE=0 SERVERMANAGEMENT=0</code></pre>
+<table>
+<thead><tr><th>屬性</th><th>寫入內容</th><th>若未提供</th></tr></thead>
+<tbody>
+<tr><td><code>SERVERURL</code></td><td><code>DefaultServerList</code> 中的伺服器，使用此 URL</td><td>無伺服器</td></tr>
+<tr><td><code>SERVERNAME</code></td><td>該伺服器分頁的名稱</td><td><code>Antimatter</code></td></tr>
+<tr><td><code>DEFAULTUSERNAME</code></td><td><code>DefaultUsername</code></td><td>無</td></tr>
+<tr><td><code>AUTOUPDATE</code></td><td><code>EnableAutoUpdater</code>，0 或 1</td><td>無：MSI 副本不會檢查更新</td></tr>
+<tr><td><code>SERVERMANAGEMENT</code></td><td><code>EnableServerManagement</code>，0 或 1</td><td>無：使用者可以加入伺服器</td></tr>
+</tbody>
+</table>
+<ul>
+<li>未提供的屬性不會寫入任何內容，因此不會覆蓋由群組原則設定的值。<code>AUTOUPDATE</code> 和 <code>SERVERMANAGEMENT</code> 僅接受 0 或 1。MSI 只設定一個伺服器：若要設定更多，請使用群組原則。</li>
+<li><code>DEFAULTUSERNAME</code> 必須以文字 <code>%USERNAME%</code> 的形式傳入安裝程式，以便應用程式為每位使用者進行取代。否則，執行安裝的 shell 會將其取代為其自身的帳號名稱。在 PowerShell 中，請保留單引號。在 <code>.bat</code> 檔案中，請寫成 <code>%%USERNAME%%</code>。在測試安裝後，請在登錄中檢查 <code>DefaultUsername</code> 是否包含 <code>%USERNAME%</code>。</li>
+<li><b>每次升級時請再次傳遞這些屬性。</b> 安裝新版 MSI 會移除舊版本及其寫入的值，然後寫入新命令列的值。SCCM 和 Intune 會保留應用程式的命令列：請在每個新版本中重複使用它。或者，改用群組原則或 Intune 設定策略，升級不會影響這些設定。</li>
+<li>MSI 與群組原則會寫入相同的登錄值。對於每個設定，請使用其中一種方式：解除安裝 MSI 會刪除它所寫入的值，即使群組原則也設定了這些值。</li>
+<li>MSI 也會將其安裝資料夾記錄在 <code>HKEY_LOCAL_MACHINE\SOFTWARE\Antimatter\Desktop</code>（<code>InstallDir</code>）中。應用程式藉此得知它是透過 MSI 安裝的。</li>
+</ul>
+<p>要解除安裝：<code>msiexec /x antimatter-desktop-&lt;version&gt;-win-x64.msi /qn</code>。在 Intune 中，「Windows 應用程式 (Win32)」類型使用相同的命令列。對於「企業應用程式」類型，請將屬性加入其命令列引數中。</p>
+
+<h2 id="group-policy">Windows：群組原則與 Intune</h2>
+<p>管理範本 <code>antimatter.admx</code> 和 <code>en-US\antimatter.adml</code> 位於已安裝應用程式的 <code>gpo</code> 資料夾中（MSI 為 <code>C:\Program Files\Antimatter\gpo</code>），以及應用程式儲存庫的 <a href="https://github.com/AntimatterChat/desktop-app/tree/main/resources/windows/gpo">resources/windows/gpo</a> 資料夾中。它們顯示以下原則，位於 <b>管理範本 › Antimatter</b> 之下：</p>
+<table>
+<thead><tr><th>原則</th><th>登錄值</th><th>設定</th></tr></thead>
+<tbody>
+<tr><td><b>伺服器 (DefaultServerList)</b></td><td><code>DefaultServerList</code> 子機碼</td><td>電腦與使用者</td></tr>
+<tr><td><b>預先填入的使用者名稱 (DefaultUsername)</b></td><td><code>DefaultUsername</code></td><td>電腦與使用者</td></tr>
+<tr><td><b>允許使用者新增和移除伺服器 (EnableServerManagement)</b></td><td><code>EnableServerManagement</code></td><td>電腦與使用者</td></tr>
+<tr><td><b>通知新版本 (EnableAutoUpdater)</b></td><td><code>EnableAutoUpdater</code></td><td>僅限電腦</td></tr>
+<tr><td><b>受信任的嵌入媒體來源 (TrustedEmbeddedMediaOrigins)</b></td><td><code>TrustedEmbeddedMediaOrigins</code> 子機碼</td><td>電腦與使用者</td></tr>
+</tbody>
+</table>
+<h3>網域中的群組原則</h3>
+<ol>
+<li>將 <code>antimatter.admx</code> 複製到中央儲存區 <code>\\&lt;domain&gt;\SYSVOL\&lt;domain&gt;\Policies\PolicyDefinitions</code>，並將 <code>antimatter.adml</code> 複製到其 <code>en-US</code> 資料夾。</li>
+<li>在群組原則管理編輯器中，開啟 <b>電腦設定</b>（或 <b>使用者設定</b>）› <b>原則</b> › <b>管理範本</b> › <b>Antimatter</b>。</li>
+<li>編輯原則，選擇 <b>已啟用</b> 並填寫內容。對於 <b>伺服器</b>，請點擊 <b>顯示</b> 並為每個伺服器新增一行：值的名稱為分頁名稱，值為伺服器 URL，例如 <code>https://chat.example.com</code>。</li>
+</ol>
+<p>啟用 <b>允許使用者新增和移除伺服器</b> 或 <b>通知新版本</b> 會寫入 1；停用則寫入 0。</p>
+<h3>Intune</h3>
+<p>在<b>裝置 › 設定</b>中，使用<b>匯入 ADMX</b>匯入 <code>antimatter.admx</code> 與 <code>en-US\antimatter.adml</code>。然後從<b>範本 › 已匯入的管理範本</b>建立設定檔，並在其中設定 Antimatter 原則。</p>
+<h3>單一電腦，或腳本</h3>
+<p>將範本複製到 <code>C:\Windows\PolicyDefinitions</code>，即可在 <code>gpedit.msc</code>（Windows Pro 與 Enterprise）中使用。或者，直接寫入登錄值，以管理員身分匯入 <code>.reg</code> 檔案（<code>reg import antimatter-policies.reg</code>），例如如下所示。同一資料夾中的 <code>example-policies.reg</code> 檔案包含這些值，並附有註解。</p>
+<pre><code>REGEDIT4
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Antimatter]
+"EnableServerManagement"=dword:00000000
+"EnableAutoUpdater"=dword:00000000
+"DefaultUsername"="%USERNAME%"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Antimatter\DefaultServerList]
+"Chat"="https://chat.example.com"</code></pre>
+
+<h2 id="macos">macOS：設定描述檔</h2>
+<p>在 macOS 上，應用程式會從其 bundle identifier <code>chat.antimatter.desktop</code> 的管理偏好設定中讀取設定，使用<a href="#settings">設定表格</a>中的金鑰。請透過您的 MDM（Jamf、Intune、Kandji、Mosyle 等）將其作為設定描述檔部署。</p>
+<ul>
+<li>應用程式儲存庫的 <a href="https://github.com/AntimatterChat/desktop-app/tree/main/resources/mac/mdm">resources/mac/mdm</a> 資料夾中有一個範本描述檔 <code>antimatter.mobileconfig</code>。請編輯其值，並提供您自己的 <code>PayloadIdentifier</code> 與 <code>PayloadUUID</code> 值（<code>uuidgen</code> 可產生新的 UUID），然後將其作為自訂描述檔上傳。</li>
+<li>大多數 MDM 也接受單獨的金鑰，作為 <code>chat.antimatter.desktop</code> 的「自訂設定」或「偏好設定領域」負載。同一資料夾中的 <code>example-managed-preferences.plist</code> 包含這些金鑰。</li>
+</ul>
+<p>描述檔負載中的設定：</p>
+<pre><code>&lt;key&gt;PayloadType&lt;/key&gt;
+&lt;string&gt;chat.antimatter.desktop&lt;/string&gt;
+&lt;key&gt;DefaultServerList&lt;/key&gt;
+&lt;array&gt;
+    &lt;dict&gt;
+        &lt;key&gt;name&lt;/key&gt;
+        &lt;string&gt;Chat&lt;/string&gt;
+        &lt;key&gt;url&lt;/key&gt;
+        &lt;string&gt;https://chat.example.com&lt;/string&gt;
+    &lt;/dict&gt;
+&lt;/array&gt;
+&lt;key&gt;DefaultUsername&lt;/key&gt;
+&lt;string&gt;%USER%&lt;/string&gt;
+&lt;key&gt;EnableServerManagement&lt;/key&gt;
+&lt;false/&gt;
+&lt;key&gt;EnableAutoUpdater&lt;/key&gt;
+&lt;false/&gt;</code></pre>
+<p>布林值也可以作為整數 0 和 1 提供。</p>
+
+<h2 id="linux">Linux：原則檔案</h2>
+<p>在 Linux 上，應用程式會讀取 <code>/etc/antimatter-desktop/policies.json</code>，這是一個包含<a href="#settings">設定表格</a>金鑰的 JSON 物件：</p>
+<pre><code>{
+    "DefaultServerList": [
+        {"name": "Chat", "url": "https://chat.example.com"}
+    ],
+    "DefaultUsername": "%USER%",
+    "EnableServerManagement": false,
+    "EnableAutoUpdater": false,
+    "TrustedEmbeddedMediaOrigins": []
+}</code></pre>
+<p>請使用您的設定管理工具（Ansible、Puppet、Salt 等）部署此檔案，擁有者為 root，所有人可讀，僅 root 可寫：</p>
+<pre><code>sudo install -d /etc/antimatter-desktop
+sudo install -m 644 policies.json /etc/antimatter-desktop/policies.json</code></pre>
+<p>無效的 JSON 檔案會被忽略，並在應用程式日誌中顯示警告。Flatpak 版本無法看到主機的 <code>/etc</code>：請授予其讀取權限，它將從 <code>/run/host/etc/antimatter-desktop/policies.json</code> 讀取該檔案：</p>
+<pre><code>sudo flatpak override --system --filesystem=host-etc:ro chat.antimatter.desktop</code></pre>
+
+<h2 id="mattermost-policies">為 Mattermost 桌面應用程式設定的原則</h2>
+<p>在 Windows 上，應用程式也會將 Mattermost 桌面應用程式設定的策略作為備援讀取，路徑位於 <code>SOFTWARE\Policies\Mattermost</code>。它會依位置讀取：策略金鑰下的值、<code>DefaultServerList</code> 子金鑰以及 <code>TrustedEmbeddedMediaOrigins</code> 子金鑰。對於這三個位置，只有當 Antimatter 金鑰在任一蜂巢中都沒有值時，才會讀取 Mattermost 金鑰。因此，一旦直接在 Antimatter 金鑰下設定了某個值（例如透過 MSI 的 <code>AUTOUPDATE</code> 屬性），Mattermost 金鑰下直接設定的值便不會被讀取。請一次性將所有策略移至 Antimatter 金鑰。</p>
+<p>在 macOS 上，不會讀取 Mattermost 桌面應用程式的受管理偏好設定（<code>com.mattermost.desktop</code>）：請為 <code>chat.antimatter.desktop</code> 設定。</p>
+
+<h2 id="unsigned">未簽署的建置</h2>
+<p>桌面應用程式的建置目前尚未使用發行商憑證簽署。</p>
+<ul>
+<li><b>Windows.</b> 當使用者開啟下載的 <code>.exe</code> 或 <code>.msi</code> 時，Microsoft Defender SmartScreen 會提示 Windows 已保護電腦，並指出發行商未知。使用者需選擇 <b>更多資訊</b>，然後選擇 <b>仍要執行</b>。SmartScreen 會檢查使用者下載後開啟的檔案，因此透過 SCCM、Intune 或群組原則部署應用程式時，使用者不會看到此警告。如果您的電腦只執行來自核准發行商的軟體（AppLocker 或 App Control for Business 規則），請改用安裝路徑或檔案雜湊值來允許該應用程式。</li>
+<li><b>macOS.</b> 該應用程式已進行 ad hoc 簽署，但未經 Apple 認證。使用者首次開啟下載的副本時，macOS 會提示無法驗證該應用程式是否不含惡意軟體，並不會開啟它。在 macOS 15 及後續版本中，使用者需開啟 <b>系統設定 › 隱私與安全性</b> 並選擇 <b>仍要開啟</b>。在較早的版本中，使用者需對應用程式執行 Control 點擊並選擇 <b>開啟</b>。Gatekeeper 僅檢查標記為已下載（具有隔離屬性）的檔案：當您使用自己的工具安裝應用程式時，請在安裝腳本中移除該標記，指令為 <code>xattr -dr com.apple.quarantine /Applications/Antimatter.app</code>。</li>
+</ul>

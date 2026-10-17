@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>การเขียนแอป (ปลั๊กอิน) · Antimatter</title>
-<meta name="description" content="วิธีเขียนแอป (ปลั๊กอิน) สำหรับ Antimatter: โครงสร้างของ bundle และ plugin.json, server hooks และ API, registry ของ web app, การรองรับอินเทอร์เฟซ Fusion, การตั้งค่า, key-value store, การแปลภาษา, การแพ็กเกจและการติดตั้ง">
+<meta name="description" content="วิธีเขียนแอป (ปลั๊กอิน) สำหรับ Antimatter: โครงสร้างของ bundle และ plugin.json, server hooks และ API, บริการ AI, web app registry, การรองรับอินเทอร์เฟซ Fusion, การตั้งค่า, key-value store, การแปลภาษา, การแพ็กเกจและการติดตั้ง">
 <meta property="og:title" content="การเขียนแอป (ปลั๊กอิน) · Antimatter">
-<meta property="og:description" content="วิธีเขียนแอป (ปลั๊กอิน) สำหรับ Antimatter: โครงสร้างของ bundle และ plugin.json, server hooks และ API, registry ของ web app, การรองรับอินเทอร์เฟซ Fusion, การตั้งค่า, key-value store, การแปลภาษา, การแพ็กเกจและการติดตั้ง">
+<meta property="og:description" content="วิธีเขียนแอป (ปลั๊กอิน) สำหรับ Antimatter: โครงสร้างของ bundle และ plugin.json, server hooks และ API, บริการ AI, web app registry, การรองรับอินเทอร์เฟซ Fusion, การตั้งค่า, key-value store, การแปลภาษา, การแพ็กเกจและการติดตั้ง">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://antimatter.chat/th/docs/developers/apps.html">
 <meta property="og:locale" content="th">
@@ -200,6 +200,22 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 <li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: ตรวจสอบสิทธิ์ว่าผู้ใช้สามารถทำอะไรได้บ้างก่อนดำเนินการแทนผู้ใช้</li>
 </ul>
 <p>แอปจะทำงานบนเซิร์ฟเวอร์ทุกตัวในคลัสเตอร์ เก็บสถานะไว้ใน key-value store หรือฐานข้อมูลเท่านั้น ไม่ใช่เก็บไว้ในหน่วยความจำอย่างเดียว</p>
+<h3 id="ai">บริการ AI</h3>
+<p>เซิร์ฟเวอร์ของ Antimatter จะเรียกใช้โมเดล AI สำหรับแอป ผ่านการเชื่อมต่อโมเดลที่ผู้ดูแลระบบตั้งค่าไว้ (ดู <a href="../../../th/docs/admins/ai.html">AI</a> ในคู่มือผู้ดูแลระบบ) แอปจะไม่เก็บคีย์ของผู้ให้บริการไว้เอง: แอปจะระบุชื่อผู้ใช้ที่ดำเนินการแทนและตำแหน่งที่ใช้งาน จากนั้นเซิร์ฟเวอร์จะตรวจสอบว่าผู้ใช้คนนั้นมีสิทธิ์使用该การเชื่อมต่อในตำแหน่งนั้น, ใช้ขีดจำกัดและงบประมาณ, นับจำนวนโทเคนโดยอ้างอิงกับผู้ใช้และแอป, และตรวจสอบบันทึกการใช้งานโดยไม่ตรวจสอบเนื้อหา</p>
+<table>
+<thead><tr><th>เมธอด</th><th>สิ่งที่ทำ</th></tr></thead>
+<tbody>
+<tr><td><code>AIChat(actingUserID, channelID, teamID, *ai.ChatRequest)</code></td><td>การเติมเต็มบทสนทนา (chat completion): ข้อความ, เครื่องมือ, ผลลัพธ์ที่มีโครงสร้าง (<code>JSONSchema</code>)</td></tr>
+<tr><td><code>AIChatStream(…)</code></td><td>ทำนองเดียวกัน แต่เป็นแบบสตรีม: อ่าน <code>Events</code> ของสตรีมจนกว่าช่องจะปิด หรือใช้ <code>Close</code> เพื่อหยุดการเรียกใช้</td></tr>
+<tr><td><code>AIEmbed(…, *ai.EmbedRequest)</code></td><td>Embeddings ของข้อความ</td></tr>
+<tr><td><code>AITranscribe(…, *ai.TranscribeRequest)</code></td><td>การแปลงเสียงเป็นข้อความ</td></tr>
+<tr><td><code>AIDecide(…, *ai.DecideRequest)</code></td><td>คำถามที่มีรูปแบบ (typed questions) ไปยังโมเดลการตัดสินใจ (ใช่หรือไม่, การเลือก, คะแนน) เกี่ยวกับข้อความ</td></tr>
+<tr><td><code>AIConnectionsForUser(userID, channelID, teamID)</code></td><td>การเชื่อมต่อที่ผู้ใช้สามารถใช้ได้ที่นั่น พร้อมโมเดลและขีดความสามารถ โดยไม่รวมคีย์</td></tr>
+</tbody>
+</table>
+<p><code>ConnectionID</code> ของแต่ละคำขอจะใช้สำหรับเลือกการเชื่อมต่อ และ <code>Model</code> จะเลือกหนึ่งในโมเดลของมัน (เว้นว่างเพื่อใช้ค่าเริ่มต้นของการเชื่อมต่อ) <code>Operation</code> เป็นป้ายกำกับสั้นๆ สำหรับบันทึกการใช้งานและการตรวจสอบ (audit) โดยไม่ใช่เนื้อหา เวอร์ชันขั้นต่ำของเซิร์ฟเวอร์คือ 11.11</p>
+<div class="callout warn">รับ <code>actingUserID</code> เฉพาะจากแหล่งข้อมูลที่เซิร์ฟเวอร์ตรวจสอบแล้วเท่านั้น: หัวข้อ <code>Mattermost-User-Id</code> ของคำขอไปยัง <code>ServeHTTP</code> ของคุณ หรือผู้ใช้ในบริบทของ hook (ผู้เขียนโพสต์, ผู้ที่รันคำสั่ง) ห้ามรับจากข้อความ, payload ของ webhook, URL หรือคำขอจากแอปอื่น: แอปของคุณจะสิ้นเปลืองสิทธิ์การเข้าถึงของผู้อื่น</div>
+<p>เมธอดเหล่านี้และแพ็กเกจ <code>ai</code> (<code>server/public/ai</code>) มีอยู่ในสำเนาของ Antimatter เท่านั้น ไม่ใช่ในเวอร์ชันที่เผยแพร่โดย Mattermost เพื่อใช้งานสิ่งเหล่านี้ ให้ build โดยอ้างอิง <code>server/public</code> ของ Antimatter โดยใช้บรรทัด <code>replace</code> ใน <code>go.mod</code> ของคุณ เช่น <code>replace github.com/mattermost/mattermost/server/public =&gt; ../antimatter/server/public</code> แอปเช่นนี้จะทำงานบน Antimatter เท่านั้น</p>
 
 <h2 id="kv">การเก็บข้อมูล</h2>
 <p>แต่ละแอปมี key-value store เป็นของตัวเองในฐานข้อมูลของเซิร์ฟเวอร์:</p>
@@ -241,17 +257,17 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <pre><code>export function isFusionUI(): boolean {
     return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
 }</code></pre>
-<p>แอปที่รวมมาใช้งานสิ่งนี้เพื่อวาดรูปแบบที่แตกต่างกัน โพล์จะวาดการ์ดโพล์และกล่องโต้ตอบสำหรับสร้างโพล์ในสไตล์ของ Fusion และเปิดกล่องโต้ตอบของตัวเองสำหรับ <code>/poll</code> ใน Fusion การโทรและช่องเสียงจะละเว้นแถบด้านข้างและองค์ประกอบ toast ที่ Fusion แทนที่ด้วยอินเทอร์เฟซการโทรของตัวเอง แอปเอเจนต์จะวางการกระทำ AI ของมันในเมนูย่อยของเมนูข้อความแทนที่จะเป็นแถบเครื่องมือเมื่อชี้เมาส์ คลาส CSS ของ Fusion เอง (ที่มีคำนำหน้า <code>am-</code>) และเลเยอร์กล่องโต้ตอบ (องค์ประกอบ <code>am-layer</code>) คือสิ่งที่แอปเหล่านี้ใช้เพื่อจับคู่กับอินเทอร์เฟซ; พวกมันไม่ใช่ API ที่ได้รับการบันทึกและมีความเสถียร</p>
+<p>แอปที่รวมมาใช้งานสิ่งนี้เพื่อวาดรูปแบบที่แตกต่างกัน โพล์จะวาดการ์ดโพล์และกล่องโต้ตอบสำหรับสร้างโพล์ในสไตล์ของ Fusion และเปิดกล่องโต้ตอบของตัวเองสำหรับ <code>/poll</code> ใน Fusion การโทรและช่องเสียงจะละเว้นแถบด้านข้างและองค์ประกอบ toast ที่ Fusion แทนที่ด้วยอินเทอร์เฟซการโทรของตัวเอง แอปเอเจนต์จะวางการกระทำของ AI ไว้ในเมนูข้อความ เป็นกลุ่มภายใต้ <b>การดำเนินการเพิ่มเติม</b> แทนที่จะเป็นแถบเครื่องมือเมื่อชี้เมาส์ คลาส CSS ของ Fusion เอง (ที่มีคำนำหน้า <code>am-</code>) และเลเยอร์กล่องโต้ตอบ (องค์ประกอบ <code>am-layer</code>) คือสิ่งที่แอปเหล่านี้ใช้เพื่อให้อินเทอร์เฟซเข้ากัน; พวกมันไม่ใช่ API ที่ได้รับการบันทึกไว้และมีความเสถียร</p>
 <h3>ตำแหน่งที่ Fusion แสดงองค์ประกอบของปลั๊กอิน</h3>
 <table>
 <thead><tr><th>วิธีการลงทะเบียน</th><th>ตำแหน่งที่ปรากฏใน Fusion</th></tr></thead>
 <tbody>
 <tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>รางแอป (app rail) คอลัมน์ของไอคอนที่ขอบด้านขวา ระหว่างโปรไฟล์ของคุณกับปุ่ม <b>เกี่ยวกับ Antimatter</b> ปุ่มในหัวช่องก็ไปอยู่ที่นั่นด้วย ไม่ใช่ในหัวช่อง จะถูกซ่อนเมื่อผู้ดูแลระบบเปิดใช้งาน <b>ปิดใช้งานแถบแอป</b> (<code>ExperimentalSettings.DisableAppBar</code>, ปิดไว้โดยค่าเริ่มต้น)</td></tr>
-<tr><td><code>registerRightHandSidebarComponent</code></td><td>แผงด้านขวา ผู้ใช้สามารถปรับขนาดได้โดยลากขอบของมัน หากแอปนั้นยังเป็นผลิตภัณฑ์ แผงนี้จะเสนอ <b>เปิดเป็นหน้าเต็ม</b></td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>แผงด้านขวา ผู้ใช้สามารถปรับขนาดได้โดยลากขอบ และเปิดในหน้าต่างใหม่ หากแอปยังเป็นผลิตภัณฑ์ แผงจะเสนอ <b>เปิดเป็นหน้าเต็ม</b> ดู <a href="#panel-state">แผงในหน้าต่างใหม่</a></td></tr>
 <tr><td><code>registerChannelHeaderIcon</code></td><td>ไอคอนในหัวช่อง หลังปุ่มการโทร; บนโทรศัพท์ อยู่ในเมนู <b>เพิ่มเติม</b> ของหัวช่อง</td></tr>
 <tr><td><code>registerCallButtonAction</code></td><td>ปุ่มการโทรในหัวช่อง; ผู้ให้บริการหลายรายใช้เมนู <b>วิธีโทรอื่น</b> ร่วมกัน</td></tr>
-<tr><td><code>registerPostDropdownMenuAction</code></td><td>เมนู <b>การดำเนินการเพิ่มเติม</b> (⋯) ของข้อความ ในเมนูย่อย <b>การดำเนินการข้อความ</b>; รวมถึงในเมนู <b>การดำเนินการกับเธรด</b> ของแผงเธรด ภายใต้ <b>การดำเนินการเพิ่มเติม</b></td></tr>
-<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>เมนูย่อยของตัวเองของเมนูเหล่านี้ พร้อมชื่อและไอคอนของแอป</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>เมนู <b>การดำเนินการข้้อความ</b> (⋯) ของข้อความ ในเมนูย่อย <b>การดำเนินการเพิ่มเติม</b>; รวมถึงในเมนู <b>การดำเนินการกับเธรด</b> ของแผงเธรด ภายใต้ <b>การดำเนินการเพิ่มเติม</b> Fusion จะวาดไอคอนของแอปไว้ก่อนแต่ละการกระทำ ในสีเทา: ไอคอนของตัวเองสำหรับแอปที่รวมมา หรือไอคอนที่แอปแสดงในรางแอป หรือไอคอนที่เป็นกลาง องค์ประกอบที่ไม่มีข้อความที่ต้นของข้อความการกระทำ (ไอคอนที่แอปวาดเอง) จะถูกซ่อน</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>กลุ่มที่มีหัวข้อในเมนูย่อย <b>การดำเนินการเพิ่มเติม</b> เดียวกัน ภายหลังการกระทำเดี่ยวๆ ไม่มีแอปใดได้รับรายการของตัวเองในเมนูข้อความ</td></tr>
 <tr><td><code>registerPostActionComponent</code></td><td>แถบเครื่องมือเมื่อชี้เมาส์ที่ข้อความ ก่อนปุ่ม ⋯</td></tr>
 <tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>ตัวข้อความเอง: เนื้อหา ใต้ข้อความ หลังเวลา และแทนที่การพรีวิวลิงก์</td></tr>
 <tr><td><code>registerChannelHeaderMenuAction</code></td><td>เมนู <b>ตัวเลือกช่อง</b> ของช่อง (⋯ บนช่องในแถบด้านข้าง หรือคลิกขวา) เป็นรายการที่มีไอคอนปลั๊ก</td></tr>
@@ -269,7 +285,7 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <tr><td><code>registerChannelTypeOption</code></td><td>ประเภทของช่องในไดอะล็อก <b>สร้างช่อง</b></td></tr>
 <tr><td><code>registerSearchComponents</code></td><td>กล่องค้นหาในหัวของช่อง: ขอบเขตของแอปจะปรากฏเมื่อบoxยังไม่มีข้อมู</td></tr>
 <tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>เกี่ยวกับ Antimatter</b> (ส่วนล่างของแถบด้านข้างของแอป) ใต้ <b>ความช่่วยเหลื่อ</b></td></tr>
-<tr><td><code>registerProduct</code></td><td>หน้าเต็มท่ี URL ของผลิตภัณฑ์ ท่ีปรากฏในรายการใต้ <b>ผลิตภัณฑ์</b> ใน <b>เกี่ยวกับ Antimatter</b> หน้าของผลิตภัณฑ์จะคงกรอบหน้าแบบคลาสสิกไว้</td></tr>
+<tr><td><code>registerProduct</code></td><td>หน้าเต็มที่ URL ของผลิตภัณฑ์ ซึ่งแสดงรายการภายใต้ <b>ผลิตภัณฑ์</b> ใน <b>เกี่ยวกับ Antimatter</b> หน้าผลิตภัณฑ์ยังคงใช้กรอบหน้าแบบคลาสสิก ซึ่งเมนูผลิตภัณฑ์จะแสดงเฉพาะเมื่อแอปลงทะเบียนผลิตภัณฑ์หรือเพิ่มรายการเข้าไป แอป Kanban และ Playbooks ที่รวมมาไม่ได้อีกต่อไปลงทะเบียนผลิตภัณฑ์: หน้าของพวกมันเปิดในแผงด้านข้าง</td></tr>
 <tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, hooks เชน <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>ทำงานเหมือนในอินเทอร์เฟซแบบคลาสสิก</td></tr>
 <tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>คอนโซลระบบ ท่ีเป็นแบบคลาสสิกในอินเทอร์เฟซทั้งสอง</td></tr>
 </tbody>
@@ -299,12 +315,21 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <thead><tr><th>เมธอด</th><th>สิ่่งท่ีเพิ่มเติม</th></tr></thead>
 <tbody>
 <tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>รายการในเมนู <b>+</b> ของกล่องข้อความ ในอินเทอร์เฟซทั้งสอง <code>action</code> จะรับ <code>{channelId, rootId}</code></td></tr>
-<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>แท็บของตัวเลือกอิโมจิในกล่องข้อความ เช่น GIF หรือสติกเกอร์ ใน Fusion แท็บที่มีค่า <code>order</code> น้อยกว่า 10 จะแสดงก่อนแท็บ Emoji องค์ประกอบนี้รับ <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> และ <code>isFusion</code></td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>แท็บของตัวเลือกอิโมจิในกล่องข้อความ เช่น GIF หรือสติ๊กเกอร์ ใน Fusion แท็บที่มี <code>order</code> ต่ำกว่า 10 จะมาก่อนแท็บ Emoji องค์ประกอบนี้จะรับ <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code>, <code>isFusion</code> และใน Fusion <code>pickerKit</code> (ดูด้านล่าง)</td></tr>
 <tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>แผงที่อยู่ระหว่างส่วนหัวของช่องกับข้อความ สำหรับช่องที่ <code>matcher(state, channel)</code> เลือกไว้ แผงนี้สามารถซ่อนข้อความและช่องพิมพ์ข้อความ (<code>setMessagesVisible</code>) ได้ เช่นเดียวกับที่ช่องเสียงทำ</td></tr>
 <tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>บรรทัดใต้ช่องในแถบด้านข้าง เช่น ผู้คนในสายการโทรของช่องนั้น รับ <code>channel</code></td></tr>
 <tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>เฉพาะ Fusion: รายการในหน้า <b>อินทิเกรชัน</b> อยู่ถัดจากอิโมจิแบบกำหนดเอง แอป GIF จะเพิ่ม GIF และสติกเกอร์แบบกำหนดเองของมันไว้ที่นั่น</td></tr>
 </tbody>
 </table>
+<h3 id="picker-kit">เพิ่มและจัดการมุมมองในตัวเลือกอิโมจิ</h3>
+<p>ใน Fusion แท็บตัวเลือกอิโมจิจะรับ prop ชื่อ <code>pickerKit</code>: ซึ่งประกอบด้วยคอมโพเนนต์ที่แท็บอิโมจิใช้สำหรับมุมมองการเพิ่มและจัดการ เพื่อให้มุมมองของแท็บมีลักษณะเหมือนกันและยังคงอยู่ภายในตัวเลือก GIFs และ Memes apps ใช้สิ่งนี้เพื่อเพิ่มและจัดการ GIF, สติกเกอร์ และเทมเพลตมีม ซึ่งประกอบด้วย <code>version</code> (1), hooks <code>usePickerView</code> และ <code>useOnEscape</code>, และคอมโพเนนต์ <code>PickerViewButtons</code> (ปุ่ม <b>+</b> และปุ่มจัดการข้างกล่องค้นหา), <code>PickerViewFrame</code> (มุมมองพร้อมลูกศรย้อนกลับ), <code>PickerNotice</code>, <code>PickerField</code>, <code>PickerSearch</code>, <code>PickerDropZone</code> และ <code>PickerManageList</code> การกดปุ่ม Escape จะย้อนกลับจากมุมมองไปยังกริดของแท็บ ตรวจสอบว่า prop นี้มีอยู่: host อื่น ๆ อาจไม่รวมไว้ และแท็บจะยังคงใช้ไดอะล็อกของตัวเองในกรณีนั้น ประเภท (types) อยู่ใน <code>webapp/fusion/src/types/store/plugins.ts</code> (<code>EmojiPickerTabProps</code>) และคอมโพเนนต์อยู่ใน <code>webapp/fusion/src/fusion/popovers/picker_views.tsx</code>.</p>
+<h3 id="panel-state">แผงในหน้าต่างใหม่</h3>
+<p>Fusion ให้คอมโพเนนต์ของ <code>registerRightHandSidebarComponent</code> รับ props เพิ่มอีก 2 ตัว เพื่อให้ <b>เปิดในหน้าต่างใหม่</b> เปิดแผงในตำแหน่งที่มันอยู่แทนที่จะอยู่ที่หน้าหลักของแอป:</p>
+<ul>
+<li><code>setPanelState(state)</code>: เรียกใช้เมื่อแผงเปลี่ยนตำแหน่ง โดยส่งสตริงสั้น ๆ ที่แอปของคุณกำหนด เช่น <code>'note/&lt;id&gt;'</code> หรือ <code>'board/&lt;id&gt;/card/&lt;id&gt;'</code> หรือ <code>null</code> เมื่ออยู่ที่หน้าหลัก ข้อมูลนี้จะถูกใส่ในที่อยู่ของหน้าต่าง ดังนั้นอย่าใส่ข้อมูลลับไว้ในนั้น สถานะ (state) ที่ยาวเกิน 512 ตัวอักษร หรือมี control characters จะถูกตัดทิ้ง</li>
+<li><code>initialPanelState</code>: ในหน้าต่างใหม่ จะเป็นสถานะที่แผงเคยมี หรือ <code>undefined</code> ให้ถือว่าเป็นข้อมูลที่ไม่สามารถเชื่อถือได้: ดึงข้อมูลรายการใหม่อีกครั้งในฐานะผู้ใช้ที่เข้าสู่ระบบ และแสดงหน้าหลักของแอปหรือมุมมองไม่พบรายการ (not-found view) หากผู้ใช้ไม่สามารถเปิดรายการนั้นได้</li>
+</ul>
+<p>สถานะ (state) จะถูกลืมเมื่อแผงปิดลง หรือแผงของแอปอื่นเข้ามาแทนที่ หากต้องการเปิดหน้าต่างของแผงด้วยตนเอง <code>popoutRhsPlugin</code> (ซึ่งอยู่ใน <code>window.WebappUtils.popouts</code> ด้วย) จะรับ state เป็นอาร์กิวเมนต์ที่ 5 (ไม่บังคับ) Notes, Whiteboard, Todo, Kanban และ Playbooks ใช้สิ่งนี้</p>
 <p><code>fusionIcon</code> ระบุชื่อไอคอนในชุดไอคอนของ Fusion (เช่น <code>poll</code>, <code>sticker</code>, <code>calendar</code> หรือ <code>image</code>; ดู <code>webapp/fusion/src/fusion/components/icon</code>) Fusion จะแสดงไอคอนนี้แทน <code>icon</code> เพื่อให้รายการนี้เข้ากันกับรายการอื่นๆ</p>
 
 <h2 id="settings">การตั้่งค่า</h2>

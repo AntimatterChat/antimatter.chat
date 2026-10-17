@@ -4,7 +4,7 @@ guide: developers
 order: 2
 nav: REST API
 lead: Vše, co aplikace Antimatter dělají, probíhá přes stejné HTTP API, takže to umí i vaše skripty. Tato stránka vysvětluje, jak se autentizovat, které zdroje budete nejčastěji používat, jak vypadají odpovědi a chyby a jak živě sledovat události přes WebSocket.
-source: dccc67af2fb2
+source: a18155751d3e
 ---
 <h2 id="basics">Základy</h2>
 <ul>
@@ -14,7 +14,7 @@ source: dccc67af2fb2
 <li><b>Komunity jsou týmy</b>: API je nazývá <code>teams</code> a používá <code>team_id</code>.</li>
 <li><b>Sebou</b>: kdekoliv, kde cesta bere <code>user_id</code>, <code>me</code> znamená přihlášeného uživatele, např. <code>GET /users/me</code>.</li>
 </ul>
-<p>Úplný seznam koncových bodů najdete v kódu serveru: routy jsou deklarovány v <code>server/channels/api4/*.go</code> a typy v <code>server/public/model</code>. OpenAPI popis ve složce <code>api/v4/source</code> v repozitáři pokrývá koncové body zděděné z Mattermost, nikoli přídavky Antimatter.</p>
+<p>Úplný seznam koncových bodů najdete v kódu serveru: trasy jsou deklarovány v <code>server/channels/api4/*.go</code> a typy v <code>server/public/model</code>. Popis OpenAPI ve složce <code>api/v4/source</code> v repozitáři pokrývá koncové body zděděné z Mattermost a některé doplňky Antimatter: přesouvání vláken, modelové připojení a akce se zprávami. Zbylé jsou pouze v kódu.</p>
 
 <h2 id="auth">Autentizace</h2>
 <p>Každý požadavek, s výjimkou přihlášení a několika veřejných koncových bodů, vyžaduje token v hlavičce <code>Authorization</code>:</p>
@@ -144,7 +144,7 @@ func main() {
 <tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> stejná cesta<br><code>PATCH</code>, <code>DELETE …/fields/{field_id}</code></td><td>Komunitní atributy: pole profilu, která administrátoři komunity definují pro její členy (až 20). Členové je mohou číst; administrátoři komunity je vytvářejí a mění.</td></tr>
 <tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> stejná cesta<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>Hodnoty atributů člena ve formátu <code>{field_id: value}</code>. Člen si nastavuje své vlastní (kromě těch spravovaných administrátorem); administrátoři nastavují hodnoty pro kohokoli. Hledání přijímá <code>{"user_ids": [...]}</code> (až 200).</td></tr>
 <tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>Časové limity: <code>{"until": time, "reason": "…"}</code> brání uživateli v psaní, reagování a nahrávání v komunitě do daného času (maximálně 28 dní); <code>"until": 0</code> je zruší. Pohled na moderaci zobrazuje, kdy se uživatel připojil a kolik nedávno publikoval.</td></tr>
-<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Zprávy připevněné na vrchol kanálu (až 10). <code>{"duration": ms}</code>, maximálně 30 dní; 0 je ponechá, dokud nebudou odstraněny. Vyžaduje oprávnění k psaní v kanálu.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Zprávy přichycené na vrcholu kanálu (až 10). <code>{"duration": ms}</code>, maximálně 30 dní; hodnota 0 je ponechá, dokud se neodepne. Všechny je vidí ti, kdo mají přístup ke čtení kanálu. Přichycení zprávy na vrchol nebo její odpojení vyžaduje právo k odesílání zpráv do kanálu a, v kanálu komunity, být administrátorem kanálu nebo komunity, nebo mít tam <b>Spravovat zprávy</b> (<code>delete_others_posts</code>). V přímé nebo skupinové zprávě to mohou její členové. V archivovaných kanálech je to zamítnuto.</td></tr>
 <tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>Působí na vaši vlastní žádost: <code>{"action": "accept"}</code>, <code>"dismiss"</code> nebo <code>"request"</code> pro vrácení konverzace mezi žádosti. Vrátí vašeho člena kanálu.</td></tr>
 <tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>Co může role nebo osoba v kanálu dělat a které role vidí kanál omezený na role.</td></tr>
 <tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>Sdílené kategorie kanálů komunity a přepsání, která se vztahují na všechny kanály v kategorii.</td></tr>
@@ -152,13 +152,75 @@ func main() {
 <tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>Otestuje pravidla pro automatické odkazy komunity na text.</td></tr>
 <tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>Stáhne zprávy kanálu jako CSV (až 50 000) pro osoby, které mají v kanálu právo číst.</td></tr>
 <tr><td><code>GET /posts/{post_id}/speech</code></td><td>Zpráva přečtená nahlas jako audio, pokud je nastaveno převádění textu na řeč.</td></tr>
+<tr><td><code>POST /posts/{post_id}/move_to_channel</code></td><td>Přesune vlákno do jiného kanálu téže komunity: viz <a href="#move-thread">Přesun vlákna</a>.</td></tr>
+<tr><td><code>GET</code>, <code>POST /ai/connections</code><br><code>GET</code>, <code>PATCH</code>, <code>DELETE /ai/connections/{connection_id}</code><br><code>GET /ai/connections/usable</code></td><td>Modelové připojení, poskytovatelé AI, které používají AI funkce a aplikace serveru: viz <a href="#ai-connections">Modelové připojení</a>.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/message_actions</code><br><code>POST /posts/{post_id}/message_actions/{hook_id}</code><br><code>GET</code>, <code>POST /hooks/outgoing/{hook_id}/icon</code></td><td>Akce se zprávami: odchozí webhooks, které lidé spouštějí z nabídky zprávy. Viz <a href="{{root}}docs/developers/webhooks.html#message-actions">Akce se zprávami</a>.</td></tr>
 </tbody>
 </table>
 <h3>Nová pole</h3>
 <ul>
-<li><b>Komunity</b> (<code>Team</code>, a <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (každý je v každém kanálu, který může vidět), <code>default_channel_id</code> (kam noví uživatelé přistanou; prázdná hodnota znamená Town Square), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> a <code>autolinks</code> (oba jako JSON řetězce).</li>
+<li><b>Komunity</b> (<code>Team</code>, a <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (každý je v každém kanálu, ke kterému má přístup), <code>default_channel_id</code> (kam noví členové přistanou; prázdné znamená General), <code>kind</code> (<code>community</code> nebo <code>workplace</code>: v workplace mohou administrátoři kanálů archivovat i své kanály; nové komunity dostanou <code>TeamSettings.DefaultCommunityKind</code> serveru, výchozí je <code>community</code>), <code>member_list_view</code> (jak seznam členů členy grupuje: <code>choice</code>, výchozí možnost, umožňuje každému členovi vybrat; <code>roles</code> nebo <code>teams</code> to fixuje), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> a <code>autolinks</code> (oba jako JSON řetězce).</li>
+<li><b>The default channel</b> of a new community is <code>general</code> (<b>General</b>), not <code>town-square</code>. The 0.9.0 upgrade renames each community's <code>town-square</code> to <code>general</code>, keeping its ID, unless the community already has a <code>general</code> channel. Old names keep working: <code>GET /teams/{team_id}/channels/name/town-square</code>, <code>GET /teams/name/{team}/channels/name/town-square</code> and an incoming webhook's <code>channel</code> give the community's default channel when no channel has that name. Use <code>default_channel_id</code>, or the name <code>general</code>, in new code.</li>
+<li><b>Odkazy na kanály</b>: <code>#channel-name</code> odkazuje na kanál stejně jako <code>~channel-name</code>. Vlastnost <code>channel_mentions</code> příspěvku obsahuje seznam kanálů odkázaných kterakoli; <code>#word</code>, který neodpovídá žádnému kanálu, zůstane hashtagem. Webové rozhraní a mobilní aplikace Antimatter zapisují <code>#name</code>.</li>
+<li><b>Archivované kanály</b> stále přijímají nové členy (<code>POST /channels/{channel_id}/members</code>), kteří si mohou přečíst jejich historii. Nikdo tam nemůže psát, reagovat, připínat, posouvat zprávy nahoru, přejmenovávat kanál ani měnit role jeho členů.</li>
 <li><b>Vložené odpovědi</b>: příspěvek s <code>"props": {"reply_to": "&lt;post id&gt;"}</code> cituje danou zprávu ze stejného kanálu. Přidejte <code>"reply_to_mention": false</code>, abyste autora neoznamovali. Server vyplní <code>metadata.reply_to</code> krátkým popisem citované zprávy.</li>
 <li><b>Varování před senzitivním obsahem</b>: <code>"props": {"spoiler": true}</code> skryje text a soubory příspěvku, dokdy čtenář nevybere, že je chce zobrazit.</li>
 <li><b>Ignorování a blokace</b> jsou preference: kategorie <code>user_block</code>, pojmenovaná podle ID druhé osoby, s hodnotou <code>ignore</code> nebo <code>block</code>. Zda přímá zpráva čeká jako žádost, je v <code>notify_props.dm_request</code> vašeho člena kanálu (<code>pending</code>, <code>accepted</code> nebo <code>dismissed</code>).</li>
 <li><b>Přílohy zpráv</b> mohou nést <code>stages</code> a <code>chart</code>: viz <a href="{{root}}docs/developers/webhooks.html#cards">Karty</a>.</li>
 </ul>
+
+<h2 id="move-thread">Přesun vlákna</h2>
+<p><code>POST /posts/{post_id}/move_to_channel</code> přesune vlákno, jeho první zprávu a všechny odpovědi do jiného kanálu téže komunity. <code>post_id</code> může být první zpráva nebo libovolná odpověď.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts/$POST_ID/move_to_channel \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$TARGET_CHANNEL_ID'", "flatten": false}'</code></pre>
+<ul>
+<li><code>channel_id</code> (povinné): kanál, do kterého se vlákno přesouvá.</li>
+<li><code>flatten</code> (výchozí hodnota <code>false</code>): hodnota <code>true</code> změní odpovědi na běžné zprávy cílového kanálu místo vlákna. V Fusion se k tomu používá <b>Make it a channel</b>.</li>
+</ul>
+<p>Zprávy si zachovají autory, časové razítka, reakce a soubory. Jejich kopie nesou vlastnost <code>silent_notification</code>, takže nikoho neoznamují. Původní zprávy se smažou. Odpovědí je přesunutá první zpráva s jejím novým ID.</p>
+<h3>Kdo může přesunout vlákno</h3>
+<ul>
+<li>Musíte mít právo číst vlákno a psát do cílového kanálu.</li>
+<li>Administrátoři kanálu, administrátoři komunity, osoby s právem <b>Spravovat zprávy</b> (<code>delete_others_posts</code>) v kanálu a systémoví administrátoři mohou přesunout libovolné vlákno.</li>
+<li>Autor vlákna ho může přesunout, pokud jsou oba kanály veřejné, nebo pokud jsou všechny zprávy vlákna jeho. V opačném případě je odpovědí <code>403</code> s ID <code>api.post.move_thread.private_needs_moderator.app_error</code>.</li>
+<li>Oba kanály musí patřit do stejné komunity (přímé a skupinové zprávy nejde přesouvat), musí být odlišné a nesmí být archivované. Systémové zprávy ani zprávy, které se po přečtení smažou, přesunout nelze.</li>
+<li>Vlákno delší než <code>WranglerSettings.MoveThreadMaxCount</code> zpráv (výchozí hodnota je 100; 0 znamená bez omezení) se nepřesune.</li>
+</ul>
+<h3>Ukazatel a poznámka</h3>
+<p>Přesun zanechá dvě systémové zprávy typu <code>system_wrangler</code>: ukazatel v původním kanálu („Vlákno se 13 zprávami bylo přesunuto do #target“) a poznámku v cílovém kanálu („Toto vlákno bylo přesunuto z #source“), umístěné pod přesunutým vláknom nebo, s <code>flatten</code>, za jeho zprávy. Kromě textu zprávy umožňují jejich atributy klientovi vykreslit název kanálu jako odkaz:</p>
+<ul>
+<li>Ukazatel: <code>MovedThreadPermalink</code>, <code>NumMessages</code>, <code>MovedThreadChannelId</code>, <code>MovedThreadTeamName</code>, <code>MovedThreadPostId</code> a, pro veřejný cíl, <code>MovedThreadChannelName</code> a <code>MovedThreadChannelDisplayName</code>.</li>
+<li>Poznámka: <code>MovedFromChannelId</code>, <code>MovedFromTeamName</code>, <code>MovedFromPostId</code> (ukazatel), <code>MovedFromPermalink</code> a, pro veřejný zdroj, <code>MovedFromChannelName</code> a <code>MovedFromChannelDisplayName</code>.</li>
+</ul>
+<p>Obě zprávy mají také <code>TranslationID</code>. Název soukromého kanálu se nezobrazí: čtenáři uvidí „jiný kanál“. Vlastní endpoint Mattermost <code>POST /posts/{post_id}/move</code> je v Antimatter vypnutý; použijte tento.</p>
+
+<h2 id="ai-connections">Připojení k modelům</h2>
+<p>Připojení modelu je adresa a klíč poskytovatele AI, které nastaví administrátor. Slouží pro AI funkce serveru i pro aplikace, které volají AI službu. Systémoví administrátoři spravují celoserverová připojení (<code>manage_ai_connections</code>); administrátoři komunity spravují připojení své komunity (<code>manage_team_ai_connections</code>). Klíče jsou pouze pro zápis: žádná odpověď je neobsahuje, pouze <code>api_key_set</code> a <code>api_key_last4</code>.</p>
+<table>
+<thead><tr><th>Koncový bod</th><th>Co dělá</th></tr></thead>
+<tbody>
+<tr><td><code>GET /ai/connections?scope=</code></td><td>Připojení, která spravujete. <code>scope</code> je buď <code>server</code> nebo ID komunity; bez něj se vrátí všechna připojení ve všech rozsazích, která spravujete.</td></tr>
+<tr><td><code>POST /ai/connections</code></td><td>Přidá připojení (odpověď <code>201</code>).</td></tr>
+<tr><td><code>POST /ai/connections/test</code>, <code>POST /ai/connections/models</code></td><td>Otestuje připojení nebo vypíše jeho modely, než se uloží. Tělo požadavku je stejné jako při přidávání; nic se neukládá.</td></tr>
+<tr><td><code>GET</code>, <code>PATCH</code> (nebo <code>PUT</code>), <code>DELETE /ai/connections/{connection_id}</code></td><td>Načte, změní nebo smaže připojení. Patch obsahuje pouze pole, která se mají změnit; pokud <code>api_key</code> vynecháte, klíč zůstane beze změny.</td></tr>
+<tr><td><code>POST /ai/connections/{connection_id}/test</code></td><td>Otestuje uložené připojení: <code>{"ok", "error", "status_code", "latency_ms", "model_count"}</code>.</td></tr>
+<tr><td><code>GET /ai/connections/{connection_id}/models</code></td><td>Modely, které poskytovatel nabízí.</td></tr>
+<tr><td><code>GET /ai/connections/{connection_id}/usage</code></td><td>Počet požadavků a tokenů za tento měsíc.</td></tr>
+<tr><td><code>GET /ai/connections/usable?channel_id=&amp;team_id=</code></td><td>Pro každého přihlášeného: připojení, která tam můžete používat, včetně jejich modelů a funkcí, nikdy však klíčů ani adres.</td></tr>
+</tbody>
+</table>
+<p>Tělo nové připojení:</p>
+<pre><code>{
+  "name": "Local models",
+  "scope": "server",
+  "provider": "openai_compatible",
+  "base_url": "http://llm.internal:8000/v1",
+  "api_key": "…",
+  "extra_headers": {},
+  "models": {"chat": "qwen3-32b", "embeddings": "", "transcription": "", "decisions": ""},
+  "limits": {"requests_per_minute": 0, "monthly_token_budget": 0, "per_user_requests_per_minute": 0, "per_user_monthly_token_budget": 0},
+  "sharing": {"all_teams": true, "team_ids": []},
+  "audience": {"everyone": true, "group_ids": [], "roles": [], "allow_guests": false}
+}</code></pre>
+<p><code>provider</code> je <code>openai_compatible</code> nebo <code>anthropic</code>. <code>scope</code> má výchozí hodnotu <code>server</code>; ID komunity z něj činí připojení této komunity. V <code>limits</code> znamená 0 žádný limit; požadavky za minutu se počítají na každém serveru, rozpočet tokenů se počítá za kalendářní měsíc (UTC) pro celý cluster. <code>sharing</code> určuje, které komunity mohou používat serverové připojení (přímé a skupinové zprávy vyžadují <code>all_teams</code>), a <code>audience</code> určuje, kdo ho může používat; hosté pouze s <code>allow_guests</code>. Změny se zapisují do auditního deníku. Nastavení vysvětluje administrátorský průvodce: viz <a href="{{root}}docs/admins/ai.html">AI</a>.</p>

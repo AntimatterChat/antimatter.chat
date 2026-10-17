@@ -1,10 +1,10 @@
 title: Escrita de aplicativos (plugins)
-description: Como escrever um aplicativo (plugin) do Antimatter: o layout do pacote e o plugin.json, os hooks do servidor e a API, o registro do aplicativo web, suporte à interface Fusion, configurações, o armazenamento chave-valor, traduções, empacotamento e instalação.
+description: Como escrever um aplicativo (plugin) para o Antimatter: o layout do pacote e o plugin.json, os hooks e a API do servidor, o serviço de IA, o registro do aplicativo web, suporte à interface Fusion, configurações, o armazenamento chave-valor, traduções, empacotamento e instalação.
 guide: developers
 order: 6
 nav: Escrita de aplicativos
 lead: Os aplicativos adicionam recursos ao Antimatter por dentro: uma parte de servidor em Go que se integra ao servidor e uma parte de aplicativo web em React que adiciona menus, painéis, tipos de mensagem e páginas. Esta página mostra como um aplicativo é estruturado, usando o aplicativo Enquete incluído como exemplo, e o que muda na interface Fusion do Antimatter.
-source: d9c132cac759
+source: f2c14bacc2f3
 ---
 <h2 id="overview">Como um aplicativo funciona</h2>
 <ul>
@@ -131,6 +131,22 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 <li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: verifique quem pode fazer o quê antes de agir em nome de um usuário.</li>
 </ul>
 <p>Um aplicativo é executado em cada servidor de um cluster. Mantenha o estado no armazenamento chave-valor ou no banco de dados, não apenas na memória.</p>
+<h3 id="ai">O serviço de IA</h3>
+<p>O servidor do Antimatter chama modelos de IA para os aplicativos, por meio das conexões de modelo configuradas por um administrador (veja <a href="{{root}}docs/admins/ai.html">IA</a> no guia do administrador). Um aplicativo nunca armazena a chave de um provedor: ele indica a pessoa em nome da qual age e onde, e o servidor verifica se essa pessoa pode usar a conexão ali, aplica seus limites e orçamentos, contabiliza os tokens para a pessoa e o aplicativo, e audita a chamada sem seu conteúdo.</p>
+<table>
+<thead><tr><th>Método</th><th>O que faz</th></tr></thead>
+<tbody>
+<tr><td><code>AIChat(actingUserID, channelID, teamID, *ai.ChatRequest)</code></td><td>Uma conclusão de chat: mensagens, ferramentas, saída estruturada (<code>JSONSchema</code>).</td></tr>
+<tr><td><code>AIChatStream(…)</code></td><td>O mesmo, em streaming: leia os <code>Events</code> do fluxo até o canal fechar, ou <code>Close</code> para interromper a chamada.</td></tr>
+<tr><td><code>AIEmbed(…, *ai.EmbedRequest)</code></td><td>Incorporações (embeddings) de textos.</td></tr>
+<tr><td><code>AITranscribe(…, *ai.TranscribeRequest)</code></td><td>Conversão de fala em texto.</td></tr>
+<tr><td><code>AIDecide(…, *ai.DecideRequest)</code></td><td>Perguntas tipadas a um modelo de decisão (sim ou não, uma escolha, uma pontuação) sobre um texto.</td></tr>
+<tr><td><code>AIConnectionsForUser(userID, channelID, teamID)</code></td><td>As conexões que uma pessoa pode usar ali, com seus modelos e capacidades, nunca suas chaves.</td></tr>
+</tbody>
+</table>
+<p>O <code>ConnectionID</code> de cada solicitação seleciona a conexão, e <code>Model</code> um de seus modelos (vazio para o padrão da conexão). <code>Operation</code> é um rótulo curto para os registros de uso e auditoria, nunca o conteúdo. Sua versão mínima do servidor é 11.11.</p>
+<div class="callout warn">Obtenha <code>actingUserID</code> apenas de uma fonte verificada pelo servidor: o cabeçalho <code>Mattermost-User-Id</code> de uma solicitação ao seu <code>ServeHTTP</code>, ou o usuário do contexto de um hook (o autor de uma publicação, o usuário que executou um comando). Nunca obtenha-o de uma mensagem, de um payload de webhook, de uma URL ou de uma solicitação de outro aplicativo: seu aplicativo gastaria o acesso de outra pessoa.</div>
+<p>Estes métodos e o pacote <code>ai</code> (<code>server/public/ai</code>) existem apenas na cópia do módulo do Antimatter, não na versão publicada pelo Mattermost. Para usá-los, compile contra o <code>server/public</code> do Antimatter com uma linha <code>replace</code> no seu <code>go.mod</code>, por exemplo <code>replace github.com/mattermost/mattermost/server/public =&gt; ../antimatter/server/public</code>. Um aplicativo assim só funciona no Antimatter.</p>
 
 <h2 id="kv">Armazenamento de dados</h2>
 <p>Cada aplicativo possui seu próprio armazenamento chave-valor no banco de dados do servidor:</p>
@@ -172,17 +188,17 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <pre><code>export function isFusionUI(): boolean {
     return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
 }</code></pre>
-<p>Os aplicativos incluídos usam isso para se renderizar de forma diferente. As Enquetes desenharam seus cartões de enquete e seu diálogo de criação no estilo do Fusion e abrem seu próprio diálogo para <code>/poll</code> no Fusion. As Chamadas e os Canais de Voz omitem os componentes da barra lateral e das notificações (toasts) que o Fusion substitui pela sua própria interface de chamada. O aplicativo Agentes coloca suas ações de IA em um submenu do menu de mensagem, em vez da barra de ferramentas exibida ao passar o mouse. As classes CSS próprias do Fusion (com o prefixo <code>am-</code>) e sua camada de diálogos (o elemento <code>am-layer</code>) são o que esses aplicativos usam para corresponder à interface; eles não são uma API documentada e estável.</p>
+<p>Os aplicativos incluídos usam isso para se renderizar de forma diferente. As Enquetes desenham seus cartões de enquete e seu diálogo de criação no estilo do Fusion e abrem seu próprio diálogo para <code>/poll</code> no Fusion. As Chamadas e os Canais de Voz omitem os componentes de barra lateral e de notificação instantânea que o Fusion substitui por sua própria interface de chamada. O aplicativo Agentes coloca suas ações de IA no menu de mensagem, como um grupo sob <b>Ações</b>, em vez da barra de ferramentas suspensa. As classes CSS do próprio Fusion (com o prefixo <code>am-</code>) e sua camada de diálogos (o elemento <code>am-layer</code>) são o que esses aplicativos usam para corresponder à interface; eles não são uma API documentada e estável.</p>
 <h3>Onde o Fusion exibe componentes de plugins</h3>
 <table>
 <thead><tr><th>Método do registro</th><th>Onde aparece no Fusion</th></tr></thead>
 <tbody>
 <tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>A barra de aplicativos, a coluna de ícones na borda direita, entre seu avatar e o botão <b>Sobre o Antimatter</b>. Os botões do cabeçalho do canal também ficam lá, não no cabeçalho do canal. Oculta quando um administrador do sistema ativa <b>Desative a Barra de Aplicativos</b> (<code>ExperimentalSettings.DisableAppBar</code>, desativado por padrão).</td></tr>
-<tr><td><code>registerRightHandSidebarComponent</code></td><td>O painel à direita. As pessoas podem redimensioná-lo arrastando sua borda. Se o aplicativo for também um produto, o painel oferece <b>Abrir em página inteira</b>.</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>O painel à direita. As pessoas podem redimensioná-lo arrastando sua borda e abri-lo em uma nova janela. Se o aplicativo for também um produto, o painel oferece <b>Abrir em página inteira</b>. Consulte <a href="#panel-state">O painel em uma nova janela</a>.</td></tr>
 <tr><td><code>registerChannelHeaderIcon</code></td><td>Ícones no cabeçalho do canal, após os botões de chamada; em celulares, no menu <b>Mais</b> do cabeçalho.</td></tr>
 <tr><td><code>registerCallButtonAction</code></td><td>O botão de chamada do cabeçalho do canal; vários provedores compartilham um menu <b>Outras formas de fazer uma chamada</b>.</td></tr>
-<tr><td><code>registerPostDropdownMenuAction</code></td><td>O menu <b>Ações</b> (⋯) da mensagem, em um submenu <b>Ações de mensagem</b>; também no menu <b>Ações do tópico</b> do painel do tópico, sob <b>Ações</b>.</td></tr>
-<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Seu próprio submenu dos mesmos menus, com o nome e o ícone do aplicativo.</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>O menu <b>Ações de mensagem</b> (⋯) da mensagem, em seu submenu <b>Ações</b>; também no menu <b>Ações do tópico</b> do painel do tópico, sob <b>Ações</b>. O Fusion desenha o ícone do aplicativo antes de cada ação, em cinza: seu próprio ícone para os aplicativos incluídos, caso contrário, o ícone que o aplicativo exibe na barra de aplicativos, caso contrário, um ícone neutro. Um elemento sem texto no início do texto da ação (um ícone que o aplicativo desenha por conta própria) é ocultado.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Um grupo com um título no mesmo submenu <b>Ações</b>, após as ações individuais. Nenhum aplicativo recebe uma entrada própria no menu de mensagem.</td></tr>
 <tr><td><code>registerPostActionComponent</code></td><td>A barra de ferramentas exibida ao passar o mouse sobre a mensagem, antes do botão ⋯.</td></tr>
 <tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>A própria mensagem: seu corpo, abaixo do texto, após a hora e no lugar das pré-visualizações de links.</td></tr>
 <tr><td><code>registerChannelHeaderMenuAction</code></td><td>O menu <b>Opções de canal</b> do canal (⋯ em um canal na barra lateral, ou clique com o botão direito), como itens com um ícone de plug.</td></tr>
@@ -200,7 +216,7 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <tr><td><code>registerChannelTypeOption</code></td><td>Os tipos de canal no diálogo <b>Criar canal</b>.</td></tr>
 <tr><td><code>registerSearchComponents</code></td><td>A caixa de pesquisa no cabeçalho do canal: os escopos do aplicativo aparecem quando ela está vazia.</td></tr>
 <tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>Sobre o Antimatter</b> (parte inferior da barra lateral do aplicativo), sob <b>Ajuda</b>.</td></tr>
-<tr><td><code>registerProduct</code></td><td>Páginas completas na URL do produto, listadas sob <b>Produtos</b> em <b>Sobre o Antimatter</b>. As páginas de produto mantêm o quadro de página clássico.</td></tr>
+<tr><td><code>registerProduct</code></td><td>Páginas completas na URL do produto, listadas sob <b>Produtos</b> em <b>Sobre o Antimatter</b>. As páginas de produto mantêm o quadro de página clássico, cujo menu de produto só aparece quando um aplicativo registra um produto ou adiciona uma entrada a ele. Os aplicativos incluídos Kanban e Playbooks não registram mais produtos: suas páginas são abertas em seus painéis laterais.</td></tr>
 <tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, hooks como <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>Funcionam como na interface clássica.</td></tr>
 <tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>O Console do Sistema, que é o clássico em ambas as interfaces.</td></tr>
 </tbody>
@@ -230,12 +246,21 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <thead><tr><th>Método</th><th>O que ele adiciona</th></tr></thead>
 <tbody>
 <tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>Um item no menu <b>+</b> da caixa de mensagem, em ambas as interfaces. <code>action</code> recebe <code>{channelId, rootId}</code>.</td></tr>
-<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Uma aba do seletor de emojis da caixa de mensagem, como GIFs ou figurinhas. No Fusion, as abas com <code>order</code> menor que 10 aparecem antes da aba Emoji. O componente recebe <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> e <code>isFusion</code>.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Uma aba do seletor de emojis da caixa de mensagem, como GIFs ou adesivos. No Fusion, as abas com uma <code>order</code> abaixo de 10 vêm antes da aba Emoji. O componente recebe <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code>, <code>isFusion</code> e, no Fusion, <code>pickerKit</code> (veja abaixo).</td></tr>
 <tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>Um painel entre o cabeçalho do canal e as mensagens, para os canais selecionados por <code>matcher(state, channel)</code>. Ele pode ocultar as mensagens e o editor (<code>setMessagesVisible</code>), como fazem os canais de voz.</td></tr>
 <tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>Uma linha abaixo de um canal na barra lateral, como as pessoas em sua chamada. Ela recebe o <code>channel</code>.</td></tr>
 <tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Somente Fusion: uma entrada nas páginas de <b>Integrações</b>, ao lado dos emojis personalizados. O aplicativo de GIFs adiciona seus GIFs e figurinhas personalizados lá.</td></tr>
 </tbody>
 </table>
+<h3 id="picker-kit">Adicionar e gerenciar visualizações no seletor de emojis</h3>
+<p>No Fusion, uma aba do seletor de emojis recebe a prop <code>pickerKit</code>: os componentes que a aba Emoji usa para suas próprias vistas de adição e gerenciamento, de modo que as vistas de uma aba tenham a mesma aparência e permaneçam dentro do seletor. Os aplicativos GIFs e Memes usam isso para adicionar e gerenciar GIFs, figurinhas e modelos de memes. Ele contém <code>version</code> (1), os hooks <code>usePickerView</code> e <code>useOnEscape</code>, e os componentes <code>PickerViewButtons</code> (os botões <b>+</b> e de gerenciamento ao lado da caixa de pesquisa), <code>PickerViewFrame</code> (uma vista com sua seta de voltar), <code>PickerNotice</code>, <code>PickerField</code>, <code>PickerSearch</code>, <code>PickerDropZone</code> e <code>PickerManageList</code>. A tecla Esc volta de uma vista para a grade da aba. Verifique se a prop está presente: outros hosts a omitem, e a aba mantém seus próprios diálogos nesses casos. Os tipos estão em <code>webapp/fusion/src/types/store/plugins.ts</code> (<code>EmojiPickerTabProps</code>) e os componentes em <code>webapp/fusion/src/fusion/popovers/picker_views.tsx</code>.</p>
+<h3 id="panel-state">O painel em uma nova janela</h3>
+<p>O Fusion fornece à componente de <code>registerRightHandSidebarComponent</code> duas props adicionais, para que <b>Abrir em nova janela</b> abra o painel onde ele estava, em vez de na página inicial do aplicativo:</p>
+<ul>
+<li><code>setPanelState(state)</code>: chame-o quando o painel mudar de lugar, com uma string curta definida pelo seu aplicativo, como <code>'note/&lt;id&gt;'</code> ou <code>'board/&lt;id&gt;/card/&lt;id&gt;'</code>, ou <code>null</code> na página inicial. Ele vai para o endereço da janela, portanto, nunca coloque um segredo nele. Um estado com mais de 512 caracteres, ou com caracteres de controle, é descartado.</li>
+<li><code>initialPanelState</code>: na nova janela, o estado que o painel tinha, ou <code>undefined</code>. Trate-o como entrada não confiável: busque o item novamente como a pessoa conectada e exiba a página inicial do aplicativo ou uma vista de não encontrado se ela não puder abri-lo.</li>
+</ul>
+<p>O estado é esquecido quando o painel é fechado ou quando o painel de outro aplicativo ocupa seu lugar. Para abrir a janela de um painel por conta própria, <code>popoutRhsPlugin</code> (também em <code>window.WebappUtils.popouts</code>) aceita o estado como um quinto argumento opcional. Notas, Quadro Branco, Tarefas, Kanban e Playbooks usam isso.</p>
 <p><code>fusionIcon</code> nomeia um ícone do conjunto de ícones do Fusion (por exemplo, <code>poll</code>, <code>sticker</code>, <code>calendar</code> ou <code>image</code>; veja <code>webapp/fusion/src/fusion/components/icon</code>). O Fusion o exibe no lugar de <code>icon</code>, para que o item combine com os outros.</p>
 
 <h2 id="settings">Configurações</h2>

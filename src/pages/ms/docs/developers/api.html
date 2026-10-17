@@ -4,7 +4,7 @@ guide: developers
 order: 2
 nav: API REST
 lead: Semua yang dilakukan oleh aplikasi Antimatter melalui API HTTP yang sama, jadi skrip anda juga boleh melakukannya. Halaman ini menerangkan cara pengesahan, sumber yang paling kerap digunakan, rupa respons dan ralat, serta cara mengikuti peristiwa secara langsung melalui WebSocket.
-source: dccc67af2fb2
+source: a18155751d3e
 ---
 <h2 id="basics">Asas</h2>
 <ul>
@@ -14,7 +14,7 @@ source: dccc67af2fb2
 <li><b>Komuniti adalah pasukan</b>: API memanggilnya <code>teams</code>, dengan <code>team_id</code>.</li>
 <li><b>diri anda</b>: di mana-mana laluan yang mengambil <code>user_id</code>, <code>me</code> bermaksud pengguna yang log masuk, seperti dalam <code>GET /users/me</code>.</li>
 </ul>
-<p>Senarai penuh titik akhir terdapat dalam kod pelayan: laluan diisytiharkan dalam <code>server/channels/api4/*.go</code> dan jenis dalam <code>server/public/model</code>. Penerangan OpenAPI dalam folder <code>api/v4/source</code> repositori meliputi titik akhir yang diwarisi daripada Mattermost, bukan penambahan Antimatter.</p>
+<p>Senarai penuh titik akhir terdapat dalam kod pelayan: laluan diisytiharkan dalam <code>server/channels/api4/*.go</code> dan jenis dalam <code>server/public/model</code>. Penerangan OpenAPI dalam folder <code>api/v4/source</code> repositori merangkumi titik akhir yang diwarisi daripada Mattermost, serta beberapa penambahan Antimatter: memindahkan bebenang, sambungan model dan tindakan mesej. Yang lain hanya terdapat dalam kod.</p>
 
 <h2 id="auth">Pengesahan</h2>
 <p>Setiap permintaan, kecuali log masuk dan beberapa titik akhir awam, memerlukan token dalam pengepala <code>Authorization</code>:</p>
@@ -144,7 +144,7 @@ func main() {
 <tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> laluan yang sama<br><code>PATCH</code>, <code>DELETE …/fields/{field_id}</code></td><td>Atribut komuniti: medan profil yang ditakrifkan oleh pentadbir komuniti untuk ahlinya (setinggi 20). Ahli boleh membacanya; pentadbir komuniti mencipta dan mengubahnya.</td></tr>
 <tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> laluan yang sama<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>Nilai atribut seorang ahli, sebagai <code>{field_id: value}</code>. Ahli menetapkan nilai mereka sendiri (kecuali yang dikawal oleh pentadbir); pentadbir menetapkan nilai sesiapa sahaja. Carian mengambil <code>{"user_ids": [...]}</code> (setinggi 200).</td></tr>
 <tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>Had masa: <code>{"until": time, "reason": "…"}</code> menghalang seseorang daripada memuat naik, bertindak balas dan memuat naik dalam komuniti sehingga masa itu (setinggi 28 hari); <code>"until": 0</code> membatalkannya. Pandangan moderasi menunjukkan bila mereka menyertai dan berapa banyak mereka memuat naik baru-baru ini.</td></tr>
-<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Mesej yang dikekalkan di bahagian atas saluran (setinggi 10). <code>{"duration": ms}</code>, setinggi 30 hari; 0 mengekalkannya sehingga dibuang. Memerlukan kebenaran untuk memuat naik dalam saluran.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Mesej yang diletakkan di bahagian atas saluran (sehingga 10). <code>{"duration": ms}</code>, maksimum 30 hari; 0 mengekalkannya sehingga dibuang. Sesiapa yang boleh membaca saluran boleh menyenaraikannya. Meletakkan mesej di bahagian atas atau membuangnya memerlukan hak untuk memuat naik dalam saluran, dan, dalam saluran komuniti, menjadi pentadbir saluran atau komuniti, atau mempunyai <b>Urus mesej</b> (<code>delete_others_posts</code>) di sana. Dalam mesej terus atau kumpulan, ahlinya boleh. Ditolak dalam saluran yang diarkibkan.</td></tr>
 <tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>Bertindak atas permintaan mesej anda sendiri: <code>{"action": "accept"}</code>, <code>"dismiss"</code>, atau <code>"request"</code> untuk meletakkan perbualan semula antara permintaan. Mengembalikan ahli saluran anda.</td></tr>
 <tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>Apa yang boleh dilakukan oleh sesuatu peranan atau individu dalam saluran, dan peranan mana yang boleh melihat saluran yang dikawal oleh peranan.</td></tr>
 <tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>Kategori saluran bersama komuniti, dan pengecualian yang terpakai untuk setiap saluran dalam kategori tersebut.</td></tr>
@@ -152,13 +152,75 @@ func main() {
 <tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>Menguji peraturan autolink komuniti pada teks.</td></tr>
 <tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>Memuat turun mesej saluran sebagai CSV (sehingga 50,000), untuk mereka yang boleh membaca saluran tersebut.</td></tr>
 <tr><td><code>GET /posts/{post_id}/speech</code></td><td>Mesej yang dibacakan sebagai audio apabila teks-kepada-suara diset.</td></tr>
+<tr><td><code>POST /posts/{post_id}/move_to_channel</code></td><td>Memindahkan bebenang ke saluran lain dalam komuniti yang sama: lihat <a href="#move-thread">Memindahkan bebenang</a>.</td></tr>
+<tr><td><code>GET</code>, <code>POST /ai/connections</code><br><code>GET</code>, <code>PATCH</code>, <code>DELETE /ai/connections/{connection_id}</code><br><code>GET /ai/connections/usable</code></td><td>Sambungan model, iaitu pembekal AI yang digunakan oleh ciri AI dan aplikasi pelayan: lihat <a href="#ai-connections">Sambungan model</a>.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/message_actions</code><br><code>POST /posts/{post_id}/message_actions/{hook_id}</code><br><code>GET</code>, <code>POST /hooks/outgoing/{hook_id}/icon</code></td><td>Tindakan mesej: webhook keluar yang dijalankan oleh pengguna daripada menu mesej. Lihat <a href="{{root}}docs/developers/webhooks.html#message-actions">Tindakan mesej</a>.</td></tr>
 </tbody>
 </table>
 <h3>Medan baharu</h3>
 <ul>
-<li><b>Komuniti</b> (<code>Team</code>, dan <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (semua orang berada dalam setiap saluran yang boleh dilihat), <code>default_channel_id</code> (tempat pendaratan orang baharu; kosong bermaksud Town Square), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> dan <code>autolinks</code> (kedua-duanya adalah rentetan JSON).</li>
+<li><b>Komuniti</b> (<code>Team</code>, dan <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (semua orang berada dalam setiap saluran yang boleh mereka lihat), <code>default_channel_id</code> (tempat pendaratan orang baharu; kosong bermaksud Am), <code>kind</code> (<code>community</code> atau <code>workplace</code>: dalam tempat kerja, pentadbir saluran juga boleh mengarkibkan saluran mereka; komuniti baharu mendapat <code>TeamSettings.DefaultCommunityKind</code> pelayan, <code>community</code> secara lalai), <code>member_list_view</code> (cara senarai ahli mengumpul ahli: <code>choice</code>, lalai, membolehkan setiap ahli memilih; <code>roles</code> atau <code>teams</code> memastikannya), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> dan <code>autolinks</code> (keduanya rentetan JSON).</li>
+<li><b>Saluran lalai</b> bagi komuniti baharu ialah <code>general</code> (<b>General</b>), bukan <code>town-square</code>. Kemas kini 0.9.0 menamakan semula <code>town-square</code> setiap komuniti kepada <code>general</code>, mengekalkan ID-nya, melainkan komuniti tersebut sudah mempunyai saluran <code>general</code>. Nama lama masih berfungsi: <code>GET /teams/{team_id}/channels/name/town-square</code>, <code>GET /teams/name/{team}/channels/name/town-square</code> dan <code>channel</code> webhook masuk memberikan saluran lalai komuniti tersebut apabila tiada saluran dengan nama itu. Gunakan <code>default_channel_id</code>, atau nama <code>general</code>, dalam kod baharu.</li>
+<li><b>Pautan saluran</b>: <code>#channel-name</code> memautkan saluran, sama seperti <code>~channel-name</code>. Prop <code>channel_mentions</code> hantaran senaraikan saluran yang dipautkan dengan mana-mana cara; <code>#word</code> yang tidak menamakan sebarang saluran kekal sebagai tag. Antarmuka web dan aplikasi mudah alih Antimatter menulis <code>#name</code>.</li>
+<li><b>Saluran diarkibkan</b> masih menerima ahli baharu (<code>POST /channels/{channel_id}/members</code>), yang boleh membaca sejarah mereka. Tiada siapa yang boleh menghantar, memberi reaksi, semat, meletakkan mesej di bahagian atas, menamakan semula saluran atau mengubah peranan ahli di sana.</li>
 <li><b>Balas dalaman</b>: hantaran dengan <code>"props": {"reply_to": "&lt;post id&gt;"}</code> mengutip mesej tersebut dari saluran yang sama. Tambah <code>"reply_to_mention": false</code> untuk tidak memaklumkan pengarangnya. Pelayan mengisi <code>metadata.reply_to</code> dengan penerangan ringkas tentang mesej yang dikutip.</li>
 <li><b>Spoiler</b>: <code>"props": {"spoiler": true}</code> menyembunyikan teks dan fail hantaran sehingga pembaca memilih untuk melihatnya.</li>
 <li><b>Abai dan halang</b> adalah tetapan: kategori <code>user_block</code>, dinamakan mengikut ID orang lain, dengan nilai <code>ignore</code> atau <code>block</code>. Sama ada mesej terus menunggu sebagai permintaan terdapat dalam <code>notify_props.dm_request</code> ahli saluran anda (<code>pending</code>, <code>accepted</code> atau <code>dismissed</code>).</li>
 <li><b>Lampiran mesej</b> boleh membawa <code>stages</code> dan <code>chart</code>: lihat <a href="{{root}}docs/developers/webhooks.html#cards">Kad</a>.</li>
 </ul>
+
+<h2 id="move-thread">Alihkan bebenang</h2>
+<p><code>POST /posts/{post_id}/move_to_channel</code> mengalihkan bebenang, mesej pertamanya dan semua balasannya, ke saluran lain dalam komuniti yang sama. <code>post_id</code> boleh menjadi mesej pertama atau mana-mana balasan.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts/$POST_ID/move_to_channel \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$TARGET_CHANNEL_ID'", "flatten": false}'</code></pre>
+<ul>
+<li><code>channel_id</code> (diperlukan): saluran yang bebenang dialihkan ke sana.</li>
+<li><code>flatten</code> (lalai <code>false</code>): <code>true</code> menjadikan balasan sebagai mesej saluran sasaran, bukan bebenang. <b>Jadikan saluran</b> Fusion menggunakannya.</li>
+</ul>
+<p>Mesej-mesej ini mengekalkan pengarang, masa, reaksi dan fail. Salinannya membawa prop <code>silent_notification</code>, jadi ia tidak memberi pemberitahuan kepada sesiapa. Mesej asal akan dipadam. Jawapannya ialah mesej pertama yang dialihkan, dengan ID baharunya.</p>
+<h3>Siapa yang boleh mengalihkan bebenang</h3>
+<ul>
+<li>Anda mesti boleh membaca bebenang dan menghantar dalam saluran sasaran.</li>
+<li>Pentadbir saluran, pentadbir komuniti, orang yang mempunyai <b>Urus mesej</b> (<code>delete_others_posts</code>) dalam saluran, dan pentadbir sistem boleh mengalihkan mana-mana bebenang.</li>
+<li>Pengarang bebenang boleh mengalihkannya apabila kedua-dua saluran adalah awam, atau apabila semua mesej dalam bebenang adalah miliknya. Jika tidak, jawapannya ialah <code>403</code> dengan ID <code>api.post.move_thread.private_needs_moderator.app_error</code>.</li>
+<li>Kedua-dua saluran mesti berada dalam komuniti yang sama (tiada mesej terus atau kumpulan), berbeza, dan tidak diarkibkan. Mesej sistem dan mesej yang dibakar selepas dibaca tidak boleh dipindahkan.</li>
+<li>Bebenang yang lebih panjang daripada <code>WranglerSettings.MoveThreadMaxCount</code> mesej (100 secara lalai; 0 untuk tiada had) akan ditolak.</li>
+</ul>
+<h3>Penuding dan nota</h3>
+<p>Pemindahan ini meninggalkan dua mesej sistem jenis <code>system_wrangler</code>: penuding dalam saluran lama ("Bebenang dengan 13 mesej telah dipindahkan ke #target") dan nota dalam sasaran ("Bebenang ini dipindahkan dari #source"), di bawah bebenang yang dipindahkan atau, dengan <code>flatten</code>, selepas mesej-mesejnya. Selain teks mesej, properti mereka membolehkan klien melukis nama saluran sebagai pautan:</p>
+<ul>
+<li>Penuding: <code>MovedThreadPermalink</code>, <code>NumMessages</code>, <code>MovedThreadChannelId</code>, <code>MovedThreadTeamName</code>, <code>MovedThreadPostId</code>, dan, untuk sasaran awam, <code>MovedThreadChannelName</code> dan <code>MovedThreadChannelDisplayName</code>.</li>
+<li>Nota: <code>MovedFromChannelId</code>, <code>MovedFromTeamName</code>, <code>MovedFromPostId</code> (penuding), <code>MovedFromPermalink</code>, dan, untuk sumber awam, <code>MovedFromChannelName</code> dan <code>MovedFromChannelDisplayName</code>.</li>
+</ul>
+<p>Keduanya juga mempunyai <code>TranslationID</code>. Nama saluran peribadi ditinggalkan: pembaca melihat "saluran lain". <code>POST /posts/{post_id}/move</code> milik Mattermost sendiri kekal dimatikan dalam Antimatter; gunakan titik akhir ini.</p>
+
+<h2 id="ai-connections">Sambungan model</h2>
+<p>Sambungan model ialah alamat dan kunci pembekal AI, diset oleh pentadbir. Ciri-ciri AI pelayan dan aplikasi yang memanggil perkhidmatan AI menggunakannya. Pentadbir sistem mengurus sambungan peringkat pelayan (<code>manage_ai_connections</code>); pentadbir komuniti mengurus sambungan komuniti mereka sendiri (<code>manage_team_ai_connections</code>). Kunci adalah tulis sahaja: tiada jawapan membawa satu, hanya <code>api_key_set</code> dan <code>api_key_last4</code>.</p>
+<table>
+<thead><tr><th>Pintu</th><th>Fungsinya</th></tr></thead>
+<tbody>
+<tr><td><code>GET /ai/connections?scope=</code></td><td>Sambungan yang anda urus. <code>scope</code> ialah <code>server</code> atau ID komuniti; tanpanya, semua skop yang anda urus.</td></tr>
+<tr><td><code>POST /ai/connections</code></td><td>Menambah sambungan (menjawab <code>201</code>).</td></tr>
+<tr><td><code>POST /ai/connections/test</code>, <code>POST /ai/connections/models</code></td><td>Menguji sambungan, atau senaraikan modelnya, sebelum ia disimpan. Badan yang sama seperti menambah satu; tiada apa yang disimpan.</td></tr>
+<tr><td><code>GET</code>, <code>PATCH</code> (atau <code>PUT</code>), <code>DELETE /ai/connections/{connection_id}</code></td><td>Membaca, mengubah atau memadam sambungan. Pecahan hanya membawa medan yang perlu diubah; tinggalkan <code>api_key</code> untuk mengekalkan kunci.</td></tr>
+<tr><td><code>POST /ai/connections/{connection_id}/test</code></td><td>Menguji sambungan yang disimpan: <code>{"ok", "error", "status_code", "latency_ms", "model_count"}</code>.</td></tr>
+<tr><td><code>GET /ai/connections/{connection_id}/models</code></td><td>Model yang ditawarkan oleh pembekal.</td></tr>
+<tr><td><code>GET /ai/connections/{connection_id}/usage</code></td><td>Permintaan dan token bulan ini.</td></tr>
+<tr><td><code>GET /ai/connections/usable?channel_id=&amp;team_id=</code></td><td>Untuk sesiapa sahaja yang log masuk: sambungan yang boleh anda gunakan di sana, dengan model dan keupayaannya, bukan kunci atau alamatnya.</td></tr>
+</tbody>
+</table>
+<p>Isi badan sambungan baharu:</p>
+<pre><code>{
+  "name": "Local models",
+  "scope": "server",
+  "provider": "openai_compatible",
+  "base_url": "http://llm.internal:8000/v1",
+  "api_key": "…",
+  "extra_headers": {},
+  "models": {"chat": "qwen3-32b", "embeddings": "", "transcription": "", "decisions": ""},
+  "limits": {"requests_per_minute": 0, "monthly_token_budget": 0, "per_user_requests_per_minute": 0, "per_user_monthly_token_budget": 0},
+  "sharing": {"all_teams": true, "team_ids": []},
+  "audience": {"everyone": true, "group_ids": [], "roles": [], "allow_guests": false}
+}</code></pre>
+<p><code>provider</code> ialah <code>openai_compatible</code> atau <code>anthropic</code>. <code>scope</code> secara lalai ialah <code>server</code>; ID komuniti menjadikannya sambungan komuniti tersebut. Dalam <code>limits</code>, 0 bermaksud tiada had; permintaan per minit dikira pada setiap server, bajet token per bulan kalendar (UTC) untuk keseluruhan kluster. <code>sharing</code> menyatakan komuniti mana yang boleh menggunakan sambungan seluruh server (Mesej Terus dan Mesej Kumpulan memerlukan <code>all_teams</code>), dan <code>audience</code> menyatakan sesiapa yang boleh menggunakannya; Tetamu hanya dengan <code>allow_guests</code>. Perubahan ditulis ke dalam log audit. Panduan pentadbir menerangkan tetapan: lihat <a href="{{root}}docs/admins/ai.html">AI</a>.</p>

@@ -1,10 +1,10 @@
 title: Skriva appar (plugins)
-description: Så här skriver du en Antimatter-app (plugin): bundle-layout och plugin.json, serverhooks och API, webappens registry, stöd för Fusion-gränssnittet, inställningar, nyckel-värde-lagret, översättningar, paketering och installation.
+description: Så skriver du en Antimatter-app (plugin): bundle-layout och plugin.json, serverhooks och API, AI-tjänsten, webapp-registret, stöd för Fusion-gränssnittet, inställningar, nyckel-värde-lagret, översättningar, paketering och installation.
 guide: developers
 order: 6
 nav: Skriva appar
 lead: Appar lägger till funktioner i Antimatter inifrån: en serverdel i Go som kopplar in sig i servern, och en webappdel i React som lägger till menyer, paneler, meddelandetyper och sidor. Denna sida visar hur en app är uppbyggd, med den medföljande appen Omröstningar som exempel, och vad som ändras i Antimatters Fusion-gränssnitt.
-source: d9c132cac759
+source: f2c14bacc2f3
 ---
 <h2 id="overview">Så här fungerar en app</h2>
 <ul>
@@ -131,6 +131,22 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 <li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: kontrollera vem som får göra vad innan du agerar för en användare.</li>
 </ul>
 <p>En app körs på varje server i en kluster. Spara tillstånd i nyckel-värde-lagret eller i databasen, inte bara i minnet.</p>
+<h3 id="ai">AI-tjänsten</h3>
+<p>Antimatters server anropar AI-modeller för appar via de modellanslutningar som en administratör har konfigurerat (se <a href="{{root}}docs/admins/ai.html">AI</a> i administratörguiden). En app förvarar aldrig en leverantörs nyckel: den anger vilken person den agerar för och var, och servern kontrollerar att personen får använda anslutningen där, tillämpar dess begränsningar och budgetar, räknar token mot personen och appen, samt granskar anropet utan dess innehåll.</p>
+<table>
+<thead><tr><th>Metod</th><th>Vad den gör</th></tr></thead>
+<tbody>
+<tr><td><code>AIChat(actingUserID, channelID, teamID, *ai.ChatRequest)</code></td><td>En chattfullbordan: meddelanden, verktyg, strukturerad output (<code>JSONSchema</code>).</td></tr>
+<tr><td><code>AIChatStream(…)</code></td><td>Samma, strömmat: läs strömmens <code>Events</code> tills kanalen stängs, eller <code>Close</code> den för att stoppa anropet.</td></tr>
+<tr><td><code>AIEmbed(…, *ai.EmbedRequest)</code></td><td>Embeddings av texter.</td></tr>
+<tr><td><code>AITranscribe(…, *ai.TranscribeRequest)</code></td><td>Tal till text.</td></tr>
+<tr><td><code>AIDecide(…, *ai.DecideRequest)</code></td><td>Typade frågor till ett beslutsmodell (ja eller nej, ett val, ett betyg) om en text.</td></tr>
+<tr><td><code>AIConnectionsForUser(userID, channelID, teamID)</code></td><td>De anslutningar en person får använda där, med deras modeller och funktioner, aldrig deras nycklar.</td></tr>
+</tbody>
+</table>
+<p>Varje anropets <code>ConnectionID</code> väljer anslutningen, och <code>Model</code> en av dess modeller (tomt för anslutningens standard). <code>Operation</code> är en kort etikett för användnings- och granskningsregister, aldrig innehåll. Deras minsta serverversion är 11.11.</p>
+<div class="callout warn">Använd <code>actingUserID</code> endast från en källa som servern verifierat: <code>Mattermost-User-Id</code>-rubriken i ett anrop till din <code>ServeHTTP</code>, eller användaren i en hooks kontext (ett inläggs författare, användaren som körde ett kommando). Ta aldrig ifrån ett meddelande, en webhook-payload, en URL eller en annan apps anrop: din app skulle annars använda någon annans åtkomst.</div>
+<p>Dessa metoder och <code>ai</code>-paketet (<code>server/public/ai</code>) finns endast i Antimatters kopia av modulen, inte i versionen publicerad av Mattermost. För att använda dem, bygg mot Antimatters <code>server/public</code> med en <code>replace</code>-rad i din <code>go.mod</code>, till exempel <code>replace github.com/mattermost/mattermost/server/public =&gt; ../antimatter/server/public</code>. En sådan app körs endast på Antimatter.</p>
 
 <h2 id="kv">Lagring av data</h2>
 <p>Varje app har sitt eget nyckel-värde-lager i serverns databas:</p>
@@ -172,23 +188,23 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <pre><code>export function isFusionUI(): boolean {
     return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
 }</code></pre>
-<p>De medföljande apparna använder detta för att renderas annorlunda. Omröstningar ritar sina omröstningskort och sitt skapelsesammanhang i Fusions stil, och öppnar sitt eget sammanhang för <code>/poll</code> i Fusion. Samtal och röstkanaler utesluter sidofältet och aviseringskomponenterna som Fusion byter ut mot sitt eget samtalsgränssnitt. Agent-appen placerar sina AI-handlingar i ett undermeny i meddelandemenyn istället för förhandsvisningsverktygsfältet. Fusions egna CSS-klasser (med prefixet <code>am-</code>) och dess sammanhangslager (elementet <code>am-layer</code>) är det som dessa appar använder för att matcha gränssnittet; de är inte en dokumenterad, stabil API.</p>
+<p>De medföljande apparna använder detta för att renderas annorlunda. Omröstningar ritar sina kort och sitt skapelsedialog i Fusion-stil och öppnar ett eget dialog för <code>/poll</code> i Fusion. Samtal och röstkanaler utesluter sidofältet och toast-komponenterna som Fusion byter ut mot sitt eget samtalsgränssnitt. Agent-appen placerar sina AI-åtgärder i meddelandemenyn, som en grupp under <b>Fler åtgärder</b>, istället för förhållningsverktygsfältet. Fusions egna CSS-klasser (med prefixet <code>am-</code>) och dess dialoglager (elementet <code>am-layer</code>) är det som dessa appar använder för att matcha gränssnittet; de är inte en dokumenterad, stabil API.</p>
 <h3>Var Fusion visar plugin-komponenter</h3>
 <table>
 <thead><tr><th>Registreringsmetod</th><th>Var det visas i Fusion</th></tr></thead>
 <tbody>
-<tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>Appspåret, kolumnen med ikoner på höger kant, mellan din avatar och knappen <b>Om Antimatter</b>. Kanalknapparna hamnar också här, inte i kanalens rubrik. Dold när en systemadministratör aktiverar <b>Inaktivera Apps Bar</b> (<code>ExperimentalSettings.DisableAppBar</code>, inaktiverad som standard).</td></tr>
-<tr><td><code>registerRightHandSidebarComponent</code></td><td>Panelen till höger. Användare kan ändra dess storlek genom att dra dess kant. Om appen också är en produkt, erbjuder panelen <b>Öppna som helsida</b>.</td></tr>
+<tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>Appspåret, kolumnen med ikoner på höger kant, mellan din avatar och knappen <b>Om Antimatter</b>. Kanalrubrikknappar hamnar också där, inte i kanalrubriken. Dold när en systemadministratör aktiverar <b>Inaktivera Apps Bar</b> (<code>ExperimentalSettings.DisableAppBar</code>, inaktiverad som standard).</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>Panelen till höger. Användare kan ändra dess storlek genom att dra i kanten och öppna den i ett nytt fönster. Om appen också är en produkt erbjuder panelen <b>Öppna som helsida</b>. Se <a href="#panel-state">Panelen i ett nytt fönster</a>.</td></tr>
 <tr><td><code>registerChannelHeaderIcon</code></td><td>Ikoner i kanalens huvud, efter samtalssknapparna; på telefoner, i huvudets <b>Mer</b>-meny.</td></tr>
 <tr><td><code>registerCallButtonAction</code></td><td>Kanalens huvud samtalssknapp; flera leverantörer delar en <b>Andra sätt att ringa</b>-meny.</td></tr>
-<tr><td><code>registerPostDropdownMenuAction</code></td><td>Meddelandets meny <b>Fler åtgärder</b> (⋯), i undermenyn <b>Åtgärder för meddelanden</b>; även i trådfältets meny <b>Trådåtgärder</b>, under <b>Fler åtgärder</b>.</td></tr>
-<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Sitt eget undermeny i samma menyer, med appens namn och ikon.</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>Meddelandets <b>Åtgärder för meddelanden</b> (⋯) -meny, i dess undermeny <b>Fler åtgärder</b>; även i trädpanelens <b>Trådåtgärder</b> -meny, under <b>Fler åtgärder</b>. Fusion ritar appens ikon före varje åtgärd, i grått: dess egen ikon för de medföljande apparna, annars den ikon appen visar i appspåret, annars en neutral. Ett element utan text i början av åtgärdens text (en ikon appen ritar själv) göms.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>En grupp med en rubrik i samma undermeny <b>Fler åtgärder</b>, efter de enskilda åtgärderna. Ingen app får ett eget objekt i meddelandemenyn.</td></tr>
 <tr><td><code>registerPostActionComponent</code></td><td>Meddelandets förhandsvisningsverktygsfält, före ⋯-knappen.</td></tr>
 <tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>Självständigt meddelande: dess innehåll, under dess text, efter dess tid, och i stället för länkförhandsvisningar.</td></tr>
-<tr><td><code>registerChannelHeaderMenuAction</code></td><td>Kanalens meny <b>Kanalalternativ</b> (⋯ på en kanal i sidofältet, eller högerklick), som objekt med en stickikone.</td></tr>
-<tr><td><code>registerMainMenuAction</code></td><td>Community-menyn (communityns namn högst upp i kanallistan), under <b>Fler åtgärder</b>, grupperade efter app.</td></tr>
+<tr><td><code>registerChannelHeaderMenuAction</code></td><td>Kanalens <b>Kanalalternativ</b> -meny (⋯ på en kanal i sidofältet, eller högerklick), som objekt med en stickkontakt-ikon.</td></tr>
+<tr><td><code>registerMainMenuAction</code></td><td>Gemenskapens meny (gemenskapens namn i toppen av kanallistan), under <b>Fler åtgärder</b>, grupperad per app.</td></tr>
 <tr><td><code>registerSidebarBrowseOrAddChannelMenuAction</code></td><td>Gemenskapens meny, efter <b>Skapa kanal</b> och <b>Skapa kategori</b>.</td></tr>
-<tr><td><code>registerFileUploadMethod</code></td><td>Komponerarens meny <b>+</b> (<b>Lägg till i meddelandet</b>), efter <b>Ladda upp en fil</b>.</td></tr>
+<tr><td><code>registerFileUploadMethod</code></td><td>Komponerarens <b>+</b> -meny (<b>Lägg till i meddelandet</b>), efter <b>Ladda upp en fil</b>.</td></tr>
 <tr><td><code>registerPostEditorActionComponent</code></td><td>Skrivfältets formateringsfält, när formatering visas.</td></tr>
 <tr><td><code>registerAIActionMenuItemComponent</code></td><td>Skrivfältets <b>AI</b>-meny.</td></tr>
 <tr><td><code>registerFileDropdownMenuAction</code>, <code>registerFilePreviewComponent</code></td><td>En filens inställningsmeny, och filens förhandsvisning.</td></tr>
@@ -200,7 +216,7 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <tr><td><code>registerChannelTypeOption</code></td><td>Kanaltyperna i dialogrutan <b>Skapa kanal</b>.</td></tr>
 <tr><td><code>registerSearchComponents</code></td><td>Sökfältet i kanalens sidhuvud: appomfång visas när det är tomt.</td></tr>
 <tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>Om Antimatter</b> (längst ner i appmenyn), under <b>Hjälp</b>.</td></tr>
-<tr><td><code>registerProduct</code></td><td>Hela sidor på produktens URL, listade under <b>Produkter</b> i <b>Om Antimatter</b>. Produktsidorna behåller den klassiska sidramen.</td></tr>
+<tr><td><code>registerProduct</code></td><td>Helsidor på produktens URL, listade under <b>Produkter</b> i <b>Om Antimatter</b>. Produktsidor behåller den klassiska sidramen, vars produktmeny endast visas när en app registrerar en produkt eller lägger till ett objekt i den. De medföljande apparna Kanban och Playbooks registrerar inte längre produkter: deras sidor öppnas i deras sidopaneler.</td></tr>
 <tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, hooks såsom <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>Fungerar som i det klassiska gränssnittet.</td></tr>
 <tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>Systemkonsolen, som är den klassiska i båda gränssnitten.</td></tr>
 </tbody>
@@ -209,7 +225,7 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <ul>
 <li><code>registerPostDropdownMenuComponent</code> (en komponent i meddelandemenyn), <code>registerPostCardTypeComponent</code> (ett meddelandekort i panelen till höger) och <code>registerProductSwitcherMenuItem</code> visas inte i Fusions huvudvyer. Använd <code>registerPostDropdownMenuAction</code> istället för den första.</li>
 <li><code>registerMessageWillBeUpdatedHook</code> körs inte när ett meddelande redigeras i Fusion. Kontrollera redigeringar på servern med hooken <code>MessageWillBeUpdated</code> istället.</li>
-<li><code>registerActionAfterChannelCreation</code> körs endast från den klassiska dialogen för att skapa kanal, som Fusion öppnar från <b>Fler alternativ…</b> i sin dialog <b>Skapa kanal</b>.</li>
+<li><code>registerActionAfterChannelCreation</code> körs endast från den klassiska dialogrutan för kanalskapning, som Fusion öppnar från <b>Fler alternativ…</b> i dialogrutan <b>Skapa kanal</b>.</li>
 <li>Komponenter i appmenyn visas oavsett deras <code>supportedProductIds</code>.</li>
 <li>Sökvägar från <code>registerNeedsTeamRoute</code> och <code>registerCustomRoute</code> behåller den klassiska sidramen, liksom produkter.</li>
 </ul>
@@ -230,12 +246,21 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <thead><tr><th>Metod</th><th>Vad den lägger till</th></tr></thead>
 <tbody>
 <tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>En post i meddelandefältets <b>+</b>-meny, i båda gränssnitten. <code>action</code> tar emot <code>{channelId, rootId}</code>.</td></tr>
-<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>En flik i meddelandefältets emojivaljare, till exempel GIF:er eller klistermärken. I Fusion visas flikar med ett <code>order</code>-värde under 10 före fliken Emojier. Komponenten tar emot <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> och <code>isFusion</code>.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>En flik i meddelandefältets emojivaljare, till exempel GIF:er eller klistermärken. I Fusion kommer flikar med ett <code>order</code>-värde under 10 före fliken Emojier. Komponenten tar emot <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code>, <code>isFusion</code> och, i Fusion, <code>pickerKit</code> (se nedan).</td></tr>
 <tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>En panel mellan kanalens rubrik och meddelandena, för de kanaler som <code>matcher(state, channel)</code> väljer. Den kan dölja meddelandena och meddelandefältet (<code>setMessagesVisible</code>), precis som röstkanaler gör.</td></tr>
 <tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>En rad under en kanal i sidofältet, till exempel personerna i dess samtal. Den tar emot <code>channel</code>.</td></tr>
-<tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Endast Fusion: ett objekt på sidorna <b>Integrationer</b>, intill anpassade emojier. GIF-appen lägger till sina anpassade GIF:er och klistermärken där.</td></tr>
+<tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Endast Fusion: en post på sidorna <b>Integrationer</b>, intill anpassade emojier. GIF-appen lägger till sina anpassade GIF:er och klistermärken där.</td></tr>
 </tbody>
 </table>
+<h3 id="picker-kit">Lägg till och hantera vyer i emojivaljaren</h3>
+<p>I Fusion får en flik i emojivaljaren egenskapen <code>pickerKit</code>: de komponenter som fliken Emojier använder för sina egna vyer för att lägga till och hantera, så att en fliks vyer ser likadana ut och förblir inuti valjaren. Apparna GIF:er och Memes använder den för att lägga till och hantera GIF:er, klistermärken och memmallar. Den innehåller <code>version</code> (1), hookarna <code>usePickerView</code> och <code>useOnEscape</code>, samt komponenterna <code>PickerViewButtons</code> (knapparna <b>+</b> och Hantera bredvid sökfältet), <code>PickerViewFrame</code> (en vy med dess bak-pekare), <code>PickerNotice</code>, <code>PickerField</code>, <code>PickerSearch</code>, <code>PickerDropZone</code> och <code>PickerManageList</code>. Escape går tillbaka från en vy till flikens rutnät. Kontrollera att egenskapen finns: andra värdar utesluter den, och då behåller fliken sina egna dialogrutor. Typerna finns i <code>webapp/fusion/src/types/store/plugins.ts</code> (<code>EmojiPickerTabProps</code>) och komponenterna i <code>webapp/fusion/src/fusion/popovers/picker_views.tsx</code>.</p>
+<h3 id="panel-state">Panelen i ett nytt fönster</h3>
+<p>Fusion ger komponenten för <code>registerRightHandSidebarComponent</code> två ytterligare egenskaper, så att <b>Öppna i nytt fönster</b> öppnar panelen där den var istället för på appens startsida:</p>
+<ul>
+<li><code>setPanelState(state)</code>: anropa den när panelen byter plats, med en kort sträng som din app definierar, till exempel <code>'note/&lt;id&gt;'</code> eller <code>'board/&lt;id&gt;/card/&lt;id&gt;'</code>, eller <code>null</code> på dess startsida. Den hamnar i fönstrets adress, så lägg aldrig in en hemlighet i den. En tillstånd som är längre än 512 tecken, eller som innehåller styrtecken, kasseras.</li>
+<li><code>initialPanelState</code>: i det nya fönstret, det tillstånd som panelen hade, eller <code>undefined</code>. Behandla det som opålitlig indata: hämta objektet igen som den inloggade användaren, och visa appens startsida eller en vy för att objektet inte hittades om de inte kan öppna det.</li>
+</ul>
+<p>Tillståndet glöms bort när panelen stängs eller när en annan apps panel tar dess plats. För att själv öppna ett panels fönstert, <code>popoutRhsPlugin</code> (även i <code>window.WebappUtils.popouts</code>) tar tillståndet som ett valfritt femte argument. Anteckningar, Whiteboard, Att göra, Kanban och Playbooks använder detta.</p>
 <p><code>fusionIcon</code> anger en ikon ur Fusions ikonuppsättning (till exempel <code>poll</code>, <code>sticker</code>, <code>calendar</code> eller <code>image</code>; se <code>webapp/fusion/src/fusion/components/icon</code>). Fusion visar den istället för <code>icon</code>, så att objektet matchar de andra.</p>
 
 <h2 id="settings">Inställningar</h2>
@@ -308,6 +333,6 @@ registry.registerTranslations(translationsFor);</code></pre></li>
 <ul>
 <li>En systemadministratör tillåter uppladdningar med <code>AM_PLUGINSETTINGS_ENABLEUPLOADS=true</code> (av som standard; det finns ingen växlar i Systemkonsolen).</li>
 <li>Därefter <b>Systemkonsol › Plugin › Pluginadministration › Ladda upp plugin</b>, eller <code>amctl plugin add weather.tar.gz</code> följt av <code>amctl plugin enable com.example.weather</code>.</li>
-<li>Om servern har <b>Kräv Plugin-signatur</b> aktiverat, accepterar den endast paket som är signerade med en nyckel den litar på; se <a href="{{root}}docs/admins/apps.html#other-apps">Installera andra appar</a>.</li>
+<li>Om servern har <b>Kräv Plugin-signatur</b> aktiverat, accepterar den endast paket som är signerade med en nyckel den litar på; se <a href="{{root}}docs/admins/apps.html#other-apps">Installation av andra appar</a>.</li>
 </ul>
 <div class="callout">För snabba iterationer på en utvecklingsserver, sätt <code>AM_SERVICESETTINGS_ENABLEDEVELOPER=true</code> på servern: felmeddelanden bär då med sig sina detaljer. De medföljande apparnas Makefiles bygger serverdelen endast för din plattform när <code>MM_SERVICESETTINGS_ENABLEDEVELOPER</code> är satt i din skal.</div>

@@ -3,96 +3,134 @@ description: Sauvegarder et restaurer un serveur Antimatter (base de données, s
 guide: admins
 order: 10
 nav: Sauvegardes et mises à niveau
-lead: Ce qu'il faut sauvegarder, comment le restaurer sur un nouvel hôte, comment mettre à niveau, et comment migrer un serveur Mattermost ou une seule communauté vers Antimatter.
-source: b0797af8b6e7
+lead: Ce qu'il faut sauvegarder, comment le restaurer sur un nouvel hôte, comment effectuer une mise à niveau, et comment migrer un serveur Mattermost ou une seule communauté vers Antimatter.
+source: 531ec332715c
 ---
 <h2 id="what">Ce qu'il faut sauvegarder</h2>
 <table>
-<thead><tr><th>Élément</th><th>Avec le fichier compose du site</th><th>Avec une archive de version</th></tr></thead>
+<thead><tr><th>Élément</th><th>Avec le fichier compose du site</th><th>Avec une archive de version</th><th>Avec le paquet .deb ou .rpm</th></tr></thead>
 <tbody>
-<tr><td>La base de données : messages, utilisateurs, communautés, canaux et, avec le fichier compose du site, la configuration</td><td>volume <code>antimatter_postgres</code>, via <code>pg_dump</code></td><td>votre base de données PostgreSQL</td></tr>
-<tr><td>Fichiers, images et applications installées envoyés</td><td>volume <code>antimatter_files</code> (le stockage S3)</td><td><code>FileSettings.Directory</code>, <code>./data/</code> par défaut</td></tr>
-<tr><td>Le fichier de configuration</td><td>(dans la base de données)</td><td><code>config/config.json</code></td></tr>
-<tr><td>GIFs et autocollants</td><td>volume <code>antimatter_gifs</code></td><td>le répertoire de données du service GIF</td></tr>
-<tr><td>Secrets</td><td><code>.env</code> (et <code>compose.override.yaml</code>)</td><td>votre fichier d'environnement</td></tr>
+<tr><td>La base de données : messages, utilisateurs, communautés, canaux et, avec le fichier compose du site, la configuration</td><td>volume <code>antimatter_postgres</code>, via <code>pg_dump</code></td><td>votre base de données PostgreSQL</td><td>votre base de données PostgreSQL</td></tr>
+<tr><td>Fichiers, images et applications installées envoyés</td><td>volume <code>antimatter_files</code> (le stockage S3)</td><td><code>FileSettings.Directory</code>, <code>./data/</code> par défaut</td><td><code>/var/lib/antimatter</code></td></tr>
+<tr><td>Le fichier de configuration</td><td>(dans la base de données)</td><td><code>config/config.json</code></td><td><code>/etc/antimatter/config/config.json</code></td></tr>
+<tr><td>GIFs et autocollants</td><td>volume <code>antimatter_gifs</code></td><td>le répertoire de données du service GIF</td><td><code>/var/lib/gifs-server</code></td></tr>
+<tr><td>Secrets</td><td><code>.env</code> (et <code>compose.override.yaml</code>)</td><td>votre fichier d'environnement</td><td><code>/etc/antimatter/antimatter.env</code>, <code>/etc/gifs-server</code></td></tr>
+<tr><td>La clé de chiffrement IA, qui chiffre les clés des connexions aux modèles</td><td><code>AM_AI_ENCRYPTION_KEY</code> dans <code>.env</code> (recommandé), ou le fichier <code>ai-encryption.key</code> dans le volume <code>antimatter_data</code></td><td><code>AM_AI_ENCRYPTION_KEY</code>, ou <code>data/ai-encryption.key</code></td><td><code>AM_AI_ENCRYPTION_KEY</code> dans <code>antimatter.env</code>, ou <code>/var/lib/antimatter/data/ai-encryption.key</code></td></tr>
 </tbody>
 </table>
-<p>La base de données et les fichiers sont liés : sauvegardez-les en même temps et conservez des copies hors du serveur. Les noms de volumes commencent par le nom du projet compose, <code>antimatter</code> (<code>docker volume ls</code> les liste).</p>
+<p>Sans la clé de chiffrement IA, un serveur restauré ne peut pas lire les clés API de ses connexions aux modèles, et chacune doit être ressaisie. Conservez une copie de la clé séparément des sauvegardes de la base de données, afin qu'une sauvegarde volée ne contienne pas les deux. Voir <a href="{{root}}docs/admins/ai.html#encryption-key">La clé de chiffrement</a>.</p>
+<p>La base de données et les fichiers vont de pair : sauvegardez-les en même temps et conservez des copies hors du serveur. Les noms de volumes commencent par le nom du projet compose, <code>antimatter</code> (<code>docker volume ls</code> les liste).</p>
 
 <h2 id="backup">Sauvegarder</h2>
-<p>Depuis le répertoire de <code>compose.yaml</code>. Arrêter Antimatter d'abord donne une copie entièrement cohérente ; une sauvegarde effectuée pendant son fonctionnement est généralement correcte, mais les fichiers envoyés pendant la sauvegarde peuvent en être absents.</p>
+<p>Depuis le répertoire de <code>compose.yaml</code>. Arrêter Antimatter d'abord fournit une copie entièrement cohérente ; une sauvegarde effectuée pendant son fonctionnement est généralement correcte, mais les fichiers envoyés pendant la sauvegarde peuvent en être absents.</p>
 <pre><code>stamp=$(date +%Y%m%d-%H%M%S)
 mkdir -p backups
 docker compose stop antimatter
 # Database
 docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
     &gt; "backups/antimatter-db-$stamp.dump"
-# File storage and GIF service
-for v in files gifs; do
+# File storage, GIF service and the data directory (the AI key file)
+for v in files gifs data; do
     docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
         alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
 done
 docker compose start antimatter
 # Secrets
 cp .env "backups/env-$stamp"</code></pre>
-<p>Exécutez-le depuis cron pour des sauvegardes quotidiennes, et copiez le répertoire <code>backups/</code> sur une autre machine. Conservez les copies de <code>.env</code> aussi sûres que le serveur : elles contiennent ses mots de passe.</p>
-<p>Pour copier les fichiers envoyés objet par objet (par exemple vers un autre stockage S3), utilisez l'outil en ligne de commande AWS du service <code>bucket</code> :</p>
+<p>Si vous n'avez pas défini <code>AM_AI_ENCRYPTION_KEY</code>, le fichier de clé du serveur se trouve dans le volume <code>data</code>, que la boucle ci-dessus sauvegarde avec les fichiers. Mieux vaut placer son contenu dans <code>.env</code>, comme l'explique <a href="{{root}}docs/admins/ai.html#encryption-key">La clé de chiffrement</a>, et en conserver une copie à part des sauvegardes de la base de données.</p>
+<p>Lancez-le depuis cron pour des sauvegardes quotidiennes, et copiez le répertoire <code>backups/</code> sur une autre machine. Gardez les copies de <code>.env</code> aussi en sécurité que le serveur : elles contiennent ses mots de passe.</p>
+<p>Pour copier les fichiers téléversés objet par objet (par exemple vers un autre stockage S3), utilisez l'outil en ligne de commande AWS du service <code>bucket</code> :</p>
 <pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
     "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
-<p>Avec une archive de version, sauvegardez la base de données avec <code>pg_dump -Fc</code>, et les répertoires <code>data/</code> et <code>config/</code> avec vos outils habituels.</p>
+<p>Avec une archive de version, sauvegardez la base de données avec <code>pg_dump -Fc</code>, ainsi que les répertoires <code>data/</code> et <code>config/</code> avec vos outils habituels (<code>data/</code> contient le fichier de clé IA). Avec les paquets, sauvegardez la base de données de la même manière, ainsi que <code>/etc/antimatter</code>, <code>/var/lib/antimatter</code>, <code>/etc/gifs-server</code> et <code>/var/lib/gifs-server</code>.</p>
 
-<h2 id="restore">Restaurer sur un nouvel hôte</h2>
+<h2 id="restore">Restauration sur un nouvel hôte</h2>
 <p>Placez <code>compose.yaml</code>, le <code>.env</code> sauvegardé et les sauvegardes dans un nouveau répertoire, puis :</p>
 <pre><code>stamp=20261016-030000          # the backup to restore
 docker compose create           # creates the volumes, starts nothing
 docker compose up -d postgres
 docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
     &lt; "backups/antimatter-db-$stamp.dump"
-for v in files gifs; do
+for v in files gifs data; do
     docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
         alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
 done
 docker compose up -d</code></pre>
-<p>Utilisez le même <code>.env</code> : le stockage et la base de données doivent conserver les mots de passe qu'ils avaient. Si le nouvel hôte a une autre adresse, mettez à jour <code>SITE_URL</code> (et <code>DOMAIN</code>).</p>
+<p>Utilisez le même <code>.env</code> : le stockage et la base de données doivent conserver les mots de passe qu'ils avaient, et les connexions aux modèles ont besoin de la même clé de chiffrement IA. Si le nouvel hôte a une autre adresse, mettez à jour <code>SITE_URL</code> (et <code>DOMAIN</code>).</p>
 <p>Testez vos sauvegardes en les restaurant sur une autre machine de temps en temps.</p>
 
-<h2 id="upgrade">Mettre à niveau</h2>
+<h2 id="upgrade">Mise à niveau</h2>
+<div class="callout warn">Les fichiers Compose téléchargés avant le 17 octobre 2026 n'avaient pas de volume <code>data</code> : le fichier de clé IA était dans le conteneur. Avant d'utiliser le nouveau <code>compose.yaml</code>, et si <code>.env</code> ne contient pas <code>AM_AI_ENCRYPTION_KEY</code>, sauvegardez la clé créée par le serveur : <code>echo "AM_AI_ENCRYPTION_KEY=$(docker compose exec -T antimatter cat /antimatter/data/ai-encryption.key)" &gt;&gt; .env</code>. Si la commande ne trouve pas de fichier, aucune connexion de modèle n'a encore enregistré de clé.</div>
 <ol>
 <li>Faites une sauvegarde.</li>
-<li>Changez l'étiquette de l'image dans <code>.env</code> (<code>ANTIMATTER_IMAGE</code>), si vous en fixez une, comme recommandé.</li>
-<li>Tirez et redémarrez :
+<li>Modifiez l'étiquette de l'image dans <code>.env</code> (<code>ANTIMATTER_IMAGE</code>), si vous en fixez une, comme recommandé.</li>
+<li>Téléchargez et redémarrez :
 <pre><code>docker compose pull
 docker compose up -d
 docker compose logs -f antimatter</code></pre></li>
 </ol>
-<p>Au démarrage, le serveur met à jour le schéma de la base de données (suivez l’opération dans le journal ; sur un serveur volumineux, cela peut prendre plusieurs minutes) et installe les versions plus récentes des applications intégrées à l’image. Avec une archive de version : arrêtez le serveur, remplacez tout sauf <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> et <code>client/plugins/</code> par le contenu de la nouvelle archive, puis redémarrez-le.</p>
-<div class="callout warn">Les mises à niveau ne se font que vers l’avant. Une fois qu’un serveur plus récent a mis à jour la base de données, une version antérieure ne peut plus l’utiliser : pour revenir en arrière, restaurez la sauvegarde effectuée avant la mise à niveau. La même règle s’applique au retour de <code>antimatter-next</code> à <code>antimatter</code>.</div>
+<p>Au démarrage, le serveur met à jour le schéma de la base de données (suivez l’opération dans le journal ; sur un serveur volumineux, elle peut prendre plusieurs minutes) et installe les versions plus récentes des applications intégrées à l’image. Avec une archive de version : arrêtez le serveur, remplacez tout sauf <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> et <code>client/plugins/</code> par le contenu de la nouvelle archive, puis redémarrez-le. Avec le paquet .deb ou .rpm, installez le nouveau paquet comme l’explique <a href="{{root}}docs/admins/install.html#packages">Mettre à jour un paquet</a>.</p>
+<div class="callout warn">Les mises à jour ne se font que vers l’avant. Une fois la base de données mise à jour par un serveur plus récent, une version antérieure ne peut plus l’utiliser : pour revenir en arrière, restaurez la sauvegarde effectuée avant la mise à jour. Il en va de même pour passer de <code>antimatter-next</code> à <code>antimatter</code>.</div>
 <h3>Versions</h3>
-<p>Le serveur Antimatter indique la version de la ligne Mattermost sur laquelle il est basé (actuellement 12.0.0). Les images sont reconstruites à partir des branches <code>main</code> : <code>antimatter-next</code> chaque nuit (tags <code>nightly-&lt;YYYYMMDD&gt;</code>) et les deux images à chaque modification (tags <code>sha-&lt;commit&gt;</code>). Fixez l'un de ces tags, effectuez les mises à niveau de manière intentionnelle et notez le tag précédent pour savoir à quelle sauvegarde il correspond.</p>
+<p>Le serveur Antimatter indique la version de la ligne Mattermost sur laquelle il est basé (actuellement 12.0.0). Les publications sur GitHub, avec leurs archives et leurs paquets, ont leurs propres numéros de version, dans la série 0.9.0 pendant la bêta : <code>antimatter version</code> l’affiche sous <b>Numéro de compilation</b>. Les images sont reconstruites à partir des branches <code>main</code> : <code>antimatter-next</code> chaque nuit (étiquettes <code>nightly-&lt;YYYYMMDD&gt;</code>) et les deux images à chaque modification (étiquettes <code>sha-&lt;commit&gt;</code>). Fixez l’une de ces étiquettes, effectuez les mises à niveau de manière intentionnelle et notez l’étiquette précédente pour savoir à quelle sauvegarde elle correspond.</p>
 <h3>Versions majeures de PostgreSQL</h3>
-<p>Le fichier compose utilise <code>postgres:17-alpine</code>. Antimatter nécessite PostgreSQL 15 ou une version plus récente. Une nouvelle version majeure de PostgreSQL ne peut pas lire le répertoire de données de la version précédente : pour passer à celle-ci, effectuez une décharge de la base de données, démarrez la nouvelle version sur un nouveau volume et restaurez la décharge dans celle-ci.</p>
+<p>Le fichier compose utilise <code>postgres:17-alpine</code>. Antimatter nécessite PostgreSQL 15 ou une version plus récente. Une nouvelle version majeure de PostgreSQL ne peut pas lire le répertoire de données de la version précédente : pour passer à une nouvelle version, effectuez une décharge de la base de données, démarrez la nouvelle version sur un nouveau volume et restaurez la décharge dans celle-ci.</p>
 
-<h2 id="mattermost">Migration depuis Mattermost</h2>
-<p>Antimatter utilise le schéma de base de données de Mattermost et y ajoute ses propres tables, ce qui lui permet de reprendre la base de données PostgreSQL et les fichiers d’un serveur Mattermost. Testez d’abord sur une copie :</p>
+<h2 id="v090">Mise à niveau vers 0.9.0</h2>
+<p>Le premier démarrage de la version 0.9.0 (ou d’une image construite à partir du 17 octobre 2026) effectue quelques modifications ponctuelles des données. Chacune s’exécute une seule fois et est consignée dans la base de données. Elles ramènent ce qui restait à une valeur par défaut ancienne à la nouvelle, et laissent intact ce qu’un administrateur a choisi. Suivez-les dans le journal.</p>
+<div class="callout warn">Si Antimatter est destiné à une entreprise ou à une organisation, définissez <b>Type de nouvelles communautés</b> sur <b>Entreprise</b> <em>avant</em> de mettre à jour : <code>AM_TEAMSETTINGS_DEFAULTCOMMUNITYKIND=workplace</code>. La mise à jour attribue à chaque communauté le type défini par ce paramètre au moment de l’opération, et les appels sont désactivés par défaut dans les canaux des communautés de type <b>Communauté</b>. Consultez <a href="{{root}}docs/admins/configuration.html#community-kind">Entreprise ou communauté</a>.</div>
+<table>
+<thead><tr><th>Élément</th><th>La modification</th></tr></thead>
+<tbody>
+<tr><td>Types de communauté</td><td>Chaque communauté reçoit un type, <b>Communauté</b> ou <b>Entreprise</b> : la valeur de <b>Type de nouvelles communautés</b> (<code>TeamSettings.DefaultCommunityKind</code>) au premier démarrage. Un type déjà défini est conservé. Les administrateurs de communauté peuvent modifier le type de leur communauté ultérieurement, dans <b>Paramètres de l’équipe › Canaux › Type de communauté</b>.</td></tr>
+<tr><td>Qui archive les canaux</td><td>Les membres d’un canal n’archivent plus les canaux auxquels ils appartiennent : ce sont les administrateurs de la communauté qui le font. Dans une entreprise, les administrateurs du canal (celui qui l’a créé, ainsi que ceux qu’il a nommés administrateurs) peuvent également l’archiver. Cela modifie les rôles du schéma système ; les schémas de permissions créés par un administrateur système pour certaines communautés restent inchangés.</td></tr>
+<tr><td>Le rôle Modérateurs des modèles de mise en page</td><td>Le rôle <b>Modérateurs</b> que les communautés ont reçu d’un modèle de mise en page obtient <b>Retirer des personnes</b>, ce qui est nécessaire pour suspendre et retirer des membres. Seuls les rôles restés exactement conformes au modèle sont modifiés ; un rôle modifié par un utilisateur est laissé tel quel.</td></tr>
+<tr><td>Rôles avec <b>Administrateur</b></td><td>Un rôle de communauté avec l’option <b>Administrateur</b> activée dispose désormais de toutes les actions que les administrateurs de la communauté peuvent effectuer, comme l’indique l’option, et non plus uniquement des paramètres de la communauté.</td></tr>
+<tr><td>La limite de membres</td><td><b>Nombre maximum de membres par communauté</b> (<code>TeamSettings.MaxUsersPerTeam</code>) passe de 50, l’ancienne valeur par défaut, à 0 (aucune limite). Toute autre valeur est conservée, de même qu’une limite définie avec <code>AM_TEAMSETTINGS_MAXUSERSPERTEAM</code>.</td></tr>
+<tr><td>Connexions aux modèles</td><td>Les administrateurs système obtiennent la gestion des connexions aux modèles, et les administrateurs de communauté (ainsi que les rôles avec <b>Administrateur</b>) celle des connexions propres à leur communauté. Les services IA de l’application Agents deviennent des <a href="{{root}}docs/admins/ai.html#connections">connexions aux modèles</a> au niveau du serveur, voir ci-dessous.</td></tr>
+<tr><td>Town Square devient Général</td><td>Le canal par défaut de chaque communauté est renommé de <code>town-square</code> (Town Square) à <code>general</code> (Général). Il conserve son identifiant, ses membres, ses messages et ses paramètres, ainsi que le nom d'affichage choisi par les administrateurs. Les anciens liens et les recherches par <code>town-square</code> continuent d'y mener. Une communauté qui possède déjà un canal nommé <code>general</code>, même archivé, conserve son <code>town-square</code> en tant que canal par défaut, tout comme une communauté dont le <code>town-square</code> est archivé : le journal les nomme, et leurs administrateurs peuvent renommer les canaux.</td></tr>
+<tr><td>Favoris</td><td>La catégorie de la barre latérale Favoris de tout le monde est renommée Favoris, comme l'indique désormais l'interface. Les catégories créées par les utilisateurs avec ce nom sont laissées telles quelles.</td></tr>
+</tbody>
+</table>
+<h3>Les services de l'application Agents</h3>
+<p>La mise à niveau copie chaque service IA de l'application Agents dans une connexion de modèle à l'échelle du serveur, partagée avec toutes les communautés et utilisable par tous sauf les invités (activez <b>Aussi les invités</b> pour les y autoriser). Les clés sont chiffrées en cours de route, donc le serveur a besoin de sa clé de chiffrement IA : sur un cluster dont les fichiers sont dans S3, définissez d'abord <code>AM_AI_ENCRYPTION_KEY</code>, sinon la copie attend le prochain démarrage. Puis vérifiez <b>Console système › IA › Connexions de modèles</b> :</p>
+<ul>
+<li>Chaque connexion conserve l'identifiant de son service, de sorte que les agents de l'application et une traduction automatique réglée sur un service Agents continuent de le trouver.</li>
+<li>Les services OpenAI, compatibles OpenAI, Anthropic, Mistral, Cohere et Gemini deviennent des connexions à leur point de terminaison compatible OpenAI (ou Anthropic). Un service Azure devient une connexion au point de terminaison compatible OpenAI de la ressource : testez-le.</li>
+<li>Les services AWS Bedrock, Google Vertex AI et Cohere North, ainsi que les types inconnus, sont marqués <b>Nécessite une attention</b>, avec la raison. Leurs identifiants cloud ne sont pas copiés : pointez-les vers le point de terminaison compatible OpenAI du fournisseur ou une passerelle telle que LiteLLM, puis enregistrez.</li>
+<li>Le service d'incorporation devient le modèle <b>Incarnations</b> de la connexion avec la même adresse et la même clé, ou une connexion à part entière. Le service de transcription reçoit le modèle <code>whisper-1</code>.</li>
+<li>Lorsque la réécriture et les résumés n'ont pas encore de connexion, ils reçoivent le service et le modèle de l'agent par défaut de l'application.</li>
+</ul>
+<p>Les paramètres et les données propres à l'application Agents sont laissés tels qu'ils étaient : ses agents continuent d'utiliser ses services.</p>
+<h3>Autres modifications des valeurs par défaut</h3>
+<ul>
+<li><b>Appels</b> : le <b>Mode test</b> est désactivé et <b>Activer la vidéo</b> est activé par défaut. Un choix enregistré dans la configuration est conservé. Les appels suivent également le type de communauté (voir <a href="{{root}}docs/admins/calls.html#where-calls">Appels et voix</a>).</li>
+<li>Placer les messages en tête de liste est réservé aux administrateurs du canal, aux administrateurs et modérateurs de la communauté (avec <b>Gérer les messages</b>) ; les membres d'un message personnel ou de groupe peuvent toujours le faire.</li>
+<li>Les canaux archivés peuvent accueillir de nouveaux membres, qui peuvent consulter leur historique. Personne ne peut y publier, réagir ou modifier quoi que ce soit.</li>
+</ul>
+
+<h2 id="mattermost">Passer de Mattermost</h2>
+<p>Antimatter utilise le schéma de base de données de Mattermost et y ajoute ses propres tables, ce qui lui permet de reprendre la base de données PostgreSQL et les fichiers d'un serveur Mattermost. Essayez d'abord sur une copie :</p>
 <ol>
-<li>Sauvegardez la base de données Mattermost, son stockage de fichiers (<code>data/</code> ou bucket S3) et <code>config.json</code>, puis arrêtez Mattermost.</li>
-<li>Restaurez la base de données dans PostgreSQL d’Antimatter, ou pointez Antimatter vers une copie de celle-ci (<code>AM_SQLSETTINGS_DATASOURCE</code>).</li>
-<li>Copiez les fichiers dans le stockage d’Antimatter en conservant leurs chemins : vers le bucket <code>antimatter</code> avec un outil S3, ou vers <code>data/</code> avec une archive de version.</li>
-<li>Réutilisez vos paramètres : copiez <code>config.json</code>, ou transférez-le dans la base de données avec <code>amctl --local config migrate</code> (voir <a href="{{root}}docs/admins/configuration.html">Configuration</a>). Vos variables d’environnement <code>MM_</code> continuent de fonctionner ; renommez-les en <code>AM_</code> lorsque c’est pratique.</li>
-<li>Démarrez Antimatter et suivez le journal pendant la mise à niveau de la base de données. Vérifiez ensuite <b>Console système › Plugins › Gestion des plugins</b>. Antimatter installe ses propres versions des applications Calls, Playbooks, Kanban (Tableaux), Agents et des intégrations lorsqu'elles sont plus récentes que la version installée. Si Mattermost disposait d'une version plus récente de l'une de ces applications, supprimez-la et redémarrez Antimatter afin que sa propre version soit installée.</li>
-<li>Configurez à nouveau les notifications push avec votre propre proxy push : Antimatter n'envoie jamais de notifications aux services push de Mattermost, qu'ils soient de test ou hébergés, car ceux-ci ne livrent que vers les applications de Mattermost. Tant que vous ne modifiez pas le <b>Serveur de notifications push</b>, le serveur n'envoie aucune notification push (voir <a href="{{root}}docs/admins/email-push.html#push">Notifications push</a>).</li>
+<li>Effectuez une sauvegarde de la base de données Mattermost, de son stockage de fichiers (<code>data/</code> ou bucket S3) et de <code>config.json</code>, puis arrêtez Mattermost.</li>
+<li>Restaurez la base de données dans PostgreSQL d'Antimatter, ou pointez Antimatter vers une copie de celle-ci (<code>AM_SQLSETTINGS_DATASOURCE</code>).</li>
+<li>Copiez les fichiers dans le stockage d'Antimatter en conservant leurs chemins d'accès : vers le bucket <code>antimatter</code> avec un outil S3, ou vers <code>data/</code> avec une archive de version.</li>
+<li>Réutilisez vos paramètres : copiez <code>config.json</code>, ou transférez-le dans la base de données avec <code>amctl --local config migrate</code> (voir <a href="{{root}}docs/admins/configuration.html">Configuration</a>). Vos variables d'environnement <code>MM_</code> continuent de fonctionner ; renommez-les en <code>AM_</code> si vous le souhaitez.</li>
+<li>Démarrez Antimatter et suivez le journal pendant la mise à niveau de la base de données. Vérifiez ensuite <b>Console système › Plugins › Gestion des plugins</b>. Antimatter installe ses propres versions des appels, des playbooks, des tableaux kanban, des agents et des intégrations lorsqu'elles sont plus récentes que la version installée. Si Mattermost disposait d'une version plus récente de l'une de ces applications, supprimez-la et redémarrez Antimatter afin que sa propre version soit installée.</li>
+<li>Reconfigurez les notifications push avec votre propre proxy push : Antimatter n'envoie jamais de notifications aux services push de Mattermost, qu'ils soient de test ou hébergés, car ceux-ci ne livrent que vers les applications de Mattermost. Tant que vous ne modifiez pas le <b>Serveur de notifications push</b>, le serveur n'envoie aucune notification push (voir <a href="{{root}}docs/admins/email-push.html#push">Notifications push</a>).</li>
 </ol>
 <p>Antimatter ne contacte aucun service exploité par Mattermost, Inc. (voir <a href="{{root}}docs/admins/security.html#outbound">Connexions aux services externes</a>), même si votre configuration en mentionne encore un :</p>
 <ul>
 <li>un serveur de notifications push chez Mattermost est conservé dans les paramètres mais n'est jamais utilisé ;</li>
-<li>les adresses de Mattermost pour le marché des applications (<b>URL du marché</b>) et pour les notifications produit sont vidées ;</li>
-<li>l'application Calls utilise le serveur STUN public de Cloudflare au lieu de celui de Mattermost, sans modifier le paramètre enregistré (voir <a href="{{root}}docs/admins/calls.html#network">Appels</a>) ;</li>
-<li>la vérification des mises à jour de sécurité et la télémétrie des pannes ont été supprimées, ainsi que leurs paramètres dans la Console système (<b>Activer les alertes de sécurité</b>, <b>Activer le diagnostic et la télémétrie des erreurs</b>) et la page <b>Notifications</b>.</li>
+<li>les adresses de Mattermost pour le marché d'applications (<b>URL du marché</b>) et pour les avis produit sont vidées ;</li>
+<li>les liens de téléchargement de l'application qui étaient les valeurs par défaut de Mattermost (<b>Antimatter Apps Download Page Link</b>, <b>Lien de téléchargement de l'application Android</b> et <b>Lien de téléchargement de l'application iOS</b>) sont remplacés par les pages de téléchargement des applications Antimatter sur GitHub ; les liens que vous avez définis vous-même sont conservés ;</li>
+<li>l'application Appels utilise le serveur STUN public de Cloudflare au lieu de celui de Mattermost, sans modifier le paramètre enregistré (voir <a href="{{root}}docs/admins/calls.html#network">Appels</a>) ;</li>
+<li>la vérification des mises à jour de sécurité et la télémétrie des pannes ont été supprimées, ainsi que leurs paramètres de la Console système (<b>Enable Security Alerts</b>, <b>Enable Diagnostics and Error Reporting</b>) et la page <b>Notifications</b>.</li>
 </ul>
-<p>Le socket du mode local est désormais <code>/var/tmp/antimatter_local.socket</code> ; <code>amctl</code> tente également l'ancien <code>/var/tmp/mattermost_local.socket</code>. Mattermost ne prend en charge que PostgreSQL dans ses versions récentes, et il en va de même pour Antimatter : migrez d'abord une base de données MySQL vers PostgreSQL. Revenir à Mattermost après qu'Antimatter a mis à niveau la base de données implique de restaurer votre sauvegarde Mattermost.</p>
+<p>Le socket du mode local est désormais <code>/var/tmp/antimatter_local.socket</code> ; <code>amctl</code> tente également l'ancien <code>/var/tmp/mattermost_local.socket</code>. Mattermost ne prend en charge que PostgreSQL dans ses versions récentes, et il en va de même pour Antimatter : migrez d'abord une base de données MySQL vers PostgreSQL. Revenir à Mattermost après qu'Antimatter a mis à jour la base de données implique de restaurer votre sauvegarde Mattermost.</p>
 
 <h2 id="export-import">Exporter et importer des données</h2>
-<p>Le format d'exportation en masse permet de transférer des données entre serveurs : l'ensemble du serveur, certaines communautés ou certains canaux, avec les pièces jointes, les photos de profil et les emojis personnalisés si vous le souhaitez.</p>
+<p>Le format d'exportation en masse permet de transférer des données entre serveurs : le serveur entier, certaines communautés ou certains canaux, avec les pièces jointes, les photos de profil et les emojis personnalisés si vous le souhaitez.</p>
 <pre><code># on the source server
 amctl export create --team-name design --include-profile-pictures
 amctl export list
@@ -101,5 +139,5 @@ amctl export download &lt;export file&gt; design.zip
 amctl import upload design.zip
 amctl import list available
 amctl import process &lt;uploaded file&gt; --imported-users active</code></pre>
-<p>Suivez les tâches avec <code>amctl export job list</code> et <code>amctl import job list</code>. Pour une exportation ou une importation d'une équipe ou d'un canal, l'option <code>--imported-users</code> est requise : <code>active</code> si les utilisateurs rejoignent ce serveur, <code>inactive</code> si l'importation est effectuée sur un serveur où ils disposent déjà d'un compte, afin que les comptes créés à partir d'appariements incertains restent inactifs jusqu'à ce qu'un administrateur les vérifie. L'option <code>--destination-team-name</code> permet d'importer dans une équipe existante. Les exportations et importations sont conservées sur le stockage du serveur (<code>ExportSettings.Directory</code>, <code>ImportSettings.Directory</code>) pendant 30 jours par défaut.</p>
-<p>Sur le serveur lui-même, les commandes <code>antimatter export bulk</code> et <code>antimatter import bulk --apply</code> effectuent les mêmes opérations à partir de fichiers, sans passer par l'API.</p>
+<p>Surveillez les tâches avec <code>amctl export job list</code> et <code>amctl import job list</code>. Pour une exportation ou une importation de communauté ou de canal, <code>--imported-users</code> est requis : <code>active</code> lorsque les personnes se déplacent vers ce serveur, <code>inactive</code> lors d'une importation vers un serveur où elles ont déjà des comptes, afin que les comptes créés à partir d'associations incertaines restent inactifs jusqu'à ce qu'un administrateur les vérifie. <code>--destination-team-name</code> importe vers une communauté existante. Les exportations et importations sont conservées sur le stockage du serveur (<code>ExportSettings.Directory</code>, <code>ImportSettings.Directory</code>) pendant 30 jours par défaut.</p>
+<p>Sur le serveur lui-même, <code>antimatter export bulk</code> et <code>antimatter import bulk --apply</code> effectuent les mêmes opérations à partir de fichiers, sans passer par l'API.</p>

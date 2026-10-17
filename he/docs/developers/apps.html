@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>כתיבת אפליקציות (תוספים) · Antimatter</title>
-<meta name="description" content="כיצד לכתוב אפליקציה (תוסף) עבור Antimatter: מבנה החבילה וקובץ plugin.json, הוקים ו-API של השרת, רישום אפליקציית ה-Web, תמיכה בממשק Fusion, הגדרות, מאגר מפתח-ערך, תרגומים, אריזה והתקנה.">
+<meta name="description" content="כתיבת אפליקציה (תוסף) ל-Antimatter: מבנה החבילה וקובץ plugin.json, הוקים ו-API של השרת, שירות ה-AI, רישום אפליקציות ל-Web, תמיכה בממשק Fusion, הגדרות, מאגר מפתח-ערך, תרגומים, אריזה והתקנה.">
 <meta property="og:title" content="כתיבת אפליקציות (תוספים) · Antimatter">
-<meta property="og:description" content="כיצד לכתוב אפליקציה (תוסף) עבור Antimatter: מבנה החבילה וקובץ plugin.json, הוקים ו-API של השרת, רישום אפליקציית ה-Web, תמיכה בממשק Fusion, הגדרות, מאגר מפתח-ערך, תרגומים, אריזה והתקנה.">
+<meta property="og:description" content="כתיבת אפליקציה (תוסף) ל-Antimatter: מבנה החבילה וקובץ plugin.json, הוקים ו-API של השרת, שירות ה-AI, רישום אפליקציות ל-Web, תמיכה בממשק Fusion, הגדרות, מאגר מפתח-ערך, תרגומים, אריזה והתקנה.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://antimatter.chat/he/docs/developers/apps.html">
 <meta property="og:locale" content="he">
@@ -200,6 +200,22 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 <li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: לבדוק מי יכול לעשות מה לפני שפועלים בשם משתמש.</li>
 </ul>
 <p>האפליקציה רצה על כל שרת בקלאסטר. יש לשמור את המצב במאגר מפתח־ערך או במסד הנתונים, ולא רק בזיכרון.</p>
+<h3 id="ai">שירות ה-AI</h3>
+<p>שרת Antimatter פונה לדגמי AI עבור אפליקציות, באמצעות חיבורי הדגמים שהוגדרו על ידי מנהל (ראו <a href="../../../he/docs/admins/ai.html">AI</a> במדריך למנהלים). אפליקציה לעולם אינה מחזיקה מפתח של ספק: היא מציינת את האדם שבו היא פועלת בשמו ואת המיקום, והשרת בודק שהאדם רשאי להשתמש בחיבור שם, מיישם את הגבלותיו ותקציביו, מונה את הטוקנים מול האדם והאפליקציה, ומבצע רישום ביקורת (audit) של השיחה ללא תוכנה.</p>
+<table>
+<thead><tr><th>שיטה</th><th>מה היא עושה</th></tr></thead>
+<tbody>
+<tr><td><code>AIChat(actingUserID, channelID, teamID, *ai.ChatRequest)</code></td><td>השלמת שיחה (chat completion): הודעות, כלים, פלט מבני (<code>JSONSchema</code>).</td></tr>
+<tr><td><code>AIChatStream(…)</code></td><td>אותו דבר, בזרימה (streaming): קרא את <code>Events</code> של הזרימה עד שהערוץ נסגר, או <code>Close</code> אותו כדי לעצור את השיחה.</td></tr>
+<tr><td><code>AIEmbed(…, *ai.EmbedRequest)</code></td><td>Embeddings של טקסטים.</td></tr>
+<tr><td><code>AITranscribe(…, *ai.TranscribeRequest)</code></td><td>המרת דיבור לטקסט.</td></tr>
+<tr><td><code>AIDecide(…, *ai.DecideRequest)</code></td><td>שאלות טיפוסיות (typed) לדגם קבלת החלטות (כן או לא, בחירה, ציון) לגבי טקסט.</td></tr>
+<tr><td><code>AIConnectionsForUser(userID, channelID, teamID)</code></td><td>החיבורים שבהם אדם רשאי להשתמש, כולל הדגמים והיכולות שלהם, מעולם לא המפתחות.</td></tr>
+</tbody>
+</table>
+<p><code>ConnectionID</code> של כל בקשה בוחר את החיבור, ו-<code>Model</code> בוחר אחד מהדגמים שלו (ריק עבור הדגם המוגדר כברירת מחדל בחיבור). <code>Operation</code> הוא תווית קצרה לשימוש ולרישומי הביקורת, מעולם לא תוכן. גרסת השרת המינימלית היא 11.11.</p>
+<div class="callout warn">קח את <code>actingUserID</code> רק ממקור שהשרת אימת: כותרת <code>Mattermost-User-Id</code> של בקשה ל-<code>ServeHTTP</code> שלך, או המשתמש מההקשר של הוק (כותב ההודעה, המשתמש שריץ פקודה). מעולם אל תקח אותו מהודעה, מטענת webhook, מ-URL או מבקשה של אפליקציה אחרת: אפליקציה כזו תבזבז גישה של אדם אחר.</div>
+<p>שיטות אלו ו-<code>ai</code> package (<code>server/public/ai</code>) קיימות רק בעותק של Antimatter של המודול, ולא בגרסה שפורסמה על ידי Mattermost. כדי להשתמש בהן, בצע build מול <code>server/public</code> של Antimatter עם שורת <code>replace</code> ב-<code>go.mod</code> שלך, למשל <code>replace github.com/mattermost/mattermost/server/public =&gt; ../antimatter/server/public</code>. אפליקציה כזו תרוץ רק על Antimatter.</p>
 
 <h2 id="kv">שמירת נתונים</h2>
 <p>לכל אפליקציה יש מאגר מפתח־ערך משלה במסד הנתונים של השרת:</p>
@@ -241,17 +257,17 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <pre><code>export function isFusionUI(): boolean {
     return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
 }</code></pre>
-<p>האפליקציות המובנות משתמשות בכך כדי להציג את עצמן בצורה שונה. סקרים מציגים את כרטיסי הסקר ואת חלון היצירה בסגנון של Fusion, ופותחים חלון ייעודי עבור <code>/poll</code> בתוך Fusion. שיחות וערוצי קול מוותרים על רכיבי סרגל הצד וההודעות הזמניות (toasts) ש-Fusion מחליפה בממשק השיחה שלה. אפליקציית הסוכנים מציגה את פעולות ה-AI שלה בתת-תפריט של תפריט ההודעה, במקום בסרגל הפעולות המופיע בריחוף. מחלקות ה-CSS של Fusion (המתחילות ב-<code>am-</code>) ושרת החלונות שלה (האלמנט <code>am-layer</code>) הם מה שהאפליקציות משתמשות בו כדי להתאים את עצמן לממשק; אלו אינם API מתועד ויציב.</p>
+<p>האפליקציות המצורפות משתמשות בכך כדי לצייר בצורה שונה. סקרים מציירים את כרטיסי הסקר ואת תיבת הדיאלוג ליצירת סקר בסגנון של Fusion, ופותחים דיאלוג עצמאי עבור <code>/poll</code> בתוך Fusion. שיחות וערוצי קול מושמטים את רכיבי סרגל הצד וההודעות הזמניות (toasts) ש-Fusion מחליף בממשק השיחה שלו. אפליקציית הסוכנים מציבה את פעולות ה-AI שלה בתפריט ההודעה, כקבוצה מתחת ל<b>פעולות נוספות</b>, במקום בסרגל הכלים המופיע ב-hover. כמדי ה-CSS של Fusion עצמה (המתחילות ב-<code>am-</code>) ושלבת הדיאלוג שלה (אלמנט <code>am-layer</code>) הן מה שהאפליקציות האלו משתמשות בו כדי להתאים את הממשק; הן אינן API מתועד ויציב.</p>
 <h3>המקומות שבהם Fusion מציגה רכיבי תוספים</h3>
 <table>
 <thead><tr><th>שיטת הרשמה</th><th>המקום שבו זה מופיע ב-Fusion</th></tr></thead>
 <tbody>
 <tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>סרגל האפליקציות, עמודת האייקונים בקצה הימני, בין האווטאר שלך לכפתור <b>אודות Antimatter</b>. כפתורי כותרת הערוץ נמצאים שם, ולא בכותרת הערוץ עצמה. הסרגל נסתר כאשר מנהל מערכת מפעיל את <b>כיבוי סרגל האפליקציות</b> (<code>ExperimentalSettings.DisableAppBar</code>, כבוי כברירת מחדל).</td></tr>
-<tr><td><code>registerRightHandSidebarComponent</code></td><td>הפאנל הימני. משתמשים יכולים לשנות את גודלו על ידי גרירת קצהו. אם האפליקציה היא גם מוצר, הפאנל מציע <b>פתיחה כעמוד מלא</b>.</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>הפאנל בצד ימין. משתמשים יכולים לשנות את גודלו על ידי גרירת השפה שלו, וליפתח אותו בחלון חדש. אם האפליקציה היא גם מוצר, הפאנל מציע <b>פתיחה כעמוד מלא</b>. ראו <a href="#panel-state">הפאנל בחלון חדש</a>.</td></tr>
 <tr><td><code>registerChannelHeaderIcon</code></td><td>אייקונים בכותרת הערוץ, אחרי כפתורי השיחה; בטלפונים, בתפריט <b>עוד</b> של הכותרת.</td></tr>
 <tr><td><code>registerCallButtonAction</code></td><td>כפתור השיחה בכותרת הערוץ; מספר ספקים משתפים תפריט <b>דרכים נוספות להתקשרות</b>.</td></tr>
-<tr><td><code>registerPostDropdownMenuAction</code></td><td>תפריט <b>פעולות נוספות</b> (⋯) של ההודעה, בתת-תפריט <b>פעולות הודעה</b>; גם בתפריט <b>פעולות שרשור</b> של פאנל השרשור, תחת <b>פעולות נוספות</b>.</td></tr>
-<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>תת-תפריט ייעודי בתפריטים האלה, עם שם האפליקציה ואייקון שלה.</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>תפריט <b>פעולות הודעה</b> (⋯) של ההודעה, בתפריט הנפתח <b>פעולות נוספות</b>; גם בתפריט <b>פעולות שרשור</b> של פאנל השרשור, מתחת ל<b>פעולות נוספות</b>. Fusion מצייר את סמל האפליקציה לפני כל פעולה, בגוון אפור: את הסמל שלה עצמה עבור האפליקציות המצורפות, אחרת את הסמל שהאפליקציה מציגה בסרגל האפליקציות, ואחרת סמל ניטרלי. אלמנט ללא טקסט בהתחלת טקסט הפעולה (סמל שהאפליקציה מציירת בעצמה) מוסתר.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>קבוצה עם כותרת באותו תפריט נפתח <b>פעולות נוספות</b>, אחרי הפעולות הבודדות. לאף אפליקציה אין פריט עצמאי בתפריט ההודעה.</td></tr>
 <tr><td><code>registerPostActionComponent</code></td><td>סרגל הפעולות המופיע בריחוף על ההודעה, לפני כפתור ה-⋯.</td></tr>
 <tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>ההודעה עצמה: גוף ההודעה, מתחת לטקסט, אחרי הזמן, ובמקום תצוגות מקדימות של קישורים.</td></tr>
 <tr><td><code>registerChannelHeaderMenuAction</code></td><td>תפריט <b>אפשרויות ערוץ</b> של הערוץ (⋯ על ערוץ בסרגל הצד, או לחיצה ימנית), כפריטים עם אייקון של תקע.</td></tr>
@@ -269,7 +285,7 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <tr><td><code>registerChannelTypeOption</code></td><td>סוגי הערוצים בתיבת הדיאלוג <b>יצירת ערוץ</b>.</td></tr>
 <tr><td><code>registerSearchComponents</code></td><td>תיבת החיפוש בכותרת הערוץ: תחומי האפליקציה מופיעים כאשר היא ריקה.</td></tr>
 <tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>אודות Antimatter</b> (בחלק התחתון של סרגל האפליקציה), תחת <b>עזרה</b>.</td></tr>
-<tr><td><code>registerProduct</code></td><td>עמודים מלאים בכתובת האפליקציה, המפורטים תחת <b>מוצרים</b> ב<b>אודות Antimatter</b>. עמודי המוצרים שומרים על מסגרת העמוד הקלאסית.</td></tr>
+<tr><td><code>registerProduct</code></td><td>עמודים מלאים בכתובת המוצר, המפורטים תחת <b>מוצרים</b> ב<b>אודות Antimatter</b>. עמודי מוצר שומרים על מסגרת העמוד הקלאסית, שבה תפריט המוצר מופיע רק כאשר אפליקציה רשמה מוצר או הוסיפה פריט אליו. אפליקציות Kanban ו-Playbooks המצורפות אינן רשמות מוצרים anymore: העמודים שלהם נפתחים בפאנלים הצדדיים שלהם.</td></tr>
 <tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, הוקים כמו <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>עובדים כפי שעושים בממשק הקלאסי.</td></tr>
 <tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>קונסולת מערכת, שהיא הקלאסית בשני הממשקים.</td></tr>
 </tbody>
@@ -299,12 +315,21 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <thead><tr><th>שיטה</th><th>מה שהיא מוסיפה</th></tr></thead>
 <tbody>
 <tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>פריס בתפריט <b>+</b> של תיבת ההודעה, בשני הממשקים. <code>action</code> מקבל <code>{channelId, rootId}</code>.</td></tr>
-<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>לשונית במבחר האמוג'י של תיבת ההודעה, כגון GIF או מדבקות. ב-Fusion, לשוניות עם <code>order</code> נמוך מ-10 מופיעות לפני לשונית האמוג'י. הרכיב מקבל <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> ו-<code>isFusion</code>.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>לשונית של בורר האמוג'י של תיבת ההודעה, כגון GIF או מדבקות. ב-Fusion, לשוניות עם <code>order</code> נמוך מ-10 מופיעות לפני לשונית האמוג'י. הרכיב מקבל <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code>, <code>isFusion</code> ו, ב-Fusion, <code>pickerKit</code> (ראו להלן).</td></tr>
 <tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>פאנל בין כותרת הערוץ להודעות, עבור הערוצים ש<code>matcher(state, channel)</code> בוחר. הוא יכול להסתיר את ההודעות ואת עורך ההודעה (<code>setMessagesVisible</code>), כפי שעושים ערוצי קול.</td></tr>
 <tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>שורה מתחת לערוץ בסרגל הצד, כגון האנשים בשיחה שלו. היא מקבלת את <code>channel</code>.</td></tr>
 <tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Fusion בלבד: פריט בדפי <b>אינטגרציות</b>, ליד האמוג'י המותאמים אישית. אפליקציית GIFs מוסיפה שם את ה-GIFs והמדבקות המותאמים אישית.</td></tr>
 </tbody>
 </table>
+<h3 id="picker-kit">הוספה וניהול תצוגות בבורר האמוג'י</h3>
+<p>ב-Fusion, לשונית בוחר האמוג'י מקבלת תכונה בשם <code>pickerKit</code>: רכיבים שהשובר האמוג'י משמש לצפייה בהוספה ובניהול, כך שהתצוגות של השוברים נראות באופן אחיד ונשארות בתוך הבוחר. אפליקציות ה-GIF וה-Memes משתמשות בו כדי להוסיף ולנהל GIF, מדבקות וקבצי ממים. התכונה מכילה את <code>version</code> (1), את ה-hooks <code>usePickerView</code> ו-<code>useOnEscape</code>, ואת הרכיבים <code>PickerViewButtons</code> (כפתורי <b>+</b> והניהול ליד שדה החיפוש), <code>PickerViewFrame</code> (תצוגה עם חץ חזרה), <code>PickerNotice</code>, <code>PickerField</code>, <code>PickerSearch</code>, <code>PickerDropZone</code> ו-<code>PickerManageList</code>. לחיצה על Escape חוזרת מהתצוגה לרשת של השובר. ודאו שהתכונה קיימת: מארחים אחרים אינם מעבירים אותה, ואז השובר שומר על תיבות הדיאלוג שלו. הסוגים נמצאים ב-<code>webapp/fusion/src/types/store/plugins.ts</code> (<code>EmojiPickerTabProps</code>) והרכיבים ב-<code>webapp/fusion/src/fusion/popovers/picker_views.tsx</code>.</p>
+<h3 id="panel-state">הפאנל בחלון חדש</h3>
+<p>Fusion מעבירה לרכיב של <code>registerRightHandSidebarComponent</code> שתי תכונות נוספות, כך ש<b>פתיחה בחלון חדש</b> פותחת את הפאנל במקום שבו הוא נמצא, ולא בדף הבית של האפליקציה:</p>
+<ul>
+<li><code>setPanelState(state)</code>: יש לקרוא לפונקציה זו כאשר הפאנל משנה מקום, עם מחרוזת קצרה שהאפליקציה מגדירה, כמו <code>'note/&lt;id&gt;'</code> או <code>'board/&lt;id&gt;/card/&lt;id&gt;'</code>, או <code>null</code> כאשר הוא בדף הבית. המחרוזת מופיעה בכתובת החלון, ולכן אין להכניס אליה סודות. מחרוזת ארוכה מ-512 תווים, או כזו המכילה תווים של בקרה, תימחק.</li>
+<li><code>initialPanelState</code>: בחלון החדש, המצב שהפאנל היה בו, או <code>undefined</code>. יש להתייחס למחרוזת זו כאל קלט לא אמין: יש להביא את הפריט שוב כמשתמש המחובר, ולהציג את דף הבית של האפליקציה או תצוגת "לא נמצא" אם אין אפשרות לפתוח אותו.</li>
+</ul>
+<p>המצב נשכח כאשר הפאנל נסגר או שפאנל של אפליקציה אחרת תופס את מקומו. כדי לפתוח את חלון הפאנל בעצמכם, <code>popoutRhsPlugin</code> (גם ב-<code>window.WebappUtils.popouts</code>) מקבל את המצב כטיעון חמישי אופציונלי. פתקים, לוח לבן, משימות, Kanban ו-Playbooks משתמשים בכך.</p>
 <p><code>fusionIcon</code> שם סמל במערכת הסמלים של Fusion (למשל <code>poll</code>, <code>sticker</code>, <code>calendar</code> או <code>image</code>; ראו <code>webapp/fusion/src/fusion/components/icon</code>). Fusion מציגה אותו במקום <code>icon</code>, כך שהפריט תואם את האחרים.</p>
 
 <h2 id="settings">הגדרות</h2>

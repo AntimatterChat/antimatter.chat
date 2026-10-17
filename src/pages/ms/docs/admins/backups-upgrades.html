@@ -4,19 +4,21 @@ guide: admins
 order: 10
 nav: Sandaran dan peningkatan
 lead: Apa yang perlu disandar, cara memulihkannya pada hos baharu, cara meningkatkan, dan cara mengalihkan pelayan Mattermost atau komuniti tunggal ke Antimatter.
-source: b0797af8b6e7
+source: 531ec332715c
 ---
 <h2 id="what">Apa yang perlu disandar</h2>
 <table>
-<thead><tr><th>Apa</th><th>Dengan fail compose laman web</th><th>Dengan arkib keluaran</th></tr></thead>
+<thead><tr><th>Apa</th><th>Dengan fail compose laman web</th><th>Dengan arkib keluaran</th><th>Dengan pakej .deb atau .rpm</th></tr></thead>
 <tbody>
-<tr><td>Pangkalan data: mesej, pengguna, komuniti, Saluran dan, dengan fail compose laman web, konfigurasi</td><td>volum <code>antimatter_postgres</code>, melalui <code>pg_dump</code></td><td>pangkalan data PostgreSQL anda</td></tr>
-<tr><td>Fail yang dimuat naik, imej, dan aplikasi yang dipasang</td><td>volum <code>antimatter_files</code> (stor S3)</td><td><code>FileSettings.Directory</code>, <code>./data/</code> secara lalai</td></tr>
-<tr><td>Fail konfigurasi</td><td>(dalam pangkalan data)</td><td><code>config/config.json</code></td></tr>
-<tr><td>GIF dan pelekat</td><td>volum <code>antimatter_gifs</code></td><td>buku data perkhidmatan GIF</td></tr>
-<tr><td>Rahsia</td><td><code>.env</code> (dan <code>compose.override.yaml</code>)</td><td>fail persekitaran anda</td></tr>
+<tr><td>Pangkalan data: mesej, pengguna, komuniti, Saluran dan, dengan fail compose laman web, konfigurasi</td><td>volum <code>antimatter_postgres</code>, melalui <code>pg_dump</code></td><td>pangkalan data PostgreSQL anda</td><td>pangkalan data PostgreSQL anda</td></tr>
+<tr><td>Fail yang dimuat naik, imej, dan aplikasi yang dipasang</td><td>volum <code>antimatter_files</code> (stor S3)</td><td><code>FileSettings.Directory</code>, <code>./data/</code> secara lalai</td><td><code>/var/lib/antimatter</code></td></tr>
+<tr><td>Fail konfigurasi</td><td>(dalam pangkalan data)</td><td><code>config/config.json</code></td><td><code>/etc/antimatter/config/config.json</code></td></tr>
+<tr><td>GIF dan pelekat</td><td>volum <code>antimatter_gifs</code></td><td>buku data perkhidmatan GIF</td><td><code>/var/lib/gifs-server</code></td></tr>
+<tr><td>Rahsia</td><td><code>.env</code> (dan <code>compose.override.yaml</code>)</td><td>fail persekitaran anda</td><td><code>/etc/antimatter/antimatter.env</code>, <code>/etc/gifs-server</code></td></tr>
+<tr><td>Kunci penyulitan AI, yang menyulitkan kunci sambungan model</td><td><code>AM_AI_ENCRYPTION_KEY</code> dalam <code>.env</code> (disyorkan), atau fail <code>ai-encryption.key</code> dalam isipadu <code>antimatter_data</code></td><td><code>AM_AI_ENCRYPTION_KEY</code>, atau <code>data/ai-encryption.key</code></td><td><code>AM_AI_ENCRYPTION_KEY</code> dalam <code>antimatter.env</code>, atau <code>/var/lib/antimatter/data/ai-encryption.key</code></td></tr>
 </tbody>
 </table>
+<p>Tanpa kunci penyulitan AI, pelayan yang dipulihkan tidak dapat membaca kunci API sambungan modelnya, dan setiap satu perlu di taip semula. Simpan salinan kunci berasingan daripada sandaran pangkalan data, supaya satu sandaran yang dicuri tidak mengandungi kedua-duanya. Lihat <a href="{{root}}docs/admins/ai.html#encryption-key">Kunci penyulitan</a>.</p>
 <p>Pangkalan data dan fail adalah saling berkait: sandarkan pada masa yang sama, dan simpan salinan di luar pelayan. Nama volum bermula dengan nama projek compose, <code>antimatter</code> (<code>docker volume ls</code> menyenaraikannya).</p>
 
 <h2 id="backup">Sandar</h2>
@@ -27,19 +29,20 @@ docker compose stop antimatter
 # Database
 docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
     &gt; "backups/antimatter-db-$stamp.dump"
-# File storage and GIF service
-for v in files gifs; do
+# File storage, GIF service and the data directory (the AI key file)
+for v in files gifs data; do
     docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
         alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
 done
 docker compose start antimatter
 # Secrets
 cp .env "backups/env-$stamp"</code></pre>
+<p>Jika anda belum menetapkan <code>AM_AI_ENCRYPTION_KEY</code>, fail kunci pelayan berada dalam isipadu <code>data</code>, yang disimpan oleh gelung di atas bersama fail-fail. Lebih baik, letakkan kandungannya dalam <code>.env</code> seperti yang diterangkan dalam <a href="{{root}}docs/admins/ai.html#encryption-key">Kunci penyulitan</a>, dan simpan salinannya berasingan daripada sandaran pangkalan data.</p>
 <p>Jalankan dari cron untuk sandaran harian, dan salin direktori <code>backups/</code> ke mesin lain. Simpan salinan <code>.env</code> seaman pelayan: ia menyimpan kata lalunya.</p>
 <p>Untuk menyalin fail yang dimuat naik objek demi objek (contohnya ke stor S3 lain), gunakan alat baris arahan AWS perkhidmatan <code>bucket</code>:</p>
 <pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
     "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
-<p>Dengan arkib keluaran, sandar pangkalan data dengan <code>pg_dump -Fc</code>, dan direktori <code>data/</code> dan <code>config/</code> dengan alat biasa anda.</p>
+<p>Dengan arkib keluaran, sandarkan pangkalan data dengan <code>pg_dump -Fc</code>, dan direktori <code>data/</code> dan <code>config/</code> dengan alat biasa anda (<code>data/</code> mengandungi fail kunci AI). Dengan pakej, sandarkan pangkalan data dengan cara yang sama, dan <code>/etc/antimatter</code>, <code>/var/lib/antimatter</code>, <code>/etc/gifs-server</code> dan <code>/var/lib/gifs-server</code>.</p>
 
 <h2 id="restore">Pulihkan pada hos baharu</h2>
 <p>Letakkan <code>compose.yaml</code>, <code>.env</code> yang disimpan dan sandaran dalam direktori baharu, kemudian:</p>
@@ -48,15 +51,16 @@ docker compose create           # creates the volumes, starts nothing
 docker compose up -d postgres
 docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
     &lt; "backups/antimatter-db-$stamp.dump"
-for v in files gifs; do
+for v in files gifs data; do
     docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
         alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
 done
 docker compose up -d</code></pre>
-<p>Gunakan <code>.env</code> yang sama: stor dan pangkalan data mesti mengekalkan kata lalunya. Jika hos baharu mempunyai alamat lain, kemas kini <code>SITE_URL</code> (dan <code>DOMAIN</code>).</p>
+<p>Gunakan <code>.env</code> yang sama: storan dan pangkalan data mesti mengekalkan kata laluan yang ada, dan sambungan model memerlukan kunci penyulitan AI yang sama. Jika hos baharu mempunyai alamat lain, kemas kini <code>SITE_URL</code> (dan <code>DOMAIN</code>).</p>
 <p>Uji sandaran anda dengan memulihkannya pada mesin lain dari semasa ke semasa.</p>
 
 <h2 id="upgrade">Tingkatkan</h2>
+<div class="callout warn">Fail Compose yang dimuat turun sebelum 17 Oktober 2026 tiada isipadu <code>data</code>: fail kunci AI berada dalam bekas. Sebelum anda menggunakan <code>compose.yaml</code> baharu, dan jika <code>.env</code> tiada <code>AM_AI_ENCRYPTION_KEY</code>, simpan kunci yang dibuat oleh pelayan: <code>echo "AM_AI_ENCRYPTION_KEY=$(docker compose exec -T antimatter cat /antimatter/data/ai-encryption.key)" &gt;&gt; .env</code>. Jika arahan tidak menemui fail, tiada sambungan model yang menyimpan kunci lagi.</div>
 <ol>
 <li>Ambil sandaran.</li>
 <li>Tukar tag imej dalam <code>.env</code> (<code>ANTIMATTER_IMAGE</code>), jika anda menetapkan satu, seperti yang disyorkan.</li>
@@ -65,12 +69,45 @@ docker compose up -d</code></pre>
 docker compose up -d
 docker compose logs -f antimatter</code></pre></li>
 </ol>
-<p>Semasa mula, pelayan akan menaik taraf skema pangkalan data (pantau log; pelayan besar boleh mengambil beberapa minit) dan memasang versi baharu aplikasi terikat daripada imej. Dengan arkib pelepasan: hentikan pelayan, gantikan semua kandungan kecuali <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> dan <code>client/plugins/</code> dengan kandungan arkib baharu, kemudian mulakannya semula.</p>
+<p>Semasa mula, pelayan menaik taraf skema pangkalan data (pantau dalam log; pelayan besar boleh mengambil beberapa minit) dan memasang versi baharu aplikasi terikat dari imej. Dengan arkib keluaran: hentikan pelayan, gantikan semua kandungan kecuali <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> dan <code>client/plugins/</code> dengan kandungan arkib baharu, dan mulakan semula. Dengan pakej .deb atau .rpm, pasang pakej baharu seperti yang diterangkan dalam <a href="{{root}}docs/admins/install.html#packages">Naik taraf pakej</a>.</p>
 <div class="callout warn">Naik taraf hanya boleh ke hadapan. Sekali pelayan baharu telah menaik taraf pangkalan data, versi lama tidak dapat memakainya: untuk kembali, pulihkan sandaran yang diambil sebelum naik taraf. Perkara yang sama terpakai untuk berpindah daripada <code>antimatter-next</code> kembali ke <code>antimatter</code>.</div>
 <h3>Versi</h3>
-<p>Pelayan Antimatter melaporkan versi baris Mattermost yang menjadi asasnya (semasa 12.0.0). Imej dibina semula daripada cawangan <code>main</code>: <code>antimatter-next</code> setiap malam (tag <code>nightly-&lt;YYYYMMDD&gt;</code>), dan kedua-dua imej pada setiap perubahan (tag <code>sha-&lt;commit&gt;</code>). Tetapkan salah satu tag ini, naik taraf dengan sengaja, dan rekodkan tag sebelumnya supaya anda tahu sandaran mana yang sepadan dengannya.</p>
+<p>Pelayan Antimatter melaporkan versi baris Mattermost yang menjadi asasnya (semasa 12.0.0). Keluaran di GitHub, dengan arkib dan pakejnya, mempunyai nombor versi sendiri, dalam siri 0.9.0 semasa beta: <code>antimatter version</code> memaparkannya sebagai <b>Nombor Binaan</b>. Imej dibina semula dari cabang <code>main</code>: <code>antimatter-next</code> setiap malam (tag <code>nightly-&lt;YYYYMMDD&gt;</code>), dan kedua-dua imej pada setiap perubahan (tag <code>sha-&lt;commit&gt;</code>). Tetapkan salah satu tag ini, naik taraf secara sengaja, dan simpan nota tag sebelumnya supaya anda tahu set mana yang sepadan dengan sandaran.</p>
 <h3>Versi utama PostgreSQL</h3>
 <p>Fail compose menggunakan <code>postgres:17-alpine</code>. Antimatter memerlukan PostgreSQL 15 atau baharu. Versi utama baharu PostgreSQL tidak dapat membaca direktori data versi sebelumnya: untuk berpindah ke versi baharu, keluarkan (dump) pangkalan data, mulakan versi baharu pada isipadu (volume) baharu dan pulihkan dump ke dalamnya.</p>
+
+<h2 id="v090">Naik taraf ke 0.9.0</h2>
+<p>Mula pertama versi 0.9.0 (atau imej yang dibina dari 17 Oktober 2026 ke atas) membuat beberapa perubahan satu masa kepada data. Setiap satu dijalankan sekali, dan direkodkan dalam pangkalan data. Ia membawa apa yang ditinggalkan pada lalai lama kepada lalai baharu, dan membiarkan apa yang dipilih oleh pentadbir. Pantau dalam log.</p>
+<div class="callout warn">Jika Antimatter adalah untuk syarikat atau organisasi, tetapkan <b>Jenis komuniti baharu</b> kepada <b>Tempat kerja</b> <em>sebelum</em> anda naik taraf: <code>AM_TEAMSETTINGS_DEFAULTCOMMUNITYKIND=workplace</code>. Naik taraf memberikan setiap komuniti jenis yang ditetapkan oleh tetapan ini pada masa itu, dan panggilan adalah lalai dalam saluran komuniti jenis <b>Komuniti</b>. Lihat <a href="{{root}}docs/admins/configuration.html#community-kind">Tempat kerja atau komuniti</a>.</div>
+<table>
+<thead><tr><th>Apa</th><th>Perubahan</th></tr></thead>
+<tbody>
+<tr><td>Jenis komuniti</td><td>Setiap komuniti mendapat jenis, <b>Komuniti</b> atau <b>Tempat kerja</b>: nilai <b>Jenis komuniti baharu</b> (<code>TeamSettings.DefaultCommunityKind</code>) pada mula pertama. Jenis yang telah ditetapkan dikekalkan. Pentadbir komuniti boleh mengubah jenis komuniti mereka kemudian, dalam <b>Tetapan pasukan › Saluran › Jenis komuniti</b>.</td></tr>
+<tr><td>Siapa yang mengarkib saluran</td><td>Ahli saluran tidak lagi mengarkib saluran yang mereka sertai: pentadbir komuniti yang melakukannya. Di tempat kerja, pentadbir saluran (siapa pun yang menciptanya, dan mereka yang dilantik sebagai pentadbir) juga akan mengarkibnya. Ini mengubah peranan skema sistem; skema kebenaran yang dibuat oleh pentadbir sistem untuk beberapa komuniti kekal seperti sedia ada.</td></tr>
+<tr><td>Peranan Moderator dalam pratetapan susun atur</td><td>Peranan <b>Moderators</b> yang diterima oleh komuniti daripada pratetapan susun atur kini mendapat <b>Buang orang</b>, yang diperlukan untuk menamatkan masa dan membuang mereka. Hanya peranan yang masih tepat seperti yang dibuat oleh pratetapan akan berubah; peranan yang telah disunting oleh seseorang akan dibiarkan.</td></tr>
+<tr><td>Peranan dengan <b>Pentadbir</b></td><td>Peranan komuniti dengan suis <b>Pentadbir</b> dihidupkan kini memegang segala yang boleh dilakukan oleh pentadbir komuniti, seperti yang dinyatakan oleh suis tersebut, bukan hanya tetapan komuniti.</td></tr>
+<tr><td>Had ahli</td><td><b>Bilangan Ahli Maksimum Per Komuniti</b> (<code>TeamSettings.MaxUsersPerTeam</code>) berubah daripada 50, lalai lama, kepada 0 (tiada had). Nilai lain dikekalkan, dan begitu juga had yang ditetapkan dengan <code>AM_TEAMSETTINGS_MAXUSERSPERTEAM</code>.</td></tr>
+<tr><td>Sambungan model</td><td>Pentadbir sistem mendapat pengurusan sambungan model, dan pentadbir komuniti (dan peranan dengan <b>Pentadbir</b>) mendapat pengurusan sambungan model komuniti mereka sendiri. Perkhidmatan AI aplikasi Ejen menjadi <a href="{{root}}docs/admins/ai.html#connections">sambungan model</a> seluruh pelayan, lihat di bawah.</td></tr>
+<tr><td>Town Square menjadi General</td><td>Saluran lalai setiap komuniti dinamakan semula daripada <code>town-square</code> (Town Square) kepada <code>general</code> (General). Ia mengekalkan ID, ahli, mesej dan tetapannya, serta nama paparan yang dipilih oleh pentadbir. Pautan lama dan carian mengikut <code>town-square</code> masih membawa ke sana. Komuniti yang sudah mempunyai saluran bernama <code>general</code>, walaupun diarkib, akan mengekalkan <code>town-square</code> sebagai saluran lalainya, dan begitu juga komuniti yang <code>town-square</code> diarkib: log menamakan mereka, dan pentadbir mereka boleh menamakan semula saluran tersebut.</td></tr>
+<tr><td>Kegemaran</td><td>Kategori bar sisi Favorites untuk semua orang dinamakan semula kepada Favourites, seperti yang kini dinyatakan dalam antara muka. Kategori yang dicipta oleh pengguna dengan nama tersebut dibiarkan.</td></tr>
+</tbody>
+</table>
+<h3>Perkhidmatan aplikasi Ejen</h3>
+<p>Kemas kini menyalin setiap perkhidmatan AI daripada apl Ejen ke sambungan model pada peringkat pelayan, yang dikongsi dengan setiap komuniti dan boleh digunakan oleh semua orang kecuali tetamu (hidupkan <b>Tetamu juga</b> untuk membenarkan mereka). Kunci disulitkan semasa pemindahan, jadi pelayan memerlukan kunci penyulitan AI: pada kluster yang failnya berada di S3, tetapkan <code>AM_AI_ENCRYPTION_KEY</code> dahulu, atau salinan akan menunggu sehingga permulaan seterusnya. Kemudian semak <b>Konsol Sistem › AI › Sambungan model</b>:</p>
+<ul>
+<li>Setiap sambungan mengekalkan ID perkhidmatannya, jadi ejen apl dan set terjemahan automatik yang ditetapkan kepada perkhidmatan Ejen masih dapat menemukannya.</li>
+<li>Perkhidmatan OpenAI, serasi OpenAI, Anthropic, Mistral, Cohere dan Gemini menjadi sambungan ke titik akhir serasi OpenAI (atau Anthropic) mereka. Perkhidmatan Azure menjadi sambungan ke titik akhir serasi OpenAI sumber: uji ia.</li>
+<li>Perkhidmatan AWS Bedrock, Google Vertex AI dan Cohere North, serta jenis yang tidak dikenali, ditandakan <b>Perlu perhatian</b>, dengan sebabnya. Kelayakan awan mereka tidak disalin: arahkan mereka ke titik akhir serasi OpenAI pembekal atau gerbang seperti LiteLLM, kemudian simpan.</li>
+<li>Perkhidmatan penanam menjadi model <b>Penaman</b> bagi sambungan dengan alamat dan kunci yang sama, atau sambungan miliknya sendiri. Perkhidmatan transkripsi mendapat model <code>whisper-1</code>.</li>
+<li>Apabila penulisan semula dan ringkasan belum mempunyai sambungan, mereka mendapat perkhidmatan dan model ejen lalai apl.</li>
+</ul>
+<p>Tetapan dan data apl Ejen sendiri dibiarkan seperti sedia ada: ejennya terus menggunakan perkhidmatannya.</p>
+<h3>Perubahan lalai lain</h3>
+<ul>
+<li><b>Panggilan</b>: <b>Mod ujian</b> dimatikan dan <b>Benarkan video</b> dihidupkan secara lalai. Pilihan yang disimpan dalam konfigurasi dikekalkan. Panggilan juga mengikuti jenis komuniti (lihat <a href="{{root}}docs/admins/calls.html#where-calls">Panggilan dan suara</a>).</li>
+<li>Menempatkan mesej di bahagian atas adalah untuk pentadbir saluran, pentadbir dan moderator komuniti (dengan <b>Urus mesej</b>); ahli mesej terus atau kumpulan masih boleh.</li>
+<li>Saluran yang diarkibkan boleh menerima ahli baharu, yang membaca sejarah mereka. Tiada seorang pun yang memuat naik, bertindak balas atau mengubah apa-apa di dalamnya.</li>
+</ul>
 
 <h2 id="mattermost">Berpindah daripada Mattermost</h2>
 <p>Antimatter menggunakan skema pangkalan data Mattermost dan menambah jadualnya sendiri, jadi ia boleh mengambil alih pangkalan data PostgreSQL dan fail pelayan Mattermost. Cuba pada salinan dahulu:</p>
@@ -79,13 +116,14 @@ docker compose logs -f antimatter</code></pre></li>
 <li>Pulihkan pangkalan data ke PostgreSQL Antimatter, atau arahkan Antimatter ke salinannya (<code>AM_SQLSETTINGS_DATASOURCE</code>).</li>
 <li>Salin fail ke storan Antimatter, kekalkan laluan mereka: ke baldah <code>antimatter</code> dengan alat S3, atau ke <code>data/</code> dengan arkib pelepasan.</li>
 <li>Guna semula tetapan anda: salin <code>config.json</code>, atau pindahkan ke pangkalan data dengan <code>amctl --local config migrate</code> (lihat <a href="{{root}}docs/admins/configuration.html">Konfigurasi</a>). Pemboleh ubah persekitaran <code>MM_</code> anda terus berfungsi; namakan semula kepada <code>AM_</code> bila sesuai.</li>
-<li>Mula Antimatter dan ikuti log semasa ia mengemas kini pangkalan data. Kemudian semak <b>Konsol Sistem › Plugin › Pengurusan Plagin</b>. Antimatter memasang binaannya sendiri untuk Panggilan, Buku Taktik, Kanban (Papan), Ejen dan integrasi apabila versi tersebut lebih baharu daripada versi yang dipasang. Jika Mattermost mempunyai versi yang lebih baharu untuk mana-mana aplikasi tersebut, buang aplikasi itu dan mulakan semula Antimatter supaya binaannya sendiri dipasang.</li>
-<li>Set up push notifications again, with your own push proxy: Antimatter tidak pernah menghantar pemberitahuan ke perkhidmatan dorong Mattermost, sama ada ujian atau dihoskan, kerana perkhidmatan tersebut hanya menghantar kepada aplikasi Mattermost sendiri. Sehingga anda mengubah <b>Pelayan Pemberitahuan Dorong</b>, pelayan tidak menghantar sebarang pemberitahuan dorong (lihat <a href="{{root}}docs/admins/email-push.html#push">Pemberitahuan dorong</a>).</li>
+<li>Mula Antimatter dan ikuti log semasa ia mengemas kini pangkalan data. Kemudian semak <b>Konsol Sistem › Plagin › Pengurusan Plagin</b>. Antimatter memasang binaannya sendiri untuk Panggilan, Buku Taktik, Kanban (Papan), Ejen dan integrasi apabila ia lebih baharu daripada versi yang dipasang. Jika Mattermost mempunyai versi yang lebih baharu bagi salah satunya, buang apl itu dan mulakan semula Antimatter, supaya binaannya sendiri dipasang.</li>
+<li>Set up push notifications again, with your own push proxy: Antimatter never sends notifications to Mattermost's push services, test or hosted, which only deliver to Mattermost's own apps. Until you change <b>Pelayan Pemberitahuan Dorong</b>, the server sends no push notifications (see <a href="{{root}}docs/admins/email-push.html#push">Pemberitahuan Dorong</a>).</li>
 </ol>
 <p>Antimatter tidak menghubungi sebarang perkhidmatan yang dikendalikan oleh Mattermost, Inc. (lihat <a href="{{root}}docs/admins/security.html#outbound">Sambungan ke perkhidmatan luar</a>), walaupun konfigurasi anda masih menamakannya:</p>
 <ul>
 <li>pelayan notifikasi push di Mattermost dikekalkan dalam tetapan tetapi tidak pernah digunakan;</li>
-<li>Alamat Mattermost untuk pasaran aplikasi (<b>URL Pasaran</b>) dan untuk notis produk dikosongkan;</li>
+<li>Mattermost's addresses for the app marketplace (<b>URL Pasaran</b>) and for product notices are emptied;</li>
+<li>the app download links that were Mattermost's defaults (<b>Pautan Laman Muat Turun Aplikasi Antimatter</b>, <b>Pautan Muat Turun Aplikasi Android</b> and <b>Pautan Muat Turun Aplikasi iOS</b>) are replaced by the download pages of Antimatter's apps on GitHub; links you set yourself are kept;</li>
 <li>aplikasi Panggilan menggunakan pelayan STUN awam Cloudflare sebagai ganti pelayan Mattermost, tanpa mengubah tetapan yang disimpan (lihat <a href="{{root}}docs/admins/calls.html#network">Panggilan</a>);</li>
 <li>semakan kemas kini keselamatan dan pelaporan kemalangan telah dibuang, dan begitu juga tetapan Konsol Sistem (<b>Benarkan Amaran Keselamatan</b>, <b>Benarkan Diagnostik dan Pelaporan Ralat</b>) serta halaman <b>Notis</b>.</li>
 </ul>

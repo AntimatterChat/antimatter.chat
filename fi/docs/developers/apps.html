@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sovellusten (liitännäisten) kirjoittaminen · Antimatter</title>
-<meta name="description" content="Antimatter-sovelluksen (liitännäisen) kirjoittaminen: pakettirakenne ja plugin.json, palvelimen koukut ja API, web-sovelluksen rekisteri, Fusion-käyttöliittymän tuki, asetukset, avain-arvo-tallennus, käännökset, pakkaaminen ja asennus.">
+<meta name="description" content="Antimatter-sovelluksen (liitännäisen) kirjoittaminen: pakettirakenne ja plugin.json, palvelimen hakukoodit ja API, tekoälypalvelu, web-sovellusrekisteri, Fusion-käyttöliittymän tuki, asetukset, avain-arvo-tallennus, käännökset, pakkaaminen ja asennus.">
 <meta property="og:title" content="Sovellusten (liitännäisten) kirjoittaminen · Antimatter">
-<meta property="og:description" content="Antimatter-sovelluksen (liitännäisen) kirjoittaminen: pakettirakenne ja plugin.json, palvelimen koukut ja API, web-sovelluksen rekisteri, Fusion-käyttöliittymän tuki, asetukset, avain-arvo-tallennus, käännökset, pakkaaminen ja asennus.">
+<meta property="og:description" content="Antimatter-sovelluksen (liitännäisen) kirjoittaminen: pakettirakenne ja plugin.json, palvelimen hakukoodit ja API, tekoälypalvelu, web-sovellusrekisteri, Fusion-käyttöliittymän tuki, asetukset, avain-arvo-tallennus, käännökset, pakkaaminen ja asennus.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://antimatter.chat/fi/docs/developers/apps.html">
 <meta property="og:locale" content="fi">
@@ -200,6 +200,22 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 <li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: tarkista, kuka saa tehdä mitä, ennen kuin toimit käyttäjän puolesta.</li>
 </ul>
 <p>Sovellus ajetaan jokaisella klusterin palvelimella. Säilytä tila avain-arvo-tallennuksessa tai tietokannassa, ei vain muistissa.</p>
+<h3 id="ai">Tekoälypalvelu</h3>
+<p>Antimatterin palvelu kutsuu sovellusten puolesta tekoälymalleja, käyttäen ylläpitäjän määrittämiä malliyhteyksiä (ks. <a href="../../../fi/docs/admins/ai.html">Tekoäly</a> ylläpitäjän opasteessa). Sovellus ei koskaan säilytä palveluntarjoajan avainta: se ilmoittaa, kenen puolella ja missä se toimii, ja palvelu tarkistaa, että kyseisellä henkilöllä on oikeus käyttää yhteyttä siinä paikassa, soveltaa sen rajoituksia ja budjetteja, laskee tokenit henkilön ja sovelluksen laskuun ja tekee tilauskirjauksen kutsusta sisältöä sisällyttämättä.</p>
+<table>
+<thead><tr><th>Metodi</th><th>Toiminto</th></tr></thead>
+<tbody>
+<tr><td><code>AIChat(actingUserID, channelID, teamID, *ai.ChatRequest)</code></td><td>Chat-täydennys: viestit, työkalut, strukturoitu tulos (<code>JSONSchema</code>).</td></tr>
+<tr><td><code>AIChatStream(…)</code></td><td>Sama, virtana: lue virtan <code>Events</code>-tapahtumat, kunnes kanava suljetaan, tai <code>Close</code>-metodilla lopeta kutsu.</td></tr>
+<tr><td><code>AIEmbed(…, *ai.EmbedRequest)</code></td><td>Tekstien upotukset (embeddings).</td></tr>
+<tr><td><code>AITranscribe(…, *ai.TranscribeRequest)</code></td><td>Puhe tekstiksi.</td></tr>
+<tr><td><code>AIDecide(…, *ai.DecideRequest)</code></td><td>Tyypillistettyjä kysymyksiä päätösmallille (kyllä tai ei, valinta, pistemäärä) tekstistä.</td></tr>
+<tr><td><code>AIConnectionsForUser(userID, channelID, teamID)</code></td><td>Yhteydet, joita henkilö voi siellä käyttää, niiden malleineen ja ominaisuuksineen, mutta ei koskaan avaimineen.</td></tr>
+</tbody>
+</table>
+<p>Jokaisen pyynnön <code>ConnectionID</code> valitsee yhteyden, ja <code>Model</code> sen mallin (tyhjä arvo käyttää yhteyksen oletusmallia). <code>Operation</code> on lyhyt tunniste käytön ja tilauskirjanpidon merkintöjä varten, ei sisältöä. Niiden vähimmäispalvelinversio on 11.11.</p>
+<div class="callout warn">Ota <code>actingUserID</code> vain lähteestä, jonka palvelu on varmistanut: <code>Mattermost-User-Id</code>-otsake pyynnössä <code>ServeHTTP</code>-pisteeseesi, tai hakukoodin kontekstin käyttäjä (viestin kirjoittaja, komennon suorittanut käyttäjä). Älä koskaan ota sitä viestistä, webhook-pakettista, URL:stä tai toisen sovelluksen pyynnöstä: sovelluksesi käyttäisi muun henkilön pääsyä.</div>
+<p>Nämä metodit ja <code>ai</code>-paketti (<code>server/public/ai</code>) ovat olemassa vain Antimatterin kopiossa moduulista, eivät Mattermostin julkaisemassa versiossa. Käyttääksesi niitä, käännä koodi Antimatterin <code>server/public</code>-pakettia vasten käyttäen <code>replace</code>-riviä <code>go.mod</code>-tiedostossasi, esimerkiksi <code>replace github.com/mattermost/mattermost/server/public =&gt; ../antimatter/server/public</code>. Tällainen sovellus toimii vain Antimatterissa.</p>
 
 <h2 id="kv">Tietojen tallentaminen</h2>
 <p>Jokaisella sovelluksella on oma avain-arvo-tallennus palvelimen tietokannassa:</p>
@@ -241,35 +257,35 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <pre><code>export function isFusionUI(): boolean {
     return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
 }</code></pre>
-<p>Sisällytetyt sovellukset käyttävät tätä piirtääkseen eri tavalla. Kyselyt piirtää kyselykorttinsa ja luontailmakkuunsa Fusionin tyyliin ja avaa oman <code>/poll</code>-komenton dialogin Fusionissa. Puhelut ja äänikanavat jättävät sivupalkin ja toast-komponentit pois, koska Fusion korvaa ne omalla puhelintajallaan. Agentit-sovellutus sijoittaa tekoälytoimintonsa viestimenun alamenuun, ei viestien hover-työkalupalkkiin. Fusionin omat CSS-luokat (etuliitteellä <code>am-</code>) ja dialogikerros (<code>am-layer</code>-elementti) ovat se, mitä nämä sovellukset käyttävät rajapinnan mukauttamiseen; ne eivät ole dokumentoitu, vakaa API.</p>
+<p>Sisällytetyt sovellukset käyttävät tätä piirtääkseen eri tavalla. Kyselyt piirtää kyselykorttinsa ja luontailmakkuunsa Fusionin tyyliin ja avaa oman dialoginsa <code>/poll</code>-komentoa varten Fusionissa. Puhelut ja äänikanavat jättävät sivupalkin ja toast-komponentit pois, koska Fusion korvaa ne omalla puhelintulkinnallaan. Agentti-sovellutus sijoittaa tekoälytoimintonsa viestin valikkoon ryhmänä <b>Lisätoiminnot</b>-kohdan alle, eikä hover-työkalupalkkiin. Fusionin omat CSS-luokat (etuliitteellä <code>am-</code>) ja dialogikerros (<code>am-layer</code>-elementti) ovat se, mitä nämä sovellukset käyttävät liittymään käyttöliittymään; ne eivät ole dokumentoitu, vakaa API.</p>
 <h3>Missä Fusion näyttää lisäosakomponentit</h3>
 <table>
 <thead><tr><th>Rekisteröintimenetelmä</th><th>Missä se näkyy Fusionissa</th></tr></thead>
 <tbody>
-<tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>Sovelluspalkki, ikoni- ja kuvakepalkki oikealla reunassa, profiilikuvan ja <b>Tietoja Antimatterista</b> -painikkeen välissä. Kanavan otsikon painikkeet sijoitetaan sinne, eivät kanavan otsikkoon. Piilossa, kun järjestelmän ylläpitäjä ottaa <b>Poista Apps Bar -palkki käytöstä</b> -asetuksen (<code>ExperimentalSettings.DisableAppBar</code>, oletuksena pois käytöstä) käyttöön.</td></tr>
-<tr><td><code>registerRightHandSidebarComponent</code></td><td>Oikeanpuoleinen paneeli. Käyttäjät voivat muuttaa sen kokoa vetämällä sen reunaa. Jos sovellus on myös tuote, paneelista löytyy <b>Avaa koko sivuna</b> -toiminto.</td></tr>
+<tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>Sovelluspalkki, ikoneiden sarake oikealla reunassa, avatarin ja <b>Tietoja Antimatterista</b>-painikkeen välissä. Kanavan otsikon painikkeet sijoitetaan sinne, eivät kanavan otsikkoon. Piilossa, jos järjestelmän ylläpitäjä ottaa <b>Poista Apps Bar -palkki käytöstä</b> (<code>ExperimentalSettings.DisableAppBar</code>, oletus poissa) käyttöön.</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>Oikea paneeli. Käyttäjät voivat muuttaa sen kokoa vetämällä sen reunaa ja avata sen uuteen ikkunaan. Jos sovellus on myös tuote, paneeli tarjoaa <b>Avaa koko sivuna</b>. Katso <a href="#panel-state">Paneeli uuteen ikkunaan</a>.</td></tr>
 <tr><td><code>registerChannelHeaderIcon</code></td><td>Kanavan otsikon ikonit, puhelinpainikkeiden jälkeen; puhelimissa otsikon <b>Lisää</b> -valikossa.</td></tr>
-<tr><td><code>registerCallButtonAction</code></td><td>Kanavan otsikon puhelupainike; useilla palveluntarjoajilla on <b>Muita tapoja soittaa</b> -valikko.</td></tr>
-<tr><td><code>registerPostDropdownMenuAction</code></td><td>Viestin <b>Lisätoiminnot</b> (⋯) -valikko, <b>Viestitoiminnot</b> -alivalikossa; myös ketjupaneelin <b>Ketjun toiminnot</b> -valikossa, kohdassa <b>Lisätoiminnot</b>.</td></tr>
-<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Oma alamenu samassa valikossa, sovelluksen nimen ja ikonin kanssa.</td></tr>
+<tr><td><code>registerCallButtonAction</code></td><td>Kanavan otsikon puhelupainike; useat palveluntarjoajat jakavat <b>Muita tapoja soittaa</b>-valikon.</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>Viestin <b>Viestitoiminnot</b> (⋯) -valikko, sen <b>Lisätoiminnot</b>-ala-valikossa; myös ketjupaneelin <b>Ketjun toiminnot</b>-valikossa, <b>Lisätoiminnot</b>-kohdan alla. Fusion piirtää sovelluksen ikoon ennen jokaista toimintoa, harmaana: sisällytetyille sovelluksille sen oman ikoon, muuten sovelluksen ikoon sovelluspalkissa, muuten neutraalin. Elementti ilman tekstiä toiminnon tekstin alussa (ikoni, jonka sovellus piirtää itse) on piilossa.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Ryhmä otsikolla samassa <b>Lisätoiminnot</b>-ala-valikossa, yksittäisten toimintojen jälkeen. Sovellukselle ei anneta omaa kohdasta viestin valikkoon.</td></tr>
 <tr><td><code>registerPostActionComponent</code></td><td>Viestin hover-työkalupalkki, ⋯-painikkeen edessä.</td></tr>
 <tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>Viesti itse: sen runko, tekstin alla, ajan jälkeen ja linkkien esikatselujen tilalla.</td></tr>
-<tr><td><code>registerChannelHeaderMenuAction</code></td><td>Kanavan <b>Kanavan vaihtoehdot</b> -valikko (⋯ sivupalkin kanavassa tai hiiren oikealla painikkeella), kohteina liitäntäsymbolilla.</td></tr>
-<tr><td><code>registerMainMenuAction</code></td><td>Yhteisön valikko (yhteisön nimi kanavalistan yläreunassa), kohdassa <b>Lisätoiminnot</b>, ryhmiteltynä sovellusten mukaan.</td></tr>
+<tr><td><code>registerChannelHeaderMenuAction</code></td><td>Kanavan <b>Kanavan vaihtoehdot</b>-valikko (⋯ sivupalkin kanavassa tai oikea napsautus), kohtina joissa on pistooli-ikoni.</td></tr>
+<tr><td><code>registerMainMenuAction</code></td><td>Yhteisön valikko (yhteisön nimi kanavalistan yläreunassa), <b>Lisätoiminnot</b>-kohdan alla, ryhmiteltynä sovellusten mukaan.</td></tr>
 <tr><td><code>registerSidebarBrowseOrAddChannelMenuAction</code></td><td>Yhteisön valikko, <b>Luo kanava</b> - ja <b>Luo kategoria</b> -kohtien jälkeen.</td></tr>
 <tr><td><code>registerFileUploadMethod</code></td><td>Kirjoitusruudun <b>+</b> -valikko (<b>Lisää viestiin</b>), <b>Lähetä tiedosto</b> -kohdan jälkeen.</td></tr>
 <tr><td><code>registerPostEditorActionComponent</code></td><td>Kirjoitusruudun muotoilupalkki, kun muotoilua näytetään.</td></tr>
 <tr><td><code>registerAIActionMenuItemComponent</code></td><td>Kirjoitusruudun <b>AI</b> -valikko.</td></tr>
 <tr><td><code>registerFileDropdownMenuAction</code>, <code>registerFilePreviewComponent</code></td><td>Tiedoston valikkomenu ja tiedoston esikatselu.</td></tr>
-<tr><td><code>registerUserSettings</code></td><td><b>Profiili ja asetukset</b>, yksi välilehti per sovellus <b>Liiteohjelmat</b> -otsikon alla.</td></tr>
+<tr><td><code>registerUserSettings</code></td><td><b>Profiili &amp; asetukset</b>, yksi välilehti per sovellus <b>Liiteohjelmat</b>-otsikon alla.</td></tr>
 <tr><td><code>registerChannelSettingsTab</code></td><td>Kanavan asetukset -dialogi, <b>Sovellukset</b> -otsikon alla.</td></tr>
 <tr><td><code>registerPopoverUserAttributesComponent</code>, <code>registerPopoverUserActionsComponent</code></td><td>Profiilikortti, joka näkyy, kun napsautat nimeä tai profiilikuvaa.</td></tr>
 <tr><td><code>registerLeftSidebarHeaderComponent</code>, <code>registerSidebarChannelLinkLabelComponent</code>, <code>registerChannelIconOverride</code>, <code>registerBottomTeamSidebarComponent</code></td><td>Yhteisön kanavalistan yläreuna, kanavan nimen ja ikoon viereen sekä yhteisön vasemmanpuoleisen sivupalkin alareuna.</td></tr>
 <tr><td><code>registerChannelIntro</code>, <code>registerChannelIntroButtonAction</code>, <code>registerChannelToastComponent</code>, <code>registerNewMessagesSeparatorActionComponent</code>, <code>registerChannelComposerBannerComponent</code>, <code>registerComposerPlaceholder</code></td><td>Kanavan historian alku, viestilistan yläreuna, lukemattomien viestien raja, kirjoituskentän yläpuolella ja kirjoituskentän placeholder-teksti.</td></tr>
-<tr><td><code>registerChannelTypeOption</code></td><td><b>Luo kanava</b> -valintaikkunan kanavatyyppit.</td></tr>
+<tr><td><code>registerChannelTypeOption</code></td><td><b>Luo kanava</b>-dialogin kanavatyyppit.</td></tr>
 <tr><td><code>registerSearchComponents</code></td><td>Kanavan otsikon hakukenttä: sovellusten alueet näkyvät, kun kenttä on tyhjä.</td></tr>
 <tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>Tietoja Antimatterista</b> (sovelluksen sivupalkin alareunassa), kohdassa <b>Ohje</b>.</td></tr>
-<tr><td><code>registerProduct</code></td><td>Koko sivut tuotteen osoitteessa, luettuna kohdassa <b>Tuotteet</b> sivulla <b>Tietoja Antimatterista</b>. Tuotesivut säilyttävät klassisen sivukehyksen.</td></tr>
+<tr><td><code>registerProduct</code></td><td>Koko sivut tuotteen osoitteessa, lueteltuna <b>Tuotteet</b>-kohdassa <b>Tietoja Antimatterista</b>-osiossa. Tuotesivut säilyttävät klassisen sivukehyksen, jonka tuotevalikko näkyy vain, jos sovellus rekisteröi tuotteen tai lisää siihen kohdan. Sisällytetyt Kanban- ja Ohjekirjat-sovellukset eivät enää rekisteröi tuotteita: niiden sivut avautuvat niiden sivupaneelissa.</td></tr>
 <tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, koukut kuten <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>Toimivat klassisen käyttöliittymän tapaan.</td></tr>
 <tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>Järjestelmäkonsoli, joka on klassinen molemmissa käyttöliittymissä.</td></tr>
 </tbody>
@@ -278,7 +294,7 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <ul>
 <li><code>registerPostDropdownMenuComponent</code> (viestin valikon komponentti), <code>registerPostCardTypeComponent</code> (viestin kortti oikeanpuoleisessa paneelissa) ja <code>registerProductSwitcherMenuItem</code> eivät näy Fusionin päänäkymissä. Käytä <code>registerPostDropdownMenuAction</code>:ia ensimmäisen sijaan.</li>
 <li><code>registerMessageWillBeUpdatedHook</code> ei aja, kun viestiä muokataan Fusionissa. Tarkista muokkaukset palvelimella <code>MessageWillBeUpdated</code>-koukulla.</li>
-<li><code>registerActionAfterChannelCreation</code> suoritetaan vain klassisesta kanavan luontivalintaikkunasta, jonka Fusion avaa <b>Lisää vaihtoehtoja…</b> -kohdasta <b>Luo kanava</b> -valintaikkunassaan.</li>
+<li><code>registerActionAfterChannelCreation</code> ajaa vain klassisesta kanavan luontiaikaruudusta, jonka Fusion avaa <b>Lisää vaihtoehtoja…</b> -kohdasta <b>Luo kanava</b> -ruudussa.</li>
 <li>Sovelluspalkin komponentit näkyvät riippumatta <code>supportedProductIds</code>-arvosta.</li>
 <li>Reitit, jotka on rekisteröity metodien <code>registerNeedsTeamRoute</code> ja <code>registerCustomRoute</code> kautta, säilyttävät klassisen sivukehyksen, kuten tuotteet.</li>
 </ul>
@@ -299,16 +315,25 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <thead><tr><th>Metodi</th><th>Mitä se lisää</th></tr></thead>
 <tbody>
 <tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>Kohta viestikentän <b>+</b>-valikossa, molemmissa käyttöliittymissä. <code>action</code> saa parametrina <code>{channelId, rootId}</code>.</td></tr>
-<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Viestiruudun emojivalitsimen välilehti, kuten GIFit tai tarrat. Fusionissa välilehdet, joiden <code>order</code>-arvo on alle 10, tulevat Emoji-välilehden eteen. Komponentti saa parametreina <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> ja <code>isFusion</code>.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Viestiruudun emojivalikkeen välilehti, kuten GIFit tai tarrat. Fusionissa <code>order</code> -arvon ollessa alle 10 välilehti sijoittuu Emojit-välilehden eteen. Komponentti saa parametreina <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code>, <code>isFusion</code> ja Fusionissa <code>pickerKit</code> (katso alla).</td></tr>
 <tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>Paneeli kanavan otsikon ja viestien välillä, kanaville, jotka <code>matcher(state, channel)</code> valitsee. Se voi piilottaa viestit ja kirjoitusruudun (<code>setMessagesVisible</code>), kuten äänikanavat tekevät.</td></tr>
 <tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>Rivi kanavan alla sivupalkissa, kuten puhelun osallistujat. Se saa parametrikseen <code>channel</code>.</td></tr>
-<tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Vain Fusionissa: kohde <b>Integraatiot</b> -sivuilla, mukautettujen emojien vieressä. GIF-sovellus lisää sinne mukautetut GIF-kuvaansa ja tarransa.</td></tr>
+<tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Vain Fusionissa: <b>Integraatiot</b> -sivun kohde, joka sijaitsee mukautettujen emojien vieressä. GIFit-sovellus lisää sinne omat GIFinsä ja tarransa.</td></tr>
 </tbody>
 </table>
+<h3 id="picker-kit">Lisää ja hallitse näkymiä emojivalikkeeessa</h3>
+<p>Fusionissa emojivalikkeen välilehti saa <code>pickerKit</code> -parametrin: Emojit-välilehden omia lisäys- ja hallintanäkymiä käyttävät komponentit, jotta välilehden näkymät näyttävät samalta ja pysyvät valikkeen sisällä. GIFit- ja Memes-sovellukset käyttävät sitä GIFien, tarran ja memepohjien lisäämiseen ja hallintaan. Parametri sisältää <code>version</code> (1), hookit <code>usePickerView</code> ja <code>useOnEscape</code> sekä komponentit <code>PickerViewButtons</code> (hakuikkunan vieressä olevat <b>+</b> ja hallinta-napit), <code>PickerViewFrame</code> (näkymä, jossa on taaksepäin-nuoli), <code>PickerNotice</code>, <code>PickerField</code>, <code>PickerSearch</code>, <code>PickerDropZone</code> ja <code>PickerManageList</code>. Escape-näppäin palauttaa näkymästä välilehden ruudukkoon. Tarkista, että parametri on olemassa: muut isäntäympäristöt jättävät sen pois, jolloin välilehti käyttää omia ikkunoitaan. Tyypit löytyvät tiedostosta <code>webapp/fusion/src/types/store/plugins.ts</code> (<code>EmojiPickerTabProps</code>) ja komponentit tiedostosta <code>webapp/fusion/src/fusion/popovers/picker_views.tsx</code>.</p>
+<h3 id="panel-state">Paneeli uudessa ikkunassa</h3>
+<p>Fusion antaa <code>registerRightHandSidebarComponent</code> -komponentille kaksi lisäparametria, jotta <b>Avaa uuteen ikkunaan</b> avaa paneelin sieltä, missä se oli, eikä sovelluksen etusivulta:</p>
+<ul>
+<li><code>setPanelState(state)</code>: kutsu tätä, kun paneeli vaihtaa sijaintia, ja anna sille lyhyt merkkijono, jonka sovelluksesi määrittelee, kuten <code>'note/&lt;id&gt;'</code> tai <code>'board/&lt;id&gt;/card/&lt;id&gt;'</code>, tai <code>null</code>, jos paneeli on etusivulla. Arvo siirretään ikkunan osoitteeseen, joten älä koskaan sisällytä siihen salaisuuksia. Tilat, jotka ovat pidempiä kuin 512 merkkiä tai sisältävät ohjausmerkkejä, hylätään.</li>
+<li><code>initialPanelState</code>: uuden ikkunan tila, eli tila, jossa paneeli oli, tai <code>undefined</code>. Tarkkaele sitä epäluotettavana syötteenä: nouta kohde uudelleen kirjautuneen henkilön nimellä ja näytä sovelluksen etusivu tai ”ei löytynyt”-näkymä, jos he eivät voi avata sitä.</li>
+</ul>
+<p>Tila unohdetaan, kun paneeli suljetaan tai toisen sovelluksen paneeli vie sen tilalle. Jos haluat avata paneelin ikkunan itse, <code>popoutRhsPlugin</code> (myös <code>window.WebappUtils.popouts</code>-funktiolla) ottaa tilan valinnaisena viidentenä argumenttina. Muistiinpano, Valkotaulu, Tehtävälista, Kanban ja Ohjekirjat käyttävät tätä.</p>
 <p><code>fusionIcon</code> nimittää Fusionin ikoni-setin ikonia (esimerkiksi <code>poll</code>, <code>sticker</code>, <code>calendar</code> tai <code>image</code>; ks. <code>webapp/fusion/src/fusion/components/icon</code>). Fusion näyttää sen <code>icon</code>-ikonin sijaan, jotta kohde vastaa muita.</p>
 
 <h2 id="settings">Asetukset</h2>
-<p><code>settings_schema</code> -määritelmä <code>plugin.json</code> -tiedostossa kuvaa sovelluksen sivua <b>Järjestelmäkonsoli › Liiteohjelmat</b> -osiossa:</p>
+<p><code>settings_schema</code> -määrite <code>plugin.json</code>-tiedostossa kuvaa sovelluksen sivua kohdassa <b>Järjestelmäkonsoli › Liiteohjelmat</b>:</p>
 <pre><code>"settings_schema": {
   "header": "Forecasts come from the weather service below.",
   "settings": [
@@ -377,7 +402,7 @@ registry.registerTranslations(translationsFor);</code></pre></li>
 <ul>
 <li>Järjestelmäylläpitäjä sallii lataukset asetuksella <code>AM_PLUGINSETTINGS_ENABLEUPLOADS=true</code> (oletuksena pois käytöstä; Järjestelmäkonsolissa ei ole kytkintä).</li>
 <li>Sitten <b>Järjestelmäkonsoli › Liiteohjelmat › Liiteohjelmien hallinta › Lähetä liiteohjelma</b>, tai <code>amctl plugin add weather.tar.gz</code> ja sen jälkeen <code>amctl plugin enable com.example.weather</code>.</li>
-<li>Jos palvelimella on <b>Vaadi lisäosan allekirjoitusta</b> -asetus käytössä, se hyväksyy vain luotetulla avaimella allekirjoitetut paketit; ks. <a href="../../../fi/docs/admins/apps.html#other-apps">Muiden sovellusten asennus</a>.</li>
+<li>Jos palvelimella on <b>Vaadi lisäosan allekirjoitusta</b> -asetus käytössä, se hyväksyy vain luotetulla avaimella allekirjoitetut pakettit; ks. <a href="../../../fi/docs/admins/apps.html#other-apps">Muiden sovellusten asennus</a>.</li>
 </ul>
 <div class="callout">Nopeita kehitysiteraatiosia kehityspalvelimelle varten aseta palvelimelle <code>AM_SERVICESETTINGS_ENABLEDEVELOPER=true</code>: virheet sisältävät silloin tarkemmat tiedot. Pakettien Makefilet kääntävät palvelinpuolen vain sille alustalle, jolla <code>MM_SERVICESETTINGS_ENABLEDEVELOPER</code> on määritetty shellissäsi.</div>
 <nav class="pager"><a class="prev" href="../../docs/developers/bots.html"><small>Edellinen</small>Bottit</a><a class="next" href="../../docs/developers/building.html"><small>Seuraava</small>Kääntäminen lähdekoodista</a></nav>

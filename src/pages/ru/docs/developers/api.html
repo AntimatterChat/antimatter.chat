@@ -4,7 +4,7 @@ guide: developers
 order: 2
 nav: REST API
 lead: Все действия в приложениях Antimatter выполняются через один и тот же HTTP API, поэтому ваши скрипты могут делать то же самое. На этой странице описано, как аутентифицироваться, какие ресурсы используются чаще всего, как выглядят ответы и ошибки, а также как получать события в реальном времени через WebSocket.
-source: dccc67af2fb2
+source: a18155751d3e
 ---
 <h2 id="basics">Основы</h2>
 <ul>
@@ -14,7 +14,7 @@ source: dccc67af2fb2
 <li><b>Сообщества — это команды</b>: в API они называются <code>teams</code> и имеют <code>team_id</code>.</li>
 <li><b>Себя</b>: везде, где в пути используется <code>user_id</code>, <code>me</code> означает текущего пользователя, например <code>GET /users/me</code>.</li>
 </ul>
-<p>Полный список конечных точек находится в коде сервера: маршруты объявлены в <code>server/channels/api4/*.go</code>, а типы — в <code>server/public/model</code>. Описание OpenAPI в папке <code>api/v4/source</code> репозитория покрывает только конечные точки, унаследованные от Mattermost, а не добавления Antimatter.</p>
+<p>Полный список конечных точек находится в коде сервера: маршруты объявлены в <code>server/channels/api4/*.go</code>, а типы — в <code>server/public/model</code>. Описание OpenAPI в папке <code>api/v4/source</code> репозитория охватывает конечные точки, унаследованные от Mattermost, а также некоторые дополнения Antimatter: перемещение обсуждений, подключения моделей и действия с сообщениями. Остальные конечные точки доступны только в коде.</p>
 
 <h2 id="auth">Аутентификация</h2>
 <p>Каждый запрос, за исключением входа в систему и нескольких публичных конечных точек, требует токен в заголовке <code>Authorization</code>:</p>
@@ -144,7 +144,7 @@ func main() {
 <tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> тот же путь<br><code>PATCH</code>, <code>DELETE …/fields/{field_id}</code></td><td>Атрибуты сообщества: поля профиля, которые администраторы сообщества определяют для его участников (до 20). Участники могут читать их; администраторы сообщества создают и изменяют их.</td></tr>
 <tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> тот же путь<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>Значения атрибутов участника, в формате <code>{field_id: value}</code>. Участники устанавливают свои значения (кроме управляемых администраторами); администраторы устанавливают значения для любого участника. Поиск принимает <code>{"user_ids": [...]}</code> (до 200).</td></tr>
 <tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>Тайм-ауты: <code>{"until": time, "reason": "…"}</code> запрещает участнику публиковать сообщения, ставить реакции и загружать файлы в сообществе до указанного времени (максимум 28 дней); <code>"until": 0</code> снимает ограничение. Вид модерации показывает, когда участник присоединился и сколько сообщений он опубликовал недавно.</td></tr>
-<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Сообщения, закрепленные наверху канала (до 10). <code>{"duration": ms}</code>, максимум 30 дней; 0 означает, что сообщение останется закрепленным до его удаления. Требуется право на публикацию в канале.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Сообщения, закреплённые вверху канала (до 10). <code>{"duration": ms}</code>, максимум 30 дней; 0 означает, что сообщение останется до его удаления. Любой пользователь, имеющий право читать канал, видит список. Чтобы закрепить сообщение или снять его с закрепления, необходимо иметь право на публикацию в канале, а в канале сообщества — быть администратором канала или сообщества либо иметь право <b>Управление сообщениями</b> (<code>delete_others_posts</code>) в нём. В личных и групповых сообщениях это могут делать их участники. В архивированных каналах действие запрещено.</td></tr>
 <tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>Действия с вашим собственным запросом на сообщение: <code>{"action": "accept"}</code>, <code>"dismiss"</code> или <code>"request"</code>, чтобы вернуть разговор в список запросов. Возвращает данные вашего участника канала.</td></tr>
 <tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>Что роль или пользователь может делать в канале, а также какие роли имеют доступ к каналу с ограничением по ролям.</td></tr>
 <tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>Общие категории каналов сообщества и переопределения, применяемые ко всем каналам в категории.</td></tr>
@@ -152,13 +152,75 @@ func main() {
 <tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>Проверяет правила автоматических ссылок сообщества на тексте.</td></tr>
 <tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>Скачивает сообщения канала в формате CSV (до 50 000) для пользователей, имеющих право на чтение канала.</td></tr>
 <tr><td><code>GET /posts/{post_id}/speech</code></td><td>Аудиозапись сообщения, озвученная при настройке функции преобразования текста в речь.</td></tr>
+<tr><td><code>POST /posts/{post_id}/move_to_channel</code></td><td>Перемещает обсуждение в другой канал того же сообщества: см. <a href="#move-thread">Перемещение обсуждения</a>.</td></tr>
+<tr><td><code>GET</code>, <code>POST /ai/connections</code><br><code>GET</code>, <code>PATCH</code>, <code>DELETE /ai/connections/{connection_id}</code><br><code>GET /ai/connections/usable</code></td><td>Подключения моделей, провайдеры ИИ, используемые функциями и приложениями ИИ сервера: см. <a href="#ai-connections">Подключения моделей</a>.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/message_actions</code><br><code>POST /posts/{post_id}/message_actions/{hook_id}</code><br><code>GET</code>, <code>POST /hooks/outgoing/{hook_id}/icon</code></td><td>Действия с сообщениями: исходящие вебхуки, которые пользователи запускают из меню сообщения. См. <a href="{{root}}docs/developers/webhooks.html#message-actions">Действия с сообщениями</a>.</td></tr>
 </tbody>
 </table>
 <h3>Новые поля</h3>
 <ul>
-<li><b>Сообщества</b> (<code>Team</code>, и <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (все находятся во всех каналах, которые они могут видеть), <code>default_channel_id</code> (куда попадают новички; пустое значение означает Town Square), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> и <code>autolinks</code> (оба являются строками JSON).</li>
+<li><b>Сообщества</b> (<code>Team</code>, и <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (все участники входят во все каналы, которые им доступны), <code>default_channel_id</code> (канал, в который попадают новые участники; пустое значение означает General), <code>kind</code> (<code>community</code> или <code>workplace</code>: в рабочем пространстве администраторы каналов могут также архивировать свои каналы; новым сообществам назначается <code>TeamSettings.DefaultCommunityKind</code> сервера, по умолчанию <code>community</code>), <code>member_list_view</code> (способ группировки участников в списке: <code>choice</code> (по умолчанию) позволяет каждому участнику выбрать свой вариант; <code>roles</code> или <code>teams</code> фиксируют способ), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> и <code>autolinks</code> (оба значения — строки JSON).</li>
+<li><b>Канал по умолчанию</b> нового сообщества — это <code>general</code> (<b>Общий</b>), а не <code>town-square</code>. При обновлении до версии 0.9.0 канал <code>town-square</code> каждого сообщества переименовывается в <code>general</code>, сохраняя его ID, если в сообществе ещё нет канала <code>general</code>. Старые названия продолжают работать: <code>GET /teams/{team_id}/channels/name/town-square</code>, <code>GET /teams/name/{team}/channels/name/town-square</code> и <code>channel</code> входящего вебхука указывают на канал по умолчанию сообщества, если в нём нет канала с таким названием. В новом коде используйте <code>default_channel_id</code> или название <code>general</code>.</li>
+<li><b>Ссылки на каналы</b>: <code>#channel-name</code> ссылается на канал, как и <code>~channel-name</code>. Свойство <code>channel_mentions</code> сообщения перечисляет все каналы, на которые есть ссылки любым из этих способов; <code>#word</code>, не соответствующий имени канала, остаётся хэштегом. Веб-интерфейс и мобильное приложение Antimatter используют формат <code>#name</code>.</li>
+<li><b>Архивированные каналы</b> по-прежнему могут получать новых участников (<code>POST /channels/{channel_id}/members</code>), которые могут просматривать историю. Никто не может публиковать сообщения, добавлять реакции, прикреплять сообщения, выдвигать сообщения наверх, переименовывать канал или изменять роли участников в нём.</li>
 <li><b>Встроенные ответы</b>: сообщение с <code>"props": {"reply_to": "&lt;post id&gt;"}</code> цитирует указанное сообщение из того же канала. Добавьте <code>"reply_to_mention": false</code>, чтобы не уведомлять автора цитируемого сообщения. Сервер заполняет <code>metadata.reply_to</code> кратким описанием цитируемого сообщения.</li>
 <li><b>Спойлеры</b>: <code>"props": {"spoiler": true}</code> скрывает текст сообщения и вложения, пока читатель не решит их просмотреть.</li>
 <li><b>Игнорирование и блокировка</b> — это настройки: категория <code>user_block</code>, имя которой совпадает с ID другого пользователя, а значение — <code>ignore</code> или <code>block</code>. То, ожидает ли личное сообщение как запрос, определяется в <code>notify_props.dm_request</code> вашего участника канала (<code>pending</code>, <code>accepted</code> или <code>dismissed</code>).</li>
 <li><b>Вложения к сообщениям</b> могут содержать <code>stages</code> и <code>chart</code>: см. <a href="{{root}}docs/developers/webhooks.html#cards">Карточки</a>.</li>
 </ul>
+
+<h2 id="move-thread">Перемещение обсуждения</h2>
+<p><code>POST /posts/{post_id}/move_to_channel</code> перемещает обсуждение, его первое сообщение и все ответы в другой канал того же сообщества. <code>post_id</code> может быть как первым сообщением, так и любым ответом.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts/$POST_ID/move_to_channel \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$TARGET_CHANNEL_ID'", "flatten": false}'</code></pre>
+<ul>
+<li><code>channel_id</code> (обязательное поле): канал, в который перемещается обсуждение.</li>
+<li><code>flatten</code> (по умолчанию <code>false</code>): значение <code>true</code> превращает ответы в обычные сообщения целевого канала, а не в ветку. В Fusion для этого используется опция <b>Make it a channel</b>.</li>
+</ul>
+<p>Сообщения сохраняют своих авторов, время создания, реакции и файлы. Их копии содержат свойство <code>silent_notification</code>, поэтому они не вызывают уведомлений. Исходные сообщения удаляются. В ответе возвращается первое сообщение после перемещения с новым ID.</p>
+<h3>Кто может перемещать обсуждение</h3>
+<ul>
+<li>Вы должны иметь право читать обсуждение и публиковать сообщения в целевом канале.</li>
+<li>Администраторы канала, администраторы сообщества, пользователи с правом <b>Управление сообщениями</b> (<code>delete_others_posts</code>) в канале и системные администраторы могут перемещать любое обсуждение.</li>
+<li>Автор обсуждения может переместить его, если оба канала публичные, или если все сообщения в обсуждении принадлежат ему. В противном случае возвращается ответ <code>403</code> с идентификатором <code>api.post.move_thread.private_needs_moderator.app_error</code>.</li>
+<li>Оба канала должны принадлежать одному сообществу (личные и групповые сообщения не поддерживаются), быть разными и не быть архивированными. Системные сообщения и сообщения, удаляемые после прочтения, переместить нельзя.</li>
+<li>Обсуждение, содержащее более <code>WranglerSettings.MoveThreadMaxCount</code> сообщений (по умолчанию 100; 0 — без ограничения), будет отклонено.</li>
+</ul>
+<h3>Указатель и заметка</h3>
+<p>При перемещении создаются два системных сообщения типа <code>system_wrangler</code>: указатель в исходном канале («Обсуждение из 13 сообщений перемещено в #target») и заметка в целевом канале («Это обсуждение перемещено из #source»). Они размещаются под перемещённым обсуждением или, при использовании <code>flatten</code>, после его сообщений. Помимо текста сообщения, их свойства позволяют клиенту отображать название канала в виде ссылки:</p>
+<ul>
+<li>Указатель: <code>MovedThreadPermalink</code>, <code>NumMessages</code>, <code>MovedThreadChannelId</code>, <code>MovedThreadTeamName</code>, <code>MovedThreadPostId</code>, а для публичного целевого канала — <code>MovedThreadChannelName</code> и <code>MovedThreadChannelDisplayName</code>.</li>
+<li>Заметка: <code>MovedFromChannelId</code>, <code>MovedFromTeamName</code>, <code>MovedFromPostId</code> (указатель), <code>MovedFromPermalink</code>, а для публичного исходного канала — <code>MovedFromChannelName</code> и <code>MovedFromChannelDisplayName</code>.</li>
+</ul>
+<p>Оба сообщения также содержат <code>TranslationID</code>. Название закрытого канала не указывается: пользователи видят «другой канал». Собственный метод Mattermost <code>POST /posts/{post_id}/move</code> в Antimatter отключён; используйте этот эндпоинт.</p>
+
+<h2 id="ai-connections">Подключения моделей</h2>
+<p>Соединение с моделью — это адрес и ключ провайдера ИИ, настроенные администратором. Они используются серверными функциями ИИ и приложениями, обращающимися к сервису ИИ. Системные администраторы управляют общесерверными соединениями (<code>manage_ai_connections</code>), а администраторы сообщества — соединениями своего сообщества (<code>manage_team_ai_connections</code>). Ключи доступны только для записи: в ответах они не передаются, возвращаются только <code>api_key_set</code> и <code>api_key_last4</code>.</p>
+<table>
+<thead><tr><th>Конечная точка</th><th>Назначение</th></tr></thead>
+<tbody>
+<tr><td><code>GET /ai/connections?scope=</code></td><td>Списки соединений, которыми вы управляете. Значение <code>scope</code> — <code>server</code> или ID сообщества; если оно не указано, возвращаются все области, которыми вы управляете.</td></tr>
+<tr><td><code>POST /ai/connections</code></td><td>Добавляет соединение (возвращает <code>201</code>).</td></tr>
+<tr><td><code>POST /ai/connections/test</code>, <code>POST /ai/connections/models</code></td><td>Тестирует соединение или получает список его моделей до сохранения. Тело запроса такое же, как при добавлении; данные не сохраняются.</td></tr>
+<tr><td><code>GET</code>, <code>PATCH</code> (или <code>PUT</code>), <code>DELETE /ai/connections/{connection_id}</code></td><td>Чтение, изменение или удаление соединения. В запросе на изменение передаются только изменяемые поля; если <code>api_key</code> не указан, ключ сохраняется.</td></tr>
+<tr><td><code>POST /ai/connections/{connection_id}/test</code></td><td>Тестирует сохранённое соединение: <code>{"ok", "error", "status_code", "latency_ms", "model_count"}</code>.</td></tr>
+<tr><td><code>GET /ai/connections/{connection_id}/models</code></td><td>Модели, предоставляемые провайдером.</td></tr>
+<tr><td><code>GET /ai/connections/{connection_id}/usage</code></td><td>Запросы и токены за текущий месяц.</td></tr>
+<tr><td><code>GET /ai/connections/usable?channel_id=&amp;team_id=</code></td><td>Для любого пользователя, вошедшего в систему: доступные вам соединения, включая их модели и возможности, но без ключей и адресов.</td></tr>
+</tbody>
+</table>
+<p>Тело нового соединения:</p>
+<pre><code>{
+  "name": "Local models",
+  "scope": "server",
+  "provider": "openai_compatible",
+  "base_url": "http://llm.internal:8000/v1",
+  "api_key": "…",
+  "extra_headers": {},
+  "models": {"chat": "qwen3-32b", "embeddings": "", "transcription": "", "decisions": ""},
+  "limits": {"requests_per_minute": 0, "monthly_token_budget": 0, "per_user_requests_per_minute": 0, "per_user_monthly_token_budget": 0},
+  "sharing": {"all_teams": true, "team_ids": []},
+  "audience": {"everyone": true, "group_ids": [], "roles": [], "allow_guests": false}
+}</code></pre>
+<p><code>provider</code> принимает значение <code>openai_compatible</code> или <code>anthropic</code>. По умолчанию <code>scope</code> равно <code>server</code>; если указан идентификатор сообщества, соединение становится его собственным. В <code>limits</code> значение 0 означает отсутствие ограничений: запросы в минуту учитываются на каждом сервере, а бюджет токенов — за календарный месяц (UTC) для всего кластера. Параметр <code>sharing</code> определяет, какие сообщества могут использовать серверное соединение (для личных и групповых сообщений требуется <code>all_teams</code>), а <code>audience</code> — кто имеет к нему доступ; гости — только при <code>allow_guests</code>. Все изменения записываются в журнал аудита. Описание параметров см. в руководстве администратора: <a href="{{root}}docs/admins/ai.html">AI</a>.</p>

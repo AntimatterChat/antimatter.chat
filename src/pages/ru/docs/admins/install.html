@@ -1,10 +1,10 @@
 title: Установка Antimatter
-description: Установите Antimatter с помощью Docker Compose или из архива релиза, выберите образ, запустите его в первый раз и создайте первого системного администратора.
+description: Установите Antimatter с помощью Docker Compose, из пакетов .deb и .rpm или из архива релиза, выберите образ, запустите его впервые и создайте первого системного администратора.
 guide: admins
 order: 2
 nav: Установка
-lead: Установите Antimatter с помощью готового файла compose, выберите подходящий образ или запустите сервер из архива релиза. Затем создайте первую учётную запись администратора.
-source: 64cd522c4946
+lead: Установите Antimatter с помощью готового файла compose, из пакета .deb или .rpm релиза или из архива релиза. Затем создайте учётную запись первого администратора.
+source: bb05a35899c4
 ---
 <h2 id="compose">Установка с помощью Docker Compose</h2>
 <p>Это рекомендуемый способ. Один файл compose запускает Antimatter, PostgreSQL, хранилище файлов и службу GIF. Вам понадобится сервер на Linux с Docker Engine и его плагином Compose (<code>docker compose</code>), 2 ядра CPU и 4 ГБ оперативной памяти или больше.</p>
@@ -20,9 +20,10 @@ SITE_URL=http://localhost:8065
 POSTGRES_PASSWORD=$(openssl rand -hex 24)
 S3_SECRET_KEY=$(openssl rand -hex 24)
 GIFS_API_KEY=$(openssl rand -hex 24)
+AM_AI_ENCRYPTION_KEY=$(openssl rand -base64 32)
 EOF
 chmod 600 .env</code></pre>
-<p>Укажите в <code>SITE_URL</code> адрес, который пользователи будут вводить в браузере, например <code>http://192.168.1.20:8065</code> в локальной сети или <code>https://chat.example.com</code> с доменным именем. Сохраните файл <code>.env</code>: база данных и хранилище используют эти пароли с первого запуска, и вам понадобится тот же файл для восстановления из резервной копии.</p>
+<p>Укажите в <code>SITE_URL</code> адрес, который пользователи будут вводить в браузере, например <code>http://192.168.1.20:8065</code> в локальной сети или <code>https://chat.example.com</code> с доменом. Сохраните файл <code>.env</code>: база данных и хранилище используют из него пароли, заданные при первом запуске, ключи API для подключений моделей ИШ шифруются с помощью <code>AM_AI_ENCRYPTION_KEY</code>, а тот же файл необходим для восстановления из резервной копии.</p>
 
 <h3>3. Запустите</h3>
 <pre><code>docker compose up -d
@@ -38,7 +39,8 @@ docker compose ps</code></pre>
 <tr><td><code>POSTGRES_PASSWORD</code></td><td>обязательный</td><td>Пароль пользователя базы данных <code>antimatter</code>.</td></tr>
 <tr><td><code>S3_SECRET_KEY</code></td><td>обязательный</td><td>Секретный ключ хранилища файлов.</td></tr>
 <tr><td><code>GIFS_API_KEY</code></td><td>обязательный</td><td>Ключ, который Antimatter использует для обращения к службе GIF.</td></tr>
-<tr><td><code>GIFS_UPLOAD_KEY</code></td><td>пусто</td><td>Позволяет пользователям добавлять собственные GIF и стикеры из панели выбора. Если оставить пустым, загрузка будет отключена.</td></tr>
+<tr><td><code>AM_AI_ENCRYPTION_KEY</code></td><td>пусто</td><td>Ключ, шифрующий ключи API для подключений моделей ИШ (<code>openssl rand -base64 32</code>). Если оставить пустым, сервер создаст файл с ключом в томе <code>data</code>. См. <a href="{{root}}docs/admins/ai.html#encryption-key">Ключ шифрования</a>.</td></tr>
+<tr><td><code>GIFS_UPLOAD_KEY</code></td><td>пусто</td><td>Позволяет пользователям добавлять собственные GIF и наклейки из панели выбора и удалять их. Если оставить пустым, загрузка отключается.</td></tr>
 <tr><td><code>DOMAIN</code></td><td>пусто</td><td>Ваше доменное имя, для профиля <code>https</code>.</td></tr>
 <tr><td><code>HTTP_PORT</code></td><td><code>8065</code></td><td>Порт хоста веб-сервера Antimatter.</td></tr>
 <tr><td><code>CALLS_PORT</code></td><td><code>8443</code></td><td>UDP- и TCP-порт для аудио и видео звонков.</td></tr>
@@ -52,7 +54,7 @@ docker compose ps</code></pre>
 <table>
 <thead><tr><th>Служба</th><th>Образ</th><th>Роль</th></tr></thead>
 <tbody>
-<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>Сервер, веб-приложение и встроенные приложения. Публикует <code>HTTP_PORT</code> и <code>CALLS_PORT</code>.</td></tr>
+<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>Сервер, веб-приложение и встроенные приложения. Публикует порты <code>HTTP_PORT</code> и <code>CALLS_PORT</code>. Каталог данных — том <code>data</code>.</td></tr>
 <tr><td><code>postgres</code></td><td><code>postgres:17-alpine</code></td><td>База данных, в томе <code>postgres</code>.</td></tr>
 <tr><td><code>files</code></td><td><code>rustfs/rustfs</code></td><td>Хранилище, совместимое с S3, для загруженных файлов и установленных приложений, в томе <code>files</code>.</td></tr>
 <tr><td><code>bucket</code></td><td><code>amazon/aws-cli</code></td><td>Создаёт бакет <code>antimatter</code>, а затем завершает работу.</td></tr>
@@ -62,7 +64,7 @@ docker compose ps</code></pre>
 </tbody>
 </table>
 <p>PostgreSQL, хранилище и сервис GIF находятся во внутренней сети (<code>private</code>) без доступа в Интернет, к которой присоединяется только Antimatter. Ни один из них не публикует порты.</p>
-<p>Контейнер Antimatter ничего не хранит на диске: его параметры находятся в базе данных (<code>AM_CONFIG</code> указывает на неё), а файлы и приложения — в сервисе хранилища. Вы можете удалить и пересоздать контейнер в любой момент. Всё, что нужно резервировать, находится в томах <code>postgres</code>, <code>files</code> и <code>gifs</code>, а также в вашем файле <code>.env</code>.</p>
+<p>Контейнер Antimatter ничего не хранит на диске: его настройки находятся в базе данных (на неё указывает <code>AM_CONFIG</code>), а файлы и приложения — в сервисе хранилища. Контейнер можно удалить и пересоздать в любой момент. В его томе <code>data</code> хранится только файл с ключом шифрования ИШ, который сервер создаёт, если <code>AM_AI_ENCRYPTION_KEY</code> пуст. Всё, что нужно для резервного копирования, находится в томах <code>postgres</code>, <code>files</code>, <code>gifs</code> и <code>data</code>, а также в вашем файле <code>.env</code>.</p>
 
 <h2 id="images">Выберите образ</h2>
 <p>Опубликованы два образа Antimatter, оба для <code>linux/amd64</code> и <code>linux/arm64</code>, и оба собраны из ветки <code>main</code> каждого репозитория:</p>
@@ -99,14 +101,154 @@ docker compose exec antimatter amctl --local team users add main admin</code></p
 <p>Затем войдите на <code>SITE_URL</code>. Начните команду с пробела, чтобы пароль не попал в историю команд (при <code>HISTCONTROL=ignorespace</code>), либо смените пароль после входа.</p>
 <p>Дальнейшие шаги после входа:</p>
 <ol>
+<li>Для компании или организации установите <b>Тип новых сообществ</b> в значение <b>Компания</b>. Тип уже созданного сообщества можно изменить в его параметрах: <a href="{{root}}docs/admins/configuration.html#community-kind">Компания или сообщество</a>.</li>
 <li>Определите, кто может создавать аккаунты: <a href="{{root}}docs/admins/authentication.html">Вход и аккаунты</a>.</li>
 <li>Настройте электронную почту, чтобы приглашения и сброс пароля работали: <a href="{{root}}docs/admins/email-push.html">Электронная почта и push-уведомления</a>.</li>
 <li>Откройте порт для звонков в файрволе: <a href="{{root}}docs/admins/calls.html">Звонки и голосовые каналы</a>.</li>
 <li>Проверьте, какие приложения включены: <a href="{{root}}docs/admins/apps.html">Встроенные приложения</a>.</li>
 </ol>
 
+<h2 id="releases">Скачать релиз</h2>
+<p>Без Docker установите Antimatter из файлов релиза на GitHub: <a href="https://github.com/AntimatterChat/antimatter/releases">github.com/AntimatterChat/antimatter/releases</a>. У каждого релиза есть номер версии, например <code>0.9.0</code>, а его тег — тот же номер с буквой <code>v</code> в начале (<code>v0.9.0</code>).</p>
+<div class="callout">Antimatter находится в бета-версии: её релизы относятся к серии 0.9.0. Релиз, версия которого содержит суффикс после дефиса, например <code>0.9.0-rc.1</code>, помечен на GitHub как <b>Предварительный выпуск</b>. Это тестовая версия, опубликованная перед финальным релизом.</div>
+<p>Каждый релиз содержит следующие файлы для серверов <code>amd64</code> и <code>arm64</code>:</p>
+<table>
+<thead><tr><th>Файл</th><th>Описание</th></tr></thead>
+<tbody>
+<tr><td><code>antimatter_&lt;version&gt;-1_amd64.deb</code>, <code>antimatter_&lt;version&gt;-1_arm64.deb</code></td><td>Пакет для Debian, Ubuntu и дистрибутивов на их основе.</td></tr>
+<tr><td><code>antimatter-&lt;version&gt;-1.x86_64.rpm</code>, <code>antimatter-&lt;version&gt;-1.aarch64.rpm</code></td><td>Пакет для Fedora, RHEL и дистрибутивов, совместимых с RHEL.</td></tr>
+<tr><td><code>antimatter-&lt;version&gt;-linux-amd64.tar.gz</code>, <code>antimatter-&lt;version&gt;-linux-arm64.tar.gz</code></td><td>Архив релиза для любого дистрибутива Linux, устанавливаемый вручную.</td></tr>
+<tr><td><code>SHA256SUMS</code></td><td>Контрольные суммы SHA-256 для всех файлов релиза.</td></tr>
+</tbody>
+</table>
+<p>Пакеты и архив содержат одну и ту же программу: сервер (<code>antimatter</code>), командную утилиту (<code>amctl</code>), оба веб-приложения (стандартный и классический интерфейсы), встроенные приложения, шаблоны электронной почты и переводы. Пакеты добавляют службу systemd и файл конфигурации, поэтому каждый из них представляет собой комплексную установку: вам нужно только добавить базу данных PostgreSQL. Отдельных загрузок бинарных файлов нет: они находятся в архиве, в <code>antimatter/bin/</code>. Они статические, поэтому работают на любом дистрибутиве Linux соответствующей архитектуры.</p>
+<p>В именах пакетов дефис в версии предварительного выпуска заменяется на тильду, чтобы менеджер пакетов сортировал предварительные выпуски перед финальными: версия <code>0.9.0-rc.1</code> дает <code>antimatter_0.9.0~rc.1-1_amd64.deb</code> и <code>antimatter-0.9.0~rc.1-1.x86_64.rpm</code>. В архиве дефис сохраняется.</p>
+<p>Команда <code>antimatter version</code> выводит версию релиза как <b>Номер сборки</b>, а хэш коммита, из которого она была собрана, — как <b>Хэш сборки</b>. Строка <b>Версия</b> указывает версию линейки Mattermost, на которой основан Antimatter.</p>
+
+<h3>Проверка загрузки</h3>
+<p>Скачайте нужный файл и <code>SHA256SUMS</code> в одну и ту же директорию, со страницы релиза или с помощью <code>curl</code>, затем проверьте файл:</p>
+<pre><code>curl -fLO https://github.com/AntimatterChat/antimatter/releases/download/v&lt;version&gt;/antimatter_&lt;version&gt;-1_amd64.deb
+curl -fLO https://github.com/AntimatterChat/antimatter/releases/download/v&lt;version&gt;/SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS</code></pre>
+<p>Каждый скачанный файл должен быть указан со статусом <code>OK</code>. Любой другой результат означает, что файл поврежден или неполный: скачайте его снова и не устанавливайте. <code>SHA256SUMS</code> не подписан: он обнаруживает поврежденную загрузку, но не доказывает ничего больше, чем HTTPS-загрузка с GitHub.</p>
+
+<h2 id="packages">Установка пакета .deb или .rpm</h2>
+<p>Пакет устанавливает Antimatter как службу systemd, которой для запуска требуется только база данных. Используйте его на 64-битном сервере Debian, Ubuntu, Fedora или совместимом с RHEL с systemd.</p>
+
+<h3>Что устанавливает пакет</h3>
+<table>
+<thead><tr><th>Путь</th><th>Содержимое</th></tr></thead>
+<tbody>
+<tr><td><code>/opt/antimatter</code></td><td>Программы: <code>bin/antimatter</code>, <code>bin/amctl</code>, веб-приложения (<code>client/</code>, <code>client-fusion/</code>), встроенные приложения (<code>prepackaged_plugins/</code>), шаблоны, переводы и шрифты. При каждом обновлении этот каталог заменяется.</td></tr>
+<tr><td><code>/etc/antimatter/antimatter.env</code></td><td>Настройки службы в виде переменных <code>AM_</code>: база данных, URL сайта, служба GIF. Доступны только для чтения пользователем root. Обновления сохраняют этот файл.</td></tr>
+<tr><td><code>/etc/antimatter/config/config.json</code></td><td>Файл конфигурации, в котором сервер хранит настройки, изменённые в Системной консоли. Он создаётся из <code>/opt/antimatter/defaults/config.json</code> при первой установке и никогда не заменяется после этого.</td></tr>
+<tr><td><code>/var/lib/antimatter</code></td><td>Загруженные файлы (<code>data/</code>) и установленные приложения (<code>plugins/</code>, <code>client-plugins/</code>).</td></tr>
+<tr><td><code>/var/log/antimatter</code></td><td>Файлы журналов, если вы включите ведение журнала в файл. По умолчанию это выключено: журналы пишутся в журнал системы.</td></tr>
+<tr><td><code>/usr/lib/systemd/system/antimatter.service</code></td><td>Служба.</td></tr>
+<tr><td><code>/usr/bin/amctl</code></td><td>Ссылка на <code>/opt/antimatter/bin/amctl</code>.</td></tr>
+</tbody>
+</table>
+<p>Каталоги, в которые сервер записывает данные в <code>/opt/antimatter</code> (<code>config</code>, <code>data</code>, <code>plugins</code>, <code>client/plugins</code> и <code>logs</code>), являются ссылками на <code>/etc/antimatter</code>, <code>/var/lib/antimatter</code> и <code>/var/log/antimatter</code>. Поэтому обновление, которое заменяет <code>/opt/antimatter</code>, никогда не затрагивает ваши данные. Пакет также создаёт системного пользователя <code>antimatter</code>, от имени которого работает сервер и которому принадлежат эти каталоги.</p>
+<p>Пакет зависит от <code>ca-certificates</code>. Он рекомендует PostgreSQL (<code>postgresql</code> в Debian и Ubuntu, <code>postgresql-server</code> в Fedora и RHEL), <code>media-types</code> (<code>mailcap</code> для .rpm) и <code>gifs-server</code> — службу GIF, у которой есть собственный выпуск (см. <a href="#gifs-push-packages">ниже</a>). apt и dnf устанавливают рекомендуемые пакеты, если они найдены. Пакет предлагает <code>poppler-utils</code>, <code>wv</code>, <code>unrtf</code> и <code>tidy</code> (без <code>wv</code> для .rpm): они извлекают текст из загруженных документов, чтобы поиск находил слова внутри них. Установите их самостоятельно, если вам это нужно.</p>
+
+<h3>1. Установка пакетов</h3>
+<p>Скачайте пакет Antimatter и пакет службы GIF для вашей архитектуры, проверьте их, как показано выше, и установите оба одной командой, чтобы выполнить рекомендацию по <code>gifs-server</code> (его нет в репозиториях дистрибутивов):</p>
+<pre><code># Debian, Ubuntu
+sudo apt install ./antimatter_&lt;version&gt;-1_amd64.deb ./gifs-server_*_amd64.deb
+# Fedora, RHEL
+sudo dnf install ./antimatter-&lt;version&gt;-1.x86_64.rpm ./gifs-server-*.x86_64.rpm</code></pre>
+<p>Сохрани <code>./</code>: он указывает apt и dnf, что нужно установить локальный файл. Чтобы установить без сервиса GIF, исключите его пакет. Пакет активирует сервис <code>antimatter</code>, но не запускает его, а выводит следующие шаги.</p>
+
+<h3>2. Создайте базу данных</h3>
+<p>Antimatter требует PostgreSQL версии 15 или новее, на этом сервере или на другом. Проверьте версию PostgreSQL вашей дистрибуции с помощью <code>psql --version</code>. Если она старше, установите более новую версию из репозиториев проекта PostgreSQL или используйте базу данных на другом сервере. В Debian и Ubuntu пакет <code>postgresql</code> запускает базу данных. В Fedora и RHEL сначала создайте и запустите её:</p>
+<pre><code>sudo postgresql-setup --initdb
+sudo systemctl enable --now postgresql</code></pre>
+<p>Затем создайте пользователя и базу данных для Antimatter:</p>
+<pre><code>sudo -u postgres psql -c "CREATE USER antimatter WITH PASSWORD 'a-long-password'"
+sudo -u postgres psql -c "CREATE DATABASE antimatter OWNER antimatter"</code></pre>
+<p>PostgreSQL должен принимать подключения с паролем с <code>127.0.0.1</code>: строки <code>host</code> в файле <code>pg_hba.conf</code> с методом <code>scram-sha-256</code>.</p>
+
+<h3>3. Настройте базу данных и URL сайта</h3>
+<p>Отредактируйте <code>/etc/antimatter/antimatter.env</code> (<code>sudoedit /etc/antimatter/antimatter.env</code>). Уберите <code>#</code> перед строками, которые вы используете, и задайте параметры базы данных и адрес, который будут открывать пользователи:</p>
+<pre><code>AM_SQLSETTINGS_DRIVERNAME=postgres
+AM_SQLSETTINGS_DATASOURCE=postgres://antimatter:a-long-password@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10
+AM_SERVICESETTINGS_SITEURL=https://chat.example.com</code></pre>
+<p>В этот файл можно поместить любой параметр конфигурации в виде <code>AM_&lt;SECTION&gt;_&lt;SETTING&gt;</code>: например, <code>SqlSettings.DataSource</code> будет <code>AM_SQLSETTINGS_DATASOURCE</code>. Параметр, заданный здесь, нельзя изменить в Системной консоли. См. <a href="{{root}}docs/admins/configuration.html">Конфигурация</a>. Перезапускайте сервер после каждого изменения: <code>sudo systemctl restart antimatter</code>.</p>
+<p>Сервис также устанавливает несколько значений по умолчанию, которые можно переопределить строкой в <code>antimatter.env</code>: ведение журнала в файлы отключено (<code>AM_LOGSETTINGS_ENABLEFILE=false</code>, <code>AM_NOTIFICATIONLOGSETTINGS_ENABLEFILE=false</code>), а локальный режим включен (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>), чтобы <code>amctl --local</code> работал на сервере.</p>
+
+<h3>4. Запустите</h3>
+<pre><code>sudo systemctl start antimatter
+journalctl -u antimatter -f
+sudo -u antimatter amctl --local system status</code></pre>
+<p>При первом запуске сервер создаёт таблицы, а затем начинает прослушивать порт 8065. Откройте <code>http://&lt;server&gt;:8065</code> (или свой домен, если настроен reverse proxy, см. <a href="{{root}}docs/admins/https.html">Домен и HTTPS</a>) и сразу создайте первый аккаунт: он станет системным администратором. Чтобы создать его из командной строки, используйте команды <code>amctl</code> из раздела <a href="#first-admin">Создание первого администратора</a>, заменив <code>docker compose exec antimatter amctl --local</code> на <code>sudo -u antimatter amctl --local</code>.</p>
+
+<h3>5. Включите GIFs</h3>
+<p>Приложение GIFs поставляется в комплекте и включено по умолчанию, а в <code>antimatter.env</code> уже указан адрес сервиса GIF на том же сервере (<code>AM_GIFS_SERVICE_URL=http://127.0.0.1:8080/v2</code>). Однако всё ещё требуется ключ API этого сервиса. Пакет <code>gifs-server</code> сгенерировал его при установке:</p>
+<pre><code>sudo systemctl start gifs-server-stickers    # imports the sticker pack, about a minute and a half
+sudo systemctl start gifs-server
+sudo grep -v '^#' /etc/gifs-server/api-keys</code></pre>
+<p>Впишите ключ в <code>antimatter.env</code> в виде <code>AM_GIFS_API_KEY=&lt;key&gt;</code> и перезапустите Antimatter, либо введите его в поле <b>Ключ API</b> в разделе <b>Системная консоль › Плагины › GIFs</b>. Если сервис GIF работает на другом сервере, укажите его адрес в <code>AM_GIFS_SERVICE_URL</code>. Чтобы пользователи могли добавлять собственные GIFs и стикеры, см. <a href="{{root}}docs/admins/apps.html#gifs">GIFs</a>.</p>
+
+<h3>Служба</h3>
+<ul>
+<li>Служба работает от имени пользователя <code>antimatter</code> в каталоге <code>/opt/antimatter</code> и читает файл <code>/etc/antimatter/antimatter.env</code>. systemd перезапускает сервер при каждом его завершении и даёт ему до часа на запуск, поскольку миграции базы данных при обновлении версии могут занимать много времени.</li>
+<li>Журналы службы доступны в journal: <code>journalctl -u antimatter</code>.</li>
+<li>Служба защищена: каталоги <code>/usr</code> и <code>/etc</code> доступны серверу только для чтения (за исключением <code>/etc/antimatter/config</code>), а каталоги <code>/home</code>, <code>/root</code> и <code>/run/user</code> для него невидимы. Если вы переносите хранилище файлов (<code>FileSettings.Directory</code>), выберите каталог вне этих, принадлежащий пользователю <code>antimatter</code>.</li>
+<li>При обновлении пакет заменяет файл службы. Чтобы его изменить, используйте <code>sudo systemctl edit antimatter</code> — ваши изменения сохранятся в отдельном файле.</li>
+</ul>
+
+<h3>Обновление пакета</h3>
+<ol>
+<li>Сделайте резервную копию (см. <a href="{{root}}docs/admins/backups-upgrades.html">Резервные копии и обновления</a>).</li>
+<li>Скачайте новый пакет и файл <code>SHA256SUMS</code>, затем проверьте их.</li>
+<li>Остановите сервер, установите новый пакет поверх старого и запустите сервер снова:
+<pre><code>sudo systemctl stop antimatter
+sudo apt install ./antimatter_&lt;new version&gt;-1_amd64.deb     # or: sudo dnf install ./antimatter-&lt;new version&gt;-1.x86_64.rpm
+sudo systemctl start antimatter
+journalctl -u antimatter -f</code></pre></li>
+</ol>
+<p>Пакет не перезапускает сервер самостоятельно. После обновления он выводит <code>Antimatter was upgraded; restart it to run the new version: sudo systemctl restart antimatter</code>: если вы не остановили сервер заранее, перезапустите его немедленно. При обновлении заменяются <code>/opt/antimatter</code> и файл службы, а <code>antimatter.env</code>, <code>config.json</code>, <code>/var/lib/antimatter</code> и журналы сохраняются. При запуске сервер обновляет базу данных и устанавливает более новые версии встроенных приложений.</p>
+<p>Если в новой версии изменён файл <code>antimatter.env</code> по умолчанию, apt спросит, нужно ли сохранить вашу версию: сохраните её. dnf сохраняет вашу версию и сохраняет новую как <code>/etc/antimatter/antimatter.env.rpmnew</code>. Обновления выполняются только вперёд: не устанавливайте более старую версию поверх более новой.</p>
+
+<h3>Удаление пакета</h3>
+<p><code>sudo apt remove antimatter</code> или <code>sudo dnf remove antimatter</code> останавливает и отключает службу, а также удаляет программу. При этом сохраняются данные (<code>/var/lib/antimatter</code>), конфигурация (<code>/etc/antimatter</code>), база данных и пользователь <code>antimatter</code>: удалите их вручную, чтобы полностью удалить Antimatter.</p>
+
+<h2 id="release-apps">Приложения в пакетах и архиве</h2>
+<p>Пакеты и архив содержат последнюю подписанную версию следующих приложений в <code>prepackaged_plugins/</code>: Agents, Calls, GIFs, Memes, Notes, Polls, Todo, Voice Channels и Whiteboard. Приложение, для которого на момент сборки сервера ещё не вышла релизная версия, не включается: <code>ls /opt/antimatter/prepackaged_plugins</code> показывает, что входит в вашу версию. Memes и Todo включены, но не активированы: <a href="{{root}}docs/admins/apps.html#manage">Встроенные приложения</a> объясняет, как их установить и включить.</p>
+<p>Другие приложения из образов Docker не входят в пакеты или архив: Kanban, Playbooks, Mail, Calendar, GitHub, GitLab, Jira и Metrics. Установите каждое из них из собственных релизов:</p>
+<table>
+<thead><tr><th>Приложение</th><th>Релизы</th><th>Идентификатор приложения</th></tr></thead>
+<tbody>
+<tr><td>Kanban</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-boards/releases">antimatter-plugin-boards</a></td><td><code>focalboard</code></td></tr>
+<tr><td>Плейбуки</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-playbooks/releases">antimatter-plugin-playbooks</a></td><td><code>playbooks</code></td></tr>
+<tr><td>Почта</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-mail/releases">antimatter-plugin-mail</a></td><td><code>com.antimatterchat.mail</code></td></tr>
+<tr><td>Календарь</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-calendar/releases">antimatter-plugin-calendar</a></td><td><code>com.antimatterchat.calendar</code></td></tr>
+<tr><td>GitHub</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-github/releases">antimatter-plugin-github</a></td><td><code>github</code></td></tr>
+<tr><td>GitLab</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-gitlab/releases">antimatter-plugin-gitlab</a></td><td><code>com.github.manland.mattermost-plugin-gitlab</code></td></tr>
+<tr><td>Jira</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-jira/releases">antimatter-plugin-jira</a></td><td><code>jira</code></td></tr>
+<tr><td>Метрики</td><td><a href="https://github.com/AntimatterChat/Antimatter-plugin-metrics/releases">Antimatter-plugin-metrics</a></td><td><code>com.mattermost.mattermost-plugin-metrics</code></td></tr>
+</tbody>
+</table>
+<p>Каждый выпуск приложения содержит его пакет (файл <code>.tar.gz</code>), его подпись (файл с тем же именем, но с добавлением <code>.sig</code>) и файл <code>SHA256SUMS</code>. Чтобы установить приложение, разрешите загрузку, а затем добавьте пакет с помощью <code>amctl</code>:</p>
+<pre><code># 1. In /etc/antimatter/antimatter.env, add this line, then restart Antimatter
+AM_PLUGINSETTINGS_ENABLEUPLOADS=true
+sudo systemctl restart antimatter
+# 2. Download the bundle where the antimatter user can read it, and install it
+cd /tmp
+curl -fLO https://github.com/AntimatterChat/antimatter-plugin-boards/releases/download/v&lt;version&gt;/&lt;bundle&gt;.tar.gz
+sudo -u antimatter amctl --local plugin add &lt;bundle&gt;.tar.gz
+sudo -u antimatter amctl --local plugin enable focalboard</code></pre>
+<p>Чтобы обновить приложение, установленное таким способом, добавьте новый пакет с помощью <code>plugin add --force</code>: обновление пакета обновляет только встроенные приложения. После этого вы можете снова удалить строку <code>AM_PLUGINSETTINGS_ENABLEUPLOADS</code>. О других способах установки приложений см. <a href="{{root}}docs/admins/apps.html#other-apps">Установка других приложений</a>.</p>
+
+<h3>Подписи приложений</h3>
+<p>Пакеты приложений подписаны ключом подписи приложений Antimatter: каждый файл <code>.tar.gz.sig</code> является отсоединённой GPG-подписью соответствующего пакета. Сервер проверяет эти подписи перед установкой встроенного приложения. Чтобы проверить пакет самостоятельно:</p>
+<pre><code>curl -fsSLO https://raw.githubusercontent.com/AntimatterChat/antimatter-docker/main/keys/antimatter-plugin-signing.asc
+gpg --import antimatter-plugin-signing.asc
+gpg --verify &lt;bundle&gt;.tar.gz.sig &lt;bundle&gt;.tar.gz</code></pre>
+<p>gpg должен сообщить о корректной подписи от <code>Antimatter Plugin Signing</code> с отпечатком <code>06C8 1032 4677 0F08 BBA7 78B9 E69B 05C3 92A6 9A45</code>. Также будет предупреждение о том, что ключ не сертифицирован доверенной подписью: это нормально для ключа, который вы не подписали сами. Выпуск приложения без файлов <code>.sig</code> является неподписанным, и об этом говорится в его примечаниях к выпуску.</p>
+
 <h2 id="archive">Установка из архива релиза</h2>
-<p>Без Docker сервер запускается из архива с именем <code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code> (например, <code>antimatter-linux-amd64.tar.gz</code>). Он содержит единственный каталог <code>antimatter/</code> с файлами <code>bin/antimatter</code>, <code>bin/amctl</code>, <code>config/config.json</code>, веб-приложениями (<code>client/</code> и <code>client-fusion/</code>), шаблонами электронной почты и переводами.</p>
+<p>Архив <code>antimatter-&lt;version&gt;-linux-&lt;arch&gt;.tar.gz</code> (например, <code>antimatter-0.9.0-linux-amd64.tar.gz</code>) подходит для дистрибутивов без пакетов .deb или .rpm, а также для собственной конфигурации. Он содержит один каталог <code>antimatter/</code> с файлами <code>bin/antimatter</code>, <code>bin/amctl</code>, <code>config/config.json</code>, веб-приложениями (<code>client/</code> и <code>client-fusion/</code>), встроенными приложениями (<code>prepackaged_plugins/</code>, см. <a href="#release-apps">выше</a>), шаблонами электронной почты и переводами.</p>
 
 <h3>1. Подготовка PostgreSQL</h3>
 <p>Antimatter поддерживает только PostgreSQL версии 15 и новее (более старые версии запускаются, но в журнале появляется ошибка). Создайте пользователя и базу данных:</p>
@@ -116,7 +258,7 @@ CREATE DATABASE antimatter OWNER antimatter;
 EOF</code></pre>
 
 <h3>2. Распаковка и настройка</h3>
-<pre><code>sudo tar -xzf antimatter-linux-amd64.tar.gz -C /opt
+<pre><code>sudo tar -xzf antimatter-&lt;version&gt;-linux-amd64.tar.gz -C /opt
 sudo useradd --system --user-group antimatter
 sudo mkdir -p /opt/antimatter/data
 sudo chown -R antimatter:antimatter /opt/antimatter</code></pre>
@@ -152,6 +294,34 @@ sudo systemctl enable --now antimatter
 journalctl -u antimatter -f</code></pre>
 <p>Сервер слушает порт 8065. Откройте <code>http://&lt;server&gt;:8065</code> или ваш домен, если настроен обратный прокси (см. <a href="{{root}}docs/admins/https.html">Домен и HTTPS</a>), и создайте первый аккаунт: он станет системным администратором.</p>
 <p>Утилита <code>bin/amctl</code> управляет работающим сервером из командной строки. На самом сервере она работает без входа через локальный режим: установите <code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>, затем выполните <code>sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code>.</p>
+<p>Для GIF установите службу GIF (см. ниже) и задайте <code>AM_GIFS_SERVICE_URL</code> и <code>AM_GIFS_API_KEY</code>, как в <a href="#packages">шаге 5 установки пакетов</a>.</p>
+
+<h2 id="gifs-push-packages">Пакеты службы GIF и прокси-сервера push-уведомлений</h2>
+<p>У службы GIF и прокси-сервера push-уведомлений есть собственные релизы, которые выпускаются по тем же правилам, что и сервер: архив <code>.tar.gz</code>, пакеты .deb и .rpm для <code>amd64</code> и <code>arm64</code>, а также файл <code>SHA256SUMS</code>. Версии с дефисом являются предварительными. Проверьте загрузки с помощью команды <code>sha256sum --check --ignore-missing SHA256SUMS</code>, как это делается для сервера.</p>
+
+<h3>Служба GIF (gifs-server)</h3>
+<p>Релизы: <a href="https://github.com/AntimatterChat/gifs-server/releases">github.com/AntimatterChat/gifs-server/releases</a>. Архив называется <code>gifs-server-&lt;version&gt;-linux-&lt;arch&gt;.tar.gz</code>; пакеты имеют имя <code>gifs-server</code>.</p>
+<pre><code>sudo apt install ./gifs-server_*_amd64.deb      # Debian, Ubuntu
+sudo dnf install ./gifs-server-*.x86_64.rpm     # Fedora, RHEL</code></pre>
+<p>Пакет устанавливает:</p>
+<ul>
+<li><code>/usr/bin/gifs-server</code> и службу <code>gifs-server</code>, которая выполняется от имени пользователя <code>gifs-server</code> и хранит свой каталог в <code>/var/lib/gifs-server</code>;</li>
+<li>службу <code>gifs-server-stickers</code>, которая при запуске импортирует или обновляет набор стикеров в <code>/usr/share/gifs-server/stickers</code>, а затем останавливается;</li>
+<li>файлы конфигурации: <code>/etc/gifs-server/gifs-server.env</code> (переменные <code>AM_GIFS_</code>, сохраняются при обновлении) и <code>/etc/gifs-server/api-keys</code> (по одному API-ключу на строке; при первой установке генерируется случайный ключ).</li>
+</ul>
+<p>Служба слушает адрес <code>127.0.0.1:8080</code>, поэтому к ней может обращаться только Antimatter, установленный на том же сервере. Если Antimatter работает на другом сервере, задайте <code>AM_GIFS_LISTEN=:8080</code> в файле <code>gifs-server.env</code> и ограничьте доступ к порту с помощью файрвола. В файле перечислены остальные параметры: <code>AM_GIFS_UPLOAD_KEYS</code> (ключи, которым разрешено добавлять GIF и стикеры, а также удалять те, что были добавлены с их помощью), <code>AM_GIFS_PUBLIC_URL</code>, <code>AM_GIFS_TRUST_PROXY</code> и <code>AM_GIFS_LOG_LEVEL</code>. Пакет рекомендует установить <code>ffmpeg</code>, <code>gifsicle</code>, <code>librsvg2-bin</code> (<code>librsvg2-tools</code> для .rpm) и шрифт DejaVu: служба использует их для создания форматов GIF, видео и стикеров при импорте или получении файлов, но может работать и без них.</p>
+<p>Как и в случае с сервером, служба активируется, но не запускается при установке. Запустите её, как показано в <a href="#packages">шаге 5 раздела «Пакеты»</a>. После обновления перезапустите службу: <code>sudo systemctl restart gifs-server</code>. При удалении пакета каталог в <code>/var/lib/gifs-server</code> сохраняется.</p>
+
+<h3>Прокси-сервер push-уведомлений</h3>
+<p>Выпуски: <a href="https://github.com/AntimatterChat/push-proxy/releases">github.com/AntimatterChat/push-proxy/releases</a>. Архив называется <code>antimatter-push-proxy-&lt;version&gt;-linux-&lt;arch&gt;.tar.gz</code>, пакеты — <code>antimatter-push-proxy</code>. Пакет устанавливает <code>/usr/bin/antimatter-push-proxy</code> и службу <code>antimatter-push-proxy</code>, которая выполняется от имени пользователя <code>antimatter-push-proxy</code> и читает файл <code>/etc/antimatter-push-proxy/antimatter-push-proxy.json</code> (сохраняется при обновлении). Удостоверения Apple и Firebase помещаются в <code>/etc/antimatter-push-proxy/certs</code>: о том, откуда они берутся, рассказано в разделе <a href="{{root}}docs/admins/email-push.html#push">Push notifications</a>.</p>
+<pre><code>sudo apt install ./antimatter-push-proxy_*_amd64.deb      # or: sudo dnf install ./antimatter-push-proxy-*.x86_64.rpm
+sudo install -o root -g antimatter-push-proxy -m 0640 \
+    AuthKey_ABCDE12345.p8 firebase-service-account.json /etc/antimatter-push-proxy/certs/
+sudoedit /etc/antimatter-push-proxy/antimatter-push-proxy.json
+sudo systemctl start antimatter-push-proxy
+journalctl -u antimatter-push-proxy -f</code></pre>
+<p>В файле настроек пути указаны относительно <code>/etc/antimatter-push-proxy</code>: например, <code>"AppleAuthKeyFile": "./certs/AuthKey_ABCDE12345.p8"</code> и <code>"ServiceFileLocation": "./certs/firebase-service-account.json"</code>. Затем установите значение <b>Сервер push уведомлений</b> в Antimatter: <code>http://&lt;proxy host&gt;:8066</code>. После обновления перезапустите службу: <code>sudo systemctl restart antimatter-push-proxy</code>.</p>
+<div class="callout warn">Push-прокси слушает порт 8066 на всех адресах и не проверяет, кто к нему обращается. Держите порт в закрытой сети или за reverse proxy, который ограничивает доступ.</div>
 
 <h2 id="other-commands">Другие команды сервера</h2>
 <p>Помимо запуска сервера (<code>antimatter</code> или <code>antimatter server</code>), бинарный файл содержит несколько служебных команд. Они читают ту же конфигурацию, что и сервер.</p>

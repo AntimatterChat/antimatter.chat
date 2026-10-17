@@ -4,7 +4,7 @@ guide: developers
 order: 2
 nav: REST API
 lead: Lahat ng ginagawa ng mga Antimatter app ay pumapasa sa iisang HTTP API, kaya maaari ring gawin ng iyong scripts. Inilalarawan ng pahinang ito kung paano mag-authenticate, ang mga resource na madalas mong gagamitin, ang anyo ng mga response at errors, at kung paano sundan ang mga event live sa pamamagitan ng WebSocket.
-source: dccc67af2fb2
+source: a18155751d3e
 ---
 <h2 id="basics">Mga Batayan</h2>
 <ul>
@@ -14,7 +14,7 @@ source: dccc67af2fb2
 <li><b>Ang mga komunidad ay mga team</b>: tinatawag ng API na <code>teams</code>, na may <code>team_id</code>.</li>
 <li><b>Sarili mo</b>: saan man may <code>user_id</code> ang isang path, ang <code>me</code> ay tumutukoy sa naka-sign-in na user, gaya ng <code>GET /users/me</code>.</li>
 </ul>
-<p>Ang buong listahan ng mga endpoint ay nasa code ng server: ang mga route ay nakadagdag sa <code>server/channels/api4/*.go</code> at ang mga type ay nasa <code>server/public/model</code>. Ang OpenAPI description sa <code>api/v4/source</code> folder ng repository ay sumasaklaw sa mga endpoint na pinagmulan mula sa Mattermost, hindi sa mga dagdag ng Antimatter.</p>
+<p>Ang buong listahan ng mga endpoint ay nasa code ng server: ang mga route ay nakadagdag sa <code>server/channels/api4/*.go</code> at ang mga type ay nasa <code>server/public/model</code>. Ang OpenAPI description sa folder na <code>api/v4/source</code> ng repository ay sumasaklaw sa mga endpoint na pinagmulan mula sa Mattermost, at sa ilang dagdag ng Antimatter: paglipat ng mga thread, model connections, at mga message actions. Ang iba ay nasa code lamang.</p>
 
 <h2 id="auth">Pag-authenticate</h2>
 <p>Kailangan ng bawat request, maliban sa pag-sign in at ilang pampublikong endpoint, ng token sa <code>Authorization</code> header:</p>
@@ -144,7 +144,7 @@ func main() {
 <tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> sa parehong path<br><code>PATCH</code>, <code>DELETE …/fields/{field_id}</code></td><td>Mga attribute ng komunidad: ang mga profile field na tinatakda ng mga admin ng komunidad para sa mga miyembro nito (hanggang 20). Maaabutan ng mga miyembro ang mga ito; nilikha at binabago ng mga admin ng komunidad.</td></tr>
 <tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> sa parehong path<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>Ang mga halaga ng attribute ng isang miyembro, bilang <code>{field_id: value}</code>. Ipinapalagay ng mga miyembro ang kanilang sarili (maliban sa mga pinangangasiwaan ng admin); ipinapalagay ng mga admin ang sinumang miyembro. Ang search ay tumatanggap ng <code>{"user_ids": [...]}</code> (hanggang 200).</td></tr>
 <tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>Mga timeout: ang <code>{"until": time, "reason": "…"}</code> ay pinalilimitahan ang isang tao mula sa pag-post, pag-reaction, at pag-upload sa komunidad hanggang sa oras na iyon (hanggang 28 araw); ang <code>"until": 0</code> ay nagpapahina nito. Ang view ng moderation ay nagpapakita kailan sila sumali at gaano karami ang post nila kamakailan.</td></tr>
-<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Mga mensahe na panatilihin sa itaas ng isang channel (hanggang 10). Ang <code>{"duration": ms}</code>, hanggang 30 araw; ang 0 ay panatilihin hanggang sa tanggalin. Kailangan ng karapatan na mag-post sa channel.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Mga mensahe na naka-pin sa itaas ng isang channel (hanggang 10). <code>{"duration": ms}</code>, hanggang 30 araw; ang 0 ay mananatili hangga't hindi tanggalin. Ang sinumang makabasa sa channel ay makikita ang mga ito. Ang pag-pin o pagtanggal ng isang mensahe ay nangangailangan ng karapatan na mag-post sa channel, at, sa channel ng isang komunidad, na maging admin ng channel o ng komunidad, o may <b>Pamahalaan ang mga mensahe</b> (<code>delete_others_posts</code>) doon. Sa direct o group message, ang mga miyembro nito ay maaari. Tinatanggihan sa mga archived channel.</td></tr>
 <tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>Nag-aakto sa iyong sariling request: <code>{"action": "accept"}</code>, <code>"dismiss"</code>, o <code>"request"</code> upang ibalik ang isang usapan sa mga request. Ibinabalik ang iyong miyembro ng channel.</td></tr>
 <tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>Ang mga gawain na maaari gawin ng isang role o tao sa isang channel, at ang mga role na makikita ang role-gated channel.</td></tr>
 <tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>Ang mga shared na kategorya ng channel ng komunidad, at ang mga override na nakaka-apply sa bawat channel sa loob ng isang kategorya.</td></tr>
@@ -152,13 +152,75 @@ func main() {
 <tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>Sinusubukan ang mga autolink rules ng komunidad sa isang text.</td></tr>
 <tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>Iin-download ang mga mensahe ng isang channel bilang CSV (hanggang 50,000), para sa mga taong makabasa ng channel.</td></tr>
 <tr><td><code>GET /posts/{post_id}/speech</code></td><td>Ang binasa nang malakas na mensahe, bilang audio, kapag nakaset up ang text-to-speech.</td></tr>
+<tr><td><code>POST /posts/{post_id}/move_to_channel</code></td><td>Naglipat ng isang thread sa ibang channel ng parehong komunidad: tingnan ang <a href="#move-thread">Paglipat ng thread</a>.</td></tr>
+<tr><td><code>GET</code>, <code>POST /ai/connections</code><br><code>GET</code>, <code>PATCH</code>, <code>DELETE /ai/connections/{connection_id}</code><br><code>GET /ai/connections/usable</code></td><td>Model connections, ang mga AI provider na ginagamit ng mga AI feature at apps ng server: tingnan ang <a href="#ai-connections">Model connections</a>.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/message_actions</code><br><code>POST /posts/{post_id}/message_actions/{hook_id}</code><br><code>GET</code>, <code>POST /hooks/outgoing/{hook_id}/icon</code></td><td>Mga message actions: mga outgoing webhook na pinapatakbo ng mga tao mula sa menu ng mensahe. Tingnan ang <a href="{{root}}docs/developers/webhooks.html#message-actions">Mga message actions</a>.</td></tr>
 </tbody>
 </table>
 <h3>Mga bagong field</h3>
 <ul>
-<li><b>Mga Komunidad</b> (<code>Team</code>, at <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (lahat ay nasa bawat channel na maaari nilang makita), <code>default_channel_id</code> (kung saan lalabas ang mga bagong sumali; kung walang laman, Town Square), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> at <code>autolinks</code> (parehong JSON string).</li>
+<li><b>Mga Komunidad</b> (<code>Team</code>, at <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (lahat ay nasa bawat channel na makikita nila), <code>default_channel_id</code> (saan darating ang mga bagong miyembro; ang walang laman ay ibig sabihin General), <code>kind</code> (<code>community</code> o <code>workplace</code>: sa workplace, ang mga admin ng channel ay maaari ring i-archive ang kanilang mga channel; ang mga bagong komunidad ay nakukuha ang <code>TeamSettings.DefaultCommunityKind</code> ng server, <code>community</code> bilang default), <code>member_list_view</code> (paano nag-uugnay ang listahan ng miyembro: <code>choice</code>, ang default, ay nagpapahintulot sa bawat miyembro na pumili; <code>roles</code> o <code>teams</code> ay pinaliliit), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> at <code>autolinks</code> (parehong JSON string).</li>
+<li>Ang <b>default channel</b> ng isang bagong community ay <code>general</code> (<b>General</b>), hindi naman <code>town-square</code>. Sa upgrade na 0.9.0, ipapalit ang pangalan ng <code>town-square</code> ng bawat community sa <code>general</code>, na mananatili ang ID nito, maliban kung mayroon na ang community ng <code>general</code> channel. Patuloy na gagana ang lumang mga pangalan: ang <code>GET /teams/{team_id}/channels/name/town-square</code>, <code>GET /teams/name/{team}/channels/name/town-square</code>, at ang <code>channel</code> ng isang incoming webhook ay ibinibigay ang default channel ng community kapag walang channel na may ganitong pangalan. Gamitin ang <code>default_channel_id</code>, o ang pangalan na <code>general</code>, sa bagong code.</li>
+<li><b>Mga link ng channel</b>: ang <code>#channel-name</code> ay naglilink ng channel, katulad ng <code>~channel-name</code>. Ang <code>channel_mentions</code> prop ng post ay naglilista ng mga channel na naka-link sa anumang paraan; ang <code>#word</code> na hindi tumutukoy sa anumang channel ay mananatiling hashtag. Ang web interface at mobile app ng Antimatter ay nagbabasa ng <code>#name</code>.</li>
+<li>Ang mga <b>naka-archive na channel</b> ay tumatanggap pa rin ng mga bagong miyembro (<code>POST /channels/{channel_id}/members</code>), na maaari basahin ang history nito. Walang makakapag-post, mag-reaction, mag-pin, ilagay ang mensahe sa itaas, palitan ang pangalan ng channel, o baguhin ang mga role ng miyembro nito.</li>
 <li><b>Inline replies</b>: isang post na may <code>"props": {"reply_to": "&lt;post id&gt;"}</code> ay nagqu-quote ng mensaheng iyon mula sa parehong channel. Magdagdag ng <code>"reply_to_mention": false</code> upang hindi maabot ng notisikasyon ang may-akda nito. Pupunan ng server ang <code>metadata.reply_to</code> ng maikling paglalarawan ng na-quote na mensahe.</li>
 <li><b>Spoilers</b>: ang <code>"props": {"spoiler": true}</code> ay nagtatago ng teksto at mga file ng post hanggang sa piliin ng mambabasa na ipakita.</li>
 <li><b>Ang pag-i-ignore at pag-block</b> ay mga preference: kategorya <code>user_block</code>, pinangalanan ayon sa ID ng ibang tao, na may halaga na <code>ignore</code> o <code>block</code>. Kung ang isang direct message ay naghihintay bilang request, nasa <code>notify_props.dm_request</code> ng iyong channel member (<code>pending</code>, <code>accepted</code> o <code>dismissed</code>).</li>
 <li><b>Ang mga attachment ng mensahe</b> ay maaaring magdala ng <code>stages</code> at <code>chart</code>: tingnan ang <a href="{{root}}docs/developers/webhooks.html#cards">Cards</a>.</li>
 </ul>
+
+<h2 id="move-thread">Igalaw ang thread</h2>
+<p>Ang <code>POST /posts/{post_id}/move_to_channel</code> ay nagagalaw ng thread, ang unang mensahe nito, at lahat ng sagot, sa ibang channel ng parehong community. Ang <code>post_id</code> ay maaaring ang unang mensahe o anumang sagot.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts/$POST_ID/move_to_channel \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$TARGET_CHANNEL_ID'", "flatten": false}'</code></pre>
+<ul>
+<li><code>channel_id</code> (kailangan): ang channel na dadaan doon ang thread.</li>
+<li><code>flatten</code> (default <code>false</code>): ang <code>true</code> ay nagpapakita ng mga sagot bilang mga mensahe ng target channel sa halip na thread. Ginagamit ito ng <b>Make it a channel</b> ng Fusion.</li>
+</ul>
+<p>Mananatili ang mga mensahe sa kanilang mga manunulat, oras, reaksyon, at mga file. Ang mga kopya nito ay may <code>silent_notification</code> prop, kaya hindi nagpapadala ng notisikasyon sa sinuman. Tinatanggal ang orihinal na mga mensahe. Ang sagot ay ang naipaglipat na unang mensahe, na may bagong ID.</p>
+<h3>Sino ang maaaring magalaw ng thread</h3>
+<ul>
+<li>Kailangan mong makabasa ng thread at makapag-post sa target channel.</li>
+<li>Ang mga admin ng channel, ang mga admin ng community, ang mga taong may <b>Pamahalaan ang mga mensahe</b> (<code>delete_others_posts</code>) sa channel, at ang mga system admin ay maaaring magalaw ng anumang thread.</li>
+<li>Ang may-akda ng thread ay maaari itong galawin kapag pampubliko ang parehong channel, o kapag ang lahat ng mensahe ng thread ay kanya. Kung hindi, ang sagot ay <code>403</code> na may ID na <code>api.post.move_thread.private_needs_moderator.app_error</code>.</li>
+<li>Ang dalawang channel ay dapat nasa iisang community (walang direct o group messages), magkakaiba, at hindi naka-archive. Hindi maaaring ilipat ang mga system message at burn-on-read message.</li>
+<li>Ang thread na mas mahaba sa <code>WranglerSettings.MoveThreadMaxCount</code> na mensahe (100 ang default; 0 para walang limit) ay hindi tatanggapin.</li>
+</ul>
+<h3>Ang pointer at ang tala</h3>
+<p>Ang paglipat ay nag-iwan ng dalawang system message ng uri <code>system_wrangler</code>: isang pointer sa lumang channel ("A thread with 13 messages has been moved to #target") at isang tala sa target ("This thread was moved from #source"), sa ilalim ng naipapatong thread o, gamit ang <code>flatten</code>, pagkatapos ng mga mensahe nito. Bukod sa teksto ng mensahe, ang props nito ay nagpapahintulot sa client na iguhit ang pangalan ng channel bilang link:</p>
+<ul>
+<li>Ang pointer: <code>MovedThreadPermalink</code>, <code>NumMessages</code>, <code>MovedThreadChannelId</code>, <code>MovedThreadTeamName</code>, <code>MovedThreadPostId</code>, at, para sa pampublikong target, <code>MovedThreadChannelName</code> at <code>MovedThreadChannelDisplayName</code>.</li>
+<li>Ang tala: <code>MovedFromChannelId</code>, <code>MovedFromTeamName</code>, <code>MovedFromPostId</code> (ang pointer), <code>MovedFromPermalink</code>, at, para sa pampublikong source, <code>MovedFromChannelName</code> at <code>MovedFromChannelDisplayName</code>.</li>
+</ul>
+<p>May <code>TranslationID</code> rin sila. Ang pangalan ng pribadong channel ay hindi isasama: nakikita ng mga mambabasa ang "another channel". Ang sariling <code>POST /posts/{post_id}/move</code> ng Mattermost ay patuloy na hindi gagamitin sa Antimatter; gamitin ang endpoint na ito.</p>
+
+<h2 id="ai-connections">Mga model connection</h2>
+<p>Ang model connection ay ang address at key ng isang AI provider, na itinatag ng admin. Ginagamit ng mga AI feature ng server at ng mga app na tumatawag sa AI service. Inaangkin ng mga system admin ang mga server-wide na connection (<code>manage_ai_connections</code>); inaangkin ng mga admin ng isang community ang kanilang sariling connection (<code>manage_team_ai_connections</code>). Ang mga key ay write-only: walang sagot na may kasamang key, kundi <code>api_key_set</code> at <code>api_key_last4</code>.</p>
+<table>
+<thead><tr><th>Endpoint</th><th>Ginagawa nito</th></tr></thead>
+<tbody>
+<tr><td><code>GET /ai/connections?scope=</code></td><td>Ang mga connection na inaangkin mo. Ang <code>scope</code> ay <code>server</code> o ang ID ng isang community; kung wala ito, lahat ng scope na inaangkin mo.</td></tr>
+<tr><td><code>POST /ai/connections</code></td><td>Nagdaragdag ng connection (nagsasagot ng <code>201</code>).</td></tr>
+<tr><td><code>POST /ai/connections/test</code>, <code>POST /ai/connections/models</code></td><td>Sinusubok ang connection, o nakikita ang listahan ng mga model nito, bago ito na-save. Iisa ang body sa pagdaragdag; wala ang na-save.</td></tr>
+<tr><td><code>GET</code>, <code>PATCH</code> (o <code>PUT</code>), <code>DELETE /ai/connections/{connection_id}</code></td><td>Binabasa, binabago o tinatanggal ang connection. Ang patch ay may kasamang mga field na babagayin lamang; huwag isama ang <code>api_key</code> para manatili ang key.</td></tr>
+<tr><td><code>POST /ai/connections/{connection_id}/test</code></td><td>Sinusubok ang na-save na connection: <code>{"ok", "error", "status_code", "latency_ms", "model_count"}</code>.</td></tr>
+<tr><td><code>GET /ai/connections/{connection_id}/models</code></td><td>Mga modelong inaalok ng provider.</td></tr>
+<tr><td><code>GET /ai/connections/{connection_id}/usage</code></td><td>Mga request at token ng buwan na ito.</td></tr>
+<tr><td><code>GET /ai/connections/usable?channel_id=&amp;team_id=</code></td><td>Para sa sinumang naka-sign in: ang mga koneksyon na maaari mong gamitin doon, kasama ang kanilang mga model at kakayahan, ngunit hindi ang kanilang mga key o address.</td></tr>
+</tbody>
+</table>
+<p>Ang katawan ng bagong koneksyon:</p>
+<pre><code>{
+  "name": "Local models",
+  "scope": "server",
+  "provider": "openai_compatible",
+  "base_url": "http://llm.internal:8000/v1",
+  "api_key": "…",
+  "extra_headers": {},
+  "models": {"chat": "qwen3-32b", "embeddings": "", "transcription": "", "decisions": ""},
+  "limits": {"requests_per_minute": 0, "monthly_token_budget": 0, "per_user_requests_per_minute": 0, "per_user_monthly_token_budget": 0},
+  "sharing": {"all_teams": true, "team_ids": []},
+  "audience": {"everyone": true, "group_ids": [], "roles": [], "allow_guests": false}
+}</code></pre>
+<p>Ang <code>provider</code> ay <code>openai_compatible</code> o <code>anthropic</code>. Ang <code>scope</code> ay default na <code>server</code>; ang ID ng isang community ay nagpapatuloy na ito ay koneksyon ng community na iyon. Sa <code>limits</code>, ang 0 ay nangangahulugang walang limit; ang mga request bawat minuto ay binibilang sa bawat server, at ang token budget ay bawat buwan ng kalendaryo (UTC) para sa buong cluster. Ang <code>sharing</code> ay nagpapakita ng mga community na maaaring gumamit ng koneksyon sa buong server (ang mga direct at group message ay nangangailangan ng <code>all_teams</code>), at ang <code>audience</code> ay sinasabi kung sino ang maaari itong gamitin; ang mga bisita ay lamang kung may <code>allow_guests</code>. Ang mga pagbabago ay isinusulat sa audit log. Inuunawa ng admin guide ang mga setting: tingnan ang <a href="{{root}}docs/admins/ai.html">AI</a>.</p>

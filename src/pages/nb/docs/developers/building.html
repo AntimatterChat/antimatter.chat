@@ -1,10 +1,10 @@
 title: Bygging fra kildekode
-description: Slik bygger du Antimatter fra kildekode: Go-serveren, Fusion- og klassiske webgrensesnitt, en utviklingsserver, tester, utgavearkiver, Docker-bildet, samt skrivebords- og mobilappene.
+description: Slik bygger du Antimatter fra kildekode: Go-serveren, Fusion- og klassiske webgrensesnitt, en utviklingsserver, tester, utgavearkiver og pakker, Docker-bildet, samt desktop- og mobilappene.
 guide: developers
 order: 7
 nav: Bygging fra kildekode
 lead: Denne siden forklarer hvordan du bygger og kjører Antimatter fra kildekoden, enten for å jobbe med den eller for å lage dine egne bygg. Den dekker serveren og webgrensesnittene, som ligger i ett repository, og deretter Docker-bildet og appene.
-source: dfdf67f34f6e
+source: 04025042c2ad
 ---
 <h2 id="requirements">Det du trenger</h2>
 <ul>
@@ -68,7 +68,16 @@ npm run build    # the classic interface, then Fusion</code></pre>
 cd server
 make build-linux       # the antimatter and amctl binaries
 make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
-<p><code>make build</code> bygger webgrensesnittene og Linux-binærfilene i ett. Arkivet inneholder <code>bin/antimatter</code>, <code>bin/amctl</code>, en standard <code>config/config.json</code>, begge webgrensesnittene, malene, fontene og oversettelsene. Andre plattformer: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>. Arkivene inkluderer ikke de medfølgende appene; Docker-bildet gjør det.</p>
+<p><code>make build</code> bygger webgrensesnittene og Linux-binærfilene i ett steg. Arkivet inneholder <code>bin/antimatter</code>, <code>bin/amctl</code>, en standard <code>config/config.json</code> med en <code>README.md</code> om endring av innstillinger, begge webgrensesnitt, malene, fontene og oversettelsene. Andre plattformer: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>.</p>
+<h3>Bundlete apper</h3>
+<p>En vanlig <code>make package-linux</code> bygger et arkiv uten apper. For å pakke dem inn, slik de offentliggjorte utgavene gjør, henter du først de signerte appbundlene og overfører mappen deres:</p>
+<pre><code>build/package/fetch-apps.sh "$HOME/release-apps"   # needs gh, python3 and gpg
+make package-linux PREPACKAGED_PLUGINS_DIR="$HOME/release-apps"</code></pre>
+<p><code>fetch-apps.sh</code> laster ned den nyeste GitHub-utgaven av hver app som er oppført i <code>plugins.json</code> i antimatter-docker, med signatur, og sjekker signaturen mot Antimatters plugin-nøkkel. Som standard henter den Whiteboard, Voice channels, Calls, Agents, Todo, Polls, Notes, GIFs og Memes; <code>AM_BUNDLED_APPS</code> (navn på repositorier, separert med mellomrom) endrer listen. Apper uten utgave, eller uten signatur, hoppes over med en advarsel. Bundlene plasseres i <code>prepackaged_plugins/</code> i arkivet.</p>
+<h3>.deb- og .rpm-pakker</h3>
+<p><code>build/package/build-packages.sh &lt;archive&gt; &lt;amd64|arm64&gt; &lt;version&gt; &lt;out-dir&gt;</code> omdanner et utgavearkiv til alle-i-én <code>.deb</code>- og <code>.rpm</code>-pakker, ved hjelp av <a href="https://nfpm.goreleaser.com">nfpm</a>. Administratørguiden beskriver hva de installerer: se <a href="{{root}}docs/admins/install.html#packages">Installer .deb- eller .rpm-pakken</a>.</p>
+<h3>Utgavearbeidsflyten</h3>
+<p>Serverens repositorier <code>antimatter-release.yml</code>-arbeidsflyt gjør alt dette på GitHub: ved en <code>v*</code>-merke bygger den arkivene og pakkene for <code>amd64</code> og <code>arm64</code>, med <code>SHA256SUMS</code>, og publiserer dem som GitHub-utgaven for merket (en forhåndsutgave for en versjon med <code>-</code>). Når den kjøres manuelt, nummererer den bygget <code>0.9.0-dev.&lt;run&gt;</code> og beholder filene som arbeidsflyt-artefakter. Hvert app-repositorium har en <code>release.yml</code>-arbeidsflyt som publiserer sitt signerte bundle på samme måte.</p>
 
 <h2 id="docker">Docker-bildet</h2>
 <p>Lageret <a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> bygger de utgitte bildene, serveren med appene sine, helt inne i Docker:</p>
@@ -97,6 +106,6 @@ VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatt
 npm run build          # development build, into dist/
 npm start              # run it
 npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
-<p>Byggetidsinnstillinger, som servere som skal forhåndssettes, finnes i <code>src/common/config/buildConfig.ts</code>.</p>
+<p>Byggtidsinnstillinger, for eksempel servere som skal forhåndssettes, finnes i <code>src/common/config/buildConfig.ts</code>. Uten et Apple-sertifikat, sett <code>AM_MAC_ADHOC_SIGN=true</code> for å signere macOS-appen ad hoc, uten notariseringsprosess: Macs med Apple-silikon nekter å kjøre usignert kode. Repositoryets <code>release.yml</code>-workflow bygger usignerte pakker for Linux, Windows og macOS ved en <code>v*</code>-tag.</p>
 <h3>Mobilapp</h3>
-<p><a href="https://github.com/AntimatterChat/mobile-app">Mobilappen</a> er en React Native-app; README-en lister kommandoene (<code>npm run ios</code>, <code>npm run android</code>). For å bygge din egen kopi trenger du også dine egne signeringsnøkler, et Firebase-prosjekt for Android-varsler, en APNs-nøkkel for iOS, og en <a href="https://github.com/AntimatterChat/push-proxy">push-proxy</a> som holder disse legitimasjonene.</p>
+<p><a href="https://github.com/AntimatterChat/mobile-app">Mobilappen</a> er en React Native-app; README-en oppfører kommandoene (<code>npm run ios</code>, <code>npm run android</code>). For å bygge din egen kopi trenger du også dine egne signeringsnøkler, et Firebase-prosjekt for Android-varsler, en APNs-nøkkel for iOS, og en <a href="https://github.com/AntimatterChat/push-proxy">push-proxy</a> som lagrer disse legitimasjonene. Repositoryets <code>release.yml</code>-workflow bygger Android APK og AAB og en usignert iOS <code>.ipa</code> ved en <code>v*</code>-tag, uten butikk-kontoer; README-en oppfører hemmelighetene som signerer Android-bygget og setter opp Firebase.</p>

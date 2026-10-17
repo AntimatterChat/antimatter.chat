@@ -1,10 +1,10 @@
 title: Pisanie aplikacji (wtyczek)
-description: Jak napisać aplikację (wtyczkę) Antimatter: struktura pakietu i plik plugin.json, haki i API po stronie serwera, rejestr aplikacji webowych, wsparcie dla interfejsu Fusion, ustawienia, magazyn kluczy i wartości, tłumaczenia, pakowanie i instalacja.
+description: Jak napisać aplikację (wtyczkę) Antimatter: struktura pakietu i plik plugin.json, haki i API po stronie serwera, usługa AI, rejestr aplikacji webowych, wsparcie dla interfejsu Fusion, ustawienia, magazyn klucz-wartość, tłumaczenia, pakowanie i instalacja.
 guide: developers
 order: 6
 nav: Pisanie aplikacji
 lead: Aplikacje dodają funkcje do Antimatter od wewnątrz: część serwerowa w Go, która podpinana jest do serwera, oraz część aplikacji webowej w React, która dodaje menu, panele, typy wiadomości i strony. Ta strona pokazuje, jak wygląda struktura aplikacji, używając jako przykładu dołączonej aplikacji Ankiety, oraz jakie zmiany wprowadza interfejs Fusion w Antimatter.
-source: d9c132cac759
+source: f2c14bacc2f3
 ---
 <h2 id="overview">Jak działa aplikacja</h2>
 <ul>
@@ -131,6 +131,22 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 <li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: sprawdzaj, kto może co zrobić, zanim wykonasz akcję w imieniu użytkownika.</li>
 </ul>
 <p>Aplikacja działa na każdym serwerze klastra. Przechowuj stan w magazynie kluczo-wartości lub w bazie danych, a nie tylko w pamięci.</p>
+<h3 id="ai">Usługa AI</h3>
+<p>Serwer Antimatter wywołuje modele AI dla aplikacji za pośrednictwem połączeń z modelami skonfigurowanych przez administratora (patrz <a href="{{root}}docs/admins/ai.html">AI</a> w przewodniku administratora). Aplikacja nigdy nie przechowuje klucza dostawcy: wskazuje osobę, w imieniu której działa, oraz miejsce, a serwer sprawdza, czy ta osoba może użyć danego połączenia w tym miejscu, stosuje jego limity i budżety, rozlicza tokeny na osobę i aplikację oraz audytuje wywołanie bez jego zawartości.</p>
+<table>
+<thead><tr><th>Metoda</th><th>Opis</th></tr></thead>
+<tbody>
+<tr><td><code>AIChat(actingUserID, channelID, teamID, *ai.ChatRequest)</code></td><td>Ukończenie czatu: wiadomości, narzędzia, strukturalna odpowiedź (<code>JSONSchema</code>).</td></tr>
+<tr><td><code>AIChatStream(…)</code></td><td>To samo, ale strumieniowo: odczytuj <code>Events</code> ze strumienia, aż kanał się zamknie, lub zamknij go za pomocą <code>Close</code>, aby przerwać wywołanie.</td></tr>
+<tr><td><code>AIEmbed(…, *ai.EmbedRequest)</code></td><td>Wektoryzacja (embeddings) tekstów.</td></tr>
+<tr><td><code>AITranscribe(…, *ai.TranscribeRequest)</code></td><td>Transkrypcja mowy do tekstu.</td></tr>
+<tr><td><code>AIDecide(…, *ai.DecideRequest)</code></td><td>Zadawanie typowanych pytań do modelu decyzyjnego (tak lub nie, wybór, ocena) dotyczących danego tekstu.</td></tr>
+<tr><td><code>AIConnectionsForUser(userID, channelID, teamID)</code></td><td>Połączenia, których dana osoba może tam użyć, wraz z ich modelami i możliwościami, nigdy z kluczami.</td></tr>
+</tbody>
+</table>
+<p>Pole <code>ConnectionID</code> w każdym żądaniu wybiera połączenie, a <code>Model</code> jeden z jego modeli (puste dla modelu domyślnego połączenia). <code>Operation</code> to krótka etykieta dla rekordów użycia i audytu, nigdy zawartość. Minimalna wymagana wersja serwera to 11.11.</p>
+<div class="callout warn">Pobieraj <code>actingUserID</code> wyłącznie z źródła zweryfikowanego przez serwer: nagłówka <code>Mattermost-User-Id</code> w żądaniu do Twojego <code>ServeHTTP</code> lub z użytkownika w kontekście haka (autora wiadomości, użytkownika, który wykonał polecenie). Nigdy nie pobieraj go z wiadomości, obciążnika webhooka, adresu URL ani żądania innej aplikacji: Twoja aplikacja zużyłaby dostęp innej osoby.</div>
+<p>Te metody i pakiet <code>ai</code> (<code>server/public/ai</code>) istnieją wyłącznie w kopii modułu Antimatter, a nie w wersji opublikowanej przez Mattermost. Aby z nich korzystać, kompiluj w oparciu o <code>server/public</code> Antimatter, dodając linię <code>replace</code> w swoim pliku <code>go.mod</code>, na przykład <code>replace github.com/mattermost/mattermost/server/public =&gt; ../antimatter/server/public</code>. Taka aplikacja działa wyłącznie na Antimatter.</p>
 
 <h2 id="kv">Przechowywanie danych</h2>
 <p>Każda aplikacja ma własny magazyn kluczo-wartości w bazie danych serwera:</p>
@@ -172,17 +188,17 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <pre><code>export function isFusionUI(): boolean {
     return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
 }</code></pre>
-<p>Zainstalowane aplikacje używają tego mechanizmu, aby renderować interfejs w inny sposób. Ankieta wyświetla swoje karty ankiet oraz okno dialogowe tworzenia w stylu Fusion i otwiera własne okno dialogowe dla polecenia <code>/poll</code> w Fusion. Rozmowy i kanały głosowe pomijają pasek boczny oraz komponenty toast, które Fusion zastępuje własnym interfejsem rozmów. Aplikacja Agent umieszcza swoje akcje AI w podmenu menu wiadomości, a nie na pasku narzędzi pojawiającym się po najechaniu. Własne klasy CSS Fusion (z prefiksem <code>am-</code>) oraz jej warstwa okien dialogowych (element <code>am-layer</code>) są tym, czego te aplikacje używają, aby dopasować się do interfejsu; nie stanowią one udokumentowanego, stabilnego API.</p>
+<p>Zainstalowane aplikacje używają tego mechanizmu, aby renderować interfejs w inny sposób. Ankieta rysuje swoje karty ankiet oraz okno dialogowe tworzenia w stylu Fusion i otwiera własne okno dialogowe dla polecenia <code>/poll</code> w Fusion. Rozmowy i kanały głosowe pomijają pasek boczny oraz komponenty toast, które Fusion zastępuje własnym interfejsem rozmów. Aplikacja Agent umieszcza swoje akcje AI w menu wiadomości, jako grupę pod <b>Więcej Akcji</b>, zamiast na pasku narzędzi pojawiającym się po najechaniu. Własne klasy CSS Fusion (z prefiksem <code>am-</code>) oraz jej warstwa okien dialogowych (element <code>am-layer</code>) są tym, czego te aplikacje używają, aby dopasować się do interfejsu; nie stanowią one udokumentowanego, stabilnego API.</p>
 <h3>Gdzie Fusion wyświetla komponenty wtyczek</h3>
 <table>
 <thead><tr><th>Metoda rejestru</th><th>Gdzie pojawia się w Fusion</th></tr></thead>
 <tbody>
 <tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>Pasek aplikacji, kolumna ikon na prawej krawędzi, między Twoim awatarem a przyciskiem <b>O Antimatter</b>. Przyciski nagłówka kanału również umieszczane są w tym miejscu, a nie w nagłówku kanału. Ukryty, gdy administrator systemu włączy <b>Wyłącz pasek aplikacji</b> (<code>ExperimentalSettings.DisableAppBar</code>, domyślnie wyłączony).</td></tr>
-<tr><td><code>registerRightHandSidebarComponent</code></td><td>Prawy panel. Użytkownicy mogą zmieniać jego rozmiar, przeciągając krawędź. Jeśli aplikacja jest również produktem, panel oferuje opcję <b>Otwórz na całej stronie</b>.</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>Prawy panel. Użytkownicy mogą zmieniać jego rozmiar, przeciągając jego krawędź, oraz otworzyć go w nowym oknie. Jeśli aplikacja jest również produktem, panel oferuje opcję <b>Otwórz na całej stronie</b>. Zobacz <a href="#panel-state">Panel w nowym oknie</a>.</td></tr>
 <tr><td><code>registerChannelHeaderIcon</code></td><td>Ikony w nagłówku kanału, po przyciskach rozmów; na telefonach w menu <b>Więcej</b> nagłówka.</td></tr>
 <tr><td><code>registerCallButtonAction</code></td><td>Przycisk rozmowy w nagłówku kanału; kilku dostawców udostępnia menu <b>Inne opcje rozmowy</b>.</td></tr>
-<tr><td><code>registerPostDropdownMenuAction</code></td><td>Menu <b>Więcej Akcji</b> (⋯) wiadomości, w podmenu <b>Wiadomości akcji</b>; również w menu <b>Akcje wątku</b> panelu wątku, pod <b>Więcej Akcji</b>.</td></tr>
-<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Własne podmenu tych samych menu, z nazwą i ikoną aplikacji.</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>Menu <b>Wiadomości akcji</b> (⋯) wiadomości, w jego podmenu <b>Więcej Akcji</b>; również w menu <b>Akcje wątku</b> panelu wątku, pod <b>Więcej Akcji</b>. Fusion rysuje ikonę aplikacji przed każdą akcją, w kolorze szarym: własną ikonę dla zainstalowanych aplikacji, w przeciwnym razie ikonę, którą aplikacja wyświetla na pasku aplikacji, a jeśli nie ma żadnej, to neutralną. Element bez tekstu na początku tekstu akcji (ikona rysowana samodzielnie przez aplikację) jest ukrywany.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Grupa z nagłówkiem w tym samym podmenu <b>Więcej Akcji</b>, po pojedynczych akcjach. Żadna aplikacja nie otrzymuje własnego wpisu w menu wiadomości.</td></tr>
 <tr><td><code>registerPostActionComponent</code></td><td>Pasek narzędzi pojawiający się po najechaniu na wiadomość, przed przyciskiem ⋯.</td></tr>
 <tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>Sama wiadomość: jej treść, pod jej tekstem, po czasie, oraz w miejscu podglądów linków.</td></tr>
 <tr><td><code>registerChannelHeaderMenuAction</code></td><td>Menu <b>Opcje kanału</b> (⋯ na kanale w pasku bocznym lub kliknięcie prawym przyciskiem myszy), jako elementy z ikoną wtyczki.</td></tr>
@@ -200,7 +216,7 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <tr><td><code>registerChannelTypeOption</code></td><td>Typy kanałów w oknie dialogowym <b>Utwórz kanał</b>.</td></tr>
 <tr><td><code>registerSearchComponents</code></td><td>Pole wyszukiwania w nagłówku kanału: zakresy aplikacji pojawiają się, gdy jest puste.</td></tr>
 <tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>O Antimatter</b> (na dole paska aplikacji), pod <b>Pomoc</b>.</td></tr>
-<tr><td><code>registerProduct</code></td><td>Pełne strony pod adresem URL produktu, wymienione pod <b>Produkty</b> w <b>O Antimatter</b>. Strony produktów zachowują klasyczny układ strony.</td></tr>
+<tr><td><code>registerProduct</code></td><td>Pełne strony pod adresem URL produktu, wymienione pod <b>Produkty</b> w sekcji <b>O Antimatter</b>. Strony produktów zachowują klasyczny szkielet strony, którego menu produktów pojawia się tylko wtedy, gdy aplikacja zarejestruje produkt lub doda do niego wpis. Zainstalowane aplikacje Kanban i Playbooks nie rejestrują już produktów: ich strony otwierają się w ich panelach bocznych.</td></tr>
 <tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, haki takie jak <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>Działają tak jak w klasycznym interfejsie.</td></tr>
 <tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>Konsola systemu, która jest klasyczna w obu interfejsach.</td></tr>
 </tbody>
@@ -230,12 +246,21 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <thead><tr><th>Metoda</th><th>Co dodaje</th></tr></thead>
 <tbody>
 <tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>Pozycja w menu <b>+</b> w polu wiadomości, w obu interfejsach. <code>action</code> otrzymuje <code>{channelId, rootId}</code>.</td></tr>
-<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Zakładka w oknie wyboru emoji w polu wiadomości, np. GIF-y lub naklejki. W Fusion zakładki z wartością <code>order</code> mniejszą niż 10 pojawiają się przed zakładką Emoji. Komponent otrzymuje <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> oraz <code>isFusion</code>.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Zakładka wybieraka emoji w polu wiadomości, na przykład GIF-y lub naklejki. W Fusion zakładki z wartością <code>order</code> poniżej 10 pojawiają się przed zakładką Emoji. Komponent otrzymuje <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code>, <code>isFusion</code> oraz, w Fusion, <code>pickerKit</code> (patrz niżej).</td></tr>
 <tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>Panel umieszczony między nagłówkiem kanału a wiadomościami, dla kanałów wybranych przez <code>matcher(state, channel)</code>. Może ukryć wiadomości i pole kompozycji (<code>setMessagesVisible</code>), tak jak to robią kanały głosowe.</td></tr>
 <tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>Wiersz pod kanałem w pasku bocznym, np. osoby uczestniczące w jego rozmowie. Otrzymuje <code>channel</code>.</td></tr>
 <tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Tylko Fusion: wpis na stronach <b>Integracje</b>, obok niestandardowych emoji. Aplikacja GIF dodaje tam swoje niestandardowe GIF-y i naklejki.</td></tr>
 </tbody>
 </table>
+<h3 id="picker-kit">Dodawanie i zarządzanie widokami w wybieraku emoji</h3>
+<p>W Fusion tab wyboru emoji otrzymuje prop <code>pickerKit</code>: komponenty, których tab Emoji używa do własnych widoków dodawania i zarządzania, dzięki czemu widoki danej zakładki wyglądają tak samo i pozostają wewnątrz okna wyboru. Aplikacje GIF i Memes używają go do dodawania i zarządzania GIF-ami, naklejkami oraz szablonami memów. Zawiera <code>version</code> (1), haki <code>usePickerView</code> i <code>useOnEscape</code> oraz komponenty <code>PickerViewButtons</code> (przyciski <b>+</b> i zarządzania obok pola wyszukiwania), <code>PickerViewFrame</code> (widok ze strzałką wsteczną), <code>PickerNotice</code>, <code>PickerField</code>, <code>PickerSearch</code>, <code>PickerDropZone</code> oraz <code>PickerManageList</code>. Klawisz Escape cofa z widoku do siatki zakładki. Sprawdź, czy prop jest obecny: inne hosty go pomijają, a wtedy zakładka używa własnych okien dialogowych. Typy znajdują się w <code>webapp/fusion/src/types/store/plugins.ts</code> (<code>EmojiPickerTabProps</code>), a komponenty w <code>webapp/fusion/src/fusion/popovers/picker_views.tsx</code>.</p>
+<h3 id="panel-state">Panel w nowym oknie</h3>
+<p>Fusion przekazuje komponentowi z <code>registerRightHandSidebarComponent</code> dwa dodatkowe propy, dzięki czemu opcja <b>Otwórz w nowym oknie</b> otwiera panel w miejscu, w którym się znajdował, a nie na stronie głównej aplikacji:</p>
+<ul>
+<li><code>setPanelState(state)</code>: wywołaj tę funkcję, gdy panel zmieni miejsce, przekazując krótki ciąg znaków zdefiniowany przez aplikację, np. <code>'note/&lt;id&gt;'</code> lub <code>'board/&lt;id&gt;/card/&lt;id&gt;'</code>, albo <code>null</code> dla strony głównej. Stan trafia do adresu okna, więc nigdy nie umieszczaj w nim danych poufnych. Stany dłuższe niż 512 znaków lub zawierające znaki sterujące są odrzucane.</li>
+<li><code>initialPanelState</code>: w nowym oknie jest to stan, który miał panel, lub <code>undefined</code>. Traktuj go jako niezaufane dane wejściowe: pobierz element ponownie jako zalogowana osoba i wyświetl stronę główną aplikacji lub widok „nie znaleziono”, jeśli użytkownik nie może go otworzyć.</li>
+</ul>
+<p>Stan jest zapomniany, gdy panel się zamyka lub panel innej aplikacji zajmuje jego miejsce. Aby samodzielnie otworzyć okno panelu, użyj <code>popoutRhsPlugin</code> (dostępnego również w <code>window.WebappUtils.popouts</code>), przekazując stan jako opcjonalny piąty argument. Z tej funkcji korzystają Notatki, Biała tablica, Do zrobienia, Kanban oraz Playbooki.</p>
 <p><code>fusionIcon</code> określa nazwę ikony z zestawu ikon Fusion (np. <code>poll</code>, <code>sticker</code>, <code>calendar</code> lub <code>image</code>; patrz <code>webapp/fusion/src/fusion/components/icon</code>). Fusion wyświetla ją zamiast <code>icon</code>, aby element był spójny z pozostałymi.</p>
 
 <h2 id="settings">Ustawienia</h2>

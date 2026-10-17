@@ -4,7 +4,7 @@ guide: developers
 order: 2
 nav: REST-API
 lead: Alt som Antimatter-appene gjør, går gjennom samme HTTP-API, så skriptene dine kan gjøre det samme. Denne siden forklarer hvordan du autentiserer, de ressursene du vil bruke mest, hvordan svar og feil ser ut, og hvordan du kan følge hendelser i sanntid via WebSocket.
-source: dccc67af2fb2
+source: a18155751d3e
 ---
 <h2 id="basics">Grunnleggende</h2>
 <ul>
@@ -14,7 +14,7 @@ source: dccc67af2fb2
 <li><b>Samfunn er team</b>: API-et kaller dem <code>teams</code>, med en <code>team_id</code>.</li>
 <li><b>deg selv</b>: der en sti tar en <code>user_id</code>, betyr <code>me</code> den innloggte brukeren, som i <code>GET /users/me</code>.</li>
 </ul>
-<p>Den fullstendige listen over endepunkter finnes i serverens kode: rutene er deklarert i <code>server/channels/api4/*.go</code> og typene i <code>server/public/model</code>. OpenAPI-beskrivelsen i repotoriets <code>api/v4/source</code>-mappe dekker endepunktene arvet fra Mattermost, ikke Antimatters tillegg.</p>
+<p>Den komplette listen over endepunkter finnes i serverens kode: rutene er deklarert i <code>server/channels/api4/*.go</code>, og typene i <code>server/public/model</code>. OpenAPI-beskrivelsen i mappene <code>api/v4/source</code> i repositoriet dekker endepunktene arvet fra Mattermost, samt noen av Antimatters tillegg: flytting av tråder, modellkoblinger og meldingshandlinger. De øvrige finnes bare i koden.</p>
 
 <h2 id="auth">Autentisering</h2>
 <p>Hver forespørsel, bortsett fra innlogging og noen offentlige endepunkter, krever en token i <code>Authorization</code>-hodet:</p>
@@ -144,7 +144,7 @@ func main() {
 <tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> samme sti<br><code>PATCH</code>, <code>DELETE …/fields/{field_id}</code></td><td>Samfunnsattributter: profilfeltene som administratorene i et samfunn definerer for medlemmene (opp til 20). Medlemmer kan lese dem; samfunnsadministratorene oppretter og endrer dem.</td></tr>
 <tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> samme sti<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>Et medlems attributtverdier, som <code>{field_id: value}</code>. Medlemmer setter sine egne (unntatt de som administreres av administratorer); administratorer setter for alle. Søket tar <code>{"user_ids": [...]}</code> (opp til 200).</td></tr>
 <tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>Tidsfrister: <code>{"until": time, "reason": "…"}</code> hindrer noen i å legge inn meldinger, reagere og laste opp i samfunnet inntil da (maksimalt 28 dager); <code>"until": 0</code> løfter den. Modereringsvisningen viser når de ble med og hvor mye de har lagt inn nylig.</td></tr>
-<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Meldinger som holdes øverst i en kanal (opp til 10). <code>{"duration": ms}</code>, maksimalt 30 dager; 0 holder den inntil den fjernes. Krever rett til å legge inn meldinger i kanalen.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Meldinger som holdes øverst i en kanal (opp til 10). <code>{"duration": ms}</code>, i høyeste grad 30 dager; 0 holder dem inntil de fjernes. Alle som kan lese kanalen ser dem. For å sette en melding øverst eller ta den ned kreves rett til å poste i kanalen og, i en teams kanal, å være administrator for kanalen eller teamet, eller å ha <b>Administrer meldinger</b> (<code>delete_others_posts</code>) der. I en direktemelding eller gruppemelding kan medlemmene gjøre dette. Avvist i arkiverte kanaler.</td></tr>
 <tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>Handler på din egen meldingsforespørsel: <code>{"action": "accept"}</code>, <code>"dismiss"</code> eller <code>"request"</code> for å legge en samtale tilbake blant forespørslene. Returnerer din kanalmedlem.</td></tr>
 <tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>Hva en rolle eller en person kan gjøre i en kanal, og hvilke roller som ser en kanal med rollesperre.</td></tr>
 <tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>Samfunnets felles kanalkategorier, og de unntakene som gjelder for alle kanaler i en kategori.</td></tr>
@@ -152,13 +152,75 @@ func main() {
 <tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>Tester samfunnets automatikk-regler på en tekst.</td></tr>
 <tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>Laster ned meldingene i en kanal som CSV (opp til 50 000), for personer som kan lese kanalen.</td></tr>
 <tr><td><code>GET /posts/{post_id}/speech</code></td><td>Meldingen lest høyt, som lyd, når tekst-til-lyd er konfigurert.</td></tr>
+<tr><td><code>POST /posts/{post_id}/move_to_channel</code></td><td>Flytter en tråd til en annen kanal i samme team: se <a href="#move-thread">Flytt en tråd</a>.</td></tr>
+<tr><td><code>GET</code>, <code>POST /ai/connections</code><br><code>GET</code>, <code>PATCH</code>, <code>DELETE /ai/connections/{connection_id}</code><br><code>GET /ai/connections/usable</code></td><td>Modellkoblinger, AI-leverandørene som serverens AI-funksjoner og apper bruker: se <a href="#ai-connections">Modellkoblinger</a>.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/message_actions</code><br><code>POST /posts/{post_id}/message_actions/{hook_id}</code><br><code>GET</code>, <code>POST /hooks/outgoing/{hook_id}/icon</code></td><td>Meldingshandlinger: utgående webhooks som brukere kjører fra meldingsmenyen. Se <a href="{{root}}docs/developers/webhooks.html#message-actions">Meldingshandlinger</a>.</td></tr>
 </tbody>
 </table>
 <h3>Nye felter</h3>
 <ul>
-<li><b>Team</b> (<code>Team</code>, and <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (alle er med i alle kanaler de kan se), <code>default_channel_id</code> (hvor nye brukere havner; tom verdi betyr Town Square), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> and <code>autolinks</code> (begge JSON-strenger).</li>
+<li><b>Team</b> (<code>Team</code>, og <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (alle er med i alle kanaler de kan se), <code>default_channel_id</code> (hvor nye brukere havner; tom verdi betyr General), <code>kind</code> (<code>community</code> eller <code>workplace</code>: i en workplace kan kanaladministratorer også arkivere sine kanaler; nye team får serverens <code>TeamSettings.DefaultCommunityKind</code>, <code>community</code> som standard), <code>member_list_view</code> (hvordan medlemslisten grupperer medlemmer: <code>choice</code>, standarden, lar hvert medlem velge; <code>roles</code> eller <code>teams</code> fastsetter det), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> og <code>autolinks</code> (begge JSON-strenger).</li>
+<li>Den <b>standardkanalen</b> i et nytt samfunn er <code>general</code> (<b>Generelt</b>), ikke <code>town-square</code>. Oppgraderingen til 0.9.0 endrer navnet på <code>town-square</code> i hvert samfunn til <code>general</code> og beholder ID-en, med mindre samfunnet allerede har en <code>general</code>-kanal. Gamle navn fungerer fortsatt: <code>GET /teams/{team_id}/channels/name/town-square</code>, <code>GET /teams/name/{team}/channels/name/town-square</code> og en innkommende webhooks <code>channel</code> gir samfunnets standardkanal når ingen kanal har det navnet. Bruk <code>default_channel_id</code> eller navnet <code>general</code> i ny kode.</li>
+<li><b>Kanallinker</b>: <code>#channel-name</code> linker en kanal, slik <code>~channel-name</code> også gjør. Egenskapen <code>channel_mentions</code> i innlegget lister kanalene som er lenket på denne måten; en <code>#word</code> som ikke nevner en kanal forblir et hashtag. Antimatters webgrensesnitt og mobilapp skriver <code>#name</code>.</li>
+<li><b>Arkiverte kanaler</b> kan fortsatt få nye medlemmer (<code>POST /channels/{channel_id}/members</code>), som kan lese historikken. Ingen kan legge inn meldinger, reagere, feste, sette en melding øverst, endre kanalens navn eller endre rollene til medlemmene der.</li>
 <li><b>Inline-svar</b>: en melding med <code>"props": {"reply_to": "&lt;post id&gt;"}</code> siterer den meldingen i samme kanal. Legg til <code>"reply_to_mention": false</code> for ikke å varsle forfatteren. Serveren fyller <code>metadata.reply_to</code> med en kort beskrivelse av den siterte meldingen.</li>
 <li><b>Spoilere</b>: <code>"props": {"spoiler": true}</code> skjuler meldingens tekst og filer inntil leseren velger å se dem.</li>
 <li><b>Ignorering og blokkering</b> er preferanser: kategori <code>user_block</code>, navngitt etter den andres ID, med verdien <code>ignore</code> eller <code>block</code>. Om en direktemelding venter som en forespørsel, står det i din kanalmedlems <code>notify_props.dm_request</code> (<code>pending</code>, <code>accepted</code> eller <code>dismissed</code>).</li>
 <li><b>Meldingsvedlegg</b> kan bære <code>stages</code> og en <code>chart</code>: se <a href="{{root}}docs/developers/webhooks.html#cards">Cards</a>.</li>
 </ul>
+
+<h2 id="move-thread">Flytte en tråd</h2>
+<p><code>POST /posts/{post_id}/move_to_channel</code> flytter en tråd, den første meldingen og alle svarene, til en annen kanal i samme samfunn. <code>post_id</code> kan være den første meldingen eller et hvilket som helst svar.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts/$POST_ID/move_to_channel \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$TARGET_CHANNEL_ID'", "flatten": false}'</code></pre>
+<ul>
+<li><code>channel_id</code> (obligatorisk): kanalen tråden flyttes til.</li>
+<li><code>flatten</code> (standard <code>false</code>): <code>true</code> gjør at svarene blir meldinger i målkanalet i stedet for en tråd. Fusion bruker <b>Gjør det til en kanal</b>.</li>
+</ul>
+<p>Meldingene beholder forfatterne, tidspunktene, reaksjonene og filene. Kopiene deres har egenskapen <code>silent_notification</code>, slik at de ikke varsler noen. De opprinnelige meldingene slettes. Svaret er den flyttede første meldingen, med den nye ID-en.</p>
+<h3>Hvem kan flytte en tråd</h3>
+<ul>
+<li>Du må kunne lese tråden og legge inn meldinger i målkanalet.</li>
+<li>Kanalens administratorer, samfunnets administratorer, personer med <b>Administrer meldinger</b> (<code>delete_others_posts</code>) i kanalen og systemadministratorer kan flytte enhver tråd.</li>
+<li>Forfatteren av tråden kan flytte den når begge kanalene er offentlige, eller når alle meldinger i tråden er forfattet av vedkommende. Ellers er svaret <code>403</code> med ID-en <code>api.post.move_thread.private_needs_moderator.app_error</code>.</li>
+<li>Begge kanaler må være i samme community (ikke direktemeldinger eller gruppemeldinger), være ulike og ikke arkivert. Systemmeldinger og meldinger som brennes ut ved lesing kan ikke flyttes.</li>
+<li>En tråd med mer enn <code>WranglerSettings.MoveThreadMaxCount</code> meldinger (100 som standard; 0 for ingen grense) blir avvist.</li>
+</ul>
+<h3>Pekeren og notatet</h3>
+<p>Flyttingen etterlater to systemmeldinger av typen <code>system_wrangler</code>: en peker i den gamle kanalen («En tråd med 13 meldinger har blitt flyttet til #target») og et notat i målet («Denne tråden ble flyttet fra #source»), under den flyttede tråden eller, med <code>flatten</code>, etter meldingene. Bortsett fra meldingsteksten, lar egenskapene deres en klient tegne kanalnavnet som en lenke:</p>
+<ul>
+<li>Pekeren: <code>MovedThreadPermalink</code>, <code>NumMessages</code>, <code>MovedThreadChannelId</code>, <code>MovedThreadTeamName</code>, <code>MovedThreadPostId</code> og, for et offentlig mål, <code>MovedThreadChannelName</code> og <code>MovedThreadChannelDisplayName</code>.</li>
+<li>Notatet: <code>MovedFromChannelId</code>, <code>MovedFromTeamName</code>, <code>MovedFromPostId</code> (pekeren), <code>MovedFromPermalink</code> og, for en offentlig kilde, <code>MovedFromChannelName</code> og <code>MovedFromChannelDisplayName</code>.</li>
+</ul>
+<p>Begge har også en <code>TranslationID</code>. Navnet på en privat kanal utelates: leserne ser «en annen kanal». Mattermosts egen <code>POST /posts/{post_id}/move</code> er slått av i Antimatter; bruk denne endepunktet.</p>
+
+<h2 id="ai-connections">Modelltilkoblinger</h2>
+<p>En modelltilkobling er en AI-leverandørs adresse og nøkkel, satt opp av en administrator. Serverens AI-funksjoner og appene som kaller AI-tjenesten bruker dem. Systemadministratorer administrerer serveromfattende tilkoblinger (<code>manage_ai_connections</code>); en communities administratorer administrerer deres communitys egne (<code>manage_team_ai_connections</code>). Nøkkeler er skrivebare: ingen svar inneholder en, bare <code>api_key_set</code> og <code>api_key_last4</code>.</p>
+<table>
+<thead><tr><th>Endepunkt</th><th>Hva det gjør</th></tr></thead>
+<tbody>
+<tr><td><code>GET /ai/connections?scope=</code></td><td>Tilkoblingene du administrerer. <code>scope</code> er <code>server</code> eller en communities ID; uten det, alle områder du administrerer.</td></tr>
+<tr><td><code>POST /ai/connections</code></td><td>Legger til en tilkobling (svarer <code>201</code>).</td></tr>
+<tr><td><code>POST /ai/connections/test</code>, <code>POST /ai/connections/models</code></td><td>Tester en tilkobling, eller lister modellene dens, før den lagres. Samme kropp som ved å legge til en; ingenting lagres.</td></tr>
+<tr><td><code>GET</code>, <code>PATCH</code> (eller <code>PUT</code>), <code>DELETE /ai/connections/{connection_id}</code></td><td>Lese, endre eller slette en tilkobling. En patch inneholder bare feltene som skal endres; utelatt <code>api_key</code> for å beholde nøkkelen.</td></tr>
+<tr><td><code>POST /ai/connections/{connection_id}/test</code></td><td>Tester en lagret tilkobling: <code>{"ok", "error", "status_code", "latency_ms", "model_count"}</code>.</td></tr>
+<tr><td><code>GET /ai/connections/{connection_id}/models</code></td><td>Modellene som leverandøren tilbyr.</td></tr>
+<tr><td><code>GET /ai/connections/{connection_id}/usage</code></td><td>Forespørsler og token for denne måneden.</td></tr>
+<tr><td><code>GET /ai/connections/usable?channel_id=&amp;team_id=</code></td><td>For alle som er pålogget: tilknytningsene du kan bruke der, med modellene og funksjonene deres, men aldri nøklene eller adressene.</td></tr>
+</tbody>
+</table>
+<p>Innholdet i en ny tilknytning:</p>
+<pre><code>{
+  "name": "Local models",
+  "scope": "server",
+  "provider": "openai_compatible",
+  "base_url": "http://llm.internal:8000/v1",
+  "api_key": "…",
+  "extra_headers": {},
+  "models": {"chat": "qwen3-32b", "embeddings": "", "transcription": "", "decisions": ""},
+  "limits": {"requests_per_minute": 0, "monthly_token_budget": 0, "per_user_requests_per_minute": 0, "per_user_monthly_token_budget": 0},
+  "sharing": {"all_teams": true, "team_ids": []},
+  "audience": {"everyone": true, "group_ids": [], "roles": [], "allow_guests": false}
+}</code></pre>
+<p><code>provider</code> er <code>openai_compatible</code> eller <code>anthropic</code>. <code>scope</code> har <code>server</code> som standardverdi; en fellesskaps-ID gjør det til tilknytningsen for det fellesskapet. I <code>limits</code> betyr 0 ingen grense; forespørsler per minutt telles på hver server, mens token-budsjettene gjelder per kalendermåned (UTC) for hele klusteret. <code>sharing</code> angir hvilke fellesskap som kan bruke en serveromfattende tilknytning (direktemeldinger og gruppemeldinger krever <code>all_teams</code>), og <code>audience</code> hvem som kan bruke den; gjester kun med <code>allow_guests</code>. Endringer skrives til revisjonsloggen. Administratørguiden forklarer innstillingene: se <a href="{{root}}docs/admins/ai.html">AI</a>.</p>

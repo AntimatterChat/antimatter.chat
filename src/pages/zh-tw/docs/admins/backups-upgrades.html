@@ -4,19 +4,21 @@ guide: admins
 order: 10
 nav: 備份與升級
 lead: 需要備份哪些內容、如何在新主機上還原、如何升級，以及如何將 Mattermost 伺服器或單一社群遷移至 Antimatter。
-source: b0797af8b6e7
+source: 531ec332715c
 ---
 <h2 id="what">需要備份的內容</h2>
 <table>
-<thead><tr><th>項目</th><th>使用站點的 compose 檔案</th><th>使用發行版壓縮檔</th></tr></thead>
+<thead><tr><th>項目</th><th>使用站點的 compose 檔案</th><th>使用發行版壓縮檔</th><th>使用 .deb 或 .rpm 套件</th></tr></thead>
 <tbody>
-<tr><td>資料庫：訊息、使用者、社群、頻道，以及使用站點 compose 檔案時的設定</td><td>volume <code>antimatter_postgres</code>，透過 <code>pg_dump</code></td><td>您的 PostgreSQL 資料庫</td></tr>
-<tr><td>上傳的檔案、圖片與已安裝的應用程式</td><td>volume <code>antimatter_files</code>（S3 儲存）</td><td><code>FileSettings.Directory</code>，預設為 <code>./data/</code></td></tr>
-<tr><td>設定檔</td><td>（位於資料庫中）</td><td><code>config/config.json</code></td></tr>
-<tr><td>GIF 與貼紙</td><td>volume <code>antimatter_gifs</code></td><td>GIF 服務的資料目錄</td></tr>
-<tr><td>機密資訊</td><td><code>.env</code>（以及 <code>compose.override.yaml</code>）</td><td>您的環境變數檔案</td></tr>
+<tr><td>資料庫：訊息、使用者、社群、頻道，以及使用站點 compose 檔案時的設定</td><td>volume <code>antimatter_postgres</code>，透過 <code>pg_dump</code></td><td>您的 PostgreSQL 資料庫</td><td>您的 PostgreSQL 資料庫</td></tr>
+<tr><td>上傳的檔案、圖片與已安裝的應用程式</td><td>volume <code>antimatter_files</code>（S3 儲存）</td><td><code>FileSettings.Directory</code>，預設為 <code>./data/</code></td><td><code>/var/lib/antimatter</code></td></tr>
+<tr><td>設定檔</td><td>（位於資料庫中）</td><td><code>config/config.json</code></td><td><code>/etc/antimatter/config/config.json</code></td></tr>
+<tr><td>GIF 與貼紙</td><td>volume <code>antimatter_gifs</code></td><td>GIF 服務的資料目錄</td><td><code>/var/lib/gifs-server</code></td></tr>
+<tr><td>機密資訊</td><td><code>.env</code>（以及 <code>compose.override.yaml</code>）</td><td>您的環境變數檔案</td><td><code>/etc/antimatter/antimatter.env</code>, <code>/etc/gifs-server</code></td></tr>
+<tr><td>AI 加密金鑰，用於加密模型連線的金鑰</td><td><code>.env</code> 中的 <code>AM_AI_ENCRYPTION_KEY</code>（建議），或 <code>antimatter_data</code> 卷中的 <code>ai-encryption.key</code> 檔案</td><td><code>AM_AI_ENCRYPTION_KEY</code>，或 <code>data/ai-encryption.key</code></td><td><code>antimatter.env</code> 中的 <code>AM_AI_ENCRYPTION_KEY</code>，或 <code>/var/lib/antimatter/data/ai-encryption.key</code></td></tr>
 </tbody>
 </table>
+<p>若沒有 AI 加密金鑰，還原後的伺服器將無法讀取其模型連線的 API 金鑰，必須逐一重新輸入。請將金鑰副本與資料庫備份分開保存，以免單一備份同時包含兩者。詳見<a href="{{root}}docs/admins/ai.html#encryption-key">加密金鑰</a>。</p>
 <p>資料庫與檔案必須一起備份：請在同一時間備份兩者，並將副本儲存在伺服器之外。Volume 名稱以 compose 專案名稱 <code>antimatter</code> 開頭（可使用 <code>docker volume ls</code> 列出）。</p>
 
 <h2 id="backup">備份</h2>
@@ -27,19 +29,20 @@ docker compose stop antimatter
 # Database
 docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
     &gt; "backups/antimatter-db-$stamp.dump"
-# File storage and GIF service
-for v in files gifs; do
+# File storage, GIF service and the data directory (the AI key file)
+for v in files gifs data; do
     docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
         alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
 done
 docker compose start antimatter
 # Secrets
 cp .env "backups/env-$stamp"</code></pre>
+<p>若尚未設定 <code>AM_AI_ENCRYPTION_KEY</code>，伺服器的金鑰檔案位於 <code>data</code> 卷中，上述迴圈會將其與檔案一併保存。更好的做法是依照<a href="{{root}}docs/admins/ai.html#encryption-key">加密金鑰</a>的說明，將其內容放入 <code>.env</code>，並將副本與資料庫備份分開保存。</p>
 <p>透過 cron 執行每日備份，並將 <code>backups/</code> 目錄複製到其他機器。請妥善保管 <code>.env</code> 的副本，如同保護伺服器本身：其中包含密碼。</p>
 <p>若要逐個複製上傳的檔案（例如複製到另一個 S3 儲存），請使用 <code>bucket</code> 服務的 AWS 命令列工具：</p>
 <pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
     "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
-<p>使用發行版壓縮檔時，請使用 <code>pg_dump -Fc</code> 備份資料庫，並使用您慣用的工具備份 <code>data/</code> 與 <code>config/</code> 目錄。</p>
+<p>使用發行版檔案時，請以 <code>pg_dump -Fc</code> 備份資料庫，並使用慣用工具備份 <code>data/</code> 和 <code>config/</code> 目錄（<code>data/</code> 包含 AI 金鑰檔案）。使用套件時，請以相同方式備份資料庫，並備份 <code>/etc/antimatter</code>、<code>/var/lib/antimatter</code>、<code>/etc/gifs-server</code> 和 <code>/var/lib/gifs-server</code>。</p>
 
 <h2 id="restore">在新主機上還原</h2>
 <p>將 <code>compose.yaml</code>、已儲存的 <code>.env</code> 與備份檔案放入新目錄，然後：</p>
@@ -48,15 +51,16 @@ docker compose create           # creates the volumes, starts nothing
 docker compose up -d postgres
 docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
     &lt; "backups/antimatter-db-$stamp.dump"
-for v in files gifs; do
+for v in files gifs data; do
     docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
         alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
 done
 docker compose up -d</code></pre>
-<p>使用相同的 <code>.env</code>：儲存空間與資料庫必須保留原有的密碼。如果新主機有不同的位址，請更新 <code>SITE_URL</code>（以及 <code>DOMAIN</code>）。</p>
+<p>請使用相同的 <code>.env</code>：儲存空間和資料庫必須保留原有的密碼，且模型連線需要相同的 AI 加密金鑰。若新主機有不同的位址，請更新 <code>SITE_URL</code>（以及 <code>DOMAIN</code>）。</p>
 <p>請定期在其他機器上還原備份以測試其完整性。</p>
 
 <h2 id="upgrade">升級</h2>
+<div class="callout warn">2026 年 10 月 17 日之前下載的 Compose 檔案沒有 <code>data</code> 卷：AI 金鑰檔案位於容器內。在使用新的 <code>compose.yaml</code> 之前，若 <code>.env</code> 沒有 <code>AM_AI_ENCRYPTION_KEY</code>，請保存伺服器產生的金鑰：<code>echo "AM_AI_ENCRYPTION_KEY=$(docker compose exec -T antimatter cat /antimatter/data/ai-encryption.key)" &gt;&gt; .env</code>。若指令找不到檔案，表示尚未有模型連線保存金鑰。</div>
 <ol>
 <li>先進行備份。</li>
 <li>如果您有固定映像標籤（如建議所示），請修改 <code>.env</code> 中的映像標籤（<code>ANTIMATTER_IMAGE</code>）。</li>
@@ -65,12 +69,45 @@ docker compose up -d</code></pre>
 docker compose up -d
 docker compose logs -f antimatter</code></pre></li>
 </ol>
-<p>啟動時，伺服器會升級資料庫結構（可在日誌中追蹤進度；大型伺服器可能需要數分鐘），並從映像檔中安裝較新版本的內建應用程式。若使用發行版檔案：請停止伺服器，將除 <code>config/</code>、<code>data/</code>、<code>logs/</code>、<code>plugins/</code> 和 <code>client/plugins/</code> 以外的所有內容，替換為新檔案的內容，然後重新啟動。</p>
+<p>啟動時，伺服器會升級資料庫結構（可在日誌中追蹤進度；大型伺服器可能需要數分鐘），並從映像檔中安裝較新版本的內建應用程式。若使用發行版壓縮檔：請停止伺服器，將除 <code>config/</code>、<code>data/</code>、<code>logs/</code>、<code>plugins/</code> 和 <code>client/plugins/</code> 以外的所有內容，替換為新壓縮檔的內容，然後重新啟動。若使用 .deb 或 .rpm 套件，請依照<a href="{{root}}docs/admins/install.html#packages">升級套件</a>的說明安裝新套件。</p>
 <div class="callout warn">升級只能向前進行。一旦較新的伺服器升級了資料庫，舊版本便無法使用該資料庫：若要回退，請還原升級前備份的資料。從 <code>antimatter-next</code> 移回 <code>antimatter</code> 的情況也是如此。</div>
 <h3>版本</h3>
-<p>Antimatter 的伺服器會報告其所基於的 Mattermost 版本（目前為 12.0.0）。映像檔會從 <code>main</code> 分支重新建置：<code>antimatter-next</code> 每晚建置一次（標籤為 <code>nightly-&lt;YYYYMMDD&gt;</code>），而兩個映像檔則在每次變更時建置（標籤為 <code>sha-&lt;commit&gt;</code>）。請固定使用其中一個標籤，有意識地進行升級，並記錄前一個標籤，以便知道哪個備份與之對應。</p>
+<p>Antimatter 伺服器會報告其所基於的 Mattermost 版本（目前為 12.0.0）。GitHub 上的發行版（包含壓縮檔與套件）擁有獨立的版本編號，在測試期間為 0.9.0 系列：<code>antimatter version</code> 會將其顯示為<b>組建編號</b>。映像檔會從 <code>main</code> 分支重新建置：<code>antimatter-next</code> 每晚建置一次（標籤為 <code>nightly-&lt;YYYYMMDD&gt;</code>），且每次變更時都會建置兩個映像檔（標籤為 <code>sha-&lt;commit&gt;</code>）。請固定使用其中一個標籤，有意識地進行升級，並記錄前一個標籤，以便知道哪個備份與之對應。</p>
 <h3>PostgreSQL 主要版本</h3>
 <p>Compose 檔案使用 <code>postgres:17-alpine</code>。Antimatter 需要 PostgreSQL 15 或更新版本。PostgreSQL 的新主要版本無法讀取舊版本資料目錄的內容：若要遷移，請先匯出資料庫，在新的磁碟區上啟動新版本，並將匯出的資料還原至其中。</p>
+
+<h2 id="v090">升級至 0.9.0</h2>
+<p>首次啟動 0.9.0 版本（或 2026 年 10 月 17 日或之後建置的映像檔）時，會對資料進行幾項一次性變更。每項變更僅執行一次，並記錄在資料庫中。這些變更會將保留在舊預設值的項目更新為新預設值，而不會動到管理員已自行設定的項目。請在日誌中追蹤這些變更。</p>
+<div class="callout warn">If Antimatter is for a company or an organisation, set <b>Kind of new communities</b> to <b>Workplace</b> <em>before</em> you upgrade: <code>AM_TEAMSETTINGS_DEFAULTCOMMUNITYKIND=workplace</code>. The upgrade gives every community the kind this setting has at that moment, and calls are off by default in the channels of communities of the <b>Community</b> kind. See <a href="{{root}}docs/admins/configuration.html#community-kind">Workplace or community</a>.</div>
+<table>
+<thead><tr><th>項目</th><th>變更內容</th></tr></thead>
+<tbody>
+<tr><td>社群類型</td><td>每個社群都會有一個類型：<b>社群</b>或<b>工作場所</b>，取決於首次啟動時<b>新社群類型</b>（<code>TeamSettings.DefaultCommunityKind</code>）的值。已設定的類型將予以保留。社群管理員之後可在<b>團隊設定 › 頻道 › 社群類型</b>中變更其社群的類型。</td></tr>
+<tr><td>誰可以封存頻道</td><td>頻道成員不再封存其所加入的頻道，改由社群管理員執行。在工作區中，頻道的管理員（即建立者及其指定的管理員）也可執行封存。此變更會影響系統方案的權限；系統管理員為特定社群建立的權限方案則維持原狀。</td></tr>
+<tr><td>版面配置預設值中的「Moderators」角色</td><td>社群從版面配置預設值取得的 <b>Moderators</b> 角色將獲得 <b>移除人員</b> 權限，以便執行將人員移出或移除的操作。僅有仍完全符合預設值設定的角色會受到變更；若角色已被使用者編輯過，則維持原狀。</td></tr>
+<tr><td>具有<b>管理員</b>的權限</td><td>社群角色若開啟了 <b>管理員</b> 開關，現在將擁有社群管理員可執行的所有權限，而非僅限於社群設定。</td></tr>
+<tr><td>成員人數上限</td><td><b>每個社群的最高成員數</b>（<code>TeamSettings.MaxUsersPerTeam</code>）從舊預設值 50 改為 0（無限制）。其他數值將予以保留，透過 <code>AM_TEAMSETTINGS_MAXUSERSPERTEAM</code> 設定的限制亦維持不變。</td></tr>
+<tr><td>模型連線</td><td>系統管理員可管理模型連線，社群管理員（以及具有 <b>管理員</b> 權限的角色）則可管理其社群的模型連線。Agents 應用程式中的 AI 服務將成為伺服器層級的 <a href="{{root}}docs/admins/ai.html#connections">模型連線</a>，詳見下文。</td></tr>
+<tr><td>Town Square 改名為 General</td><td>每個社群的預設頻道將從 <code>town-square</code>（Town Square）重新命名為 <code>general</code>（General）。該頻道將保留其 ID、成員、訊息、設定以及管理員選擇的顯示名稱。舊的連結和透過 <code>town-square</code> 的查詢仍會指向該頻道。若社群已存在名為 <code>general</code> 的頻道（即使已封存），則其 <code>town-square</code> 仍將作為預設頻道；若社群的 <code>town-square</code> 已封存，情況亦然。系統日誌會記錄這些社群，其管理員可重新命名這些頻道。</td></tr>
+<tr><td>我的最愛</td><td>所有使用者的「Favorites」側邊欄分類將重新命名為「Favourites」，以符合介面現有的顯示。使用者自行建立且名為「Favorites」的分類將維持原狀。</td></tr>
+</tbody>
+</table>
+<h3>Agents 應用程式的服務</h3>
+<p>升級時，系統會將 Agents 應用程式中的每個 AI 服務複製為伺服器層級的模型連線，供所有社群共用，且所有人都可使用，唯獨訪客除外（若要開放給訪客，請開啟 <b>Guests too</b>）。金鑰在傳輸過程中會經過加密，因此伺服器需要具備 AI 加密金鑰：若檔案存放於 S3 的叢集，請先設定 <code>AM_AI_ENCRYPTION_KEY</code>，否則複製作業將等待下次啟動時再執行。接著請檢查 <b>系統控制台 › AI › 模型連線</b>：</p>
+<ul>
+<li>每個連線都會保留其對應服務的 ID，因此該應用程式的代理程式，以及設定為使用 Agents 服務的自動翻譯功能，仍能找到該服務。</li>
+<li>OpenAI、相容於 OpenAI、Anthropic、Mistral、Cohere 和 Gemini 的服務，將成為指向其相容於 OpenAI（或 Anthropic）端點的連線。Azure 服務則會成為指向該資源相容於 OpenAI 端點的連線：請進行測試。</li>
+<li>AWS Bedrock、Google Vertex AI 和 Cohere North 服務，以及未知類型的服務，將被標記為 <b>Needs attention</b>，並附上原因。這些服務的雲端憑證不會被複製：請將其指向提供者的相容於 OpenAI 端點，或指向 LiteLLM 等閘道，然後儲存。</li>
+<li>嵌入（Embedding）服務將成為具有相同地址和金鑰之連線的 <b>Embeddings</b> 模型，或成為獨立的連線。文字轉錄服務則會取得 <code>whisper-1</code> 模型。</li>
+<li>當重寫（rewrite）和摘要（recaps）尚未有對應的連線時，它們將使用該應用程式預設代理程式的服務和模型。</li>
+</ul>
+<p>Agents 應用程式自身的設定與資料將保持原狀：其代理程式仍會繼續使用該應用程式的服務。</p>
+<h3>其他預設值的變更</h3>
+<ul>
+<li><b>通話</b>：<b>Test mode</b> 預設為關閉，<b>Enable video</b> 預設為開啟。若設定檔中已儲存選擇，則會予以保留。通話也會遵循社群的類型（請參閱 <a href="{{root}}docs/admins/calls.html#where-calls">通話與語音</a>）。</li>
+<li>將訊息置頂的權限屬於頻道的管理員、社群的管理員與版主（需具備 <b>管理訊息</b> 權限）；私人訊息或群組訊息的成員仍可自行置頂。</li>
+<li>已封存的頻道可以接受新成員加入，新成員可以閱讀歷史記錄。但任何人都不能在這些頻道中發布訊息、做出反應或進行任何變更。</li>
+</ul>
 
 <h2 id="mattermost">從 Mattermost 遷移</h2>
 <p>Antimatter 使用 Mattermost 的資料庫結構並新增自己的表格，因此可以接管 Mattermost 伺服器的 PostgreSQL 資料庫和檔案。請先複製一份資料進行測試：</p>
@@ -86,6 +123,7 @@ docker compose logs -f antimatter</code></pre></li>
 <ul>
 <li>Mattermost 的推送通知伺服器設定會保留，但絕不會被使用；</li>
 <li>Mattermost 的應用程式市集（<b>市集網址</b>）與產品通知的網址已被清空；</li>
+<li>原本為 Mattermost 預設值的應用程式下載連結（<b>Antimatter Apps Download Page Link</b>、<b>Android 應用程式下載連結</b> 和 <b>iOS 應用程式下載連結</b>）已更換為 Antimatter 應用程式在 GitHub 上的下載頁面；您自行設定的連結將予以保留；</li>
 <li>Calls 應用程式會改用 Cloudflare 的公開 STUN 伺服器，而非 Mattermost 的伺服器，且不會修改已儲存的設定（請參閱 <a href="{{root}}docs/admins/calls.html#network">Calls</a>）；</li>
 <li>安全更新檢查與崩潰報告功能已移除，相關的系統控制台設定（<b>啟用安全警示</b>、<b>啟用診斷與錯誤報告</b>）以及 <b>通知</b> 頁面也一併移除。</li>
 </ul>

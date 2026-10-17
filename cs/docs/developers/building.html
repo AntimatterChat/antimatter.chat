@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kompilace ze zdrojového kódu · Antimatter</title>
-<meta name="description" content="Jak sestavit Antimatter ze zdrojového kódu: Go server, webové rozhraní Fusion a klasické, vývojový server, testy, instalační archivy, Docker obraz a aplikace pro desktop i mobil.">
+<meta name="description" content="Jak sestavit Antimatter ze zdrojového kódu: Go server, Fusion a klasické webové rozhraní, vývojový server, testy, release archivy a balíčky, Docker obraz a desktopové a mobilní aplikace.">
 <meta property="og:title" content="Kompilace ze zdrojového kódu · Antimatter">
-<meta property="og:description" content="Jak sestavit Antimatter ze zdrojového kódu: Go server, webové rozhraní Fusion a klasické, vývojový server, testy, instalační archivy, Docker obraz a aplikace pro desktop i mobil.">
+<meta property="og:description" content="Jak sestavit Antimatter ze zdrojového kódu: Go server, Fusion a klasické webové rozhraní, vývojový server, testy, release archivy a balíčky, Docker obraz a desktopové a mobilní aplikace.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://antimatter.chat/cs/docs/developers/building.html">
 <meta property="og:locale" content="cs">
@@ -137,7 +137,16 @@ npm run build    # the classic interface, then Fusion</code></pre>
 cd server
 make build-linux       # the antimatter and amctl binaries
 make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
-<p><code>make build</code> najednou sestaví webové rozhraní i Linux binárky. Archiv obsahuje <code>bin/antimatter</code>, <code>bin/amctl</code>, výchozí <code>config/config.json</code>, obě webová rozhraní, šablony, písma a překlady. Pro ostatní platformy: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>. Archivy neobsahují zabudované aplikace; Docker obraz je obsahuje.</p>
+<p><code>make build</code> sestaví webové rozhraní a binární soubory pro Linux v jednom kroku. Archiv obsahuje <code>bin/antimatter</code>, <code>bin/amctl</code>, výchozí <code>config/config.json</code> s <code>README.md</code> popisujícím změny nastavení, obě webová rozhraní, šablony, písma a překlady. Ostatní platformy: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>.</p>
+<h3>Integrované aplikace</h3>
+<p>Běžné <code>make package-linux</code> sestaví archiv bez aplikací. Pokud je chcete zahrnout, jako to dělají publikované verze, nejdříve staňte podepsané balíčky aplikací a předejte jejich složku:</p>
+<pre><code>build/package/fetch-apps.sh "$HOME/release-apps"   # needs gh, python3 and gpg
+make package-linux PREPACKAGED_PLUGINS_DIR="$HOME/release-apps"</code></pre>
+<p><code>fetch-apps.sh</code> stáhne nejnovější GitHub release každé aplikace uvedené v <code>plugins.json</code> repozitáře antimatter-docker, včetně podpisu, a ověří podpis proti klíči pro pluginy Antimatter. Výchozí seznam obsahuje Whiteboard, Voice channels, Calls, Agents, Todo, Polls, Notes, GIFs a Memes; proměnná <code>AM_BUNDLED_APPS</code> (názvy repozitářů oddělené mezerami) tento seznam mění. Aplikace bez release nebo bez podpisu se přeskočí s varováním. Balíčky se uloží do složky <code>prepackaged_plugins/</code> v archivu.</p>
+<h3>Balíčky .deb a .rpm</h3>
+<p><code>build/package/build-packages.sh &lt;archive&gt; &lt;amd64|arm64&gt; &lt;version&gt; &lt;out-dir&gt;</code> převede release archiv na kompletní balíčky <code>.deb</code> a <code>.rpm</code> pomocí <a href="https://nfpm.goreleaser.com">nfpm</a>. Administrátorský průvodce popisuje, co tyto balíčky nainstalují: viz <a href="../../../cs/docs/admins/install.html#packages">Instalace balíčku .deb nebo .rpm</a>.</p>
+<h3>Workflow pro vydání</h3>
+<p>Workflow <code>antimatter-release.yml</code> v repozitáři serveru vykoná na GitHubu všechny tyto kroky: při tagu <code>v*</code> sestaví archivy a balíčky pro <code>amd64</code> a <code>arm64</code>, včetně <code>SHA256SUMS</code>, a zveřejní je jako GitHub release daného tagu (prerelease pro verzi s <code>-</code>). Při ručním spuštění označí build číslem <code>0.9.0-dev.&lt;run&gt;</code> a soubory ponechá jako artefakty workflow. Každý repozitář aplikace má workflow <code>release.yml</code>, který zveřejní jeho podepsaný balíček stejným způsobem.</p>
 
 <h2 id="docker">Docker obraz</h2>
 <p>Repozitář <a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> sestavuje publikované obrazy, server včetně aplikací, celé uvnitř Dockeru:</p>
@@ -166,9 +175,9 @@ VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatt
 npm run build          # development build, into dist/
 npm start              # run it
 npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
-<p>Nastavení pro čas sestavení, jako jsou předkonfigurované servery, se nacházejí v <code>src/common/config/buildConfig.ts</code>.</p>
+<p>Nastavení pro čas sestavení, jako jsou předem nakonfigurované servery, se nacházejí v <code>src/common/config/buildConfig.ts</code>. Bez Apple certifikátu nastavte <code>AM_MAC_ADHOC_SIGN=true</code> pro ad hoc podpis aplikace pro macOS bez notariace: Macs s Apple siliconem odmítají nesignovaný kód. Workflow <code>release.yml</code> v repozitáři sestavuje nesignované balíčky pro Linux, Windows a macOS při značce <code>v*</code>.</p>
 <h3>Mobilní aplikace</h3>
-<p><a href="https://github.com/AntimatterChat/mobile-app">Mobilní aplikace</a> je React Native aplikace; její README obsahuje seznam příkazů (<code>npm run ios</code>, <code>npm run android</code>). Pro sestavení vlastní kopie budete potřebovat také vlastní klíče pro podepisování, projekt Firebase pro notifikace na Androidu, klíč APNs pro iOS a <a href="https://github.com/AntimatterChat/push-proxy">push proxy</a> obsahující tyto přihlašovací údaje.</p>
+<p><a href="https://github.com/AntimatterChat/mobile-app">Mobilní aplikace</a> je aplikace React Native; její README obsahuje seznam příkazů (<code>npm run ios</code>, <code>npm run android</code>). Pro sestavení vlastní kopie budete také potřebovat vlastní podpisové klíče, projekt Firebase pro oznámení na Androidu, klíč APNs pro iOS a <a href="https://github.com/AntimatterChat/push-proxy">push proxy</a> uchovávající tyto přihlašovací údaje. Workflow <code>release.yml</code> v repozitáři sestavuje Android APK a AAB a nesignovanou iOS <code>.ipa</code> při značce <code>v*</code>, bez účtů v obchodech; její README obsahuje seznam tajných hodnot, které signují Android build a nastavují Firebase.</p>
 <nav class="pager"><a class="prev" href="../../docs/developers/apps.html"><small>Předchozí</small>Vytváření aplikací</a><a class="next" href="../../docs/developers/contributing.html"><small>Další</small>Příspěvky do projektu</a></nav>
 </article>
 </div>

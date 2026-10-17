@@ -1,0 +1,155 @@
+title: Työpöytäsovelluksen asennus
+description: Asenna Antimatterin työpöytäsovellus organisaationsi tietokoneille ja hallitse sitä keskitetysti: MSI-paketti ja sen ominaisuudet, Group Policy ja Intune, macOSin asetuspohjat sekä Linuxin asetusfile.
+guide: admins
+order: 13
+nav: Työpöytäsovelluksen asennus
+lead: Näin asennat Antimatterin työpöytäsovelluksen yrityksen tai koulun tietokoneille ja määrität sen palvelimet, käyttäjätunnuksen ja päivitystarkistukset keskitetysti Windowsissa, macOSissa ja Linuxissa.
+source: 2f67d39c0dda
+---
+<h2 id="download">Lataa sovellus</h2>
+<p>Työpöytäsovelluksen julkaisut löytyvät GitHubista osoitteesta <a href="https://github.com/AntimatterChat/desktop-app/releases">github.com/AntimatterChat/desktop-app/releases</a>. Kuten palvelin, myös sovellus on beetaversiona: julkaisun, jonka versiotunnuksessa on viivun jälkeinen liite, merkintä on <b>Pre-release</b>. Jokaisessa julkaisussa on <code>SHA256SUMS</code>-tiedosto, joka sisältää kaikkien tiedojen tarkistussummat. Tarkista lataus Linuxissa komennolla <code>sha256sum --check --ignore-missing SHA256SUMS</code> tai vertaa PowerShellin komennon <code>Get-FileHash &lt;file&gt; -Algorithm SHA256</code> tulosta <code>SHA256SUMS</code>-tiedoston riviin.</p>
+<ul>
+<li><b>Windows</b> (x64 ja arm64): <code>.exe</code>-asennusohjelma, <code>.msi</code>-paketti tai <code>.zip</code>-arkisto. Esimerkiksi <code>antimatter-desktop-&lt;version&gt;-win-x64.exe</code> ja <code>antimatter-desktop-&lt;version&gt;-win-x64.msi</code>.</li>
+<li><b>macOS</b>: <code>.dmg</code>-levykuva tai <code>.zip</code>, Apple-silikonille (<code>arm64</code>), Intel-Macille (<code>x64</code>) tai molemmille (<code>universal</code>).</li>
+<li><b>Linux</b> (x64 ja arm64): .deb- tai .rpm-paketti, AppImage, Flatpak-paketti tai <code>.tar.gz</code>-arkisto.</li>
+</ul>
+
+<h2 id="installers">Mikä Windowsin asennusohjelma kannattaa käyttää</h2>
+<table>
+<thead><tr><th></th><th>.exe-asennusohjelma</th><th>.msi-paketti</th></tr></thead>
+<tbody>
+<tr><td>Käyttötarkoitus</td><td>Henkilöt, jotka asentavat sovelluksen itse</td><td>Yritykset, jotka asettavat sen tietokoneilleen</td></tr>
+<tr><td>Asennus</td><td>Vain nykyiselle Windows-tilille, hakemistoon <code>%LOCALAPPDATA%\Programs\antimatter-desktop</code>, ilman ylläpitäjän oikeuksia</td><td>Kaikille tietokoneen käyttäjille, hakemistoon <code>C:\Program Files\Antimatter</code>, ylläpitäjän oikeuksilla</td></tr>
+<tr><td>Päivitykset</td><td>Sovellus tarkistaa uudet versiot ja ehdottaa uuden <code>.exe</code>-tiedoston lataamista, joka päivittää asennetun kopion paikan päällä</td><td>Sovellus ei tarkista uusia versioita: asennat ne itse</td></tr>
+</tbody>
+</table>
+<p>Sovellus tarkistaa GitHubista uusia versioita tunneittain ajon aikana ja näkee vain täydet julkaisut, ei esijulkaisuja. Jos se löytää uuden version, se ilmoittaa tästä käyttäjälle ja tarjoaa linkin ladata sen. MSI-tiedostolla asennettu kopio ei tarkista päivityksiä oletuksena, koska sen käyttäjät eivät yleensä voi asennella ohjelmistoja. Voit ottaa tarkistukset käyttöön <code>EnableAutoUpdater</code>-asetuksella: silloin tarjottava ladattava tiedosto on uusi <code>.msi</code>, joka vaatii ylläpitäjän oikeuksia.</p>
+<p>Käytä MSI-tiedostoa hallittuun asennukseen SCCM:n (Configuration Manager), Intunen tai ryhmäasetusten ohjelmistoasennuksen kautta. MSI-tiedoston asennus poistaa <code>.exe</code>-kopion asennusta suorittavalta tililtä, jos sellainen on olemassa.</p>
+
+<h2 id="settings">Hallittavat asetukset</h2>
+<p>Samat asetukset ovat olemassa kaikilla järjestelmillä. Windowsissa ne ovat rekisterin arvoja <code>SOFTWARE\Policies\Antimatter</code>-polun alla, joko <code>HKEY_LOCAL_MACHINE</code> (tietokoneelle) tai <code>HKEY_CURRENT_USER</code> (yksittäiselle käyttäjälle) -polussa. macOSissa ja Linuxissa ne ovat hallittujen asetusten tai asennustiedoston avaimia.</p>
+<table>
+<thead><tr><th>Asetus</th><th>Windowsissa</th><th>macOS:ssa ja Linuxissa</th><th>Toiminto</th></tr></thead>
+<tbody>
+<tr><td><code>DefaultServerList</code></td><td>Alipolku, jossa on yksi merkkijonoarvo palvelinta kohti: arvon nimi on sen välilehden nimi, ja data on sen URL-osoite</td><td>Sanakirjojen (Linuxissa objektien) taulukko, jossa on <code>name</code> ja <code>url</code></td><td>Lisää palvelimia sovellukseen. Käyttäjät eivät voi muokata tai poistaa niitä.</td></tr>
+<tr><td><code>DefaultUsername</code></td><td>Merkkijono</td><td>Merkkijono</td><td>Täyttää käyttäjätunnuksen näiden palvelimien kirjautumissivulle.</td></tr>
+<tr><td><code>EnableServerManagement</code></td><td>DWORD, 0 tai 1</td><td>Tosi/arvo</td><td>0 tai <code>false</code>: käyttäjät voivat käyttää vain <code>DefaultServerList</code>-asetuksella määritettyjä palvelimia, ja sovellus piilottaa vaihtoehdot palvelimien lisäämiseen, muokkaamiseen ja poistamiseen. Ei asetettu: käyttäjät voivat lisätä omia palvelimiaan.</td></tr>
+<tr><td><code>EnableAutoUpdater</code></td><td>DWORD, 0 tai 1</td><td>Tosi/arvo</td><td>0 tai <code>false</code>: sovellus ei koskaan tarkista uusia versioita ja piilottaa <b>Tarkista päivitykset</b>-valikosta. 1 tai <code>true</code>: se tarkistaa, myös jos se on asennettu MSI-tiedostolla. Ei asetettu: <code>.exe</code>-kopio tarkistaa, MSI-kopio ei.</td></tr>
+<tr><td><code>TrustedEmbeddedMediaOrigins</code></td><td>Alipolku, jossa on merkkijonoarvoja, joista kukin on JSON-objekti, jossa on <code>serverOrigin</code> ja <code>embeddedOrigin</code></td><td>Sanakirjojen taulukko, jossa on <code>serverOrigin</code> ja <code>embeddedOrigin</code></td><td>Sallii palvelimen sivuilla upotetun sisällön, kuten videopalaverisivun, käyttää sille palvelimelle myönnettyjä kamera- ja mikrofoni-oikeuksia.</td></tr>
+</tbody>
+</table>
+<ul>
+<li><b>Käyttäjätunnus</b> täytetään vain palvelimilla, jotka on määritetty käytännön asetuksilla, eikä koskaan palvelimilla, jotka käyttäjä on lisännyt itse, eikä koskaan sen päälle, jonka joku on syöttänyt. Käyttäjät voivat silti muuttaa sitä. Prosenttimerkeissä olevat ympäristömuuttujat korvataan, joten yksi arvo sopii kaikille: <code>%USERNAME%</code> Windowsissa tai <code>%USER%</code> macOS:ssa ja Linuxissa antaa tilin nimen, ja <code>%USERNAME%@example.com</code> sähköpostiosoitteen, joka noudattaa tätä kaavaa. Jos muuttujaa ei ole määritetty, sovellus ei täytä mitään.</li>
+<li>Jos sammutat palvelimen hallinnan, aseta vähintään yksi palvelin <code>DefaultServerList</code>-asetukseen.</li>
+<li>Windowsissa tietokonekäytäntö (<code>HKEY_LOCAL_MACHINE</code>) voittaa käyttäjäkäytännön (<code>HKEY_CURRENT_USER</code>). Molempien palvelinlistat yhdistetään.</li>
+<li>Sovellus lukee asetukset käynnistyessään: muutoksen jälkeen käyttäjien on suljettava ja avattava se uudelleen.</li>
+</ul>
+
+<h2 id="msi">Windows: hiljainen asennus MSI-pakettia käyttäen</h2>
+<p>MSI-paketti ottaa vastaan julkisia ominaisuuksia, jotka kirjoittavat asetukset tietokonekäytännöiksi hakemistoon <code>HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Antimatter</code>. Käytä niitä SCCM-sovelluksessa, Intune-sovelluksessa tai skriptissä. PowerShellissä:</p>
+<pre><code>msiexec /i antimatter-desktop-&lt;version&gt;-win-x64.msi /qn SERVERURL=https://chat.example.com SERVERNAME=Chat DEFAULTUSERNAME='%USERNAME%' AUTOUPDATE=0 SERVERMANAGEMENT=0</code></pre>
+<table>
+<thead><tr><th>Ominaisuus</th><th>Kirjoittaa</th><th>Jos ei anneta</th></tr></thead>
+<tbody>
+<tr><td><code>SERVERURL</code></td><td>Palvelin <code>DefaultServerList</code>-listalle, tällä osoitteella</td><td>Ei palvelinta</td></tr>
+<tr><td><code>SERVERNAME</code></td><td>Kyseisen palvelimen välilehden nimi</td><td><code>Antimatter</code></td></tr>
+<tr><td><code>DEFAULTUSERNAME</code></td><td><code>DefaultUsername</code></td><td>Mitään</td></tr>
+<tr><td><code>AUTOUPDATE</code></td><td><code>EnableAutoUpdater</code>, 0 tai 1</td><td>Mitään: MSI-kopio ei tarkista päivityksiä</td></tr>
+<tr><td><code>SERVERMANAGEMENT</code></td><td><code>EnableServerManagement</code>, 0 tai 1</td><td>Mitään: käyttäjät voivat lisätä palvelimia</td></tr>
+</tbody>
+</table>
+<ul>
+<li>Ominaisuus, jota ei anneta, ei kirjoita mitään, joten se ei ylikirjoita ryhmäkäytännön asettamaa arvoa. <code>AUTOUPDATE</code> ja <code>SERVERMANAGEMENT</code> hyväksyvät vain arvot 0 tai 1. MSI-paketti asettaa yhden palvelimen: käytä ryhmäkäytäntöjä useampiin.</li>
+<li><code>DEFAULTUSERNAME</code> on toimitettava asennusohjelmaan tekstinä <code>%USERNAME%</code>, jotta sovellus voi korvata sen jokaiselle käyttäjälle. Muuten asennusta suorittava kuori korvaa sen omalla tilinimellään. PowerShellissä käytä yksittäisiä lainausmerkkejä. <code>.bat</code>-tiedostossa kirjoita <code>%%USERNAME%%</code>. Testiasennuksen jälkeen tarkista rekisteristä, että <code>DefaultUsername</code> sisältää arvon <code>%USERNAME%</code>.</li>
+<li><b>Anna ominaisuudet uudelleen jokaisessa päivityksessä.</b> Uuden MSI-paketin version asennus poistaa vanhan, sen kirjoittamien arvojen kanssa, ja kirjoittaa sitten uuden komentorivin arvot. SCCM ja Intune tallentavat sovelluksen komentorivin: toista sitä jokaiselle uudelle versiolle. Tai aseta käytännöt ryhmäkäytännön tai Intunen kautta, joita päivitykset eivät koske.</li>
+<li>MSI- ja ryhmäpoliikkatiedostot kirjoittavat samat rekisteriarvot. Käytä kunkin asetuksen osalta toista tai toista: MSI-paketin poistaminen poistaa sen kirjoittamat arvot, vaikka ryhmäpolitiikka olisi asettanut ne.</li>
+<li>MSI-paketti tallentaa myös asennuskansonsa polun <code>HKEY_LOCAL_MACHINE\SOFTWARE\Antimatter\Desktop</code> -rekisterin <code>InstallDir</code>-arvoon. Näin sovellus tietää, että se on asennettu MSI-paketilla.</li>
+</ul>
+<p>Poistaminen: <code>msiexec /x antimatter-desktop-&lt;version&gt;-win-x64.msi /qn</code>. Intune-palvelussa tyyppi "Windows app (Win32)" käyttää samoja komentorivikomentoja. Tyyppiin "Line-of-business app" lisätään ominaisuudet komentorivin argumentteihin.</p>
+
+<h2 id="group-policy">Windows: ryhmäpolitiikka ja Intune</h2>
+<p>Hallinnalliset mallit, <code>antimatter.admx</code> ja <code>en-US\antimatter.adml</code>, sijaitsevat asennetun sovelluksen <code>gpo</code>-kansassa (MSI-paketilla polku on <code>C:\Program Files\Antimatter\gpo</code>) sekä sovelluksen koodivaraston <a href="https://github.com/AntimatterChat/desktop-app/tree/main/resources/windows/gpo">resources/windows/gpo</a>-kansassa. Ne sisältävät nämä politikat kohdassa <b>Administrative Templates › Antimatter</b>:</p>
+<table>
+<thead><tr><th>Politiikka</th><th>Rekisteriarvo</th><th>Asetukset</th></tr></thead>
+<tbody>
+<tr><td><b>Servers (DefaultServerList)</b></td><td><code>DefaultServerList</code>-alaindex</td><td>tietokone ja käyttäjä</td></tr>
+<tr><td><b>Username to prefill (DefaultUsername)</b></td><td><code>DefaultUsername</code></td><td>tietokone ja käyttäjä</td></tr>
+<tr><td><b>Let people add and remove servers (EnableServerManagement)</b></td><td><code>EnableServerManagement</code></td><td>tietokone ja käyttäjä</td></tr>
+<tr><td><b>Notify about new versions (EnableAutoUpdater)</b></td><td><code>EnableAutoUpdater</code></td><td>vain tietokone</td></tr>
+<tr><td><b>Trusted embedded media origins (TrustedEmbeddedMediaOrigins)</b></td><td><code>TrustedEmbeddedMediaOrigins</code>-alaindex</td><td>tietokone ja käyttäjä</td></tr>
+</tbody>
+</table>
+<h3>Ryhmäpolitiikka verkkodomaanissa</h3>
+<ol>
+<li>Kopioi <code>antimatter.admx</code> keskitettyyn varastoon polkuun <code>\\&lt;domain&gt;\SYSVOL\&lt;domain&gt;\Policies\PolicyDefinitions</code> ja <code>antimatter.adml</code> sen <code>en-US</code>-kansaan.</li>
+<li>Avaa Ryhmäpoliikan hallintakoneessa <b>Computer Configuration</b> (tai <b>User Configuration</b>) › <b>Policies</b> › <b>Administrative Templates</b> › <b>Antimatter</b>.</li>
+<li>Muokkaa politiikkaa, valitse <b>Käytössä</b> ja täytä se. <b>Servers</b>-politiikan kohdalla napsauta <b>Näytä</b> ja lisää yksi rivi per palvelin: arvon nimi on välilehden nimi ja arvo on palvelimen osoite, esimerkiksi <code>https://chat.example.com</code>.</li>
+</ol>
+<p>Kun <b>Let people add and remove servers</b> tai <b>Notify about new versions</b> -politiikka on käytössä, arvo on 1; poistettu käytöstä, arvo on 0.</p>
+<h3>Intune</h3>
+<p>Käytä <b>Laitteet › Asetukset</b> -osiossa toimintoa <b>Tuota ADMX</b> tuodaksesi tiedoston <code>antimatter.admx</code> yhdessä tiedoston <code>en-US\antimatter.adml</code> kanssa. Luo tämän jälkeen profiili kohdasta <b>Mallit › Tuodut hallintamallit</b> ja aseta Antimatterin käytännöt siinä.</p>
+<h3>Yksi tietokone tai skripti</h3>
+<p>Kopioi mallit hakemistoon <code>C:\Windows\PolicyDefinitions</code>, jotta voit käyttää niitä ohjelmassa <code>gpedit.msc</code> (Windows Pro ja Enterprise). Voit myös kirjoittaa rekisterin arvot suoraan, kun tuot <code>.reg</code>-tiedoston järjestelmänvalvojana (esim. <code>reg import antimatter-policies.reg</code>). Samassa kansiossa oleva <code>example-policies.reg</code>-tiedosto sisältää nämä arvot kommentteineen.</p>
+<pre><code>REGEDIT4
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Antimatter]
+"EnableServerManagement"=dword:00000000
+"EnableAutoUpdater"=dword:00000000
+"DefaultUsername"="%USERNAME%"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Antimatter\DefaultServerList]
+"Chat"="https://chat.example.com"</code></pre>
+
+<h2 id="macos">macOS: asetuksetprofiili</h2>
+<p>macOS:ssä sovellus lukee asetuksensa paketin tunnisteen <code>chat.antimatter.desktop</code> hallinnoituista preferensseistä, käyttäen <a href="#settings">asetustaulun</a> avaimia. Levitä ne MDM-järjestelmälläsi (Jamf, Intune, Kandji, Mosyle jne.) asetuksetprofiilina.</p>
+<ul>
+<li>Sovelluksen varaston <a href="https://github.com/AntimatterChat/desktop-app/tree/main/resources/mac/mdm">resources/mac/mdm</a>-kansiossa on esimerkkiprofiili <code>antimatter.mobileconfig</code>. Muokkaa sen arvoja, anna sille omat <code>PayloadIdentifier</code>- ja <code>PayloadUUID</code>-arvot (<code>uuidgen</code> luo uusia UUID:itä) ja lataa se mukautettuna profiilina.</li>
+<li>Useimmat MDM-järjestelmät hyväksyvät myös pelkät avaimet "custom settings"- tai "preference domain"-kuormana sovellukselle <code>chat.antimatter.desktop</code>. Samassa kansiossa on ne tiedostossa <code>example-managed-preferences.plist</code>.</li>
+</ul>
+<p>Profiilin kuorman sisällä olevat asetukset:</p>
+<pre><code>&lt;key&gt;PayloadType&lt;/key&gt;
+&lt;string&gt;chat.antimatter.desktop&lt;/string&gt;
+&lt;key&gt;DefaultServerList&lt;/key&gt;
+&lt;array&gt;
+    &lt;dict&gt;
+        &lt;key&gt;name&lt;/key&gt;
+        &lt;string&gt;Chat&lt;/string&gt;
+        &lt;key&gt;url&lt;/key&gt;
+        &lt;string&gt;https://chat.example.com&lt;/string&gt;
+    &lt;/dict&gt;
+&lt;/array&gt;
+&lt;key&gt;DefaultUsername&lt;/key&gt;
+&lt;string&gt;%USER%&lt;/string&gt;
+&lt;key&gt;EnableServerManagement&lt;/key&gt;
+&lt;false/&gt;
+&lt;key&gt;EnableAutoUpdater&lt;/key&gt;
+&lt;false/&gt;</code></pre>
+<p>Poolsit voi myös antaa kokonaislukuna 0 tai 1.</p>
+
+<h2 id="linux">Linux: käytäntötiedosto</h2>
+<p>Linuxissa sovellus lukee tiedoston <code>/etc/antimatter-desktop/policies.json</code>, joka on JSON-objekti, jossa on <a href="#settings">asetustaulun</a> avaimet:</p>
+<pre><code>{
+    "DefaultServerList": [
+        {"name": "Chat", "url": "https://chat.example.com"}
+    ],
+    "DefaultUsername": "%USER%",
+    "EnableServerManagement": false,
+    "EnableAutoUpdater": false,
+    "TrustedEmbeddedMediaOrigins": []
+}</code></pre>
+<p>Levitä se asetushallinnantarkkaallesi (Ansible, Puppet, Salt jne.). Tiedoston omistajaksi tulee root, sen tulee olla luettavissa kaikille ja kirjoitettavissa vain root-käyttäjälle:</p>
+<pre><code>sudo install -d /etc/antimatter-desktop
+sudo install -m 644 policies.json /etc/antimatter-desktop/policies.json</code></pre>
+<p>Virheellinen JSON-tiedosto ohitetaan, ja sovelluksen lokissa näkyy varoitus. Flatpak-versio ei näe isäntäjärjestelmän <code>/etc</code>-hakemistoa: anna sille lukuoikeus, jolloin se lukee tiedoston polusta <code>/run/host/etc/antimatter-desktop/policies.json</code>:</p>
+<pre><code>sudo flatpak override --system --filesystem=host-etc:ro chat.antimatter.desktop</code></pre>
+
+<h2 id="mattermost-policies">Mattermostin pöytäsovellukselle asetetut käytännöt</h2>
+<p>Windowsissa sovellus lukee myös Mattermost-työpöytäsovelluksen asetukset, jotka on määritetty <code>SOFTWARE\Policies\Mattermost</code>-politiikan alla, varalla. Se lukee ne sijainnin mukaan: arvot suoraan politiikan avainnimen alla, <code>DefaultServerList</code>-alikehys ja <code>TrustedEmbeddedMediaOrigins</code>-alikehys. Jokaisessa näistä kolmesta sijainnista se lukee Mattermostin avaimen vain, jos Antimatterin avaimessa ei ole arvoja kyseisessä sijainnissa kummassakaan hive:ssä. Kun yksi arvo on määritetty suoraan Antimatterin avaimen alla, esimerkiksi MSI:n <code>AUTOUPDATE</code>-ominaisuudella, Mattermostin avaimen suoraan alla olevia arvoja ei luetella. Siirrä kaikki politiikat Antimatterin avaimen kerralla.</p>
+<p>macOS:lla Mattermost-työpöytäsovelluksen hallitut asetukset (<code>com.mattermost.desktop</code>) eivät luetella: määritä ne <code>chat.antimatter.desktop</code> -sovellukselle.</p>
+
+<h2 id="unsigned">Allekirjoittamattomat julkaisut</h2>
+<p>Työpöytäsovelluksen julkaisuja ei ole vielä allekirjoitettu julkaisijan varmentimella.</p>
+<ul>
+<li><b>Windows.</b> Kun käyttäjä avaa ladatun <code>.exe</code>- tai <code>.msi</code>-tiedoston, Microsoft Defender SmartScreen ilmoittaa, että Windows suojasi tietokoneen, ja mainitsee tuntemattoman julkaisijan. Käyttäjä valitsee <b>Lisätietoja</b> ja sen jälkeen <b>Aja silti</b>. SmartScreen tarkistaa tiedostot, joita käyttäjä avaa latauksen jälkeen, joten tämä varoitus ei näy, kun sovellus jaetaan SCCM:n, Intunen tai ryhmäpolitiikan kautta. Jos tietokoneet sallivat vain hyväksyttyjen julkaisijoiden ohjelmiston (AppLocker- tai App Control for Business -säännöt), salli sovellus asennuspolun tai tiedoston hashin perusteella.</li>
+<li><b>macOS.</b> Sovellus on allekirjoitettu ad hoc -menetelmällä, mutta Apple ei ole notarisoitu. Ensimmäistä kertaa, kun käyttäjä avaa ladatun kopion, macOS ilmoittaa, ettei se voi varmentaa, että sovellus on haittaohjelmavapaa, eikä avaa sitä. macOS 15:ssä ja myöhemmissä versioissa käyttäjä avaa <b>Järjestelmäasetukset › Tietoturva ja yksityisyys</b> ja valitsee <b>Aja silti</b>. Aiemmissa versioissa käyttäjä napsauttaa sovellusta ohjausnäppäimen kanssa ja valitsee <b>Ava</b>. Gatekeeper tarkistaa vain ladattuina merkityt tiedostot (quarantine-attribuutin kanssa): kun asennat sovelluksen omilla työkaluillasi, poista merkki asennusskriptissä komennolla <code>xattr -dr com.apple.quarantine /Applications/Antimatter.app</code>.</li>
+</ul>

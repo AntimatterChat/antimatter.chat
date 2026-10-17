@@ -1,0 +1,155 @@
+title: Utrulling av skrivebordsappen
+description: Installer Antimatter-skivebordsappen på organisasjonens datamaskiner og administrer den sentralt: MSI-pakken og dens egenskaper, gruppepolicyer og Intune, macOS-konfigurasjonsprofiler og Linux-policyfilen.
+guide: admins
+order: 13
+nav: Utrulling av skrivebordsappen
+lead: Slik installerer du Antimatter-skivebordsappen på datamaskinene i et selskap eller en skole, og setter servere, brukernavn og oppdateringskontroller sentralt på Windows, macOS og Linux.
+source: 2f67d39c0dda
+---
+<h2 id="download">Last ned appen</h2>
+<p>Utgavene av skrivebordsappen finnes på GitHub, på <a href="https://github.com/AntimatterChat/desktop-app/releases">github.com/AntimatterChat/desktop-app/releases</a>. Som serveren er appen i beta: en utgave med et suffiks etter en bindestrek i versjonsnummeret er merket <b>Pre-release</b>. Hver utgave har en <code>SHA256SUMS</code>-fil med sjekksummen for hver fil. Kontroller en nedlasting med <code>sha256sum --check --ignore-missing SHA256SUMS</code> på Linux, eller sammenlign utdataene fra <code>Get-FileHash &lt;file&gt; -Algorithm SHA256</code> i PowerShell med linjen i <code>SHA256SUMS</code>.</p>
+<ul>
+<li><b>Windows</b> (x64 og arm64): <code>.exe</code>-installatoren, <code>.msi</code>-pakken eller et <code>.zip</code>-arkiv. For eksempel <code>antimatter-desktop-&lt;version&gt;-win-x64.exe</code> og <code>antimatter-desktop-&lt;version&gt;-win-x64.msi</code>.</li>
+<li><b>macOS</b>: en <code>.dmg</code>-diskbilde eller en <code>.zip</code>, for Apple silicon (<code>arm64</code>), Intel-Macs (<code>x64</code>) eller begge (<code>universal</code>).</li>
+<li><b>Linux</b> (x64 og arm64): en .deb- eller .rpm-pakke, en AppImage, en Flatpak-bundle eller et <code>.tar.gz</code>-arkiv.</li>
+</ul>
+
+<h2 id="installers">Hvilken Windows-installator du skal bruke</h2>
+<table>
+<thead><tr><th></th><th>.exe-installatoren</th><th>.msi-pakken</th></tr></thead>
+<tbody>
+<tr><td>For</td><td>Personer som installerer appen selv</td><td>Selskaper som utroller den til sine datamaskiner</td></tr>
+<tr><td>Installasjon</td><td>Kun for gjeldende Windows-konto, i <code>%LOCALAPPDATA%\Programs\antimatter-desktop</code>, uten administratorrettigheter</td><td>For alle brukere av datamaskinen, i <code>C:\Program Files\Antimatter</code>, med administratorrettigheter</td></tr>
+<tr><td>Oppdateringer</td><td>Appen sjekker for nye versjoner og foreslår å laste ned den nye <code>.exe</code>-filen, som oppdaterer den installerte kopien på plass</td><td>Appen sjekker ikke for nye versjoner: du utroller dem</td></tr>
+</tbody>
+</table>
+<p>Appen sjekker for nye versjoner på GitHub, hver time mens den kjører, og ser kun etter fullstendige utgaver, ikke forhåndsutgaver. Når den finner en, varsler den brukeren og tilbyr en lenke for å laste den ned. En kopi installert med MSI sjekker ikke automatisk, fordi brukerne vanligvis ikke kan installere programvare. Du kan slå på sjekkene for den med innstillingen <code>EnableAutoUpdater</code>: nedlastingen som da tilbys, er den nye <code>.msi</code>-filen, som krever administratorrettigheter.</p>
+<p>Bruk MSI for en styrt distribusjon med SCCM (Configuration Manager), Intune eller gruppepolicy for programvareinstallasjon. Når MSI installeres, fjernes <code>.exe</code>-kopien for kontoen som kjører installasjonen, hvis det finnes en.</p>
+
+<h2 id="settings">Innstillinger du kan styre</h2>
+<p>De samme innstillingene finnes på alle systemer. På Windows er de registerverdier under <code>SOFTWARE\Policies\Antimatter</code>, i <code>HKEY_LOCAL_MACHINE</code> (for datamaskinen) eller <code>HKEY_CURRENT_USER</code> (for én bruker). På macOS og Linux er de nøkkeler i de styrede preferansene eller i policyfilen.</p>
+<table>
+<thead><tr><th>Innstilling</th><th>På Windows</th><th>På macOS og Linux</th><th>Hva det gjør</th></tr></thead>
+<tbody>
+<tr><td><code>DefaultServerList</code></td><td>En undernøkkel med én strengverdi per tjener: verdinavnet er navnet på fanen, og dataene er URL-en</td><td>Et array av ordbøker (objekter på Linux) med <code>name</code> og <code>url</code></td><td>Legger til tjenere i appen. Brukere kan ikke redigere eller fjerne dem.</td></tr>
+<tr><td><code>DefaultUsername</code></td><td>En streng</td><td>En streng</td><td>Fyller inn brukernavnet på innloggsiden for disse tjenerne.</td></tr>
+<tr><td><code>EnableServerManagement</code></td><td>En DWORD, 0 eller 1</td><td>En boolsk verdi</td><td>0 eller <code>false</code>: brukere kan bare bruke tjenerne satt med <code>DefaultServerList</code>, og appen skjuler alternativene for å legge til, redigere og fjerne tjenere. Ikke satt: brukere kan legge til sine egne tjenere.</td></tr>
+<tr><td><code>EnableAutoUpdater</code></td><td>En DWORD, 0 eller 1</td><td>En boolsk verdi</td><td>0 eller <code>false</code>: appen sjekker aldri etter nye versjoner, og skjuler <b>Sjekk for oppdateringer</b>. 1 eller <code>true</code>: den sjekker, selv når den er installert med MSI. Ikke satt: <code>.exe</code>-kopien sjekker, MSI-kopien gjør det ikke.</td></tr>
+<tr><td><code>TrustedEmbeddedMediaOrigins</code></td><td>En undernøkkel med strengverdier, der hver er et JSON-objekt med <code>serverOrigin</code> og <code>embeddedOrigin</code></td><td>Et array av ordbøker med <code>serverOrigin</code> og <code>embeddedOrigin</code></td><td>Lar innhold som er innebygd i en tjeners sider, for eksempel en videosamtale-side, bruke kamera- og mikrofontillatelsene som er gitt til den tjeneren.</td></tr>
+</tbody>
+</table>
+<ul>
+<li><b>Brukernavnet</b> fylles bare inn på innloggsiden for servere som er satt med en policy, aldri på en server en person har lagt til, og aldri over det noen har skrevet. Folk kan fortsatt endre det. Miljøvariabler mellom prosenttegn erstattes, så én verdi passer for alle: <code>%USERNAME%</code> på Windows eller <code>%USER%</code> på macOS og Linux gir kontonavnet, og <code>%USERNAME%@example.com</code> en e-postadresse som følger dette mønsteret. Hvis en variabel ikke er satt, fyller appen ingenting inn.</li>
+<li>Hvis du slår av serveradministrasjon, må du sette minst én server i <code>DefaultServerList</code>.</li>
+<li>På Windows vinner en datamaskinpolicy (<code>HKEY_LOCAL_MACHINE</code>) over en brukerpolicy (<code>HKEY_CURRENT_USER</code>). Serverlistene til begge kombineres.</li>
+<li>Appen leser innstillingene når den starter: etter en endring må folk lukke og åpne den på nytt.</li>
+</ul>
+
+<h2 id="msi">Windows: stille installasjon med MSI-en</h2>
+<p>MSI-en tar imot offentlige egenskaper som skriver innstillingene som datamaskinpolicyer, i <code>HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Antimatter</code>. Bruk dem i en SCCM-applikasjon, en Intune-app eller et skript. I PowerShell:</p>
+<pre><code>msiexec /i antimatter-desktop-&lt;version&gt;-win-x64.msi /qn SERVERURL=https://chat.example.com SERVERNAME=Chat DEFAULTUSERNAME='%USERNAME%' AUTOUPDATE=0 SERVERMANAGEMENT=0</code></pre>
+<table>
+<thead><tr><th>Egenskap</th><th>Skriver</th><th>Hvis ikke gitt</th></tr></thead>
+<tbody>
+<tr><td><code>SERVERURL</code></td><td>En server i <code>DefaultServerList</code>, med denne URL-en</td><td>Ingen server</td></tr>
+<tr><td><code>SERVERNAME</code></td><td>Navnet på fanen for den serveren</td><td><code>Antimatter</code></td></tr>
+<tr><td><code>DEFAULTUSERNAME</code></td><td><code>DefaultUsername</code></td><td>Ingenting</td></tr>
+<tr><td><code>AUTOUPDATE</code></td><td><code>EnableAutoUpdater</code>, 0 eller 1</td><td>Ingenting: MSI-kopien sjekker ikke etter oppdateringer</td></tr>
+<tr><td><code>SERVERMANAGEMENT</code></td><td><code>EnableServerManagement</code>, 0 eller 1</td><td>Ingenting: folk kan legge til servere</td></tr>
+</tbody>
+</table>
+<ul>
+<li>En egenskap som ikke er gitt, skriver ingenting, og overskriver derfor ikke en verdi satt med Group Policy. <code>AUTOUPDATE</code> og <code>SERVERMANAGEMENT</code> aksepterer bare 0 eller 1. MSI-en setter én server: bruk Group Policy for flere.</li>
+<li><code>DEFAULTUSERNAME</code> må nå installatøren som teksten <code>%USERNAME%</code>, slik at appen erstatter den for hver person. Ellers erstatter skallet som kjører installasjonen den med sitt eget kontonavn. I PowerShell, behold de enkle anførselstegnene. I en <code>.bat</code>-fil, skriv <code>%%USERNAME%%</code>. Etter en testinstallasjon, sjekk i registeret at <code>DefaultUsername</code> inneholder <code>%USERNAME%</code>.</li>
+<li><b>Send egenskapene på nytt ved hver oppgradering.</b> Når du installerer en ny versjon av MSI-en, fjernes den gamle, sammen med verdiene den skrev, og deretter skrives verdiene fra den nye kommandolinjen. SCCM og Intune beholder kommandolinjen til en applikasjon: gjenbruk den for hver ny versjon. Eller sett policyene med Group Policy eller Intune i stedet, noe oppgraderinger ikke rører.</li>
+<li>MSI-pakken og gruppepolicyen skriver de samme registerverdiene. For hver innstilling skal du bruke enten den ene eller den andre: Hvis du avinstallerer MSI-pakken, slettes verdiene den skrev, selv om gruppepolicyen også har satt dem.</li>
+<li>MSI-pakken registrerer også installasjonsmappen i <code>HKEY_LOCAL_MACHINE\SOFTWARE\Antimatter\Desktop</code> (<code>InstallDir</code>). Dette er hvordan appen vet at den ble installert med MSI-pakken.</li>
+</ul>
+<p>For å avinstallere: <code>msiexec /x antimatter-desktop-&lt;version&gt;-win-x64.msi /qn</code>. I Intune tar typen «Windows app (Win32)» de samme kommandolinjene. For typen «Line-of-business app» legger du egenskapene til i kommandolinjeargumentene.</p>
+
+<h2 id="group-policy">Windows: Gruppepolicy og Intune</h2>
+<p>Administrativene maler, <code>antimatter.admx</code> og <code>en-US\antimatter.adml</code>, finnes i <code>gpo</code>-mappen i den installerte appen (<code>C:\Program Files\Antimatter\gpo</code> for MSI-pakken) og i <a href="https://github.com/AntimatterChat/desktop-app/tree/main/resources/windows/gpo">resources/windows/gpo</a>-mappen i appens repository. De viser disse policyene, under <b>Administrative Templates › Antimatter</b>:</p>
+<table>
+<thead><tr><th>Policy</th><th>Registerverdi</th><th>Konfigurasjon</th></tr></thead>
+<tbody>
+<tr><td><b>Servers (DefaultServerList)</b></td><td><code>DefaultServerList</code>-undernøkkel</td><td>datamaskin og bruker</td></tr>
+<tr><td><b>Forhåndsutfylt brukernavn (DefaultUsername)</b></td><td><code>DefaultUsername</code></td><td>datamaskin og bruker</td></tr>
+<tr><td><b>La brukere legge til og fjerne servere (EnableServerManagement)</b></td><td><code>EnableServerManagement</code></td><td>datamaskin og bruker</td></tr>
+<tr><td><b>Varsle om nye versjoner (EnableAutoUpdater)</b></td><td><code>EnableAutoUpdater</code></td><td>kun datamaskin</td></tr>
+<tr><td><b>Trusted embedded media origins (TrustedEmbeddedMediaOrigins)</b></td><td><code>TrustedEmbeddedMediaOrigins</code>-undernøkkel</td><td>datamaskin og bruker</td></tr>
+</tbody>
+</table>
+<h3>Gruppepolicy i et domene</h3>
+<ol>
+<li>Kopier <code>antimatter.admx</code> til sentralt magasin, <code>\\&lt;domain&gt;\SYSVOL\&lt;domain&gt;\Policies\PolicyDefinitions</code>, og <code>antimatter.adml</code> til <code>en-US</code>-mappen der.</li>
+<li>I gruppepolicyadministratoren, åpne <b>Computer Configuration</b> (eller <b>User Configuration</b>) › <b>Policies</b> › <b>Administrative Templates</b> › <b>Antimatter</b>.</li>
+<li>Rediger en policy, velg <b>Aktivert</b> og fyll den inn. For <b>Servers</b>, klikk <b>Vis</b> og legg til én linje per server: verdinavnet er fanebladets navn, og verdien er serverens URL, for eksempel <code>https://chat.example.com</code>.</li>
+</ol>
+<p>Hvis du aktiverer <b>La brukere legge til og fjerne servere</b> eller <b>Varsle om nye versjoner</b>, skrives 1. Hvis du deaktiverer dem, skrives 0.</p>
+<h3>Intune</h3>
+<p>I <b>Enheter › Konfigurasjon</b>, bruk <b>Import ADMX</b> for å importere <code>antimatter.admx</code> med <code>en-US\antimatter.adml</code>. Deretter lager du en profil fra <b>Mal › Importerte administrative maler</b>, og setter Antimatter-politikken i den.</p>
+<h3>En enkelt datamaskin, eller et skript</h3>
+<p>Kopier malene til <code>C:\Windows\PolicyDefinitions</code> for å bruke dem i <code>gpedit.msc</code> (Windows Pro og Enterprise). Eller skriv registry-verdiene direkte, med en <code>.reg</code>-fil som importeres som administrator (<code>reg import antimatter-policies.reg</code>), slik som denne. Filen <code>example-policies.reg</code> i samme mappe har disse verdiene, med kommentarer.</p>
+<pre><code>REGEDIT4
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Antimatter]
+"EnableServerManagement"=dword:00000000
+"EnableAutoUpdater"=dword:00000000
+"DefaultUsername"="%USERNAME%"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Antimatter\DefaultServerList]
+"Chat"="https://chat.example.com"</code></pre>
+
+<h2 id="macos">macOS: en konfigurasjonsprofil</h2>
+<p>På macOS leser appen innstillingene sine fra de administrerte preferansene til sin bunt-identifikator, <code>chat.antimatter.desktop</code>, med nøklene fra <a href="#settings">innstillingstabellen</a>. Lever dem med MDM-en din (Jamf, Intune, Kandji, Mosyle og andre) som en konfigurasjonsprofil.</p>
+<ul>
+<li>Mappen <a href="https://github.com/AntimatterChat/desktop-app/tree/main/resources/mac/mdm">resources/mac/mdm</a> i appens repository har en eksempelprofil, <code>antimatter.mobileconfig</code>. Rediger verdiene, gi den dine egne <code>PayloadIdentifier</code>- og <code>PayloadUUID</code>-verdier (<code>uuidgen</code> lager nye UUID-er), og last den opp som en egen profil.</li>
+<li>De fleste MDM-er godtar også bare nøklene, som en «custom settings»- eller «preference domain»-last for <code>chat.antimatter.desktop</code>. Samme mappe har dem i <code>example-managed-preferences.plist</code>.</li>
+</ul>
+<p>Innstillingene i profilens last:</p>
+<pre><code>&lt;key&gt;PayloadType&lt;/key&gt;
+&lt;string&gt;chat.antimatter.desktop&lt;/string&gt;
+&lt;key&gt;DefaultServerList&lt;/key&gt;
+&lt;array&gt;
+    &lt;dict&gt;
+        &lt;key&gt;name&lt;/key&gt;
+        &lt;string&gt;Chat&lt;/string&gt;
+        &lt;key&gt;url&lt;/key&gt;
+        &lt;string&gt;https://chat.example.com&lt;/string&gt;
+    &lt;/dict&gt;
+&lt;/array&gt;
+&lt;key&gt;DefaultUsername&lt;/key&gt;
+&lt;string&gt;%USER%&lt;/string&gt;
+&lt;key&gt;EnableServerManagement&lt;/key&gt;
+&lt;false/&gt;
+&lt;key&gt;EnableAutoUpdater&lt;/key&gt;
+&lt;false/&gt;</code></pre>
+<p>Booleans kan også gis som heltallene 0 og 1.</p>
+
+<h2 id="linux">Linux: policyfilen</h2>
+<p>På Linux leser appen <code>/etc/antimatter-desktop/policies.json</code>, et JSON-objekt med nøklene fra <a href="#settings">innstillingstabellen</a>:</p>
+<pre><code>{
+    "DefaultServerList": [
+        {"name": "Chat", "url": "https://chat.example.com"}
+    ],
+    "DefaultUsername": "%USER%",
+    "EnableServerManagement": false,
+    "EnableAutoUpdater": false,
+    "TrustedEmbeddedMediaOrigins": []
+}</code></pre>
+<p>Lever den med verktøyet ditt for konfigurasjonsstyring (Ansible, Puppet, Salt og andre), eid av root, lesbar for alle og skrivbar kun for root:</p>
+<pre><code>sudo install -d /etc/antimatter-desktop
+sudo install -m 644 policies.json /etc/antimatter-desktop/policies.json</code></pre>
+<p>En fil som ikke er gyldig JSON, ignoreres, med en advarsel i appens logg. Flatpak-versjonen ser ikke vertens <code>/etc</code>: gi den leseadgang, og den leser filen fra <code>/run/host/etc/antimatter-desktop/policies.json</code>:</p>
+<pre><code>sudo flatpak override --system --filesystem=host-etc:ro chat.antimatter.desktop</code></pre>
+
+<h2 id="mattermost-policies">Policies satt for Mattermost-skrivebordsappen</h2>
+<p>På Windows leser appen også retningslinjene som er satt for Mattermost-skrivebordsappen, under <code>SOFTWARE\Policies\Mattermost</code>, som en reserve. Den leser dem etter plass: verdiene direkte under retningslinjens nøkkel, undernøkkelen <code>DefaultServerList</code> og undernøkkelen <code>TrustedEmbeddedMediaOrigins</code>. For hver av disse tre plassene leser den kun Mattermost-nøkkelen når Antimatter-nøkkelen ikke har verdier der, i noen av hiveene. Så snart én verdi er satt direkte under Antimatter-nøkkelen, for eksempel ved hjelp av <code>AUTOUPDATE</code>-egenskapen i MSI-en, leses ingen av verdiene direkte under Mattermost-nøkkelen. Flytt alle retningslinjene dine til Antimatter-nøkkelen på én gang.</p>
+<p>På macOS leses ikke de administrerte preferansene til Mattermost-skrivebordsappen (<code>com.mattermost.desktop</code>): Sett dem i stedet for <code>chat.antimatter.desktop</code>.</p>
+
+<h2 id="unsigned">Uunderskrevne bygg</h2>
+<p>Byggene av skrivebordsappen er ennå ikke signert med et utgiver-sertifikat.</p>
+<ul>
+<li><b>Windows.</b> Når en person åpner en nedlastet <code>.exe</code> eller <code>.msi</code>, sier Microsoft Defender SmartScreen at Windows har beskyttet datamaskinen, og nevner en ukjent utgiver. De velger <b>Mer info</b>, deretter <b>Kjør likevel</b>. SmartScreen sjekker filer som personer åpner etter en nedlasting, så personer ser ikke denne advarselen når du ruller ut appen via SCCM, Intune eller gruppepolicy. Hvis datamaskinene dine bare kjører programvare fra godkjente utgivere (AppLocker- eller App Control for Business-regler), tillat appen ved hjelp av installasjonsstien eller filens hash i stedet.</li>
+<li><b>macOS.</b> Appen er signert ad hoc, men ikke notarert av Apple. Første gang en person åpner en nedlastet kopi, sier macOS at den ikke kan verifisere at appen er fri for skadeprogram, og åpner den ikke. På macOS 15 og senere åpner de <b>Systeminnstillinger › Personvern og sikkerhet</b> og velger <b>Åpne likevel</b>. På tidligere versjoner holder de nede Control-tasten og klikker på appen, og velger <b>Åpne</b>. Gatekeeper sjekker bare filer som er merket som nedlastet (med karantene-attributtet): Når du installerer appen med dine egne verktøy, fjern merket i installasjonsskriptet ditt ved hjelp av <code>xattr -dr com.apple.quarantine /Applications/Antimatter.app</code>.</li>
+</ul>

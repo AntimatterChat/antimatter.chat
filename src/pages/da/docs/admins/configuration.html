@@ -4,13 +4,13 @@ guide: admins
 order: 3
 nav: Konfiguration
 lead: Hvor Antimatter opbevarer sine indstillinger, de tre måder at ændre dem på (Systemkonsol, miljøvariabler, amctl) og hvor logfilerne befinder sig.
-source: e2d6546121d3
+source: 6a785009ab32
 ---
 <h2 id="where">Hvor indstillingerne befinder sig</h2>
 <p>Hver serverindstilling har et navn bestående af en sektion og en nøgle, f.eks. <code>ServiceSettings.SiteURL</code> eller <code>EmailSettings.SMTPServer</code>. Tilsammen udgør de én konfiguration, der opbevares ét af to steder:</p>
 <ul>
 <li><b>I databasen.</b> Saitets compose-fil sætter <code>AM_CONFIG</code> til PostgreSQL-forbindelses-URL'en, så konfigurationen er en række i databasen, og containeren opbevarer intet på disken. Flere servere, der deler én database, deler også deres konfiguration.</li>
-<li><b>I en fil.</b> Uden <code>AM_CONFIG</code> læser serveren <code>config/config.json</code> ved siden af <code>bin/</code>-mappen (<code>/antimatter/config/config.json</code> i Docker-billedet). Release-arkivet og produktionscompose-filerne i antimatter-docker fungerer på denne måde. Sørg for, at denne fil kun kan læses af serverens bruger: Den indeholder adgangskoder og nøgler.</li>
+<li><b>I en fil.</b> Uden <code>AM_CONFIG</code> læser serveren <code>config/config.json</code> ved siden af sin <code>bin/</code>-mappe (<code>/antimatter/config/config.json</code> i Docker-billedet). Releasearkivet og produktionscompose-filerne i antimatter-docker fungerer på denne måde, ligesom .deb- og .rpm-pakkerne, hvis fil er <code>/etc/antimatter/config/config.json</code>. Sørg for, at denne fil kun kan læses af serverens bruger: Den indeholder adgangskoder og nøgler.</li>
 </ul>
 <p><code>AM_CONFIG</code> (eller <code>--config</code>-flagget for <code>antimatter</code>-kommandoen) accepterer enten en filsti eller en <code>postgres://</code>-URL. Indstillinger, du udelader, får deres standardværdi.</p>
 <p>For at flytte en eksisterende konfiguration fra en fil til databasen, kør dette på serveren, og start derefter serveren med <code>AM_CONFIG</code> sat til samme URL:</p>
@@ -47,10 +47,11 @@ source: e2d6546121d3
       AM_LOGSETTINGS_CONSOLELEVEL: INFO</code></pre>
 <p>Anvend ændringerne med <code>docker compose up -d</code>, som genopretter containeren.</p>
 <h3>Variabler læst af apps</h3>
+<p>Nogle få variabler er ikke indstillinger og har ingen felt i Systemkonsolen: <code>AM_CONFIG</code> (hvor konfigurationen befinder sig) samt <code>AM_AI_ENCRYPTION_KEY</code> og <code>AM_AI_ENCRYPTION_PREVIOUS_KEYS</code>, som er nøglen, der krypterer API-nøglerne for modelforbindelser (se <a href="{{root}}docs/admins/ai.html#encryption-key">AI</a>).</p>
 <p>Nogle apps læser deres egne variabler, som er sat på <code>antimatter</code>-tjenesten: Calls-appen læser <code>AM_CALLS_*</code> (se <a href="{{root}}docs/admins/calls.html">Opkald og lyd</a>), og GIFs-appen læser <code>AM_GIFS_SERVICE_URL</code>, <code>AM_GIFS_API_KEY</code> og <code>AM_GIFS_UPLOAD_KEY</code> (se <a href="{{root}}docs/admins/apps.html">Indbyggede apps</a>).</p>
 
 <h2 id="console">Systemkonsolen</h2>
-<p>Systemkonsollen er administrationsområdet i webapplikationen, beregnet til systemadministratorer. For at åbne den, klikker du på din profilbille og vælger <b>Systemkonsol</b>, eller går til <code>https://chat.example.com/admin_console</code>. Sidebjælken indeholder et <b>Find indstillinger</b>-felt, der søger på alle sider.</p>
+<p>Systemkonsolen er administrationsområdet i webappen, beregnet til systemadministratorer. For at åbne den, klikker du på dit billede øverst i appens sidebjælke og vælger <b>Systemkonsol</b>, eller du går til <code>https://chat.example.com/admin_console</code>. Dens sidebjælke har et <b>Find indstillinger</b>-felt, der søger på alle sider.</p>
 <figure><img src="{{root}}assets/img/shots/admin.webp" alt="The System Console, with its sidebar of sections on the left and the SAML 2.0 settings page on the right."><figcaption>Systemkonsolen. Sidebjælken grupperer siderne i sektioner som Rapportering, Brugeradministration og Miljø.</figcaption></figure>
 <p>Dens sektioner er:</p>
 <ul>
@@ -60,6 +61,7 @@ source: e2d6546121d3
 <li><b>Miljø</b>: webserver, database, filopbevaring, billedproxy, SMTP, pushnotifikationer, rate limiting, logning, sessionlængder og ydelsesovervågning.</li>
 <li><b>Sitekonfiguration</b>: branding, brugere og teams, notifikationer, indlæg, fildeling og andre serverbrede opførsler.</li>
 <li><b>Autentificering</b>: tilmelding, login med e-mail og adgangskode, MFA, AD/LDAP, SAML 2.0, OAuth 2.0, OpenID Connect og gæstetilgang.</li>
+<li><b>AI</b>: modelforbindelser og de indbyggede AI-funktioner (omskrivning, opsummeringer, automatisk oversættelse, tekst til tale). Se <a href="{{root}}docs/admins/ai.html">AI</a>.</li>
 <li><b>Plugins</b>: appadministration og indstillingerne for hver installeret app.</li>
 <li><b>Integrationer</b>: webhooks, skråstregskommandoer, bot-konti, GIF'er, tekst til tale, CORS.</li>
 <li><b>Overholdelse</b>: dataopbevaring, compliance-eksport og -overvågning, auditlogning og brugerdefinerede servicevilkår.</li>
@@ -68,14 +70,25 @@ source: e2d6546121d3
 <p>I denne guide skrives en indstilling som dens sti i Systemkonsollen, derefter dens etiket, og derefter dens konfigurationsnøgle, for eksempel <b>Systemkonsol › Sitekonfiguration › Brugere og teams › Aktivér ignorering, blokering og beskedanmodninger</b> (<code>PrivacySettings.EnableUserBlocking</code>).</p>
 <p>De fleste ændringer træder i kraft, så snart du klikker på <b>Gem</b>. Nogle få (lytteadresse, visse database- og cacheindstillinger) kræver en genstart, og siden oplyser om dette.</p>
 
+<h2 id="community-kind">Arbejdsplads eller fællesskab</h2>
+<p>Hvert fællesskab har en type, der sætter nogle af dets standardindstillinger:</p>
+<ul>
+<li><b>Fællesskab</b>, til et offentligt eller hobbyfællesskab: opkald er slukket i dets kanaler (folk taler i lydkanaler), og kun dets administratorer og de roller, der administrerer kanaler, kan arkivere kanaler.</li>
+<li><b>Arbejdsplads</b>, til et firma eller en organisation: opkald er tændt i dets kanaler, og kanalens administratorer (den, der oprettede den, og dem, de har gjort til administratorer) kan også arkivere den.</li>
+</ul>
+<p><b>Systemkonsol › Sitekonfiguration › Brugere og teams › Type af nye fællesskaber</b> (<code>TeamSettings.DefaultCommunityKind</code>, <code>AM_TEAMSETTINGS_DEFAULTCOMMUNITYKIND</code>) er typen af de fællesskaber, der oprettes fra nu af: <code>community</code> (standard) eller <code>workplace</code>. Et layoutforvalg, der vælges, når et fællesskab oprettes, sætter sin egen type. Hvert fællesskabs administratorer kan ændre dens type senere i <b>Teamindstillinger › Kanaler › Type af fællesskab</b>.</p>
+<div class="callout">For et firma skal du sætte det til <b>Arbejdsplads</b>, før du opretter det første community, eller før du opgraderer en eksisterende server til 0.9.0: opgraderingen giver alle eksisterende communities den værdi, som indstillingen har på det tidspunkt (se <a href="{{root}}docs/admins/backups-upgrades.html#v090">Opgradering til 0.9.0</a>).</div>
+
 <h2 id="amctl">The amctl command-line tool</h2>
 <p><code>amctl</code> manages a server from the command line: users, communities, channels, apps, configuration, jobs and more. It talks to the server in one of two ways.</p>
 <h3>Local mode, on the server</h3>
-<p>Local mode lets <code>amctl</code> talk to the server through a Unix socket, without signing in. It is on in the Docker image. On a server installed from an archive, turn it on with <b>ServiceSettings.EnableLocalMode</b> (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>). The socket is <code>/var/tmp/antimatter_local.socket</code> by default (<code>ServiceSettings.LocalModeSocketLocation</code>).</p>
+<p>Lokal tilstand gør det muligt for <code>amctl</code> at kommunikere med serveren via en Unix-socket uden at logge ind. Den er slået til i Docker-billedet og i .deb- og .rpm-pakkerne. På en server installeret fra et arkiv slår du den til med <b>ServiceSettings.EnableLocalMode</b> (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>). Socketen er som standard <code>/var/tmp/antimatter_local.socket</code> (<code>ServiceSettings.LocalModeSocketLocation</code>).</p>
 <pre><code># with Docker Compose
 docker compose exec antimatter amctl --local system status
 # with a release archive
-sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code></pre>
+sudo -u antimatter /opt/antimatter/bin/amctl --local system status
+# with the .deb or .rpm package
+sudo -u antimatter amctl --local system status</code></pre>
 <div class="callout warn">Anyone who can use the socket, or run <code>docker compose exec</code> on the host, has full system administrator rights.</div>
 <h3>Remote, with an account</h3>
 <p>From any machine, sign in with a system administrator account (or a personal access token), then run commands against that server:</p>
@@ -116,5 +129,5 @@ EOF</code></pre>
 <p>Webstedets compose-fil slår filloggen fra (<code>AM_LOGSETTINGS_ENABLEFILE=false</code>), så logfilerne kun findes i containerens output:</p>
 <pre><code>docker compose logs -f antimatter
 docker compose logs --since 1h antimatter | grep -i error</code></pre>
-<p>Konsolniveauet er som standard <code>DEBUG</code>, hvilket er detaljeret. På en travl server skal du sætte <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code>. Med et release-arkiv under systemd går konsoloutputtet til journalen (<code>journalctl -u antimatter</code>), og filen til <code>/opt/antimatter/logs/antimatter.log</code>.</p>
+<p>Konsolniveauet er som standard <code>DEBUG</code>, hvilket er detaljeret. På en travl server skal du sætte <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code>. <code>config.json</code> i releasearkivet og i pakkerne er allerede sat til <code>INFO</code>. Med et releasearkiv under systemd sendes konsoloutput til journalen (<code>journalctl -u antimatter</code>), og filen til <code>/opt/antimatter/logs/antimatter.log</code>. Pakkerne slår fillogning fra, så deres logfiler kun findes i journalen.</p>
 <p>Når fillogning er aktiveret, kan systemadministratorer også læse de seneste loglinjer i <b>Systemkonsol › Rapportering › Serverlogs</b>, eller med <code>amctl logs</code>.</p>

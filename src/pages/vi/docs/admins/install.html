@@ -1,10 +1,10 @@
 title: Cài đặt Antimatter
-description: Cài đặt Antimatter bằng Docker Compose hoặc từ tệp lưu trữ phát hành, chọn một ảnh, khởi động lần đầu tiên và tạo quản trị viên hệ thống đầu tiên.
+description: Cài đặt Antimatter bằng Docker Compose, từ các gói .deb và .rpm hoặc từ tệp lưu trữ của bản phát hành, chọn một hình ảnh, khởi động lần đầu tiên và tạo quản trị viên hệ thống đầu tiên.
 guide: admins
 order: 2
 nav: Cài đặt
-lead: Cài đặt Antimatter bằng tệp compose có sẵn, chọn ảnh phù hợp, hoặc chạy máy chủ từ tệp lưu trữ phát hành. Sau đó, tạo tài khoản quản trị viên đầu tiên.
-source: 64cd522c4946
+lead: Cài đặt Antimatter bằng tệp compose có sẵn, từ gói .deb hoặc .rpm của bản phát hành, hoặc từ tệp lưu trữ của bản phát hành. Sau đó, tạo tài khoản quản trị viên đầu tiên.
+source: bb05a35899c4
 ---
 <h2 id="compose">Cài đặt bằng Docker Compose</h2>
 <p>Đây là cách được khuyến nghị. Một tệp compose chạy Antimatter, PostgreSQL, bộ lưu trữ tệp và dịch vụ GIF. Bạn cần một máy chủ Linux có Docker Engine và plugin Compose của nó (<code>docker compose</code>), 2 nhân CPU và 4 GB bộ nhớ trở lên.</p>
@@ -20,9 +20,10 @@ SITE_URL=http://localhost:8065
 POSTGRES_PASSWORD=$(openssl rand -hex 24)
 S3_SECRET_KEY=$(openssl rand -hex 24)
 GIFS_API_KEY=$(openssl rand -hex 24)
+AM_AI_ENCRYPTION_KEY=$(openssl rand -base64 32)
 EOF
 chmod 600 .env</code></pre>
-<p>Đặt <code>SITE_URL</code> thành địa chỉ mà mọi người sẽ nhập vào trình duyệt, ví dụ <code>http://192.168.1.20:8065</code> trên mạng cục bộ hoặc <code>https://chat.example.com</code> với một tên miền. Giữ lại tệp <code>.env</code>: cơ sở dữ liệu và bộ lưu trữ sử dụng các mật khẩu này từ lần khởi động đầu tiên, và bạn cần cùng tệp này để khôi phục bản sao lưu.</p>
+<p>Đặt <code>SITE_URL</code> thành địa chỉ mà người dùng sẽ nhập vào trình duyệt, ví dụ <code>http://192.168.1.20:8065</code> trên mạng nội bộ hoặc <code>https://chat.example.com</code> với tên miền. Giữ lại tệp <code>.env</code>: cơ sở dữ liệu và bộ nhớ sử dụng các mật khẩu này từ lần khởi động đầu tiên, các khóa API của kết nối mô hình AI được mã hóa bằng <code>AM_AI_ENCRYPTION_KEY</code>, và bạn cần cùng một tệp này để khôi phục bản sao lưu.</p>
 
 <h3>3. Khởi động</h3>
 <pre><code>docker compose up -d
@@ -38,7 +39,8 @@ docker compose ps</code></pre>
 <tr><td><code>POSTGRES_PASSWORD</code></td><td>bắt buộc</td><td>Mật khẩu của người dùng cơ sở dữ liệu <code>antimatter</code>.</td></tr>
 <tr><td><code>S3_SECRET_KEY</code></td><td>bắt buộc</td><td>Khóa bí mật của bộ lưu trữ tệp.</td></tr>
 <tr><td><code>GIFS_API_KEY</code></td><td>bắt buộc</td><td>Khóa mà Antimatter sử dụng để gọi dịch vụ GIF.</td></tr>
-<tr><td><code>GIFS_UPLOAD_KEY</code></td><td>trống</td><td>Cho phép mọi người thêm GIF và sticker của riêng họ từ trình chọn. Để trống sẽ tắt tải lên.</td></tr>
+<tr><td><code>AM_AI_ENCRYPTION_KEY</code></td><td>trống</td><td>Khóa mã hóa các khóa API của kết nối mô hình AI (<code>openssl rand -base64 32</code>). Để trống: máy chủ sẽ tạo tệp khóa trong volume <code>data</code>. Xem <a href="{{root}}docs/admins/ai.html#encryption-key">Khóa mã hóa</a>.</td></tr>
+<tr><td><code>GIFS_UPLOAD_KEY</code></td><td>trống</td><td>Cho phép người dùng thêm GIF và sticker của riêng họ từ trình chọn và xóa chúng. Để trống sẽ tắt tải lên.</td></tr>
 <tr><td><code>DOMAIN</code></td><td>trống</td><td>Tên miền của bạn, cho hồ sơ <code>https</code>.</td></tr>
 <tr><td><code>HTTP_PORT</code></td><td><code>8065</code></td><td>Cổng máy chủ của máy chủ web Antimatter.</td></tr>
 <tr><td><code>CALLS_PORT</code></td><td><code>8443</code></td><td>Cổng UDP và TCP của âm thanh và video cuộc gọi.</td></tr>
@@ -52,7 +54,7 @@ docker compose ps</code></pre>
 <table>
 <thead><tr><th>Dịch vụ</th><th>Ảnh</th><th>Vai trò</th></tr></thead>
 <tbody>
-<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>Máy chủ, ứng dụng web và các ứng dụng tích hợp. Công bố <code>HTTP_PORT</code> và <code>CALLS_PORT</code>.</td></tr>
+<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>Máy chủ, ứng dụng web và các ứng dụng tích hợp. Công bố <code>HTTP_PORT</code> và <code>CALLS_PORT</code>. Thư mục dữ liệu của nó là volume <code>data</code>.</td></tr>
 <tr><td><code>postgres</code></td><td><code>postgres:17-alpine</code></td><td>Cơ sở dữ liệu, trong volume <code>postgres</code>.</td></tr>
 <tr><td><code>files</code></td><td><code>rustfs/rustfs</code></td><td>Lưu trữ tương thích S3 cho các tệp đã tải lên và các ứng dụng đã cài đặt, trong volume <code>files</code>.</td></tr>
 <tr><td><code>bucket</code></td><td><code>amazon/aws-cli</code></td><td>Tạo bucket <code>antimatter</code>, sau đó thoát.</td></tr>
@@ -62,7 +64,7 @@ docker compose ps</code></pre>
 </tbody>
 </table>
 <p>PostgreSQL, dịch vụ lưu trữ và dịch vụ GIF nằm trên một mạng nội bộ (<code>private</code>) không có quyền truy cập Internet, và chỉ Antimatter tham gia vào mạng này. Không có dịch vụ nào trong số đó công bố (publish) một cổng.</p>
-<p>Container Antimatter không lưu trữ bất kỳ thứ gì trên đĩa: cài đặt của nó nằm trong cơ sở dữ liệu (<code>AM_CONFIG</code> trỏ đến đó) và tệp cùng ứng dụng của nó nằm trong dịch vụ lưu trữ. Bạn có thể xóa và tạo lại container bất cứ lúc nào. Mọi thứ cần sao lưu nằm trong các volume <code>postgres</code>, <code>files</code> và <code>gifs</code>, cùng với tệp <code>.env</code> của bạn.</p>
+<p>Container Antimatter không lưu trữ gì trên đĩa: cài đặt của nó nằm trong cơ sở dữ liệu (<code>AM_CONFIG</code> trỏ đến đó) và tệp cùng ứng dụng của nó nằm trong dịch vụ lưu trữ. Bạn có thể xóa và tạo lại container bất cứ lúc nào. Volume <code>data</code> của nó chỉ chứa tệp khóa mã hóa AI, được máy chủ tạo khi <code>AM_AI_ENCRYPTION_KEY</code> trống. Mọi thứ cần sao lưu đều nằm trong các volume <code>postgres</code>, <code>files</code>, <code>gifs</code> và <code>data</code>, cùng tệp <code>.env</code> của bạn.</p>
 
 <h2 id="images">Chọn một hình ảnh</h2>
 <p>Có hai hình ảnh Antimatter được phát hành, cả hai đều dành cho <code>linux/amd64</code> và <code>linux/arm64</code>, và cả hai đều được xây dựng từ nhánh <code>main</code> của mọi kho lưu trữ:</p>
@@ -99,14 +101,154 @@ docker compose exec antimatter amctl --local team users add main admin</code></p
 <p>Sau đó, đăng nhập tại <code>SITE_URL</code>. Bắt đầu lệnh bằng một khoảng trắng để mật khẩu không bị lưu vào lịch sử shell (với <code>HISTCONTROL=ignorespace</code>), hoặc thay đổi mật khẩu sau khi đã đăng nhập.</p>
 <p>Các bước tiếp theo sau khi bạn đã vào hệ thống:</p>
 <ol>
+<li>Đối với công ty hoặc tổ chức, đặt <b>Loại cộng đồng mới</b> thành <b>Nơi làm việc</b>, và thay đổi loại của cộng đồng bạn đã tạo trong cài đặt của nó: <a href="{{root}}docs/admins/configuration.html#community-kind">Nơi làm việc hoặc cộng đồng</a>.</li>
 <li>Quyết định ai có thể tạo tài khoản: <a href="{{root}}docs/admins/authentication.html">Đăng nhập và tài khoản</a>.</li>
 <li>Cấu hình email để lời mời và đặt lại mật khẩu hoạt động: <a href="{{root}}docs/admins/email-push.html">Email và thông báo đẩy</a>.</li>
 <li>Mở cổng cho cuộc gọi trong tường lửa: <a href="{{root}}docs/admins/calls.html">Cuộc gọi và thoại</a>.</li>
 <li>Kiểm tra ứng dụng nào đang bật: <a href="{{root}}docs/admins/apps.html">Ứng dụng tích hợp sẵn</a>.</li>
 </ol>
 
+<h2 id="releases">Tải xuống bản phát hành</h2>
+<p>Không dùng Docker, cài đặt Antimatter từ các tệp của bản phát hành trên GitHub: <a href="https://github.com/AntimatterChat/antimatter/releases">github.com/AntimatterChat/antimatter/releases</a>. Mỗi bản phát hành có một số phiên bản như <code>0.9.0</code>, và thẻ của nó là cùng số đó với chữ <code>v</code> ở trước (<code>v0.9.0</code>).</p>
+<div class="callout">Antimatter đang ở giai đoạn beta: các bản phát hành thuộc dòng 0.9.0. Bản phát hành có hậu tố sau dấu gạch ngang trong phiên bản, chẳng hạn <code>0.9.0-rc.1</code>, được đánh dấu <b>Pre-release</b> trên GitHub. Đây là phiên bản thử nghiệm, được phát hành trước bản chính thức.</div>
+<p>Mỗi bản phát hành bao gồm các tệp sau, dành cho máy chủ <code>amd64</code> và <code>arm64</code>:</p>
+<table>
+<thead><tr><th>Tệp</th><th>Mô tả</th></tr></thead>
+<tbody>
+<tr><td><code>antimatter_&lt;version&gt;-1_amd64.deb</code>, <code>antimatter_&lt;version&gt;-1_arm64.deb</code></td><td>Gói cài đặt cho Debian, Ubuntu và các hệ điều hành dựa trên chúng.</td></tr>
+<tr><td><code>antimatter-&lt;version&gt;-1.x86_64.rpm</code>, <code>antimatter-&lt;version&gt;-1.aarch64.rpm</code></td><td>Gói cài đặt cho Fedora, RHEL và các hệ điều hành tương thích với RHEL.</td></tr>
+<tr><td><code>antimatter-&lt;version&gt;-linux-amd64.tar.gz</code>, <code>antimatter-&lt;version&gt;-linux-arm64.tar.gz</code></td><td>Tệp lưu trữ (archive) của bản phát hành, dành cho bất kỳ phân phối Linux nào, được cài đặt thủ công.</td></tr>
+<tr><td><code>SHA256SUMS</code></td><td>Mã kiểm tra SHA-256 của tất cả các tệp trong bản phát hành.</td></tr>
+</tbody>
+</table>
+<p>Các gói và tệp lưu trữ chứa cùng một chương trình: máy chủ (<code>antimatter</code>), công cụ dòng lệnh (<code>amctl</code>), cả hai ứng dụng web (giao diện mặc định và giao diện cổ điển), các ứng dụng tích hợp sẵn, các mẫu email và các bản dịch. Các gói bổ sung một dịch vụ systemd và một tệp cài đặt, do đó mỗi gói là một cài đặt tất cả trong một: bạn chỉ cần thêm một cơ sở dữ liệu PostgreSQL. Không có các tệp nhị phân tải xuống riêng biệt: các tệp nhị phân nằm trong tệp lưu trữ, tại <code>antimatter/bin/</code>. Chúng là tệp tĩnh (static), do đó chạy được trên bất kỳ phân phối Linux nào có cùng kiến trúc.</p>
+<p>Trong tên gói, dấu gạch ngang của phiên bản trước phát hành (prerelease) được thay bằng dấu tilde (~) để trình quản lý gói sắp xếp phiên bản trước phát hành trước bản chính thức: phiên bản <code>0.9.0-rc.1</code> tạo ra <code>antimatter_0.9.0~rc.1-1_amd64.deb</code> và <code>antimatter-0.9.0~rc.1-1.x86_64.rpm</code>. Tệp lưu trữ vẫn giữ nguyên dấu gạch ngang.</p>
+<p>Lệnh <code>antimatter version</code> in ra phiên bản phát hành dưới dạng <b>Mã phiên bản</b>, kèm theo mã commit mà nó được xây dựng từ đó dưới dạng <b>Mã bản biên dịch</b>. Dòng <b>Phiên bản</b> là phiên bản của dòng Mattermost mà Antimatter dựa trên.</p>
+
+<h3>Kiểm tra tệp tải xuống</h3>
+<p>Tải tệp bạn cần và <code>SHA256SUMS</code> vào cùng một thư mục, từ trang phát hành hoặc bằng <code>curl</code>, sau đó kiểm tra tệp:</p>
+<pre><code>curl -fLO https://github.com/AntimatterChat/antimatter/releases/download/v&lt;version&gt;/antimatter_&lt;version&gt;-1_amd64.deb
+curl -fLO https://github.com/AntimatterChat/antimatter/releases/download/v&lt;version&gt;/SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS</code></pre>
+<p>Mỗi tệp bạn đã tải xuống phải được liệt kê kèm theo <code>OK</code>. Bất kỳ kết quả nào khác có nghĩa là tệp bị hỏng hoặc không đầy đủ: hãy tải xuống lại và không cài đặt nó. <code>SHA256SUMS</code> không được ký: nó phát hiện tệp tải xuống bị hỏng và không chứng minh được gì nhiều hơn so với việc tải xuống qua HTTPS từ GitHub.</p>
+
+<h2 id="packages">Cài đặt gói .deb hoặc .rpm</h2>
+<p>Gói cài đặt Antimatter như một dịch vụ systemd, chỉ cần một cơ sở dữ liệu để khởi động. Sử dụng nó trên máy chủ 64-bit Debian, Ubuntu, Fedora hoặc tương thích với RHEL có systemd.</p>
+
+<h3>Những gì gói cài đặt</h3>
+<table>
+<thead><tr><th>Đường dẫn</th><th>Nội dung</th></tr></thead>
+<tbody>
+<tr><td><code>/opt/antimatter</code></td><td>Chương trình: <code>bin/antimatter</code>, <code>bin/amctl</code>, các ứng dụng web (<code>client/</code>, <code>client-fusion/</code>), các ứng dụng được đóng gói (<code>prepackaged_plugins/</code>), các mẫu, bản dịch và phông chữ. Mỗi lần nâng cấp sẽ thay thế chúng.</td></tr>
+<tr><td><code>/etc/antimatter/antimatter.env</code></td><td>Cài đặt của dịch vụ, dưới dạng các biến <code>AM_</code>: cơ sở dữ liệu, URL của trang web, dịch vụ GIF. Chỉ root có thể đọc. Nâng cấp sẽ giữ nguyên chúng.</td></tr>
+<tr><td><code>/etc/antimatter/config/config.json</code></td><td>Tệp cấu hình, nơi máy chủ lưu các cài đặt đã thay đổi trong Bảng điều khiển Hệ thống. Tệp này được tạo từ <code>/opt/antimatter/defaults/config.json</code> trong lần cài đặt đầu tiên và không bao giờ bị thay thế sau đó.</td></tr>
+<tr><td><code>/var/lib/antimatter</code></td><td>Các tệp đã tải lên (<code>data/</code>) và các ứng dụng đã cài đặt (<code>plugins/</code>, <code>client-plugins/</code>).</td></tr>
+<tr><td><code>/var/log/antimatter</code></td><td>Tệp nhật ký, nếu bạn bật ghi nhật ký ra tệp. Tính năng này đang tắt: nhật ký được ghi vào journal.</td></tr>
+<tr><td><code>/usr/lib/systemd/system/antimatter.service</code></td><td>Dịch vụ.</td></tr>
+<tr><td><code>/usr/bin/amctl</code></td><td>Một liên kết đến <code>/opt/antimatter/bin/amctl</code>.</td></tr>
+</tbody>
+</table>
+<p>Các thư mục mà máy chủ ghi vào trong <code>/opt/antimatter</code> (<code>config</code>, <code>data</code>, <code>plugins</code>, <code>client/plugins</code> và <code>logs</code>) là các liên kết đến <code>/etc/antimatter</code>, <code>/var/lib/antimatter</code> và <code>/var/log/antimatter</code>. Do đó, một bản nâng cấp, vốn thay thế <code>/opt/antimatter</code>, sẽ không bao giờ chạm đến dữ liệu của bạn. Gói cũng tạo người dùng hệ thống <code>antimatter</code>, người chạy máy chủ và sở hữu các thư mục này.</p>
+<p>Gói phụ thuộc vào <code>ca-certificates</code>. Nó đề xuất PostgreSQL (<code>postgresql</code> trên Debian và Ubuntu, <code>postgresql-server</code> trên Fedora và RHEL), <code>media-types</code> (<code>mailcap</code> cho .rpm) và <code>gifs-server</code>, dịch vụ GIF, có bản phát hành riêng (xem <a href="#gifs-push-packages">phía dưới</a>). apt và dnf sẽ cài đặt các gói được đề xuất khi tìm thấy chúng. Nó gợi ý <code>poppler-utils</code>, <code>wv</code>, <code>unrtf</code> và <code>tidy</code> (không có <code>wv</code> cho .rpm): chúng trích xuất văn bản từ các tài liệu đã tải lên, để tìm kiếm có thể tìm thấy các từ bên trong chúng. Tự cài đặt chúng nếu bạn muốn tính năng này.</p>
+
+<h3>1. Cài đặt các gói</h3>
+<p>Tải xuống gói Antimatter và gói dịch vụ GIF của kiến trúc hệ thống, kiểm tra chúng như đã nêu ở trên, và cài đặt cả hai trong một lệnh, để đáp ứng đề xuất của <code>gifs-server</code> (nó không có trong kho của các phân phối):</p>
+<pre><code># Debian, Ubuntu
+sudo apt install ./antimatter_&lt;version&gt;-1_amd64.deb ./gifs-server_*_amd64.deb
+# Fedora, RHEL
+sudo dnf install ./antimatter-&lt;version&gt;-1.x86_64.rpm ./gifs-server-*.x86_64.rpm</code></pre>
+<p>Giữ nguyên <code>./</code>: nó cho apt và dnf biết rằng cần cài đặt một tệp cục bộ. Để cài đặt không kèm dịch vụ GIF, hãy bỏ qua gói này. Gói này bật dịch vụ <code>antimatter</code> nhưng không khởi động nó, và sẽ in ra các bước tiếp theo.</p>
+
+<h3>2. Tạo cơ sở dữ liệu</h3>
+<p>Antimatter cần PostgreSQL 15 hoặc mới hơn, trên máy chủ này hoặc trên máy chủ khác. Kiểm tra phiên bản PostgreSQL của phân phối hệ điều hành bằng lệnh <code>psql --version</code>. Nếu phiên bản cũ hơn, hãy cài đặt phiên bản mới hơn từ kho lưu trữ chính thức của dự án PostgreSQL, hoặc sử dụng cơ sở dữ liệu trên một máy chủ khác. Trên Debian và Ubuntu, gói <code>postgresql</code> sẽ khởi động cơ sở dữ liệu. Trên Fedora và RHEL, hãy tạo và khởi động nó trước:</p>
+<pre><code>sudo postgresql-setup --initdb
+sudo systemctl enable --now postgresql</code></pre>
+<p>Sau đó, tạo một người dùng và một cơ sở dữ liệu cho Antimatter:</p>
+<pre><code>sudo -u postgres psql -c "CREATE USER antimatter WITH PASSWORD 'a-long-password'"
+sudo -u postgres psql -c "CREATE DATABASE antimatter OWNER antimatter"</code></pre>
+<p>PostgreSQL phải chấp nhận các kết nối bằng mật khẩu từ <code>127.0.0.1</code>: các dòng <code>host</code> trong tệp <code>pg_hba.conf</code> của nó, với phương thức <code>scram-sha-256</code>.</p>
+
+<h3>3. Thiết lập cơ sở dữ liệu và URL của trang web</h3>
+<p>Chỉnh sửa tệp <code>/etc/antimatter/antimatter.env</code> (<code>sudoedit /etc/antimatter/antimatter.env</code>). Xóa ký tự <code>#</code> ở đầu các dòng bạn sử dụng, và thiết lập cơ sở dữ liệu cùng địa chỉ mà người dùng sẽ mở:</p>
+<pre><code>AM_SQLSETTINGS_DRIVERNAME=postgres
+AM_SQLSETTINGS_DATASOURCE=postgres://antimatter:a-long-password@localhost:5432/antimatter?sslmode=disable&amp;connect_timeout=10
+AM_SERVICESETTINGS_SITEURL=https://chat.example.com</code></pre>
+<p>Bất kỳ cài đặt nào trong cấu hình cũng có thể được đặt trong tệp này, dưới dạng <code>AM_&lt;SECTION&gt;_&lt;SETTING&gt;</code>: ví dụ, <code>SqlSettings.DataSource</code> sẽ là <code>AM_SQLSETTINGS_DATASOURCE</code>. Một cài đặt được đặt ở đây không thể được thay đổi trong Bảng điều khiển Hệ thống. Xem <a href="{{root}}docs/admins/configuration.html">Cấu hình</a>. Khởi động lại máy chủ sau mỗi lần thay đổi: <code>sudo systemctl restart antimatter</code>.</p>
+<p>Dịch vụ cũng thiết lập một số giá trị mặc định, có thể bị ghi đè bởi một dòng trong <code>antimatter.env</code>: ghi nhật ký vào tệp bị tắt (<code>AM_LOGSETTINGS_ENABLEFILE=false</code>, <code>AM_NOTIFICATIONLOGSETTINGS_ENABLEFILE=false</code>), và chế độ cục bộ được bật (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>), để lệnh <code>amctl --local</code> hoạt động trên máy chủ.</p>
+
+<h3>4. Khởi động</h3>
+<pre><code>sudo systemctl start antimatter
+journalctl -u antimatter -f
+sudo -u antimatter amctl --local system status</code></pre>
+<p>Khi khởi động lần đầu, máy chủ sẽ tạo các bảng dữ liệu, sau đó lắng nghe trên cổng 8065. Mở <code>http://&lt;server&gt;:8065</code>, hoặc tên miền của bạn sau khi đã cấu hình proxy ngược (xem <a href="{{root}}docs/admins/https.html">Tên miền và HTTPS</a>), và ngay lập tức tạo tài khoản đầu tiên: tài khoản này sẽ trở thành quản trị viên hệ thống. Nếu muốn tạo tài khoản này từ dòng lệnh, hãy sử dụng các lệnh <code>amctl</code> của <a href="#first-admin">Tạo quản trị viên đầu tiên</a>, với <code>sudo -u antimatter amctl --local</code> thay cho <code>docker compose exec antimatter amctl --local</code>.</p>
+
+<h3>5. Bật GIF</h3>
+<p>Ứng dụng GIF được tích hợp sẵn và đã bật, và <code>antimatter.env</code> đã trỏ đến dịch vụ GIF trên cùng máy chủ (<code>AM_GIFS_SERVICE_URL=http://127.0.0.1:8080/v2</code>). Tuy nhiên, nó vẫn cần khóa API của dịch vụ. Gói <code>gifs-server</code> đã tạo một khóa khi cài đặt:</p>
+<pre><code>sudo systemctl start gifs-server-stickers    # imports the sticker pack, about a minute and a half
+sudo systemctl start gifs-server
+sudo grep -v '^#' /etc/gifs-server/api-keys</code></pre>
+<p>Đặt khóa vào <code>antimatter.env</code> dưới dạng <code>AM_GIFS_API_KEY=&lt;key&gt;</code> và khởi động lại Antimatter, hoặc nhập nó dưới dạng <b>Khóa API</b> trong <b>Bảng điều khiển Hệ thống › Các plugin › GIF</b>. Nếu dịch vụ GIF chạy trên một máy chủ khác, hãy đặt <code>AM_GIFS_SERVICE_URL</code> thành địa chỉ của máy chủ đó. Để cho phép người dùng thêm GIF và sticker của riêng họ, xem <a href="{{root}}docs/admins/apps.html#gifs">GIF</a>.</p>
+
+<h3>Dịch vụ</h3>
+<ul>
+<li>Nó chạy dưới người dùng <code>antimatter</code>, trong thư mục <code>/opt/antimatter</code>, và đọc tệp <code>/etc/antimatter/antimatter.env</code>. systemd sẽ khởi động lại máy chủ mỗi khi nó thoát, và cho phép nó tối đa một giờ để khởi động, vì các bước di chuyển cơ sở dữ liệu của phiên bản mới có thể mất nhiều thời gian.</li>
+<li>Nhật ký của nó nằm trong journal: <code>journalctl -u antimatter</code>.</li>
+<li>Nó được bảo vệ: <code>/usr</code> và <code>/etc</code> chỉ đọc đối với máy chủ, ngoại trừ <code>/etc/antimatter/config</code>, và nó không thể xem <code>/home</code>, <code>/root</code> hoặc <code>/run/user</code>. Nếu bạn di chuyển bộ nhớ lưu trữ tệp (<code>FileSettings.Directory</code>), hãy chọn một thư mục nằm ngoài các thư mục này và thuộc sở hữu của <code>antimatter</code>.</li>
+<li>Các bản nâng cấp sẽ thay thế tệp dịch vụ. Để thay đổi tệp này, hãy sử dụng <code>sudo systemctl edit antimatter</code>, điều này sẽ giữ các thay đổi của bạn trong một tệp riêng biệt.</li>
+</ul>
+
+<h3>Nâng cấp một gói</h3>
+<ol>
+<li>Sao lưu dữ liệu (xem <a href="{{root}}docs/admins/backups-upgrades.html">Sao lưu và nâng cấp</a>).</li>
+<li>Tải xuống gói mới và tệp <code>SHA256SUMS</code>, sau đó kiểm tra chúng.</li>
+<li>Dừng máy chủ, cài đặt gói mới đè lên gói cũ, và khởi động lại:
+<pre><code>sudo systemctl stop antimatter
+sudo apt install ./antimatter_&lt;new version&gt;-1_amd64.deb     # or: sudo dnf install ./antimatter-&lt;new version&gt;-1.x86_64.rpm
+sudo systemctl start antimatter
+journalctl -u antimatter -f</code></pre></li>
+</ol>
+<p>Gói không tự động khởi động lại máy chủ. Sau khi nâng cấp, nó sẽ in ra <code>Antimatter was upgraded; restart it to run the new version: sudo systemctl restart antimatter</code>: nếu bạn chưa dừng máy chủ trước, hãy khởi động lại ngay lập tức. Quá trình nâng cấp sẽ thay thế <code>/opt/antimatter</code> và tệp dịch vụ, nhưng giữ lại <code>antimatter.env</code>, <code>config.json</code>, <code>/var/lib/antimatter</code> và các tệp nhật ký. Khi khởi động, máy chủ sẽ nâng cấp cơ sở dữ liệu và cài đặt các phiên bản mới hơn của các ứng dụng được đóng gói sẵn.</p>
+<p>Nếu một phiên bản mới thay đổi tệp <code>antimatter.env</code> mặc định, apt sẽ hỏi bạn có muốn giữ phiên bản của mình hay không: hãy giữ lại. dnf sẽ giữ phiên bản của bạn và lưu phiên bản mới dưới tên <code>/etc/antimatter/antimatter.env.rpmnew</code>. Quá trình nâng cấp chỉ diễn ra theo hướng tiến lên: không cài đặt phiên bản cũ đè lên phiên bản mới.</p>
+
+<h3>Gỡ bỏ một gói</h3>
+<p><code>sudo apt remove antimatter</code> hoặc <code>sudo dnf remove antimatter</code> sẽ dừng và vô hiệu hóa dịch vụ, đồng thời gỡ bỏ chương trình. Dữ liệu (<code>/var/lib/antimatter</code>), cấu hình (<code>/etc/antimatter</code>), cơ sở dữ liệu và người dùng <code>antimatter</code> sẽ được giữ lại: hãy tự xóa chúng nếu muốn gỡ bỏ Antimatter hoàn toàn.</p>
+
+<h2 id="release-apps">Các ứng dụng trong gói và tệp lưu trữ</h2>
+<p>Các gói và tệp lưu trữ bao gồm bản phát hành mới nhất đã được ký của các ứng dụng này, nằm trong <code>prepackaged_plugins/</code>: Agents, Calls, GIFs, Memes, Notes, Polls, Todo, Voice Channels và Whiteboard. Ứng dụng nào chưa có bản phát hành tại thời điểm xây dựng bản phát hành máy chủ sẽ không được bao gồm: lệnh <code>ls /opt/antimatter/prepackaged_plugins</code> sẽ hiển thị những gì bản phát hành của bạn bao gồm. Memes và Todo được bao gồm nhưng chưa được bật: <a href="{{root}}docs/admins/apps.html#manage">Ứng dụng đóng gói sẵn</a> giải thích cách cài đặt và bật chúng.</p>
+<p>Các ứng dụng khác trong các ảnh Docker không có trong các gói hoặc tệp lưu trữ: Kanban, Playbooks, Mail, Calendar, GitHub, GitLab, Jira và Metrics. Hãy cài đặt từng ứng dụng từ các bản phát hành riêng của chúng:</p>
+<table>
+<thead><tr><th>Ứng dụng</th><th>Các bản phát hành</th><th>ID ứng dụng</th></tr></thead>
+<tbody>
+<tr><td>Kanban</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-boards/releases">antimatter-plugin-boards</a></td><td><code>focalboard</code></td></tr>
+<tr><td>Playbook</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-playbooks/releases">antimatter-plugin-playbooks</a></td><td><code>playbooks</code></td></tr>
+<tr><td>Thư</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-mail/releases">antimatter-plugin-mail</a></td><td><code>com.antimatterchat.mail</code></td></tr>
+<tr><td>Lịch</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-calendar/releases">antimatter-plugin-calendar</a></td><td><code>com.antimatterchat.calendar</code></td></tr>
+<tr><td>GitHub</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-github/releases">antimatter-plugin-github</a></td><td><code>github</code></td></tr>
+<tr><td>GitLab</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-gitlab/releases">antimatter-plugin-gitlab</a></td><td><code>com.github.manland.mattermost-plugin-gitlab</code></td></tr>
+<tr><td>Jira</td><td><a href="https://github.com/AntimatterChat/antimatter-plugin-jira/releases">antimatter-plugin-jira</a></td><td><code>jira</code></td></tr>
+<tr><td>Chỉ số đo lường</td><td><a href="https://github.com/AntimatterChat/Antimatter-plugin-metrics/releases">Antimatter-plugin-metrics</a></td><td><code>com.mattermost.mattermost-plugin-metrics</code></td></tr>
+</tbody>
+</table>
+<p>Mỗi bản phát hành ứng dụng đều có gói ứng dụng (tệp <code>.tar.gz</code>), chữ ký của nó (cùng tên nhưng thêm <code>.sig</code>) và tệp <code>SHA256SUMS</code>. Để cài đặt một ứng dụng, hãy cho phép tải lên, sau đó thêm gói bằng <code>amctl</code>:</p>
+<pre><code># 1. In /etc/antimatter/antimatter.env, add this line, then restart Antimatter
+AM_PLUGINSETTINGS_ENABLEUPLOADS=true
+sudo systemctl restart antimatter
+# 2. Download the bundle where the antimatter user can read it, and install it
+cd /tmp
+curl -fLO https://github.com/AntimatterChat/antimatter-plugin-boards/releases/download/v&lt;version&gt;/&lt;bundle&gt;.tar.gz
+sudo -u antimatter amctl --local plugin add &lt;bundle&gt;.tar.gz
+sudo -u antimatter amctl --local plugin enable focalboard</code></pre>
+<p>Để nâng cấp một ứng dụng đã được cài đặt theo cách này, hãy thêm gói mới bằng <code>plugin add --force</code>: việc nâng cấp gói chỉ nâng cấp các ứng dụng được đóng gói sẵn. Sau đó, bạn có thể xóa dòng <code>AM_PLUGINSETTINGS_ENABLEUPLOADS</code>. Xem <a href="{{root}}docs/admins/apps.html#other-apps">Cài đặt các ứng dụng khác</a> để biết các cách cài đặt ứng dụng khác.</p>
+
+<h3>Chữ ký ứng dụng</h3>
+<p>Các gói ứng dụng được ký bằng khóa ký ứng dụng của Antimatter: mỗi tệp <code>.tar.gz.sig</code> là một chữ ký GPG tách rời của gói tương ứng. Máy chủ sẽ kiểm tra các chữ ký này trước khi cài đặt một ứng dụng đóng gói. Để tự kiểm tra một gói:</p>
+<pre><code>curl -fsSLO https://raw.githubusercontent.com/AntimatterChat/antimatter-docker/main/keys/antimatter-plugin-signing.asc
+gpg --import antimatter-plugin-signing.asc
+gpg --verify &lt;bundle&gt;.tar.gz.sig &lt;bundle&gt;.tar.gz</code></pre>
+<p>gpg phải báo cáo một chữ ký hợp lệ từ <code>Antimatter Plugin Signing</code>, với dấu vân tay <code>06C8 1032 4677 0F08 BBA7 78B9 E69B 05C3 92A6 9A45</code>. Nó cũng sẽ cảnh báo rằng khóa không được chứng nhận bằng chữ ký đáng tin cậy: điều này là bình thường đối với một khóa mà bạn chưa tự ký. Một bản phát hành ứng dụng không có tệp <code>.sig</code> là không được ký, và ghi chú phát hành của nó sẽ nêu rõ điều đó.</p>
+
 <h2 id="archive">Cài đặt từ tệp lưu trữ bản phát hành</h2>
-<p>Nếu không có Docker, máy chủ sẽ chạy từ một tệp lưu trữ có tên <code>antimatter-&lt;os&gt;-&lt;arch&gt;.tar.gz</code> (ví dụ <code>antimatter-linux-amd64.tar.gz</code>). Tệp này chứa một thư mục <code>antimatter/</code> duy nhất, bên trong có <code>bin/antimatter</code>, <code>bin/amctl</code>, <code>config/config.json</code>, các ứng dụng web (<code>client/</code> và <code>client-fusion/</code>), các mẫu email và các tệp dịch.</p>
+<p>Tệp lưu trữ, <code>antimatter-&lt;version&gt;-linux-&lt;arch&gt;.tar.gz</code> (ví dụ <code>antimatter-0.9.0-linux-amd64.tar.gz</code>), phù hợp với các phân phối không có gói .deb hoặc .rpm, hoặc cấu hình tùy chỉnh của bạn. Nó chứa một thư mục <code>antimatter/</code> duy nhất với <code>bin/antimatter</code>, <code>bin/amctl</code>, <code>config/config.json</code>, các ứng dụng web (<code>client/</code> và <code>client-fusion/</code>), các ứng dụng đóng gói sẵn (<code>prepackaged_plugins/</code>, xem <a href="#release-apps">phía trên</a>), các mẫu email và các bản dịch.</p>
 
 <h3>1. Chuẩn bị PostgreSQL</h3>
 <p>Antimatter chỉ hỗ trợ PostgreSQL, phiên bản 15 trở lên (các phiên bản cũ hơn sẽ khởi động nhưng ghi lỗi vào nhật ký). Hãy tạo một người dùng và một cơ sở dữ liệu:</p>
@@ -116,7 +258,7 @@ CREATE DATABASE antimatter OWNER antimatter;
 EOF</code></pre>
 
 <h3>2. Giải nén và cấu hình</h3>
-<pre><code>sudo tar -xzf antimatter-linux-amd64.tar.gz -C /opt
+<pre><code>sudo tar -xzf antimatter-&lt;version&gt;-linux-amd64.tar.gz -C /opt
 sudo useradd --system --user-group antimatter
 sudo mkdir -p /opt/antimatter/data
 sudo chown -R antimatter:antimatter /opt/antimatter</code></pre>
@@ -152,6 +294,34 @@ sudo systemctl enable --now antimatter
 journalctl -u antimatter -f</code></pre>
 <p>Máy chủ sẽ lắng nghe trên cổng 8065. Mở <code>http://&lt;server&gt;:8065</code>, hoặc tên miền của bạn sau khi đã cấu hình bộ định tuyến ngược (xem <a href="{{root}}docs/admins/https.html">Tên miền và HTTPS</a>), và tạo tài khoản đầu tiên: tài khoản này sẽ trở thành quản trị viên hệ thống.</p>
 <p><code>bin/amctl</code> cho phép quản lý máy chủ đang chạy từ dòng lệnh. Trên chính máy chủ, nó hoạt động mà không cần đăng nhập thông qua chế độ cục bộ: đặt <code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>, sau đó chạy <code>sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code>.</p>
+<p>Đối với GIF, hãy cài đặt dịch vụ GIF (xem bên dưới) và đặt <code>AM_GIFS_SERVICE_URL</code> và <code>AM_GIFS_API_KEY</code> như trong <a href="#packages">bước 5 của các gói</a>.</p>
+
+<h2 id="gifs-push-packages">Các gói dịch vụ GIF và proxy đẩy</h2>
+<p>Dịch vụ GIF và proxy push có các bản phát hành riêng, tuân theo cùng các quy tắc như máy chủ: một tệp lưu trữ <code>.tar.gz</code>, một gói .deb và một gói .rpm cho <code>amd64</code> và <code>arm64</code>, cùng một tệp <code>SHA256SUMS</code>. Các phiên bản có dấu gạch ngang là bản phát hành trước. Kiểm tra các tệp tải xuống bằng lệnh <code>sha256sum --check --ignore-missing SHA256SUMS</code>, giống như với máy chủ.</p>
+
+<h3>Dịch vụ GIF (gifs-server)</h3>
+<p>Các bản phát hành: <a href="https://github.com/AntimatterChat/gifs-server/releases">github.com/AntimatterChat/gifs-server/releases</a>. Tệp lưu trữ có tên <code>gifs-server-&lt;version&gt;-linux-&lt;arch&gt;.tar.gz</code>; các gói được đặt tên là <code>gifs-server</code>.</p>
+<pre><code>sudo apt install ./gifs-server_*_amd64.deb      # Debian, Ubuntu
+sudo dnf install ./gifs-server-*.x86_64.rpm     # Fedora, RHEL</code></pre>
+<p>Gói cài đặt:</p>
+<ul>
+<li><code>/usr/bin/gifs-server</code>, và dịch vụ <code>gifs-server</code>, chạy dưới người dùng <code>gifs-server</code> và lưu danh mục của nó trong <code>/var/lib/gifs-server</code>;</li>
+<li>dịch vụ <code>gifs-server-stickers</code>, nhập hoặc cập nhật bộ sticker trong <code>/usr/share/gifs-server/stickers</code> khi bạn khởi động nó, sau đó dừng lại;</li>
+<li>cài đặt của nó, <code>/etc/gifs-server/gifs-server.env</code> (các biến <code>AM_GIFS_</code>, được giữ lại khi nâng cấp) và <code>/etc/gifs-server/api-keys</code>, mỗi dòng một khóa API, với một khóa ngẫu nhiên được tạo ra trong lần cài đặt đầu tiên.</li>
+</ul>
+<p>Nó lắng nghe trên <code>127.0.0.1:8080</code>, do đó chỉ Antimatter trên cùng máy chủ mới có thể truy cập. Nếu Antimatter chạy ở nơi khác, hãy đặt <code>AM_GIFS_LISTEN=:8080</code> trong <code>gifs-server.env</code> và hạn chế quyền truy cập vào cổng bằng tường lửa của bạn. Tệp này liệt kê các cài đặt khác: <code>AM_GIFS_UPLOAD_KEYS</code> (các khóa được phép thêm GIF và sticker, cũng như xóa những thứ đã được thêm bằng chúng), <code>AM_GIFS_PUBLIC_URL</code>, <code>AM_GIFS_TRUST_PROXY</code> và <code>AM_GIFS_LOG_LEVEL</code>. Gói khuyến nghị <code>ffmpeg</code>, <code>gifsicle</code>, <code>librsvg2-bin</code> (<code>librsvg2-tools</code> cho .rpm) và một phông DejaVu: dịch vụ sử dụng chúng để tạo các định dạng GIF, video và sticker khi nhập hoặc nhận tệp, và vẫn chạy được mà không có chúng.</p>
+<p>Giống như máy chủ, dịch vụ được bật nhưng không được khởi động khi cài đặt. Khởi động nó như đã mô tả trong <a href="#packages">bước 5 của các gói</a>. Sau khi nâng cấp, hãy khởi động lại: <code>sudo systemctl restart gifs-server</code>. Gỡ bỏ gói sẽ giữ lại danh mục trong <code>/var/lib/gifs-server</code>.</p>
+
+<h3>Proxy push</h3>
+<p>Phiên bản phát hành: <a href="https://github.com/AntimatterChat/push-proxy/releases">github.com/AntimatterChat/push-proxy/releases</a>. Tệp lưu trữ có tên <code>antimatter-push-proxy-&lt;version&gt;-linux-&lt;arch&gt;.tar.gz</code>; các gói được đặt tên là <code>antimatter-push-proxy</code>. Gói cài đặt <code>/usr/bin/antimatter-push-proxy</code> và dịch vụ <code>antimatter-push-proxy</code>, chạy dưới người dùng <code>antimatter-push-proxy</code> và đọc tệp <code>/etc/antimatter-push-proxy/antimatter-push-proxy.json</code> (được giữ lại khi nâng cấp). Thông tin xác thực của Apple và Firebase được đặt trong <code>/etc/antimatter-push-proxy/certs</code>: <a href="{{root}}docs/admins/email-push.html#push">Thông báo đẩy</a> giải thích nguồn gốc của chúng.</p>
+<pre><code>sudo apt install ./antimatter-push-proxy_*_amd64.deb      # or: sudo dnf install ./antimatter-push-proxy-*.x86_64.rpm
+sudo install -o root -g antimatter-push-proxy -m 0640 \
+    AuthKey_ABCDE12345.p8 firebase-service-account.json /etc/antimatter-push-proxy/certs/
+sudoedit /etc/antimatter-push-proxy/antimatter-push-proxy.json
+sudo systemctl start antimatter-push-proxy
+journalctl -u antimatter-push-proxy -f</code></pre>
+<p>Trong tệp cài đặt, các đường dẫn là tương đối so với <code>/etc/antimatter-push-proxy</code>: ví dụ <code>"AppleAuthKeyFile": "./certs/AuthKey_ABCDE12345.p8"</code> và <code>"ServiceFileLocation": "./certs/firebase-service-account.json"</code>. Sau đó, đặt <b>Máy chủ thông báo đẩy</b> trong Antimatter thành <code>http://&lt;proxy host&gt;:8066</code>. Sau khi nâng cấp, hãy khởi động lại: <code>sudo systemctl restart antimatter-push-proxy</code>.</p>
+<div class="callout warn">Proxy thông báo lắng nghe trên cổng 8066 ở mọi địa chỉ và không kiểm tra ai đang gọi. Hãy giữ cổng này trên mạng riêng tư, hoặc đặt sau một proxy ngược (reverse proxy) có giới hạn quyền truy cập.</div>
 
 <h2 id="other-commands">Các lệnh máy chủ khác</h2>
 <p>Ngoài lệnh chạy máy chủ (<code>antimatter</code>, hoặc <code>antimatter server</code>), tệp nhị phân còn có một số lệnh bảo trì. Chúng đọc cùng một cấu hình với máy chủ.</p>

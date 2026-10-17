@@ -4,7 +4,7 @@ guide: developers
 order: 2
 nav: واجهة REST API
 lead: كل ما تفعله تطبيقات Antimatter يمر عبر نفس واجهة HTTP، لذا يمكن لبرامجك النصية (Scripts) أن تفعل الشيء نفسه. تشرح هذه الصفحة كيفية المصادقة، الموارد التي ستستخدمها أكثر، شكل الاستجابات والأخطاء، وكيفية متابعة الأحداث مباشرة عبر WebSocket.
-source: dccc67af2fb2
+source: a18155751d3e
 ---
 <h2 id="basics">أساسيات</h2>
 <ul>
@@ -14,7 +14,7 @@ source: dccc67af2fb2
 <li><b>المجتمعات هي فرق</b>: تسميها الواجهة <code>teams</code>، مع <code>team_id</code>.</li>
 <li><b>نفسك</b>: في أي مسار يستقبل <code>user_id</code>، يعني <code>me</code> المستخدم المُسجَّل الدخول، كما في <code>GET /users/me</code>.</li>
 </ul>
-<p>القائمة الكاملة بنقاط النهاية موجودة في كود الخادم: تُعلن المسارات في <code>server/channels/api4/*.go</code> والأنواع في <code>server/public/model</code>. يغطي وصف OpenAPI في مجلد <code>api/v4/source</code> في المستودع نقاط النهاية الموروثة من Mattermost، وليس إضافات Antimatter.</p>
+<p>القائمة الكاملة بنقاط النهاية موجودة في كود الخادم: تُعلن المسارات في <code>server/channels/api4/*.go</code> والأنواع في <code>server/public/model</code>. يغطي وصف OpenAPI في مجلد <code>api/v4/source</code> في المستودع نقاط النهاية الموروثة من Mattermost، وبعض الإضافات الخاصة بـ Antimatter: نقل سلاسل الرسائل، والاتصالات بالنماذج، وإجراءات الرسائل. أما البقية فهي موجودة في الكود فقط.</p>
 
 <h2 id="auth">المصادقة</h2>
 <p>كل طلب، باستثناء تسجيل الدخول وبعض نقاط النهاية العامة، يحتاج إلى رمز في ترويسة <code>Authorization</code>:</p>
@@ -144,7 +144,7 @@ func main() {
 <tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> نفس المسار<br><code>PATCH</code>، <code>DELETE …/fields/{field_id}</code></td><td>سمات المجتمع: حقول الملف الشخصي التي يحددها مسؤولو المجتمع لأعضائه (حتى 20). يمكن للأعضاء قراءتها؛ ويُنشئها مسؤولو المجتمع ويغيّرونها.</td></tr>
 <tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> نفس المسار<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>قيم سمات العضو، بصيغة <code>{field_id: value}</code>. يضبط الأعضاء قيمهم الخاصة (باستثناء تلك التي يديرها المسؤولون)؛ ويضبط المسؤولون قيم أي شخص. يستقبل البحث <code>{"user_ids": [...]}</code> (حتى 200).</td></tr>
 <tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>المهل الزمنية: <code>{"until": time, "reason": "…"}</code> يمنع شخصًا من النشر، وإضافة ردود الفعل، ورفع الملفات في المجتمع حتى ذلك الحين (بحد أقصى 28 يومًا)؛ <code>"until": 0</code> يرفع المنع. يعرض عرض الإشراف على المجتمع وقت انضمامهم وكمية منشوراتهم الأخيرة.</td></tr>
-<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>الرسائل المثبتة في أعلى القناة (حتى 10). <code>{"duration": ms}</code>، بحد أقصى 30 يومًا؛ 0 يبقيها مثبتة حتى تتم إزالتها. يتطلب صلاحية النشر في القناة.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>الرسائل المثبتة في أعلى القناة (حتى 10). <code>{"duration": ms}</code>، بحد أقصى 30 يوماً؛ القيمة 0 تحافظ عليها حتى تُزال. يمكن لأي شخص يملك صلاحية قراءة القناة عرضها. تثبيت رسالة في الأعلى أو إزالتها يتطلب صلاحية النشر في القناة، وفي قناة المجتمع، أن يكون المرء مديراً للقناة أو للمجتمع، أو أن يملك صلاحية <b>إدارة الرسائل</b> (<code>delete_others_posts</code>) هناك. في رسالة مباشرة أو جماعية، يمكن لأعضائها ذلك. يُرفض ذلك في القنوات المؤرشفة.</td></tr>
 <tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>يعمل على طلب رسالتك الخاص: <code>{"action": "accept"}</code>، <code>"dismiss"</code>، أو <code>"request"</code> لإعادة المحادثة إلى قائمة الطلبات. يعيد عضو القناة الخاص بك.</td></tr>
 <tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>ما يمكن لدورٍ أو شخصٍ فعله في قناة، والأدوار التي ترى قناة مقيدة بدور.</td></tr>
 <tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>تصنيفات القنوات المشتركة للمجتمع، والاستثناءات التي تنطبق على كل قناة ضمن تصنيف.</td></tr>
@@ -152,13 +152,75 @@ func main() {
 <tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>يُجرّب قواعد الربط التلقائي للمجتمع على نص.</td></tr>
 <tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>تنزيل رسائل القناة بصيغة CSV (حتى 50,000 رسالة)، للأشخاص الذين يمكنهم قراءة القناة.</td></tr>
 <tr><td><code>GET /posts/{post_id}/speech</code></td><td>الرسالة مقروءة بصوت عالٍ، بصيغة صوتية، عند إعداد تحويل النص إلى كلام.</td></tr>
+<tr><td><code>POST /posts/{post_id}/move_to_channel</code></td><td>ينقل سلسلة رسائل إلى قناة أخرى في نفس المجتمع: راجع <a href="#move-thread">نقل سلسلة رسائل</a>.</td></tr>
+<tr><td><code>GET</code>, <code>POST /ai/connections</code><br><code>GET</code>, <code>PATCH</code>, <code>DELETE /ai/connections/{connection_id}</code><br><code>GET /ai/connections/usable</code></td><td>الاتصالات بالنماذج، وهي مزودو الذكاء الاصطناعي الذين تستخدمهم ميزات الذكاء الاصطناعي والتطبيقات في الخادم: راجع <a href="#ai-connections">الاتصالات بالنماذج</a>.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/message_actions</code><br><code>POST /posts/{post_id}/message_actions/{hook_id}</code><br><code>GET</code>, <code>POST /hooks/outgoing/{hook_id}/icon</code></td><td>إجراءات الرسائل: خطافات ويب صادرة يشغّلها المستخدمون من قائمة الرسالة. راجع <a href="{{root}}docs/developers/webhooks.html#message-actions">إجراءات الرسائل</a>.</td></tr>
 </tbody>
 </table>
 <h3>حقول جديدة</h3>
 <ul>
-<li><b>المجتمعات</b> (<code>Team</code>، و<code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (كل عضو ينتمي إلى كل قناة يمكنه رؤيتها)، <code>default_channel_id</code> (القناة التي يصل إليها الأعضاء الجدد؛ إذا كانت فارغة فهي Town Square)، <code>hide_role_colors</code>، <code>require_team_badges</code>، و<code>onboarding</code> و<code>autolinks</code> (كلاهما نص JSON).</li>
+<li><b>المجتمعات</b> (<code>Team</code>، و<code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (كل عضو ينتمي إلى كل قناة يمكنه رؤيتها)، <code>default_channel_id</code> (المكان الذي يصل إليه الجدد؛ القيمة الفارغة تعني القناة العامة)، <code>kind</code> (<code>community</code> أو <code>workplace</code>: في مساحة عمل، يمكن لمديري القنوات أرشفة قنواتهم أيضاً؛ المجتمعات الجديدة تحصل على <code>TeamSettings.DefaultCommunityKind</code> الخاص بالخادم، وهو <code>community</code> افتراضياً)، <code>member_list_view</code> (كيف تُجمّع قائمة الأعضاء الأعضاء: <code>choice</code>، الافتراضي، يتيح لكل عضو الاختيار؛ <code>roles</code> أو <code>teams</code> يثبّط ذلك)، <code>hide_role_colors</code>، <code>require_team_badges</code>، <code>onboarding</code> و<code>autolinks</code> (كلاهما سلاسل JSON).</li>
+<li>القناة الافتراضية <b>القناة الافتراضية</b> للمجتمع الجديد هي <code>general</code> (<b>عام</b>)، وليس <code>town-square</code>. يقوم ترقية 0.9.0 بإعادة تسمية <code>town-square</code> لكل مجتمع إلى <code>general</code> مع الحفاظ على المعرّف، ما لم يكن للمجتمع قناة <code>general</code> بالفعل. تبقى الأسماء القديمة صالحة: <code>GET /teams/{team_id}/channels/name/town-square</code>، <code>GET /teams/name/{team}/channels/name/town-square</code> و<code>channel</code> في خطاف الويب الوارد تعطي القناة الافتراضية للمجتمع عندما لا توجد قناة بهذا الاسم. استخدم <code>default_channel_id</code>، أو الاسم <code>general</code>، في الأكواد الجديدة.</li>
+<li><b>روابط القنوات</b>: يربط <code>#channel-name</code> قناة، كما يفعل <code>~channel-name</code>. يحدد خاصية <code>channel_mentions</code> في المنشور القنوات المرتبطة بأي من الطريقتين؛ يبقى <code>#word</code> الذي لا يسمي قناة وسمًا. يكتب واجهة Antimatter الويب وتطبيق الجوال <code>#name</code>.</li>
+<li>تستقبل <b>القنوات المؤرشفة</b> أعضاء جددًا (<code>POST /channels/{channel_id}/members</code>)، ويمكنهم قراءة سجلها. لا يستطيع أحد النشر، أو إضافة ردود فعل، أو تثبيت، أو وضع رسالة في الأعلى، أو إعادة تسمية القناة، أو تغيير أدوار أعضائها هناك.</li>
 <li><b>الردود المضمنة</b>: منشور يحتوي على <code>"props": {"reply_to": "&lt;post id&gt;"}</code> يستشهد بتلك الرسالة من نفس القناة. أضف <code>"reply_to_mention": false</code> لتجنب إخطار كاتبها. يملأ الخادم <code>metadata.reply_to</code> بوصف مختصر للرسالة المستشهد بها.</li>
 <li><b>المحتوى الحساس</b>: <code>"props": {"spoiler": true}</code> يخفي نص المنشور وملفاته حتى يختار القارئ رؤيتها.</li>
 <li><b>التجاهل والحظر</b> تفضيلات: التصنيف <code>user_block</code>، باسم معرف الشخص الآخر، والقيمة <code>ignore</code> أو <code>block</code>. ما إذا كانت رسالة مباشرة تنتظر كطلب موجود في <code>notify_props.dm_request</code> لعضو القناة لديك (<code>pending</code>، <code>accepted</code> أو <code>dismissed</code>).</li>
 <li>يمكن أن تتضمن <b>مرفقات الرسائل</b> <code>stages</code> و<code>chart</code>: راجع <a href="{{root}}docs/developers/webhooks.html#cards">البطاقات</a>.</li>
 </ul>
+
+<h2 id="move-thread">نقل سلسلة رسائل</h2>
+<p>ينقل <code>POST /posts/{post_id}/move_to_channel</code> سلسلة رسائل، ورسالتها الأولى، وجميع ردودها، إلى قناة أخرى في نفس المجتمع. يمكن أن يكون <code>post_id</code> الرسالة الأولى أو أي رد.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts/$POST_ID/move_to_channel \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$TARGET_CHANNEL_ID'", "flatten": false}'</code></pre>
+<ul>
+<li><code>channel_id</code> (إلزامي): القناة التي تُنقل إليها سلسلة الرسائل.</li>
+<li><code>flatten</code> (الافتراضي <code>false</code>): يجعل <code>true</code> الردود رسائل في القناة الهدف بدلاً من سلسلة رسائل. يستخدم <b>Make it a channel</b> في Fusion هذا.</li>
+</ul>
+<p>تحافظ الرسائل على مؤلفيها، وأوقاتها، وردود الفعل، وملفاتها. تحمل نسخها خاصية <code>silent_notification</code>، لذا لا تُشعر أحدًا. تُحذف الرسائل الأصلية. تكون الإجابة هي الرسالة الأولى المنقولة، مع معرّفها الجديد.</p>
+<h3>من يمكنه نقل سلسلة رسائل</h3>
+<ul>
+<li>يجب أن تكون قادرًا على قراءة سلسلة الرسائل والنشر في القناة الهدف.</li>
+<li>يمكن لمديري القناة، ومديري المجتمع، والأشخاص الذين لديهم <b>إدارة الرسائل</b> (<code>delete_others_posts</code>) في القناة، ومديري النظام، نقل أي سلسلة رسائل.</li>
+<li>يمكن لمؤلف سلسلة الرسائل نقلها عندما تكون القناتين عامتين، أو عندما تكون جميع رسائل السلسلة ملكه. وإلا تكون الإجابة <code>403</code> مع المعرّف <code>api.post.move_thread.private_needs_moderator.app_error</code>.</li>
+<li>يجب أن تكون القناتان ضمن المجتمع نفسه (لا رسائل مباشرة أو جماعية)، وأن تكونا مختلفتين وغير مؤرشفتين. لا يمكن نقل الرسائل النظامية أو الرسائل التي تُحذف بعد قراءتها.</li>
+<li>يُرفض نقل سلسلة رسائل تتجاوز <code>WranglerSettings.MoveThreadMaxCount</code> رسالة (100 افتراضيًا؛ 0 يعني بلا حد).</li>
+</ul>
+<h3>المؤشر والملاحظة</h3>
+<p>يترك النقل رسالتين نظاميتين من النوع <code>system_wrangler</code>: مؤشر في القناة القديمة («نُقلت سلسلة رسائل تحتوي على 13 رسالة إلى #target») وملاحظة في القناة الهدف («نُقلت هذه السلسلة من #source»)، تحت السلسلة المنقولة أو، مع <code>flatten</code>، بعد رسائلها. بالإضافة إلى نص الرسالة، تتيح خصائصها للعميل رسم اسم القناة كرابط:</p>
+<ul>
+<li>المؤشر: <code>MovedThreadPermalink</code>، <code>NumMessages</code>، <code>MovedThreadChannelId</code>، <code>MovedThreadTeamName</code>، <code>MovedThreadPostId</code>، و، للهدف العام، <code>MovedThreadChannelName</code> و<code>MovedThreadChannelDisplayName</code>.</li>
+<li>الملاحظة: <code>MovedFromChannelId</code>، <code>MovedFromTeamName</code>، <code>MovedFromPostId</code> (المؤشر)، <code>MovedFromPermalink</code>، و، للمصدر العام، <code>MovedFromChannelName</code> و<code>MovedFromChannelDisplayName</code>.</li>
+</ul>
+<p>يحمل كلاهما أيضًا <code>TranslationID</code>. يُستبعد اسم القناة الخاصة: يرى القارئون «قناة أخرى». يبقى <code>POST /posts/{post_id}/move</code> الخاص بـ Mattermost معطلًا في Antimatter؛ استخدم هذا النهاية.</p>
+
+<h2 id="ai-connections">اتصالات النماذج</h2>
+<p>اتصال النموذج هو عنوان ومفتاح مزوّد الذكاء الاصطناعي، يُضبطه مدير. تستخدمه ميزات الذكاء الاصطناعي في الخادم والتطبيقات التي تستدعي خدمة الذكاء الاصطناعي. يدير المسؤولون النظاميون الاتصالات على مستوى الخادم (<code>manage_ai_connections</code>)؛ ويدير مسؤولو المجتمع اتصالات مجتمعهم (<code>manage_team_ai_connections</code>). المفاتيح للكتابة فقط: لا يحمل أي رد مفتاحًا، بل <code>api_key_set</code> و<code>api_key_last4</code> فقط.</p>
+<table>
+<thead><tr><th>النهاية</th><th>وظيفته</th></tr></thead>
+<tbody>
+<tr><td><code>GET /ai/connections?scope=</code></td><td>الاتصالات التي تديرها. <code>scope</code> هو <code>server</code> أو معرّف مجتمع؛ بدونه، كل النطاقات التي تديرها.</td></tr>
+<tr><td><code>POST /ai/connections</code></td><td>يضيف اتصالًا (يرد <code>201</code>).</td></tr>
+<tr><td><code>POST /ai/connections/test</code>, <code>POST /ai/connections/models</code></td><td>يختبر اتصالًا، أو يعرض نماذجه، قبل حفظه. نفس الجسم عند الإضافة؛ لا يُخزَّن شيء.</td></tr>
+<tr><td><code>GET</code>، <code>PATCH</code> (أو <code>PUT</code>)، <code>DELETE /ai/connections/{connection_id}</code></td><td>يقرأ أو يعدّل أو يحذف اتصالًا. يحمل التصحيح فقط الحقول المراد تغييرها؛ اترك <code>api_key</code> فارغًا للحفاظ على المفتاح.</td></tr>
+<tr><td><code>POST /ai/connections/{connection_id}/test</code></td><td>يختبر اتصالًا محفوظًا: <code>{"ok", "error", "status_code", "latency_ms", "model_count"}</code>.</td></tr>
+<tr><td><code>GET /ai/connections/{connection_id}/models</code></td><td>النماذج التي يوفرها المزوّد.</td></tr>
+<tr><td><code>GET /ai/connections/{connection_id}/usage</code></td><td>طلبات هذا الشهر وعدد الرموز.</td></tr>
+<tr><td><code>GET /ai/connections/usable?channel_id=&amp;team_id=</code></td><td>لكل من هو مسجّل الدخول: الاتصالات التي يمكنك استخدامها هناك، مع نماذجها وقدراتها، وليس مفاتيحها أو عناوينها.</td></tr>
+</tbody>
+</table>
+<p>جسم اتصال جديد:</p>
+<pre><code>{
+  "name": "Local models",
+  "scope": "server",
+  "provider": "openai_compatible",
+  "base_url": "http://llm.internal:8000/v1",
+  "api_key": "…",
+  "extra_headers": {},
+  "models": {"chat": "qwen3-32b", "embeddings": "", "transcription": "", "decisions": ""},
+  "limits": {"requests_per_minute": 0, "monthly_token_budget": 0, "per_user_requests_per_minute": 0, "per_user_monthly_token_budget": 0},
+  "sharing": {"all_teams": true, "team_ids": []},
+  "audience": {"everyone": true, "group_ids": [], "roles": [], "allow_guests": false}
+}</code></pre>
+<p><code>provider</code> هو <code>openai_compatible</code> أو <code>anthropic</code>. القيمة الافتراضية لـ <code>scope</code> هي <code>server</code>؛ ومعرف مجتمع يجعله اتصالاً لذلك المجتمع. في <code>limits</code>، يعني 0 عدم وجود حد؛ تُحسب الطلبات لكل دقيقة على كل خادم، وميزانيات الرموز لكل شهر تقويمي (UTC) للعنقود بأكمله. يحدد <code>sharing</code> المجتمعات التي يمكنها استخدام اتصال على مستوى الخادم (تتطلب الرسائل المباشرة والجماعية <code>all_teams</code>)، ويحدد <code>audience</code> من يمكنه استخدامه؛ الضيوف فقط مع <code>allow_guests</code>. تُكتب التغييرات في سجل التدقيق. يشرح دليل المدير الإعدادات: راجع <a href="{{root}}docs/admins/ai.html">الذكاء الاصطناعي</a>.</p>

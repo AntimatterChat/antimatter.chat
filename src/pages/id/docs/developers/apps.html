@@ -1,10 +1,10 @@
 title: Menulis aplikasi (plugin)
-description: Cara menulis aplikasi Antimatter (plugin): tata letak bundle dan plugin.json, hook dan API server, registri aplikasi web, dukungan antarmuka Fusion, pengaturan, penyimpanan kunci-nilai, terjemahan, pengemasan, dan pemasangan.
+description: Cara menulis aplikasi (plugin) Antimatter: tata letak bundel dan plugin.json, hook dan API server, layanan AI, registri aplikasi web, dukungan antarmuka Fusion, pengaturan, penyimpanan kunci-nilai, terjemahan, pengemasan, dan pemasangan.
 guide: developers
 order: 6
 nav: Menulis aplikasi
 lead: Aplikasi menambahkan fitur ke Antimatter dari dalam: bagian server dalam Go yang terhubung ke server, dan bagian aplikasi web dalam React yang menambahkan menu, panel, jenis pesan, dan halaman. Halaman ini menunjukkan tata letak aplikasi, menggunakan aplikasi Polls bawaan sebagai contoh, dan apa yang berubah di antarmuka Fusion Antimatter.
-source: d9c132cac759
+source: f2c14bacc2f3
 ---
 <h2 id="overview">Cara kerja aplikasi</h2>
 <ul>
@@ -131,6 +131,22 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 <li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: periksa siapa yang boleh melakukan apa sebelum bertindak untuk pengguna.</li>
 </ul>
 <p>Aplikasi berjalan di setiap server dalam klaster. Simpan status di penyimpanan kunci-nilai atau database, bukan hanya di memori.</p>
+<h3 id="ai">Layanan AI</h3>
+<p>Server Antimatter memanggil model AI untuk aplikasi, melalui koneksi model yang disetel oleh admin (lihat <a href="{{root}}docs/admins/ai.html">AI</a> di panduan admin). Aplikasi tidak pernah menyimpan kunci penyedia: aplikasi hanya menyebutkan orang yang diwakilinya dan lokasinya, lalu server memeriksa apakah orang tersebut dapat menggunakan koneksi di lokasi itu, menerapkan batas dan anggaran, menghitung token atas nama orang dan aplikasi tersebut, serta mengaudit panggilan tanpa isinya.</p>
+<table>
+<thead><tr><th>Metode</th><th>Fungsinya</th></tr></thead>
+<tbody>
+<tr><td><code>AIChat(actingUserID, channelID, teamID, *ai.ChatRequest)</code></td><td>Penyelesaian percakapan: pesan, alat, keluaran terstruktur (<code>JSONSchema</code>).</td></tr>
+<tr><td><code>AIChatStream(…)</code></td><td>Sama, tetapi dialirkan: baca <code>Events</code> dari aliran hingga kanal ditutup, atau <code>Close</code> untuk menghentikan panggilan.</td></tr>
+<tr><td><code>AIEmbed(…, *ai.EmbedRequest)</code></td><td>Embedding teks.</td></tr>
+<tr><td><code>AITranscribe(…, *ai.TranscribeRequest)</code></td><td>Ucapan ke teks.</td></tr>
+<tr><td><code>AIDecide(…, *ai.DecideRequest)</code></td><td>Pertanyaan bertipe ke model keputusan (ya atau tidak, pilihan, skor) tentang sebuah teks.</td></tr>
+<tr><td><code>AIConnectionsForUser(userID, channelID, teamID)</code></td><td>Koneksi yang dapat digunakan seseorang di sana, beserta model dan kemampuannya, bukan kuncinya.</td></tr>
+</tbody>
+</table>
+<p><code>ConnectionID</code> pada setiap permintaan memilih koneksi, dan <code>Model</code> memilih salah satu modelnya (kosong untuk model bawaan koneksi). <code>Operation</code> adalah label singkat untuk catatan penggunaan dan audit, bukan isinya. Versi server minimumnya adalah 11.11.</p>
+<div class="callout warn">Ambil <code>actingUserID</code> hanya dari sumber yang telah diverifikasi server: header <code>Mattermost-User-Id</code> pada permintaan ke <code>ServeHTTP</code> Anda, atau pengguna dari konteks hook (pengarang kiriman, pengguna yang menjalankan perintah). Jangan pernah mengambilnya dari pesan, muatan webhook, URL, atau permintaan aplikasi lain: aplikasi Anda akan menghabiskan akses orang lain.</div>
+<p>Metode-metode ini dan paket <code>ai</code> (<code>server/public/ai</code>) hanya ada pada salinan modul milik Antimatter, bukan pada versi yang diterbitkan oleh Mattermost. Untuk menggunakannya, bangun modul terhadap <code>server/public</code> Antimatter dengan baris <code>replace</code> di <code>go.mod</code> Anda, misalnya <code>replace github.com/mattermost/mattermost/server/public =&gt; ../antimatter/server/public</code>. Aplikasi semacam ini hanya berjalan di Antimatter.</p>
 
 <h2 id="kv">Menyimpan data</h2>
 <p>Setiap aplikasi memiliki penyimpanan kunci-nilai sendiri di database server:</p>
@@ -172,17 +188,17 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <pre><code>export function isFusionUI(): boolean {
     return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
 }</code></pre>
-<p>Aplikasi bawaan menggunakan ini untuk menggambar antarmuka dengan cara yang berbeda. Jajak Pendapat menggambar kartu jajak pendapat dan dialog pembuatannya dengan gaya Fusion, dan membuka dialognya sendiri untuk <code>/poll</code> di Fusion. Panggilan dan Kanal Suara tidak menyertakan komponen bilah samping dan toast yang diganti Fusion dengan antarmuka panggilannya sendiri. Aplikasi Agen menempatkan aksi AI-nya di submenu menu pesan, bukan di bilah alat hover. Kelas CSS Fusion (dengan awalan <code>am-</code>) dan lapisan dialognya (elemen <code>am-layer</code>) adalah yang digunakan aplikasi-aplikasi ini untuk menyelaraskan antarmuka; ini bukan API yang didokumentasikan dan stabil.</p>
+<p>Aplikasi bawaan menggunakan ini untuk menggambar antarmuka dengan cara yang berbeda. Poll menggambar kartu jajak pendapat dan dialog pembuatannya dengan gaya Fusion, dan membuka dialognya sendiri untuk <code>/poll</code> di Fusion. Calls dan Kanal Suara tidak menyertakan komponen bilah samping dan toast yang diganti Fusion dengan antarmuka panggilannya sendiri. Aplikasi Agen menempatkan aksi AI-nya di menu pesan, sebagai grup di bawah <b>Lainnya</b>, bukan di bilah alat hover. Kelas CSS Fusion (dengan awalan <code>am-</code>) dan lapisan dialognya (elemen <code>am-layer</code>) adalah yang digunakan aplikasi-aplikasi ini untuk menyelaraskan antarmuka; ini bukan API yang didokumentasikan dan stabil.</p>
 <h3>Di mana Fusion menampilkan komponen plugin</h3>
 <table>
 <thead><tr><th>Metode registri</th><th>Di mana muncul di Fusion</th></tr></thead>
 <tbody>
 <tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>Rel aplikasi, kolom ikon di tepi kanan, antara avatar Anda dan tombol <b>Tentang Antimatter</b>. Tombol header kanal juga berada di sana, bukan di header kanal. Disembunyikan ketika admin sistem mengaktifkan <b>Nonaktifkan Bilah Aplikasi</b> (<code>ExperimentalSettings.DisableAppBar</code>, nonaktif secara default).</td></tr>
-<tr><td><code>registerRightHandSidebarComponent</code></td><td>Panel di sisi kanan. Orang dapat mengubah ukurannya dengan menarik tepinya. Jika aplikasi juga merupakan produk, panel menawarkan <b>Buka sebagai halaman penuh</b>.</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>Panel di sisi kanan. Orang dapat mengubah ukurannya dengan menyeret tepinya, dan membukanya di jendela baru. Jika aplikasi tersebut juga merupakan produk, panel menawarkan <b>Buka sebagai halaman penuh</b>. Lihat <a href="#panel-state">Panel di jendela baru</a>.</td></tr>
 <tr><td><code>registerChannelHeaderIcon</code></td><td>Ikon di header kanal, setelah tombol panggilan; di ponsel, di menu <b>Lainnya</b> header.</td></tr>
 <tr><td><code>registerCallButtonAction</code></td><td>Tombol panggilan di header kanal; beberapa penyedia berbagi menu <b>Cara lain untuk melakukan panggilan</b>.</td></tr>
-<tr><td><code>registerPostDropdownMenuAction</code></td><td>Menu <b>Lainnya</b> (⋯) pesan, di submenu <b>Aksi pesan</b>; juga di menu <b>Tindakan utas</b> panel utas, di bawah <b>Lainnya</b>.</td></tr>
-<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Submenu sendiri dari menu yang sama, dengan nama dan ikon aplikasi.</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>Menu <b>Aksi pesan</b> (⋯) pesan, di submenu <b>Lainnya</b>; juga di menu <b>Tindakan utas</b> panel utas, di bawah <b>Lainnya</b>. Fusion menggambar ikon aplikasi di depan setiap aksi, berwarna abu-abu: ikonnya sendiri untuk aplikasi bawaan, jika tidak, ikon yang ditampilkan aplikasi di rel aplikasi, jika tidak, ikon netral. Elemen tanpa teks di awal teks aksi (ikon yang digambar oleh aplikasi itu sendiri) disembunyikan.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Grup dengan judul di submenu <b>Lainnya</b> yang sama, setelah aksi tunggal. Tidak ada aplikasi yang mendapatkan entri miliknya sendiri di menu pesan.</td></tr>
 <tr><td><code>registerPostActionComponent</code></td><td>Bilah alat hover pesan, sebelum tombol ⋯.</td></tr>
 <tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>Pesan itu sendiri: isinya, di bawah teksnya, setelah waktunya, dan menggantikan pratinjau tautan.</td></tr>
 <tr><td><code>registerChannelHeaderMenuAction</code></td><td>Menu <b>Opsi kanal</b> kanal (⋯ pada kanal di bilah samping, atau klik kanan), sebagai item dengan ikon colokan.</td></tr>
@@ -200,7 +216,7 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <tr><td><code>registerChannelTypeOption</code></td><td>Jenis kanal dalam dialog <b>Buat kanal</b>.</td></tr>
 <tr><td><code>registerSearchComponents</code></td><td>Kotak cari di header kanal: cakupan aplikasi muncul saat kotak kosong.</td></tr>
 <tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>Tentang Antimatter</b> (bagian bawah bilah aplikasi), di bawah <b>Bantuan</b>.</td></tr>
-<tr><td><code>registerProduct</code></td><td>Halaman lengkap di URL produk, yang tercantum di bawah <b>Produk</b> dalam <b>Tentang Antimatter</b>. Halaman produk mempertahankan bingkai halaman klasik.</td></tr>
+<tr><td><code>registerProduct</code></td><td>Halaman penuh di URL produk, yang terdaftar di bawah <b>Produk</b> di <b>Tentang Antimatter</b>. Halaman produk mempertahankan bingkai halaman klasik, di mana menu produk hanya muncul ketika aplikasi mendaftarkan produk atau menambahkan entri ke dalamnya. Aplikasi Kanban dan Playbooks bawaan tidak lagi mendaftarkan produk: halaman mereka terbuka di panel samping mereka.</td></tr>
 <tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, hook seperti <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>Berfungsi seperti pada antarmuka klasik.</td></tr>
 <tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>Konsol Sistem, yang merupakan versi klasik di kedua antarmuka.</td></tr>
 </tbody>
@@ -230,12 +246,21 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <thead><tr><th>Metode</th><th>Yang ditambahkan</th></tr></thead>
 <tbody>
 <tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>Item di menu <b>+</b> kotak pesan, di kedua antarmuka. <code>action</code> menerima <code>{channelId, rootId}</code>.</td></tr>
-<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Tab pada pemilih emoji di kotak pesan, seperti GIF atau stiker. Di Fusion, tab dengan <code>order</code> di bawah 10 muncul sebelum tab Emoji. Komponen ini menerima <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code>, dan <code>isFusion</code>.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Tab dari pemilih emoji kotak pesan, seperti GIF atau stiker. Di Fusion, tab dengan <code>order</code> di bawah 10 muncul sebelum tab Emoji. Komponen menerima <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code>, <code>isFusion</code> dan, di Fusion, <code>pickerKit</code> (lihat di bawah).</td></tr>
 <tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>Panel di antara header kanal dan pesan, untuk kanal yang dipilih oleh <code>matcher(state, channel)</code>. Panel ini dapat menyembunyikan pesan dan komposer (<code>setMessagesVisible</code>), seperti yang dilakukan oleh kanal suara.</td></tr>
 <tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>Baris di bawah sebuah kanal di bilah samping, seperti orang-orang yang sedang dalam panggilannya. Baris ini menerima <code>channel</code>.</td></tr>
 <tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Khusus Fusion: entri di halaman <b>Integrasi</b>, di sebelah emoji kustom. Aplikasi GIF menambahkan GIF dan stiker kustomnya di sana.</td></tr>
 </tbody>
 </table>
+<h3 id="picker-kit">Menambahkan dan mengelola tampilan di pemilih emoji</h3>
+<p>Di Fusion, tab pemilih emoji memiliki prop <code>pickerKit</code>: komponen yang digunakan tab Emoji untuk tampilan tambah dan kelolanya sendiri, sehingga tampilan tab terlihat seragam dan tetap berada di dalam pemilih. Aplikasi GIF dan Meme menggunakannya untuk menambah dan mengelola GIF, stiker, dan template meme. Prop ini berisi <code>version</code> (1), hook <code>usePickerView</code> dan <code>useOnEscape</code>, serta komponen <code>PickerViewButtons</code> (tombol <b>+</b> dan kelola di samping kotak pencarian), <code>PickerViewFrame</code> (tampilan dengan panah kembali), <code>PickerNotice</code>, <code>PickerField</code>, <code>PickerSearch</code>, <code>PickerDropZone</code>, dan <code>PickerManageList</code>. Tekan Escape untuk kembali dari tampilan ke grid tab. Pastikan prop ini ada: host lain tidak menyediakannya, dan tab akan menggunakan dialognya sendiri. Tipe data ada di <code>webapp/fusion/src/types/store/plugins.ts</code> (<code>EmojiPickerTabProps</code>) dan komponen ada di <code>webapp/fusion/src/fusion/popovers/picker_views.tsx</code>.</p>
+<h3 id="panel-state">Panel di jendela baru</h3>
+<p>Fusion memberikan dua prop tambahan ke komponen <code>registerRightHandSidebarComponent</code>, sehingga <b>Buka di jendela baru</b> membuka panel di tempat asalnya, bukan di beranda aplikasi:</p>
+<ul>
+<li><code>setPanelState(state)</code>: panggil ini ketika panel berpindah tempat, dengan string pendek yang didefinisikan oleh aplikasi Anda, seperti <code>'note/&lt;id&gt;'</code> atau <code>'board/&lt;id&gt;/card/&lt;id&gt;'</code>, atau <code>null</code> di beranda. Nilai ini masuk ke alamat jendela, jadi jangan pernah menyimpan rahasia di dalamnya. State yang lebih dari 512 karakter, atau mengandung karakter kontrol, akan diabaikan.</li>
+<li><code>initialPanelState</code>: di jendela baru, ini adalah state yang dimiliki panel, atau <code>undefined</code>. Perlakukan sebagai input yang tidak dapat dipercaya: ambil ulang item sebagai pengguna yang sedang masuk, dan tampilkan beranda aplikasi atau tampilan tidak ditemukan jika mereka tidak dapat membukanya.</li>
+</ul>
+<p>State dilupakan ketika panel ditutup atau panel aplikasi lain mengambil tempatnya. Untuk membuka jendela panel secara mandiri, <code>popoutRhsPlugin</code> (juga ada di <code>window.WebappUtils.popouts</code>) menerima state sebagai argumen kelima opsional. Catatan, Papan Putih, To-do, Kanban, dan Buku Taktik menggunakan ini.</p>
 <p><code>fusionIcon</code> menentukan nama ikon dari set ikon Fusion (misalnya <code>poll</code>, <code>sticker</code>, <code>calendar</code>, atau <code>image</code>; lihat <code>webapp/fusion/src/fusion/components/icon</code>). Fusion menampilkan ikon ini alih-alih <code>icon</code>, sehingga item tersebut sesuai dengan item lainnya.</p>
 
 <h2 id="settings">Pengaturan</h2>

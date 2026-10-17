@@ -4,19 +4,21 @@ guide: admins
 order: 10
 nav: Sikkerhedskopiering og opgradering
 lead: Hvad der skal sikkerhedskopieres, hvordan det gendannes på en ny vært, hvordan der opgraderes og hvordan en Mattermost-server eller et enkelt community flyttes til Antimatter.
-source: b0797af8b6e7
+source: 531ec332715c
 ---
 <h2 id="what">Hvad der skal sikkerhedskopieres</h2>
 <table>
-<thead><tr><th>Hvad</th><th>Med sitets compose-fil</th><th>Med et release-arkiv</th></tr></thead>
+<thead><tr><th>Hvad</th><th>Med sitets compose-fil</th><th>Med et release-arkiv</th><th>Med .deb- eller .rpm-pakken</th></tr></thead>
 <tbody>
-<tr><td>Databasen: beskeder, brugere, communities, kanaler og, med sitets compose-fil, konfigurationen</td><td>volumen <code>antimatter_postgres</code>, via <code>pg_dump</code></td><td>din PostgreSQL-database</td></tr>
-<tr><td>Uploadede filer, billeder og installerede apps</td><td>volumen <code>antimatter_files</code> (S3-opbevaringen)</td><td><code>FileSettings.Directory</code>, <code>./data/</code> som standard</td></tr>
-<tr><td>Konfigurationsfilen</td><td>(i databasen)</td><td><code>config/config.json</code></td></tr>
-<tr><td>GIF'er og stickers</td><td>volumen <code>antimatter_gifs</code></td><td>GIF-tjenestens datamappe</td></tr>
-<tr><td>Hemmeligheder</td><td><code>.env</code> (og <code>compose.override.yaml</code>)</td><td>din miljøfil</td></tr>
+<tr><td>Databasen: beskeder, brugere, communities, kanaler og, med sitets compose-fil, konfigurationen</td><td>volumen <code>antimatter_postgres</code>, via <code>pg_dump</code></td><td>din PostgreSQL-database</td><td>din PostgreSQL-database</td></tr>
+<tr><td>Uploadede filer, billeder og installerede apps</td><td>volumen <code>antimatter_files</code> (S3-opbevaringen)</td><td><code>FileSettings.Directory</code>, <code>./data/</code> som standard</td><td><code>/var/lib/antimatter</code></td></tr>
+<tr><td>Konfigurationsfilen</td><td>(i databasen)</td><td><code>config/config.json</code></td><td><code>/etc/antimatter/config/config.json</code></td></tr>
+<tr><td>GIF'er og stickers</td><td>volumen <code>antimatter_gifs</code></td><td>GIF-tjenestens datamappe</td><td><code>/var/lib/gifs-server</code></td></tr>
+<tr><td>Hemmeligheder</td><td><code>.env</code> (og <code>compose.override.yaml</code>)</td><td>din miljøfil</td><td><code>/etc/antimatter/antimatter.env</code>, <code>/etc/gifs-server</code></td></tr>
+<tr><td>AI-krypteringsnøglen, som krypterer nøglerne for modelforbindelser</td><td><code>AM_AI_ENCRYPTION_KEY</code> i <code>.env</code> (anbefalet), eller filen <code>ai-encryption.key</code> i volumen <code>antimatter_data</code></td><td><code>AM_AI_ENCRYPTION_KEY</code> eller <code>data/ai-encryption.key</code></td><td><code>AM_AI_ENCRYPTION_KEY</code> i <code>antimatter.env</code> eller <code>/var/lib/antimatter/data/ai-encryption.key</code></td></tr>
 </tbody>
 </table>
+<p>Uden AI-krypteringsnøglen kan en gendannet server ikke læse API-nøglerne for dens modelforbindelser, og hver nøgle skal indtastes igen. Gem en kopi af nøglen adskilt fra databasebackups, så en stjålet backup ikke indeholder begge dele. Se <a href="{{root}}docs/admins/ai.html#encryption-key">Krypteringsnøglen</a>.</p>
 <p>Databasen og filerne hører sammen: sikkerhedskopiér dem på samme tidspunkt, og opbevar kopierne på en anden plads end serveren. Volumennavne starter med compose-projektets navn, <code>antimatter</code> (<code>docker volume ls</code> viser dem).</p>
 
 <h2 id="backup">Sikkerhedskopiér</h2>
@@ -27,19 +29,20 @@ docker compose stop antimatter
 # Database
 docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
     &gt; "backups/antimatter-db-$stamp.dump"
-# File storage and GIF service
-for v in files gifs; do
+# File storage, GIF service and the data directory (the AI key file)
+for v in files gifs data; do
     docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
         alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
 done
 docker compose start antimatter
 # Secrets
 cp .env "backups/env-$stamp"</code></pre>
+<p>Hvis du ikke har angivet <code>AM_AI_ENCRYPTION_KEY</code>, findes serverens nøgelfil i <code>data</code>-volumen, som loopet ovenfor gemmer sammen med filerne. Det er bedre at indsætte indholdet i <code>.env</code>, som <a href="{{root}}docs/admins/ai.html#encryption-key">Krypteringsnøglen</a> forklarer, og gemme en kopi af det adskilt fra databasebackups.</p>
 <p>Kør det fra cron til daglige sikkerhedskopier, og kopiér <code>backups/</code>-mappen til en anden maskine. Opbevar kopierne af <code>.env</code> lige så sikkert som serveren: de indeholder dens adgangskoder.</p>
 <p>Hvis du i stedet vil kopiere de uploadede filer objekt for objekt (f.eks. til en anden S3-opbevaring), skal du bruge AWS-kommandolinjeværktøjet for <code>bucket</code>-tjenesten:</p>
 <pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
     "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
-<p>Med et release-arkiv sikkerhedskopiérer du databasen med <code>pg_dump -Fc</code>, og <code>data/</code>- og <code>config/</code>-mappene med dine almindelige værktøjer.</p>
+<p>Med et release-arkiv, så back up databasen med <code>pg_dump -Fc</code>, og <code>data/</code>- og <code>config/</code>-mapparne med dine sædvanlige værktøjer (<code>data/</code> indeholder AI-nøgelfilen). Med pakkerne, så back up databasen på samme måde, og <code>/etc/antimatter</code>, <code>/var/lib/antimatter</code>, <code>/etc/gifs-server</code> og <code>/var/lib/gifs-server</code>.</p>
 
 <h2 id="restore">Gendan på en ny vært</h2>
 <p>Læg <code>compose.yaml</code>, den gemte <code>.env</code> og sikkerhedskopiene i en ny mappe, og derefter:</p>
@@ -48,15 +51,16 @@ docker compose create           # creates the volumes, starts nothing
 docker compose up -d postgres
 docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
     &lt; "backups/antimatter-db-$stamp.dump"
-for v in files gifs; do
+for v in files gifs data; do
     docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
         alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
 done
 docker compose up -d</code></pre>
-<p>Brug den samme <code>.env</code>: opbevaringen og databasen skal beholde de adgangskoder, de havde. Hvis den nye vært har en anden adresse, skal du opdatere <code>SITE_URL</code> (og <code>DOMAIN</code>).</p>
+<p>Brug den samme <code>.env</code>: opbevaringen og databasen skal beholde de adgangskoder, de havde, og modelforbindelserne har brug for den samme AI-krypteringsnøgle. Hvis den nye vært har en anden adresse, så opdater <code>SITE_URL</code> (og <code>DOMAIN</code>).</p>
 <p>Test dine sikkerhedskopier ved at gendanne dem på en anden maskine fra tid til anden.</p>
 
 <h2 id="upgrade">Opgrader</h2>
+<div class="callout warn">Compose-filer downloadet før 17. oktober 2026 havde ingen <code>data</code>-volumen: AI-nøgelfilen var i containeren. Før du bruger den nye <code>compose.yaml</code>, og hvis <code>.env</code> ikke har <code>AM_AI_ENCRYPTION_KEY</code>, så gem den nøgle, serveren har oprettet: <code>echo "AM_AI_ENCRYPTION_KEY=$(docker compose exec -T antimatter cat /antimatter/data/ai-encryption.key)" &gt;&gt; .env</code>. Hvis kommandoen ikke finder nogen fil, har ingen modelforbindelse gemt en nøgle endnu.</div>
 <ol>
 <li>Tag en sikkerhedskopi.</li>
 <li>Skift billedtaget i <code>.env</code> (<code>ANTIMATTER_IMAGE</code>), hvis du fastlåser et, som anbefalet.</li>
@@ -65,12 +69,45 @@ docker compose up -d</code></pre>
 docker compose up -d
 docker compose logs -f antimatter</code></pre></li>
 </ol>
-<p>Ved start opgraderer serveren databasens skema (du kan følge med i loggen; en stor server kan tage flere minutter) og installerer de nyere versioner af de medfølgende apps fra billedet. Ved brug af et release-arkiv: stop serveren, udskift alt undtagen <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> og <code>client/plugins/</code> med indholdet fra det nye arkiv, og start serveren igen.</p>
+<p>Ved start opgraderer serveren databaseens schema (du kan følge med i loggen; en stor server kan tage flere minutter) og installerer de nyere versioner af de medfølgende apps fra billedet. Med et release-arkiv: stop serveren, udskift alt undtagen <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> og <code>client/plugins/</code> med det nye arkivs indhold, og start den igen. Med .deb- eller .rpm-pakken, installer den nye pakke, som <a href="{{root}}docs/admins/install.html#packages">Opgradering af en pakke</a> forklarer.</p>
 <div class="callout warn">Opgraderinger kan kun ske fremad. Når en nyere server har opgraderet databasen, kan en ældre version ikke bruge den: for at gå tilbage skal du gendanne den backup, der blev taget før opgraderingen. Det samme gælder, hvis du går fra <code>antimatter-next</code> tilbage til <code>antimatter</code>.</div>
 <h3>Versioner</h3>
-<p>Antimatters server rapporterer versionen af Mattermost-linjen, den er baseret på (i øjeblikket 12.0.0). Billederne genopbygges fra <code>main</code>-grene: <code>antimatter-next</code> hver nat (tags <code>nightly-&lt;YYYYMMDD&gt;</code>), og begge billeder ved hver ændring (tags <code>sha-&lt;commit&gt;</code>). Fastgør ét af disse tags, opgrader bevidst, og hold det forrige tag noteret, så du ved, hvilken backup der hører til det.</p>
+<p>Antimatters server rapporterer versionen af Mattermost-linjen, den er baseret på (i øjeblikket 12.0.0). Releases på GitHub, med deres arkiver og pakker, har deres egne versionsnumre, i 0.9.0-serien under beta: <code>antimatter version</code> viser det som <b>Bygnummer</b>. Billederne genopbygges fra <code>main</code>-grene: <code>antimatter-next</code> hver nat (tags <code>nightly-&lt;YYYYMMDD&gt;</code>), og begge billeder ved hver ændring (tags <code>sha-&lt;commit&gt;</code>). Fastgør ét af disse tags, opgrader bevidst, og hold det forrige tag noteret, så du ved, hvilken backup der hører til det.</p>
 <h3>PostgreSQL-hovedversioner</h3>
 <p>Compose-filen bruger <code>postgres:17-alpine</code>. Antimatter kræver PostgreSQL 15 eller nyere. En ny hovedversion af PostgreSQL kan ikke læse den forrige versions datamappe: for at skifte til en ny version skal du dumpe databasen, starte den nye version på et nyt volumen og gendanne dumpen i den.</p>
+
+<h2 id="v090">Opgradering til 0.9.0</h2>
+<p>Den første start af version 0.9.0 (eller af et billede bygget fra 17. oktober 2026) foretager nogle engangsændringer i dataene. Hver køres én gang og registreres i databasen. De bringer det, der blev efterladt med et gammelt standardværdi, til den nye, og rører ikke det, en administrator valgte. Følg dem i loggen.</p>
+<div class="callout warn">Hvis Antimatter er til en virksomhed eller organisation, så sæt <b>Type af nye fællesskaber</b> til <b>Arbejdsplads</b> <em>før</em> du opgraderer: <code>AM_TEAMSETTINGS_DEFAULTCOMMUNITYKIND=workplace</code>. Opgraderingen giver hvert fællesskab den type, denne indstilling har på det tidspunkt, og opkald er fra standard sluk i kanalerne i fællesskaber af typen <b>Fællesskab</b>. Se <a href="{{root}}docs/admins/configuration.html#community-kind">Arbejdsplads eller fællesskab</a>.</div>
+<table>
+<thead><tr><th>Hvad</th><th>Ændringen</th></tr></thead>
+<tbody>
+<tr><td>Typer af fællesskab</td><td>Hvert fællesskab får en type, <b>Fællesskab</b> eller <b>Arbejdsplads</b>: værdien af <b>Type af nye fællesskaber</b> (<code>TeamSettings.DefaultCommunityKind</code>) ved den første start. En allerede sat type bevares. Fællesskabsadministratorer kan ændre deres fællesskabs type bagefter, i <b>Teamindstillinger › Kanaler › Type af fællesskab</b>.</td></tr>
+<tr><td>Hvem arkiverer kanaler</td><td>Kanalmedlemmer arkiverer ikke længere de kanaler, de er en del af: Det gøres af teamadministratorer. På et arbejdsområde arkiverer kanalens administratorer (den, der oprettede den, og dem, de har gjort til administratorer) også kanalen. Dette ændrer rollerne i systemskemaet, mens tilladelsesskemaer, som en systemadministrator har oprettet for visse teams, forbliver uændrede.</td></tr>
+<tr><td>Rollen Moderatorer i layoutforudindstillingerne</td><td>Rollen <b>Moderatorer</b>, som teams har fået fra en layoutforudindstilling, får <b>Fjern personer</b>, som er nødvendigt for at udelukke og fjerne personer. Kun roller, der stadig er præcis som forudindstillingen oprettede dem, ændres; en rolle, som nogen har redigeret, forbliver uændret.</td></tr>
+<tr><td>Roller med <b>Administrator</b></td><td>En teamrolle med <b>Administrator</b>-indstillingen aktiveret indeholder nu alt det, som teamets administratorer kan gøre, som indstillingen angiver, og ikke kun teamets indstillinger.</td></tr>
+<tr><td>Begrænsning for medlemmer</td><td><b>Maks. medlemmer pr. team</b> (<code>TeamSettings.MaxUsersPerTeam</code>) ændres fra 50, den gamle standardværdi, til 0 (ingen begrænsning). Eventuelle andre værdier bevares, ligesom en begrænsning, der er sat med <code>AM_TEAMSETTINGS_MAXUSERSPERTEAM</code>.</td></tr>
+<tr><td>Modelforbindelser</td><td>Systemadministratorer får styring af modelforbindelser, og teamadministratorer (og roller med <b>Administrator</b>) får styring af deres teams egne. AI-tjenesterne i Agents-appen bliver serveromfattende <a href="{{root}}docs/admins/ai.html#connections">modelforbindelser</a>, se nedenfor.</td></tr>
+<tr><td>Town Square bliver General</td><td>Hver teams standardkanal omdøbes fra <code>town-square</code> (Town Square) til <code>general</code> (General). Den beholder sin ID, medlemmer, beskeder og indstillinger, samt et visningsnavn, som administratorer har valgt. Gamle links og opslag med <code>town-square</code> fører stadig til den. Et team, der allerede har en kanal med navnet <code>general</code>, også hvis den er arkiveret, beholder sin <code>town-square</code> som standardkanal, ligesom et team, hvis <code>town-square</code> er arkiveret: Loggen nævner dem, og deres administratorer kan omdøbe kanalerne.</td></tr>
+<tr><td>Favoritter</td><td>Alle brugeres sidebjælkekategori Favorites omdøbes til Favourites, da grænsefladen nu viser det. Kategorier, som brugere har oprettet med det navn, forbliver uændrede.</td></tr>
+</tbody>
+</table>
+<h3>Agents-appens tjenester</h3>
+<p>Opgraderingen kopierer hver AI-tjeneste fra Agents-appen til en serverbred modelforbindelse, som deles med alle fællesskaber og kan bruges af alle undtagen gæster (slå <b>Gæster også</b> til, hvis du vil tillade det). Nøglerne krypteres undervejs, så serveren har brug for sin AI-krypteringsnøgle: på en kluster, hvis filer ligger i S3, skal du først sætte <code>AM_AI_ENCRYPTION_KEY</code>, ellers venter kopieringen på næste start. Tjek derefter <b>Systemkonsol › AI › Modelforbindelser</b>:</p>
+<ul>
+<li>Hver forbindelse beholder ID'et for sin tjeneste, så appens agenter og en automatisk oversættelse, der er sat til en Agents-tjeneste, stadig kan finde den.</li>
+<li>OpenAI-, OpenAI-kompatible, Anthropic-, Mistral-, Cohere- og Gemini-tjenester bliver til forbindelser til deres OpenAI-kompatible (eller Anthropic) endepunkt. En Azure-tjeneste bliver til en forbindelse til ressourcens OpenAI-kompatible endepunkt: test den.</li>
+<li>AWS Bedrock-, Google Vertex AI- og Cohere North-tjenester samt ukendte typer markeres som <b>Krav om opmærksomhed</b> med årsagen. Deres cloud-kredentiaaler kopieres ikke: peg dem på leverandørens OpenAI-kompatible endepunkt eller en gateway som LiteLLM, og gem derefter.</li>
+<li>Embedding-tjenesten bliver til <b>Embeddings</b>-modellen for forbindelsen med samme adresse og nøgle, eller en forbindelse i sig selv. Transkriptionstjenesten får <code>whisper-1</code>-modellen.</li>
+<li>Når omskrivning og resuméer endnu ikke har en forbindelse, får de appens standardagents tjeneste og model.</li>
+</ul>
+<p>Agents-appens egne indstillinger og data forbliver, som de var: dens agenter fortsætter med at bruge dens tjenester.</p>
+<h3>Andre ændringer af standardindstillinger</h3>
+<ul>
+<li><b>Opkald</b>: <b>Testtilstand</b> er slukket, og <b>Aktivér video</b> er tændt som standard. Et valg, der er gemt i konfigurationen, bevares. Opkald følger også fællesskabets type (se <a href="{{root}}docs/admins/calls.html#where-calls">Opkald og lyd</a>).</li>
+<li>At fastgøre beskeder er for kanalens administratorer, fællesskabets administratorer og moderatorer (med <b>Administrer beskeder</b>); medlemmer af en direkte eller gruppebesked kan stadig.</li>
+<li>Arkiverede kanaler kan få nye medlemmer, der læser deres historik. Ingen poster, reagerer eller ændrer noget i dem.</li>
+</ul>
 
 <h2 id="mattermost">Flytning fra Mattermost</h2>
 <p>Antimatter bruger Mattermosts databasemodel og tilføjer sine egne tabeller, så det kan overtage en Mattermost-servers PostgreSQL-database og filer. Prøv det først på en kopi:</p>
@@ -79,15 +116,16 @@ docker compose logs -f antimatter</code></pre></li>
 <li>Gendan databasen i Antimatters PostgreSQL, eller peger Antimatter på en kopi af den (<code>AM_SQLSETTINGS_DATASOURCE</code>).</li>
 <li>Kopiér filerne til Antimatters opbevaring, mens du bevarer deres stier: til <code>antimatter</code>-bucketen med et S3-værktøj, eller til <code>data/</code> med et release-arkiv.</li>
 <li>Genbrug dine indstillinger: kopiér <code>config.json</code>, eller flyt den til databasen med <code>amctl --local config migrate</code> (se <a href="{{root}}docs/admins/configuration.html">Indstillinger</a>). Dine <code>MM_</code>-miljøvariabler fortsætter med at fungere; omdøb dem til <code>AM_</code>, når det passer.</li>
-<li>Start Antimatter og følg med i loggen, mens databasen opgraderes. Tjek derefter <b>Systemkonsol › Plugins › Plugin-håndtering</b>. Antimatter installerer sine egne builds af Calls, Playbooks, Kanban (Boards), Agents og integrationer, når de er nyere end den installerede version. Hvis Mattermost havde en nyere version af én af dem, skal du fjerne appen og genstarte Antimatter, så dens egen build bliver installeret.</li>
-<li>Konfigurer push-notifikationer igen med din egen push-proxy: Antimatter sender aldrig notifikationer til Mattermosts push-tjenester, uanset om de er test- eller hostede, da de kun leverer til Mattermosts egne apps. Indtil du ændrer <b>Push-notifikationsserver</b>, sender serveren ingen push-notifikationer (se <a href="{{root}}docs/admins/email-push.html#push">Push-notifikationer</a>).</li>
+<li>Start Antimatter og følg loggen, mens den opgraderer databasen. Tjek derefter <b>Systemkonsol › Plugins › Plugin-håndtering</b>. Antimatter installerer sine egne builds af Opkald, Playbooks, Kanban (Boards), Agents og integrationer, når de er nyere end den installerede version. Hvis Mattermost havde en nyere version af én af dem, fjern den app og genstart Antimatter, så dens egen build installeres.</li>
+<li>Opsæt push-notifikationer igen med din egen push-proxy: Antimatter sender aldrig notifikationer til Mattermosts push-tjenester, uanset om de er test- eller hostede, da de kun leveres til Mattermosts egne apps. Indtil du ændrer <b>Push-notifikationsserver</b>, sender serveren ingen push-notifikationer (se <a href="{{root}}docs/admins/email-push.html#push">Push-notifikationer</a>).</li>
 </ol>
 <p>Antimatter kontakter ingen tjenester drevet af Mattermost, Inc. (se <a href="{{root}}docs/admins/security.html#outbound">Forbindelser til eksterne tjenester</a>), selvom din konfiguration stadig nævner én:</p>
 <ul>
 <li>en push-notifikationsserver hos Mattermost opbevares i indstillingerne, men bruges aldrig;</li>
-<li>Mattermosts adresser til app-markedet (<b>Marketplace-URL</b>) og til produktmeddelelser er ryddet;</li>
+<li>Mattermosts adresser til app-markedet (<b>Marketplace-URL</b>) og til produktmeddelelser er tomme;</li>
+<li>downloadlinks til apps, der var Mattermosts standardværdier (<b>Antimatter Apps Download Page Link</b>, <b>Android-app downloadlink</b> og <b>iOS-app downloadlink</b>), er erstattet af downloadsiderne for Antimatters apps på GitHub; links, du har sat selv, beholdes;</li>
 <li>Calls-appen bruger Cloudflares offentlige STUN-server i stedet for Mattermosts, uden at ændre den gemte indstilling (se <a href="{{root}}docs/admins/calls.html#network">Calls</a>);</li>
-<li>sikkerhedsopdateringskontrollen og crash-rapporteringen er fjernet, ligesom deres indstillinger i Systemkonsolen (<b>Aktivér sikkerhedsadvarsler</b>, <b>Aktivér diagnostik og fejlrapportering</b>) og <b>Meddelelser</b>-siden.</li>
+<li>sikkerhedsopdateringskontrol og crashrapportering er fjernet, og deres Systemkonsol-indstillinger (<b>Enable Security Alerts</b>, <b>Enable Diagnostics and Error Reporting</b>) samt <b>Meddelelser</b>-siden er også fjernet.</li>
 </ul>
 <p>Sokkelen for lokal tilstand er nu <code>/var/tmp/antimatter_local.socket</code>; <code>amctl</code> forsøger også den gamle <code>/var/tmp/mattermost_local.socket</code>. Mattermost understøtter kun PostgreSQL i sine nyere versioner, og det samme gør Antimatter: flyt en MySQL-database til PostgreSQL først. At vende tilbage til Mattermost, efter at Antimatter har opgraderet databasen, betyder, at du skal gendanne dit Mattermost-backup.</p>
 

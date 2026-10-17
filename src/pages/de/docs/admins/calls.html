@@ -4,7 +4,7 @@ guide: admins
 order: 5
 nav: Anrufe und Sprache
 lead: Anrufe und Sprachkanäle senden Audio, Video und Bildschirmfreigabe direkt an den Server über dessen eigenen Port. Diese Seite behandelt die Netzwerkkonfiguration, die Einstellungen, die nach der Installation zu prüfen sind, und die Transkription mit einem Speech-to-Text-Modell, das Sie selbst betreiben.
-source: 16057458346f
+source: 2ce5c3f1c26d
 ---
 <h2 id="overview">So funktionieren Anrufe</h2>
 <p>Anrufe werden von der App <b>Calls</b> (id <code>com.mattermost.calls</code>) bereitgestellt, die standardmäßig installiert und aktiviert ist. Sprachkanäle (die App <b>Voice Channels</b>, <code>antimatter-next</code>-Image) sind permanente Anrufräume auf Basis von Calls: Sie erfordern, dass Calls aktiviert ist, und verwenden dieselben Einstellungen, Ports und Server.</p>
@@ -18,10 +18,18 @@ source: 16057458346f
 <h2 id="after-install">Prüfen Sie dies nach der Installation</h2>
 <ol>
 <li><b>Öffnen Sie den Anruf-Port.</b> Erlauben Sie 8443/udp und 8443/tcp in der Firewall des Servers und Ihres Cloud-Anbieters.</li>
-<li><b>Schalten Sie den Testmodus aus.</b> <b>Test mode</b> (<code>DefaultEnabled</code>) ist standardmäßig aktiviert: Nur Systemadministratoren können Anrufe in Kanälen starten, damit Sie überprüfen können, ob Anrufe funktionieren, bevor sie von allen genutzt werden. Setzen Sie dies in <b>Systemkonsole › Plugins › Calls</b> auf <b>Aus</b> oder setzen Sie <code>AM_CALLS_DEFAULT_ENABLED=true</code>.</li>
-<li><b>Entscheiden Sie sich für Video.</b> <b>Enable video calls in DMs (Experimental)</b> (<code>EnableVideo</code>, <code>AM_CALLS_ENABLE_VIDEO</code>) ist standardmäßig deaktiviert. Solange es deaktiviert ist, kann niemand eine Kamera einschalten, auch nicht in Sprachkanälen. Wenn es aktiviert ist, funktionieren Kameras in Anrufen über Direktnachrichten und in Sprachkanälen (außer, wenn <b>Allow video in voice channels</b> der Voice-Channels-App deaktiviert ist).</li>
+<li><b>Check test mode.</b> <b>Test mode</b> (<code>DefaultEnabled</code>) is off by default, so everyone can start calls. Turn it <b>On</b> in <b>System Console › Plugins › Calls</b> to let only system administrators start calls in channels while you check that calls work, then turn it off again. The variable is <code>AM_CALLS_DEFAULT_ENABLED</code>: <code>true</code> means test mode is off. A server moved from Mattermost keeps the choice saved in its configuration.</li>
+<li><b>Entscheidung zum Video.</b> <b>Video aktivieren</b> (<code>EnableVideo</code>, <code>AM_CALLS_ENABLE_VIDEO</code>) ist standardmäßig aktiviert: Personen können ihre Kamera überall dort einschalten, wo Anrufe aktiviert sind, in Direktnachrichten, Gruppennachrichten und Kanälen. In Sprachkanälen entscheidet die Einstellung <b>Video in Sprachkanälen erlauben</b> der App Sprachkanäle. Deaktivieren Sie diese, und niemand kann mehr eine Kamera einschalten, auch nicht in Sprachkanälen.</li>
 <li><b>Hinter NAT die öffentliche Adresse festlegen</b> (nächster Abschnitt).</li>
 </ol>
+
+<h3 id="where-calls">Wo Anrufe aktiviert sind</h3>
+<p>Jede Community hat einen Typ, <b>Arbeitsplatz</b> oder <b>Community</b> (siehe <a href="{{root}}docs/admins/configuration.html#community-kind">Typ neuer Communities</a>). Ein Kanal, dessen Administratoren Anrufe weder aktiviert noch deaktiviert haben, folgt dem Typ seiner Community:</p>
+<ul>
+<li>in einem <b>Arbeitsplatz</b> folgen die Kanäle dem Serverstandard: Anrufe sind für alle aktiviert, solange der Testmodus deaktiviert ist;</li>
+<li>in einer <b>Community</b> sind Anrufe in Kanälen deaktiviert: Personen kommunizieren stattdessen in Sprachkanälen. Kanal- und Community-Administratoren können Anrufe in einem Kanal dennoch aktivieren.</li>
+</ul>
+<p>Die eigene Einstellung eines Kanals hat immer Vorrang. Direktnachrichten und Gruppennachrichten gehören keiner Community an: Anrufe sind dort für alle aktiviert, solange der Testmodus deaktiviert ist. Eine Änderung des Community-Typs wirkt sich innerhalb von 30 Sekunden auf die Anrufe aus.</p>
 
 <h2 id="network">Ports, NAT und STUN</h2>
 <table>
@@ -123,4 +131,4 @@ source: 16057458346f
 <p>Das Audio aller Personen, die während der aktiven Transkription sprechen, wird an den von Ihnen konfigurierten Speech-to-Text-Server gesendet, und das Transkript wird dort veröffentlicht, wo es alle im Kanal lesen können. Informieren Sie Ihre Benutzer und halten Sie diesen Server in Ihrem eigenen Netzwerk, wenn die Anrufe vertraulich sind.</p>
 
 <h2 id="recordings">Aufnahmen</h2>
-<p>Die Aufnahme von Anrufen (und die Transkription mit den integrierten <code>whisper.cpp</code>- oder Azure-Transkribern) wird in separaten Containern ausgeführt, die von einem Job-Service gestartet werden: Mattermosts Open-Source-Projekt <code>calls-offloader</code>, das Sie selbst neben Antimatter bereitstellen. Die Einstellungen sind <b>Anrufaufnahmen aktivieren</b> (<code>AM_CALLS_ENABLE_RECORDINGS</code>, standardmäßig deaktiviert), <b>Job-Service-URL</b> (<code>AM_CALLS_JOB_SERVICE_URL</code>), <b>Maximale Dauer der Anrufaufnahme</b> (standardmäßig 60 Minuten, zwischen 15 und 180) und <b>Qualität der Anrufaufnahme</b> (niedrig, mittel oder hoch; standardmäßig mittel). Es wird keine Lizenz benötigt. Für nur Transkriptionen und Untertitel ist die oben beschriebene Speech-to-Text-Konfiguration einfacher: Sie benötigt keinen Job-Service.</p>
+<p>Die Aufnahme von Anrufen (und die Transkription mit dem integrierten <code>whisper.cpp</code>- oder Azure-Transkriptionsdienst) läuft in separaten Containern, die von einem Job-Dienst gestartet werden: dem quelloffenen <code>calls-offloader</code> von Mattermost, den Sie selbst neben Antimatter bereitstellen. Die Einstellungen sind <b>Aufnahmen von Anrufen aktivieren</b> (<code>AM_CALLS_ENABLE_RECORDINGS</code>, standardmäßig deaktiviert), <b>URL des Job-Dienstes</b> (<code>AM_CALLS_JOB_SERVICE_URL</code>), <b>Maximale Dauer der Anrufaufnahmen</b> (standardmäßig 60 Minuten, zulässig sind 15 bis 180) und <b>Qualität der Anrufaufnahmen</b> (niedrig, mittel oder hoch; standardmäßig mittel). Es ist keine Lizenz erforderlich. Sind Aufnahmen aktiviert, kann der Host eines Anrufs die Aufnahme über <b>Anruf aufnehmen</b> in den Anrufsteuerungen starten und beenden. Alle Teilnehmer sehen, dass aufgenommen wird, und die Aufnahme wird beim Beenden im Thread des Anrufs gepostet. Anrufe in Sprachkanälen haben keinen Thread und können daher nicht aufgenommen werden. Für reine Transkripte und Untertitel ist die oben beschriebene Speech-to-Text-Konfiguration einfacher: Sie erfordert keinen Job-Dienst.</p>

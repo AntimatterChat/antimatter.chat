@@ -1,0 +1,155 @@
+title: Asztali alkalmazás telepítése
+description: Telepítse az Antimatter asztali alkalmazását a szervezet számítógépeire, és kezelje azt központilag: MSI-csomag és tulajdonságai, Group Policy és Intune, macOS-konfigurációs profilok, valamint Linux-szabályfájl.
+guide: admins
+order: 13
+nav: Asztali alkalmazás telepítése
+lead: Hogyan telepítse az Antimatter asztali alkalmazását egy vállalat vagy iskola számítógépeire, és állítsa be központilag a szervereket, a felhasználónevet és a frissítésvizsgálatokat Windows, macOS és Linux rendszereken.
+source: 2f67d39c0dda
+---
+<h2 id="download">Az alkalmazás letöltése</h2>
+<p>Az asztali alkalmazás kiadásai a GitHub-on érhetők el a <a href="https://github.com/AntimatterChat/desktop-app/releases">github.com/AntimatterChat/desktop-app/releases</a> címen. A szerverhez hasonlóan az alkalmazás is béta verzióban van: a kötőjel utáni utótaggal ellátott verziószámú kiadások <b>Pre-release</b> jelölést kapnak. Minden kiadáshoz tartozik egy <code>SHA256SUMS</code> fájl, amely minden fájl ellenőrző összegét tartalmazza. A letöltés ellenőrzéséhez Linuxon használja a <code>sha256sum --check --ignore-missing SHA256SUMS</code> parancsot, vagy hasonlítsa össze a PowerShell-ben a <code>Get-FileHash &lt;file&gt; -Algorithm SHA256</code> parancs kimenetét a <code>SHA256SUMS</code> fájl megfelelő sorával.</p>
+<ul>
+<li><b>Windows</b> (x64 és arm64): <code>.exe</code> telepítő, <code>.msi</code> csomag vagy <code>.zip</code> archívum. Például <code>antimatter-desktop-&lt;version&gt;-win-x64.exe</code> és <code>antimatter-desktop-&lt;version&gt;-win-x64.msi</code>.</li>
+<li><b>macOS</b>: <code>.dmg</code> lemezimage vagy <code>.zip</code>, Apple-siliconhoz (<code>arm64</code>), Intel Mac-ekhez (<code>x64</code>) vagy mindkettőhöz (<code>universal</code>).</li>
+<li><b>Linux</b> (x64 és arm64): .deb vagy .rpm csomag, AppImage, Flatpak-csomag vagy <code>.tar.gz</code> archívum.</li>
+</ul>
+
+<h2 id="installers">Melyik Windows telepítőt használja</h2>
+<table>
+<thead><tr><th></th><th>Az .exe telepítő</th><th>Az .msi csomag</th></tr></thead>
+<tbody>
+<tr><td>Kinek</td><td>Azoknak, akik maguk telepítik az alkalmazást</td><td>Vállalatoknak, amelyek a saját számítógépeikre telepítik</td></tr>
+<tr><td>Telepítés</td><td>Csak az aktuális Windows-fiókhoz, a <code>%LOCALAPPDATA%\Programs\antimatter-desktop</code> mappába, rendszergazdai jogosultság nélkül</td><td>A számítógép minden felhasználójához, a <code>C:\Program Files\Antimatter</code> mappába, rendszergazdai jogosultsággal</td></tr>
+<tr><td>Frissítések</td><td>Az alkalmazás ellenőrzi az új verziókat, és felajánlja az új <code>.exe</code> letöltését, amely a telepített példányt helyben frissíti</td><td>Az alkalmazás nem ellenőrzi az új verziókat: Ön telepíti őket</td></tr>
+</tbody>
+</table>
+<p>Az alkalmazás óránként, futása alatt ellenőrzi a GitHubon a új verziókat, és csak a teljes kiadásokat, nem pedig az előzetes verziókat veszi figyelembe. Ha talál egyet, értesíti a felhasználót, és letöltési linket kínál. Az MSI-vel telepített példány alapértelmezetten nem hajt végre ellenőrzést, mivel a felhasználói általában nem telepíthetnek szoftvert. Ezt a beállítással kapcsolhatod be: <code>EnableAutoUpdater</code>. Ekkor a letöltési link a új <code>.msi</code> fájlt kínálja, amelyhez rendszergazdai jogosultságok szükségesek.</p>
+<p>Az MSI-t használj a SCCM (Configuration Manager), Intune vagy a csoportos házirend (Group Policy) szoftvertelepítésével történő központi telepítéshez. Az MSI telepítése eltávolítja a telepítést futtató fiók <code>.exe</code> példányát, ha ilyen létezik.</p>
+
+<h2 id="settings">Kezelhető beállítások</h2>
+<p>Ezek a beállítások minden rendszeren léteznek. Windows alatt a <code>SOFTWARE\Policies\Antimatter</code> alatt található regiszterértékek, a <code>HKEY_LOCAL_MACHINE</code> (a számítógép számára) vagy a <code>HKEY_CURRENT_USER</code> (egy felhasználó számára) kulcs alatt. macOS és Linux alatt a kezelt preferenciák vagy a házirend-fájl kulcsai.</p>
+<table>
+<thead><tr><th>Beállítás</th><th>Windows alatt</th><th>macOS és Linux alatt</th><th>Mire szolgál</th></tr></thead>
+<tbody>
+<tr><td><code>DefaultServerList</code></td><td>Alkulcs, amelyben minden szerverhez egy szöveges érték tartozik: az érték neve a fül neve, az adat pedig a URL-je</td><td>Szótárak (Linuxon objektumok) tömbje, amelyek <code>name</code> és <code>url</code> kulcsokat tartalmaznak</td><td>Szerverek hozzáadása az alkalmazáshoz. A felhasználók nem szerkeszthetik vagy törölhetik őket.</td></tr>
+<tr><td><code>DefaultUsername</code></td><td>Szöveg</td><td>Szöveg</td><td>Kitölti a felhasználónevet az adott szerverek bejelentkezési oldalán.</td></tr>
+<tr><td><code>EnableServerManagement</code></td><td>DWORD, 0 vagy 1</td><td>Logikai érték</td><td>0 vagy <code>false</code>: a felhasználók csak a <code>DefaultServerList</code> által beállított szervereket használhatják, és az alkalmazás elrejteti a szerverek hozzáadására, szerkesztésére és törlésére szolgáló lehetőségeket. Ha nincs beállítva: a felhasználók hozzáadhatják a saját szervereiket.</td></tr>
+<tr><td><code>EnableAutoUpdater</code></td><td>DWORD, 0 vagy 1</td><td>Logikai érték</td><td>0 vagy <code>false</code>: az alkalmazás soha nem ellenőrzi az új verziókat, és elrejteti a <b>Frissítések ellenőrzése</b> lehetőséget. 1 vagy <code>true</code>: ellenőrzi, még akkor is, ha MSI-vel telepítették. Ha nincs beállítva: a <code>.exe</code> példány ellenőrzi, az MSI példány nem.</td></tr>
+<tr><td><code>TrustedEmbeddedMediaOrigins</code></td><td>Alkulcs szöveges értékekkel, amelyek mindegyike egy JSON-objektum <code>serverOrigin</code> és <code>embeddedOrigin</code> kulcsokkal</td><td>Szótárak tömbje <code>serverOrigin</code> és <code>embeddedOrigin</code> kulcsokkal</td><td>Lehetővé teszi, hogy a szerver oldalaiba ágyazott tartalom, például egy videóhívás-oldal, használja annak a szervernek a kamerához és mikrofonhoz adott engedélyeit.</td></tr>
+</tbody>
+</table>
+<ul>
+<li><b>A felhasználónév</b> csak az általános beállítások által meghatározott szerverek bejelentkezési oldalán töltődik be, soha nem egy olyan szerveren, amelyet a felhasználó manuálisan adott hozzá, és soha nem írja felül azt, amit valaki beírt. A felhasználók továbbra is módosíthatják. A százalékjelek közötti környezeti változók helyettesítve vannak, így egyetlen érték mindenki számára működik: a Windows-on <code>%USERNAME%</code>, a macOS-en és a Linuxon <code>%USER%</code> adja meg a fiók nevét, a <code>%USERNAME%@example.com</code> pedig egy e-mail-címet, amely ezt a mintát követi. Ha egy változó nincs beállítva, az alkalmazás nem ír be semmit.</li>
+<li>Ha a szerverkezelést kikapcsolja, állítson be legalább egy szervert a <code>DefaultServerList</code>-ben.</li>
+<li>A Windowson a számítógépes házirend (<code>HKEY_LOCAL_MACHINE</code>) elsőbbséget élvez a felhasználói házirenddel (<code>HKEY_CURRENT_USER</code>) szemben. A két szerverlista összevonásra kerül.</li>
+<li>Az alkalmazás induláskor olvassa be a beállításokat: egy módosítás után a felhasználóknak le kell zárniuk, majd újra nyitniuk kell.</li>
+</ul>
+
+<h2 id="msi">Windows: csendes telepítés MSI-vel</h2>
+<p>Az MSI nyilvános tulajdonságokat fogad el, amelyek a beállításokat számítógépes házirendként írják a <code>HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Antimatter</code> alá. Használja ezeket SCCM-alkalmazásban, Intune-alkalmazásban vagy szkriptben. PowerShell-ben:</p>
+<pre><code>msiexec /i antimatter-desktop-&lt;version&gt;-win-x64.msi /qn SERVERURL=https://chat.example.com SERVERNAME=Chat DEFAULTUSERNAME='%USERNAME%' AUTOUPDATE=0 SERVERMANAGEMENT=0</code></pre>
+<table>
+<thead><tr><th>Tulajdonság</th><th>Írja be</th><th>Ha nincs megadva</th></tr></thead>
+<tbody>
+<tr><td><code>SERVERURL</code></td><td>Egy szerver a <code>DefaultServerList</code>-ben, ezzel a URL-címmel</td><td>Nincs szerver</td></tr>
+<tr><td><code>SERVERNAME</code></td><td>A szerver lapjának neve</td><td><code>Antimatter</code></td></tr>
+<tr><td><code>DEFAULTUSERNAME</code></td><td><code>DefaultUsername</code></td><td>Semmi</td></tr>
+<tr><td><code>AUTOUPDATE</code></td><td><code>EnableAutoUpdater</code>, 0 vagy 1</td><td>Semmi: az MSI másolata nem keres frissítéseket</td></tr>
+<tr><td><code>SERVERMANAGEMENT</code></td><td><code>EnableServerManagement</code>, 0 vagy 1</td><td>Semmi: a felhasználók hozzáadhatnak szervereket</td></tr>
+</tbody>
+</table>
+<ul>
+<li>Ha egy tulajdonság nincs megadva, nem ír be semmit, így nem írja felül a Csoportos házirend által beállított értéket. Az <code>AUTOUPDATE</code> és a <code>SERVERMANAGEMENT</code> csak 0-t vagy 1-et fogad el. Az MSI egyetlen szervert állít be: többhöz használja a Csoportos házirendet.</li>
+<li>A <code>DEFAULTUSERNAME</code>-nak a telepítőig a <code>%USERNAME%</code> szövegként kell eljutnia, hogy az alkalmazás minden felhasználó számára külön helyettesítse. Egyébként a telepítést futtató parancssor helyettesíti a saját fióknevével. PowerShell-ben tartsa meg az egy idézőjeleket. Egy <code>.bat</code> fájlban írja be <code>%%USERNAME%%</code>. Egy teszttelepítés után ellenőrizze a rendszerkönyvtárban, hogy a <code>DefaultUsername</code> tartalmazza-e a <code>%USERNAME%</code> szöveget.</li>
+<li><b>Adja át a tulajdonságokat minden frissítéskor újra.</b> Az MSI új verziójának telepítése eltávolítja a régit, az általános beírta értékekkel együtt, majd beírja az új parancssor értékeit. Az SCCM és az Intune megtartja az alkalmazás parancssorát: használja újra minden új verzióhoz. Vagy állítsa be a házirendeket Csoportos házirenddel vagy Intune-nal, amelyeket a frissítések nem érintenek.</li>
+<li>Az MSI és a csoportos házirend ugyanazokat a regiszterértékeket írja. Minden beállításnál használja az egyiket vagy a másikat: az MSI eltávolítása törli az általánosított értékeket, még akkor is, ha a csoportos házirend is beállította őket.</li>
+<li>Az MSI rögzíti a telepítőkönyvtárat is a <code>HKEY_LOCAL_MACHINE\SOFTWARE\Antimatter\Desktop</code> (<code>InstallDir</code>) alatt. Így ismeri fel az alkalmazás, hogy MSI-vel telepítették.</li>
+</ul>
+<p>Eltávolítás: <code>msiexec /x antimatter-desktop-&lt;version&gt;-win-x64.msi /qn</code>. Az Intune-ban a „Windows app (Win32)” típus ugyanazokat a parancssori utasításokat használja. A „Line-of-business app” típusnál adja hozzá a tulajdonságokat a parancssori argumentumokhoz.</p>
+
+<h2 id="group-policy">Windows: csoportos házirend és Intune</h2>
+<p>Az adminisztratív sablonok, <code>antimatter.admx</code> és <code>en-US\antimatter.adml</code>, a telepített alkalmazás <code>gpo</code> mappájában találhatók (MSI esetén: <code>C:\Program Files\Antimatter\gpo</code>), valamint az alkalmazás tárhelyének <a href="https://github.com/AntimatterChat/desktop-app/tree/main/resources/windows/gpo">resources/windows/gpo</a> mappájában. Ezek a házirendek a <b>Administrative Templates › Antimatter</b> alatt jelennek meg:</p>
+<table>
+<thead><tr><th>Házirend</th><th>Regiszterérték</th><th>Konfiguráció</th></tr></thead>
+<tbody>
+<tr><td><b>Szerverek (DefaultServerList)</b></td><td><code>DefaultServerList</code> alkulcs</td><td>számítógép és felhasználó</td></tr>
+<tr><td><b>Előre kitöltendő felhasználónév (DefaultUsername)</b></td><td><code>DefaultUsername</code></td><td>számítógép és felhasználó</td></tr>
+<tr><td><b>Szerverek hozzáadása és eltávolítása (EnableServerManagement)</b></td><td><code>EnableServerManagement</code></td><td>számítógép és felhasználó</td></tr>
+<tr><td><b>Értesítés új verziókról (EnableAutoUpdater)</b></td><td><code>EnableAutoUpdater</code></td><td>csak számítógép</td></tr>
+<tr><td><b>Biztosított beágyazott médiaforrások (TrustedEmbeddedMediaOrigins)</b></td><td><code>TrustedEmbeddedMediaOrigins</code> alkulcs</td><td>számítógép és felhasználó</td></tr>
+</tbody>
+</table>
+<h3>Csoportos házirend domainben</h3>
+<ol>
+<li>Másolja az <code>antimatter.admx</code> fájlt a központi tárhelyre, <code>\\&lt;domain&gt;\SYSVOL\&lt;domain&gt;\Policies\PolicyDefinitions</code>, és az <code>antimatter.adml</code> fájlt az <code>en-US</code> almappájába.</li>
+<li>A Csoportos Házirend Kezelő szerkesztőben nyissa meg a <b>Computer Configuration</b> (vagy <b>User Configuration</b>) › <b>Policies</b> › <b>Administrative Templates</b> › <b>Antimatter</b> elemet.</li>
+<li>Szerkessze meg a házirendet, válassza a <b>Bekapcsolva</b> lehetőséget, és tölje ki. A <b>Szerverek</b> esetén kattintson a <b>Megjelenítés</b> gombra, és adjon hozzá egy sort minden szerverhez: az érték neve a fül neve, az érték pedig a szerver URL-je, például <code>https://chat.example.com</code>.</li>
+</ol>
+<p>A <b>Szerverek hozzáadása és eltávolítása</b> vagy az <b>Értesítés új verziókról</b> bekapcsolása 1-et ír, a kikapcsolása pedig 0-t.</p>
+<h3>Intune</h3>
+<p>A(z) <b>Eszközök › Konfiguráció</b> menüben használja az <b>ADMX importálása</b> funkciót az <code>antimatter.admx</code> és az <code>en-US\antimatter.adml</code> fájlok importálásához. Ezután hozzon létre egy profilt a(z) <b>Sablonok › Importált adminisztratív sablonok</b> menüpontból, és állítsa be benne az Antimatter-szabályokat.</p>
+<h3>Egyetlen számítógép, vagy egy szkript</h3>
+<p>Másolja a sablonokat a(z) <code>C:\Windows\PolicyDefinitions</code> mappába, hogy használhassa őket a(z) <code>gpedit.msc</code> (Windows Pro és Enterprise) felületen. Vagy írja be közvetlenül a registry-értékeket, egy <code>.reg</code> fájl rendszergazdaként történő importálásával (pl. <code>reg import antimatter-policies.reg</code>), például így. A(z) <code>example-policies.reg</code> fájl a ugyanazon mappában található, és kommentekkel ellátottan tartalmazza ezeket az értékeket.</p>
+<pre><code>REGEDIT4
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Antimatter]
+"EnableServerManagement"=dword:00000000
+"EnableAutoUpdater"=dword:00000000
+"DefaultUsername"="%USERNAME%"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Antimatter\DefaultServerList]
+"Chat"="https://chat.example.com"</code></pre>
+
+<h2 id="macos">macOS: konfigurációs profil</h2>
+<p>A macOS-en az alkalmazás a bundle azonosítójának, a(z) <code>chat.antimatter.desktop</code> kezelt preferenciáiból olvassa be a beállításait, a(z) <a href="#settings">beállítások táblázat</a> kulcsaival. Telepítse ezeket MDM rendszere (Jamf, Intune, Kandji, Mosyle stb.) segítségével konfigurációs profilként.</p>
+<ul>
+<li>Az alkalmazás repozitóriumának <a href="https://github.com/AntimatterChat/desktop-app/tree/main/resources/mac/mdm">resources/mac/mdm</a> mappájában található egy minta profil, az <code>antimatter.mobileconfig</code>. Szerkessze meg az értékeit, adja meg saját <code>PayloadIdentifier</code> és <code>PayloadUUID</code> értékeit (új UUID-eket a <code>uuidgen</code> generál), és töltsse fel egyedi profilként.</li>
+<li>A legtöbb MDM rendszert elfogadja a kulcsokat is, mint „egyedi beállítások” vagy „preferencia-domen” terhelést a(z) <code>chat.antimatter.desktop</code> számára. Ugyanez a mappa tartalmazza ezeket az <code>example-managed-preferences.plist</code> fájlban.</li>
+</ul>
+<p>A profil terhelésében lévő beállítások:</p>
+<pre><code>&lt;key&gt;PayloadType&lt;/key&gt;
+&lt;string&gt;chat.antimatter.desktop&lt;/string&gt;
+&lt;key&gt;DefaultServerList&lt;/key&gt;
+&lt;array&gt;
+    &lt;dict&gt;
+        &lt;key&gt;name&lt;/key&gt;
+        &lt;string&gt;Chat&lt;/string&gt;
+        &lt;key&gt;url&lt;/key&gt;
+        &lt;string&gt;https://chat.example.com&lt;/string&gt;
+    &lt;/dict&gt;
+&lt;/array&gt;
+&lt;key&gt;DefaultUsername&lt;/key&gt;
+&lt;string&gt;%USER%&lt;/string&gt;
+&lt;key&gt;EnableServerManagement&lt;/key&gt;
+&lt;false/&gt;
+&lt;key&gt;EnableAutoUpdater&lt;/key&gt;
+&lt;false/&gt;</code></pre>
+<p>A booleán értékeket 0 és 1 egész számokként is meg lehet adni.</p>
+
+<h2 id="linux">Linux: szabályfájl</h2>
+<p>A Linuxon az alkalmazás a(z) <code>/etc/antimatter-desktop/policies.json</code> fájlból olvassa be a beállításait, amely egy JSON objektum a(z) <a href="#settings">beállítások táblázat</a> kulcsaival:</p>
+<pre><code>{
+    "DefaultServerList": [
+        {"name": "Chat", "url": "https://chat.example.com"}
+    ],
+    "DefaultUsername": "%USER%",
+    "EnableServerManagement": false,
+    "EnableAutoUpdater": false,
+    "TrustedEmbeddedMediaOrigins": []
+}</code></pre>
+<p>Telepítse konfigurációs kezelőeszközével (Ansible, Puppet, Salt stb.), root tulajdonosként, mindenki számára olvashatóan, de csak root írhatóan:</p>
+<pre><code>sudo install -d /etc/antimatter-desktop
+sudo install -m 644 policies.json /etc/antimatter-desktop/policies.json</code></pre>
+<p>A nem érvényes JSON fájlok figyelmen kívül hagyásra kerülnek, az alkalmazás naplófájljában pedig figyelmeztetés jelenik meg. A Flatpak verzió nem látja a gazdagép <code>/etc</code> könyvtárát: adjon neki olvasási hozzáférést, és a fájlt a(z) <code>/run/host/etc/antimatter-desktop/policies.json</code> útvonalról olvassa be:</p>
+<pre><code>sudo flatpak override --system --filesystem=host-etc:ro chat.antimatter.desktop</code></pre>
+
+<h2 id="mattermost-policies">A Mattermost asztali alkalmazásnak beállított szabályok</h2>
+<p>A Windows alatt az alkalmazás a Mattermost asztali alkalmazás beállított házirendjeit is beolvassa a <code>SOFTWARE\Policies\Mattermost</code> alatt, mint tartalékot. Hely szerint olvassa be őket: a házirendkulcs közvetlen értékei, a <code>DefaultServerList</code> alkulcs és a <code>TrustedEmbeddedMediaOrigins</code> alkulcs. Mindegyik e három helyen a Mattermost kulcsot csak akkor olvassa be, ha az Antimatter kulcsnak nincs értéke ott, egyik méhben sem. Így, ha egyetlen értéket is beállítanak közvetlenül az Antimatter kulcs alatt, például az MSI <code>AUTOUPDATE</code> tulajdonságával, a Mattermost kulcs közvetlen értékei közül egyet sem olvas be. Egyszerre, egyben vigyék át a házirendjeiket az Antimatter kulcs alá.</p>
+<p>A macOS alatt a Mattermost asztali alkalmazás kezelt beállításait (<code>com.mattermost.desktop</code>) nem olvassa be: állítsák be a <code>chat.antimatter.desktop</code> számára.</p>
+
+<h2 id="unsigned">Aláíratlan buildek</h2>
+<p>Az asztali alkalmazás buildjeit még nem aláírják kiadói tanúsítvánnyal.</p>
+<ul>
+<li><b>Windows.</b> Amikor valaki megnyit egy letöltött <code>.exe</code> vagy <code>.msi</code> fájlt, a Microsoft Defender SmartScreen azt jelenti, hogy a Windows megvédte a számítógépet, és egy ismeretlen kiadót nevez meg. Ők a <b>További információ</b> gombot, majd a <b>Ugye is futtatás</b> lehetőséget választják. A SmartScreen azokat a fájlokat ellenőrzi, amelyeket a letöltés után nyitnak meg, ezért nem látják ezt a figyelmeztetést, ha az alkalmazást SCCM, Intune vagy csoportos házirend révén telepítik. Ha a számítógépek csak jóváhagyott kiadók szoftverét futtathatják (AppLocker vagy App Control for Business szabályok), akkor az alkalmazást telepítési útvonala vagy fájl-környezetkódja alapján engedélyezzék.</li>
+<li><b>macOS.</b> Az alkalmazás ad hoc aláírással rendelkezik, de Apple nem hitelesítette. Amikor valaki először megnyit egy letöltött példányt, a macOS azt jelenti, hogy nem tudja ellenőrizni, hogy az alkalmazás mentes-e kártevőktől, és nem nyitja meg. A macOS 15 és újabb verziókon a <b>Rendszerbeállítások › Adatvédelem és biztonság</b> menüben a <b>Ugye is megnyitás</b> lehetőséget kell választani. Korábbi verziókon az alkalmazást kell Control-kattintással megnyitni, és a <b>Megnyitás</b> lehetőséget választani. A Gatekeeper csak azokat a fájlokat ellenőrzi, amelyeken a letöltés jelzője (a quarantine-attribútum) van: ha saját eszközeikkel telepítik az alkalmazást, a telepítési szkriptjükben távolítsák el a jelzőt a <code>xattr -dr com.apple.quarantine /Applications/Antimatter.app</code> paranccsal.</li>
+</ul>

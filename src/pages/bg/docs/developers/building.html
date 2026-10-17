@@ -1,10 +1,10 @@
 title: Създаване от изходния код
-description: Как да създадете Antimatter от изходния код: сървърът на Go, уеб интерфейсите Fusion и класическият, сървър за разработка, тестове, архиви за освобождаване, Docker образът, както и десктопните и мобилните приложения.
+description: Как да изградите Antimatter от изходния код: сървърът на Go, Fusion и класическият веб интерфейс, сървър за разработка, тестове, архиви за издаване и пакети, Docker образът, както и десктопните и мобилните приложения.
 guide: developers
 order: 7
 nav: Създаване от изходния код
 lead: Тази страница обяснява как да създадете и стартирате Antimatter от изходния му код, за да работите върху него или да направите собствени версии. Покрива сървъра и уеб интерфейсите, които се намират в един репозиторий, след което Docker образа и приложенията.
-source: dfdf67f34f6e
+source: 04025042c2ad
 ---
 <h2 id="requirements">Какво ви трябва</h2>
 <ul>
@@ -68,7 +68,16 @@ npm run build    # the classic interface, then Fusion</code></pre>
 cd server
 make build-linux       # the antimatter and amctl binaries
 make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
-<p><code>make build</code> изгражда уеб интерфейсите и Linux бинарните файлове едновременно. Архивът съдържа <code>bin/antimatter</code>, <code>bin/amctl</code>, стандартен <code>config/config.json</code>, и двата уеб интерфейса, шаблоните, шрифтовете и преводите. За други платформи: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>. Архивите не включват вградените приложения; Docker образът ги включва.</p>
+<p><code>make build</code> изгражда веб интерфейсите и Linux бинарните файлове едновременно. Архивът съдържа <code>bin/antimatter</code>, <code>bin/amctl</code>, по подразбиране <code>config/config.json</code> с <code>README.md</code> за промяна на настройките, и двата веб интерфейса, шаблоните, шрифтовете и преводите. Други платформи: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>.</p>
+<h3>Вградени приложения</h3>
+<p>Обикновено <code>make package-linux</code> изгражда архив без приложения. За да ги включите, както правят публикуваните издания, първо изтеглете подписаните пакети на приложенията и посочете папката им:</p>
+<pre><code>build/package/fetch-apps.sh "$HOME/release-apps"   # needs gh, python3 and gpg
+make package-linux PREPACKAGED_PLUGINS_DIR="$HOME/release-apps"</code></pre>
+<p><code>fetch-apps.sh</code> изтегля последното GitHub издание на всяко приложение, посочено в <code>plugins.json</code> на antimatter-docker, заедно с подписа му, и проверява подписа спрямо ключа за плъгини на Antimatter. По подразбиране включва Whiteboard, Voice channels, Calls, Agents, Todo, Polls, Notes, GIFs и Memes; <code>AM_BUNDLED_APPS</code> (имена на репозитории, разделени с интервали) променя списъка. Приложения без издание или без подпис се пропускали с предупреждение. Пакетите се поставят в <code>prepackaged_plugins/</code> на архива.</p>
+<h3>.deb и .rpm пакети</h3>
+<p><code>build/package/build-packages.sh &lt;archive&gt; &lt;amd64|arm64&gt; &lt;version&gt; &lt;out-dir&gt;</code> превръща архив за издаване в универсални <code>.deb</code> и <code>.rpm</code> пакети чрез <a href="https://nfpm.goreleaser.com">nfpm</a>. Ръководството за администратори описва какво инсталират: вижте <a href="{{root}}docs/admins/install.html#packages">Инсталиране на .deb или .rpm пакет</a>.</p>
+<h3>Процесът за издаване</h3>
+<p>Процесът <code>antimatter-release.yml</code> в репозитория на сървъра извършва всичко това в GitHub: при таг <code>v*</code> изгражда архивите и пакетите за <code>amd64</code> и <code>arm64</code>, с <code>SHA256SUMS</code>, и ги публикува като GitHub издание на тага (предварително издание за версия с <code>-</code>). При ръчно изпълнение номерира изданието като <code>0.9.0-dev.&lt;run&gt;</code> и запазва файловете като артефакти на процеса. Всяко репозитори на приложение има процес <code>release.yml</code>, който публикува подписания му пакет по същия начин.</p>
 
 <h2 id="docker">Docker образът</h2>
 <p>Репозиторията <a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> изгражда публикуваните образи, сървъра с неговите приложения, изцяло в Docker:</p>
@@ -97,6 +106,6 @@ VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatt
 npm run build          # development build, into dist/
 npm start              # run it
 npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
-<p>Настройките при изграждане, като сървъри за предварителна конфигурация, са в <code>src/common/config/buildConfig.ts</code>.</p>
+<p>Настройките за време на компилиране, например сървъри за предварителна конфигурация, се намират в <code>src/common/config/buildConfig.ts</code>. Ако нямате сертификат на Apple, задайте <code>AM_MAC_ADHOC_SIGN=true</code>, за да подпишете macOS приложението ad hoc, без нотаризация: Mac компютри с Apple silicon отхвърлят неподписан код. Workflow-ът <code>release.yml</code> в репозиторията създава неподписани пакети за Linux, Windows и macOS при таг <code>v*</code>.</p>
 <h3>Мобилно приложение</h3>
-<p><a href="https://github.com/AntimatterChat/mobile-app">Мобилното приложение</a> е React Native приложение; неговият README изброява командите (<code>npm run ios</code>, <code>npm run android</code>). За да изградите собствен копие, също ви трябват ваши собствени ключове за подписване, Firebase проект за Android известия, APNs ключ за iOS и <a href="https://github.com/AntimatterChat/push-proxy">push прокси</a>, който съхранява тези данни.</p>
+<p><a href="https://github.com/AntimatterChat/mobile-app">Мобилното приложение</a> е React Native приложение; в README-то са изброени командите (<code>npm run ios</code>, <code>npm run android</code>). За да създадете собствен копие, също ще ви трябват ваши собствени ключове за подписване, Firebase проект за Android известия, APNs ключ за iOS и <a href="https://github.com/AntimatterChat/push-proxy">push proxy</a>, който да съхранява тези данни. Workflow-ът <code>release.yml</code> в репозиторията създава Android APK и AAB, както и неподписан iOS <code>.ipa</code> при таг <code>v*</code>, без сметки в магазините; в README-то са изброени тайните, които подписват Android компилацията и настройват Firebase.</p>

@@ -4,19 +4,21 @@ guide: admins
 order: 10
 nav: Zálohy a aktualizace
 lead: Co zálohovat, jak to obnovit na novém hostiteli, jak aktualizovat a jak převést server Mattermost nebo jednotlivou komunitu do Antimatter.
-source: b0797af8b6e7
+source: 531ec332715c
 ---
 <h2 id="what">Co zálohovat</h2>
 <table>
-<thead><tr><th>Co</th><th>S compose souborem webu</th><th>S archívem vydání</th></tr></thead>
+<thead><tr><th>Co</th><th>S compose souborem webu</th><th>S archívem vydání</th><th>S balíčkem .deb nebo .rpm</th></tr></thead>
 <tbody>
-<tr><td>Databáze: zprávy, uživatelé, komunity, kanály a, s compose souborem webu, konfigurace</td><td>svazek <code>antimatter_postgres</code>, pomocí <code>pg_dump</code></td><td>vaše databáze PostgreSQL</td></tr>
-<tr><td>Nahraté soubory, obrázky a nainstalované aplikace</td><td>svazek <code>antimatter_files</code> (úložiště S3)</td><td><code>FileSettings.Directory</code>, výchozí je <code>./data/</code></td></tr>
-<tr><td>Konfigurační soubor</td><td>(v databázi)</td><td><code>config/config.json</code></td></tr>
-<tr><td>Gify a samolepky</td><td>svazek <code>antimatter_gifs</code></td><td>adatový adresář služby GIF</td></tr>
-<tr><td>Hesla</td><td><code>.env</code> (a <code>compose.override.yaml</code>)</td><td>váš soubor prostředí</td></tr>
+<tr><td>Databáze: zprávy, uživatelé, komunity, kanály a, s compose souborem webu, konfigurace</td><td>svazek <code>antimatter_postgres</code>, pomocí <code>pg_dump</code></td><td>vaše databáze PostgreSQL</td><td>vaše databáze PostgreSQL</td></tr>
+<tr><td>Nahraté soubory, obrázky a nainstalované aplikace</td><td>svazek <code>antimatter_files</code> (úložiště S3)</td><td><code>FileSettings.Directory</code>, výchozí je <code>./data/</code></td><td><code>/var/lib/antimatter</code></td></tr>
+<tr><td>Konfigurační soubor</td><td>(v databázi)</td><td><code>config/config.json</code></td><td><code>/etc/antimatter/config/config.json</code></td></tr>
+<tr><td>Gify a samolepky</td><td>svazek <code>antimatter_gifs</code></td><td>adatový adresář služby GIF</td><td><code>/var/lib/gifs-server</code></td></tr>
+<tr><td>Hesla</td><td><code>.env</code> (a <code>compose.override.yaml</code>)</td><td>váš soubor prostředí</td><td><code>/etc/antimatter/antimatter.env</code>, <code>/etc/gifs-server</code></td></tr>
+<tr><td>Klíč pro šifrování AI, který šifruje klíče připojení k modelům</td><td><code>AM_AI_ENCRYPTION_KEY</code> v <code>.env</code> (doporučeno), nebo soubor <code>ai-encryption.key</code> v objemu <code>antimatter_data</code></td><td><code>AM_AI_ENCRYPTION_KEY</code> nebo <code>data/ai-encryption.key</code></td><td><code>AM_AI_ENCRYPTION_KEY</code> v <code>antimatter.env</code> nebo <code>/var/lib/antimatter/data/ai-encryption.key</code></td></tr>
 </tbody>
 </table>
+<p>Bez klíče pro šifrování AI nemůže obnovený server přečíst API klíče připojení k modelům a každý z nich je potřeba znovu zadat. Klíč si uložte na jiném místě než zálohy databáze, aby v jednom ukradeném záložním souboru nebyly obojí. Viz <a href="{{root}}docs/admins/ai.html#encryption-key">Klíč pro šifrování</a>.</p>
 <p>Databáze a soubory spolu souvisí: zálohujte je ve stejný čas a uchovávejte kopie mimo server. Názvy svazků začínají názvem compose projektu, <code>antimatter</code> (vypíše je <code>docker volume ls</code>).</p>
 
 <h2 id="backup">Zálohování</h2>
@@ -27,19 +29,20 @@ docker compose stop antimatter
 # Database
 docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
     &gt; "backups/antimatter-db-$stamp.dump"
-# File storage and GIF service
-for v in files gifs; do
+# File storage, GIF service and the data directory (the AI key file)
+for v in files gifs data; do
     docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
         alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
 done
 docker compose start antimatter
 # Secrets
 cp .env "backups/env-$stamp"</code></pre>
+<p>Pokud jste nenastavili <code>AM_AI_ENCRYPTION_KEY</code>, klíčový soubor serveru se nachází v objemu <code>data</code>, který výše uvedená smyčka ukládá spolu se soubory. Lepší je vložit jeho obsah do <code>.env</code>, jak vysvětluje <a href="{{root}}docs/admins/ai.html#encryption-key">Klíč pro šifrování</a>, a mít jeho kopii na jiném místě než zálohy databáze.</p>
 <p>Spouštějte to z cronu pro denní zálohy a kopírujte adresář <code>backups/</code> na jiný stroj. Kopie souboru <code>.env</code> uchovávejte stejně bezpečně jako server: obsahují jeho hesla.</p>
 <p>Pokud chcete nahraté soubory kopírovat objekt po objektu (například do jiného úložiště S3), použijte nástroj příkazového řádku AWS služby <code>bucket</code>:</p>
 <pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
     "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
-<p>S archívem vydání zálohujte databázi pomocí <code>pg_dump -Fc</code> a adresáře <code>data/</code> a <code>config/</code> pomocí svých obvyklých nástrojů.</p>
+<p>Při použití archivu s vydáním zálohujte databázi pomocí <code>pg_dump -Fc</code> a adresáře <code>data/</code> a <code>config/</code> pomocí svých obvyklých nástrojů (v <code>data/</code> se nachází klíčový soubor AI). Při použití balíčků zálohujte databázi stejným způsobem a také <code>/etc/antimatter</code>, <code>/var/lib/antimatter</code>, <code>/etc/gifs-server</code> a <code>/var/lib/gifs-server</code>.</p>
 
 <h2 id="restore">Obnovení na novém hostiteli</h2>
 <p>Umístěte <code>compose.yaml</code>, uložený <code>.env</code> a zálohy do nového adresáře, pak:</p>
@@ -48,15 +51,16 @@ docker compose create           # creates the volumes, starts nothing
 docker compose up -d postgres
 docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
     &lt; "backups/antimatter-db-$stamp.dump"
-for v in files gifs; do
+for v in files gifs data; do
     docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
         alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
 done
 docker compose up -d</code></pre>
-<p>Použijte stejný <code>.env</code>: úložiště i databáze musí si zachovat svá hesla. Pokud má nový hostitel jinou adresu, aktualizujte <code>SITE_URL</code> (a <code>DOMAIN</code>).</p>
+<p>Použijte stejný <code>.env</code>: úložiště i databáze musí si zachovat původní hesla a připojení k modelům potřebují stejný klíč pro šifrování AI. Pokud má nový host jinou adresu, aktualizujte <code>SITE_URL</code> (a <code>DOMAIN</code>).</p>
 <p>Zálohy otestujte občas tím, že je obnovíte na jiném stroji.</p>
 
 <h2 id="upgrade">Aktualizace</h2>
+<div class="callout warn">Soubory Compose stažené před 17. říjnem 2026 neměly objem <code>data</code>: klíčový soubor AI byl v kontejneru. Než použijete nový <code>compose.yaml</code> a pokud <code>.env</code> neobsahuje <code>AM_AI_ENCRYPTION_KEY</code>, uložte klíč, který server vytvořil: <code>echo "AM_AI_ENCRYPTION_KEY=$(docker compose exec -T antimatter cat /antimatter/data/ai-encryption.key)" &gt;&gt; .env</code>. Pokud příkaz nenajde soubor, žádná připojení k modelům dosud neuložila klíč.</div>
 <ol>
 <li>Pořiďte zálohu.</li>
 <li>Změňte štítek obrazu v <code>.env</code> (<code>ANTIMATTER_IMAGE</code>), pokud ho fixujete, jak je doporučeno.</li>
@@ -65,12 +69,45 @@ docker compose up -d</code></pre>
 docker compose up -d
 docker compose logs -f antimatter</code></pre></li>
 </ol>
-<p>Po spuštění server aktualizuje schéma databáze (postup sledujte v logu; u velkého serveru to může trvat několik minut) a nainstaluje novější verze aplikací zabudovaných do obrazu. Při použití archivu vydání: zastavte server, nahraďte všechno kromě <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> a <code>client/plugins/</code> obsahem nového archivu a server znovu spusťte.</p>
+<p>Při spuštění server aktualizuje schéma databáze (postupujte podle záznamů v logu; u velkých serverů to může trvat několik minut) a nainstaluje novější verze aplikací zabudovaných do obrazu. V případě archivu vydání: zastavte server, nahraďte vše kromě <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> a <code>client/plugins/</code> obsahem nového archivu a server znovu spusťte. V případě balíčku .deb nebo .rpm nainstalujte nový balíček tak, jak je vysvětleno v dokumentaci <a href="{{root}}docs/admins/install.html#packages">Aktualizace balíčku</a>.</p>
 <div class="callout warn">Aktualizace probíhají pouze do před. Jakmile novější server databázi aktualizuje, starší verze ji už nemůže použít: pokud se chcete vrátit, obnovte zálohu pořízenou před aktualizací. To samé platí pro návrat z <code>antimatter-next</code> zpět na <code>antimatter</code>.</div>
 <h3>Verze</h3>
-<p>Server Antimatter hlásí verzi řady Mattermost, na které je založen (aktuálně 12.0.0). Obrazy se přebudovávají z větví <code>main</code>: <code>antimatter-next</code> každou noc (štítky <code>nightly-&lt;YYYYMMDD&gt;</code>) a oba obrazy při každé změně (štítky <code>sha-&lt;commit&gt;</code>). Upevněte jeden z těchto štítků, aktualizujte cíleně a pište si, který je předchozí, abyste věděli, která záloha k němu patří.</p>
+<p>Server Antimatter hlásí verzi řady Mattermost, na které je založen (v současnosti 12.0.0). Vydání na GitHubu, včetně jejich archivů a balíčků, mají vlastní čísla verzí, v řadě 0.9.0 během beta verze: příkaz <code>antimatter version</code> je zobrazuje jako <b>Verze sestavení</b>. Obrazy se přebudovávají z větví <code>main</code>: <code>antimatter-next</code> každou noc (štítky <code>nightly-&lt;YYYYMMDD&gt;</code>) a oba obrazy při každé změně (štítky <code>sha-&lt;commit&gt;</code>). Přejište jeden z těchto štítků, aktualizujte cíleně a zaznamenejte si předchozí štítek, abyste věděli, která záloha k němu patří.</p>
 <h3>Hlavní verze PostgreSQL</h3>
 <p>Soubor compose používá <code>postgres:17-alpine</code>. Antimatter vyžaduje PostgreSQL 15 nebo novější. Nová hlavní verze PostgreSQL nedokáže přečíst datový adresář předchozí verze: pokud se chcete přejít na novou, vyexportujte databázi, spusťte novou verzi na novém svazku a do ní export obnovte.</p>
+
+<h2 id="v090">Aktualizace na verzi 0.9.0</h2>
+<p>První spuštění verze 0.9.0 (nebo obrazu sestaveného od 17. října 2026) provede několik jednorázových změn v datech. Každá se provede pouze jednou a je zaznamenána v databázi. Tyto změny přenášejí hodnoty, které zůstaly na starých výchozích nastaveních, na nové, a ponechávají bez změny to, co si administrátor explicitně zvolil. Postupujte podle záznamů v logu.</p>
+<div class="callout warn">Pokud je Antimatter určen pro firmu nebo organizaci, nastavte <b>Typ nových komunit</b> na <b>Pracoviště</b> <em>než</em> provedete aktualizaci: <code>AM_TEAMSETTINGS_DEFAULTCOMMUNITYKIND=workplace</code>. Aktualizace každé komunitě přiřadí typ, který má toto nastavení v daném okamžiku, a hovory jsou ve výchozím nastavení vypnuté v kanálech komunit typu <b>Komunita</b>. Viz <a href="{{root}}docs/admins/configuration.html#community-kind">Pracoviště nebo komunita</a>.</div>
+<table>
+<thead><tr><th>Co</th><th>Změna</th></tr></thead>
+<tbody>
+<tr><td>Typy komunit</td><td>Každá komunita má typ, <b>Komunita</b> nebo <b>Pracoviště</b>: hodnotu nastavení <b>Typ nových komunit</b> (<code>TeamSettings.DefaultCommunityKind</code>) při prvním spuštění. Již nastavený typ se zachová. Administrátoři komunit si mohou typ své komunity později změnit v <b>Nastavení týmu › Kanály › Typ komunity</b>.</td></tr>
+<tr><td>Kdo archivuje kanály</td><td>Členové kanálů už kanály, ve kterých se nacházejí, nearchivují; to dělají administrátoři komunity. V pracovním prostoru kanál archivují i administrátoři daného kanálu (ten, kdo ho vytvořil, a ti, které jmenovali za administrátory). Tím se mění role systémového schématu; povolení schémat, která systémový administrátor vytvořil pro některé komunity, zůstávají beze změny.</td></tr>
+<tr><td>Role Moderátorů ve šablonách rozvržení</td><td>Role <b>Moderátorů</b>, kterou komunity získaly ze šablony rozvržení, dostává oprávnění <b>Odebírat lidi</b>, které je potřeba pro vylučování a odstraňování lidí. Změní se jen role, které jsou přesně tak, jak je šablona vytvořila; roli, kterou někdo upravil, se nedotkne.</td></tr>
+<tr><td>Role s <b>Administrátorem</b></td><td>Role komunity s přepínačem <b>Administrátor</b> zapnutým nyní zahrnuje vše, co mohou dělat administrátoři dané komunity, jak přepínač naznačuje, a ne jen nastavení komunity.</td></tr>
+<tr><td>Limit členů</td><td><b>Max. počet členů na komunitu</b> (<code>TeamSettings.MaxUsersPerTeam</code>) se mění z 50, což bylo staré výchozí nastavení, na 0 (bez limitu). Jakákoliv jiná hodnota se zachová, stejně jako limit nastavený pomocí <code>AM_TEAMSETTINGS_MAXUSERSPERTEAM</code>.</td></tr>
+<tr><td>Připojení k modelům</td><td>Systémoví administrátoři získávají správu připojení k modelům, administrátoři komunit (a role s <b>Administrátorem</b>) správu připojení k modelům jejich vlastní komunity. Služby AI aplikace Agenti se stávají serverově širokými <a href="{{root}}docs/admins/ai.html#connections">připojeními k modelům</a>, viz níže.</td></tr>
+<tr><td>Town Square se stává General</td><td>Výchozí kanál každé komunity se přejmenuje z <code>town-square</code> (Town Square) na <code>general</code> (General). Zachová si svůj ID, členy, zprávy a nastavení, stejně jako zobrazené jméno, které si vybrali administrátoři. Staré odkazy a vyhledávání podle <code>town-square</code> stále vedou na tento kanál. Komunita, která už má kanál pojmenovaný <code>general</code>, i když je archivovaný, si ponechá <code>town-square</code> jako výchozí kanál; totéž platí pro komunitu, jejíž <code>town-square</code> je archivován: systémový deník je jmenuje a jejich administrátoři mohou kanály přejmenovat.</td></tr>
+<tr><td>Oblíbené</td><td>Kategorie Oblíbené v bočním panelu každého uživatele se přejmenuje na Oblíbené, jak to nyní naznačuje rozhraní. Kategorie, které lidé vytvořili s tímto názvem, zůstávají beze změny.</td></tr>
+</tbody>
+</table>
+<h3>Služby aplikace Agenti</h3>
+<p>Během aktualizace se každá služba AI z aplikace Agents zkopíruje do modelového připojení na úrovni serveru, které je sdíleno se všemi komunitami a je dostupné všem, kromě hostů (přepněte <b>Hosté také</b>, pokud je chcete zapojit). Klíče jsou během přenosu šifrovány, proto server potřebuje svůj klíč pro šifrování AI: u clusteru, jehož soubory jsou v S3, nejdřív nastavte <code>AM_AI_ENCRYPTION_KEY</code>, jinak se kopie provede až při dalším spuštění. Poté zkontrolujte <b>Systémová konzole › AI › Modelová připojení</b>:</p>
+<ul>
+<li>Každé připojení si zachovává ID své služby, takže agenti aplikace a automatický překlad nastavený na službu Agents ji nadále najdou.</li>
+<li>Služby OpenAI, OpenAI-kompatibilní, Anthropic, Mistral, Cohere a Gemini se stanou připojeními k jejich OpenAI-kompatibilnímu (nebo Anthropic) koncovému bodu. Služba Azure se stane připojením k OpenAI-kompatibilnímu koncovému bodu daného zdroje: otestujte ho.</li>
+<li>Služby AWS Bedrock, Google Vertex AI a Cohere North, stejně jako neznámé typy, jsou označeny jako <b>Potřebuje pozornost</b> s uvedením důvodu. Jejich cloudové přihlašovací údaje se nekopírují: namířte je na OpenAI-kompatibilní koncový bod poskytovatele nebo na bránu, například LiteLLM, a poté uložte.</li>
+<li>Služba pro embedding se stane modelem <b>Embeddings</b> připojení se stejnou adresou a klíčem, nebo vlastním připojením. Služba pro přepis získá model <code>whisper-1</code>.</li>
+<li>Pokud přepsání a shrnutí zatím nemají připojení, dostanou službu a model výchozího agenta aplikace.</li>
+</ul>
+<p>Vlastní nastavení a data aplikace Agents zůstávají beze změny: její agenti nadále používají její služby.</p>
+<h3>Další změny výchozích hodnot</h3>
+<ul>
+<li><b>Hovory</b>: <b>Testovací režim</b> je ve výchozím nastavení vypnutý a <b>Povolit video</b> zapnuté. Výběr uložený v konfiguraci se zachová. Hovory také respektují typ komunity (viz <a href="{{root}}docs/admins/calls.html#where-calls">Hovory a hlas</a>).</li>
+<li>Přesunutí zpráv na vrchol je v kompetenci administrátorů kanálu, administrátorů a moderátorů komunity (s oprávněním <b>Spravovat zprávy</b>); členové přímé nebo skupinové zprávy to mohou nadále dělat.</li>
+<li>Archivované kanály mohou přijímat nové členy, kteří si mohou přečíst jejich historii. Nikdo v nich nemůže psát, reagovat ani nic měnit.</li>
+</ul>
 
 <h2 id="mattermost">Přechod z Mattermost</h2>
 <p>Antimatter používá schéma databáze Mattermost a přidává vlastní tabulky, takže může převzít databázi PostgreSQL a soubory serveru Mattermost. Nejprve to vyzkoušejte na kopii:</p>
@@ -80,12 +117,13 @@ docker compose logs -f antimatter</code></pre></li>
 <li>Zkopírujte soubory do úložiště Antimatter, přičemž zachovejte jejich cesty: do bucketu <code>antimatter</code> pomocí nástroje pro S3, nebo do <code>data/</code> pomocí archivu vydání.</li>
 <li>Znovu použijte svá nastavení: zkopírujte <code>config.json</code>, nebo ho přeneste do databáze pomocí <code>amctl --local config migrate</code> (viz <a href="{{root}}docs/admins/configuration.html">Nastavení</a>). Vaše proměnné prostředí <code>MM_</code> nadále fungují; přejmenujte je na <code>AM_</code>, jak vám to vyhovuje.</li>
 <li>Spusťte Antimatter a sledujte protokol, zatímco aktualizuje databázi. Poté zkontrolujte <b>Systémová konzole › Pluginy › Správa pluginů</b>. Antimatter nainstaluje vlastní verze aplikací Hovory, Playbooky, Kanban (Nástěnky), Agenti a integrací, pokud jsou novější než nainstalovaná verze. Pokud Mattermost měl novější verzi některé z nich, odstraňte tuto aplikaci a restartujte Antimatter, aby se nainstalovala jeho vlastní verze.</li>
-<li>Nakonfigurujte si vlastní proxy pro push oznámení. Antimatter nikdy neposílá oznámení do push služeb Mattermostu, ať už testovacích, nebo hostovaných, protože ty doručují pouze do vlastních aplikací Mattermostu. Dokud nezměníte <b>Server push oznámení</b>, server neposílá žádná push oznámení (viz <a href="{{root}}docs/admins/email-push.html#push">Push oznámení</a>).</li>
+<li>Nastavte push oznámení znovu, pomocí vlastního push proxy: Antimatter nikdy neposílá oznámení do push služeb Mattermost, ať už testovacích nebo hostovaných, protože ty doručují pouze do vlastních aplikací Mattermost. Dokud nezměníte <b>Server push oznámení</b>, server neposílá žádná push oznámení (viz <a href="{{root}}docs/admins/email-push.html#push">Push oznámení</a>).</li>
 </ol>
 <p>Antimatter nekomunikuje s žádnou službou provozovanou společností Mattermost, Inc. (viz <a href="{{root}}docs/admins/security.html#outbound">Připojení k externím službám</a>), i když se v konfiguraci stále nachází odkaz na některou z nich:</p>
 <ul>
 <li>server push notifikací od Mattermost zůstává v nastaveních, ale nikdy se nepoužívá;</li>
 <li>adresy Mattermost pro tržiště aplikací (<b>URL tržiště</b>) a pro produktová oznámení jsou vyprázdněny;</li>
+<li>odkazy ke stažení aplikací, které byly výchozími odkazy Mattermost (<b>Antimatter Apps Download Page Link</b>, <b>Odkaz ke stažení aplikace pro Android</b> a <b>Odkaz ke stažení aplikace pro iOS</b>), jsou nahrazeny stránkami ke stažení aplikací Antimatter na GitHubu; odkazy, které jste nastavili sami, zůstávají beze změny;</li>
 <li>aplikace Hovory používá veřejný STUN server Cloudflare místo toho od Mattermost, aniž by se měnilo uložené nastavení (viz <a href="{{root}}docs/admins/calls.html#network">Hovory</a>);</li>
 <li>kontrola bezpečnostních aktualizací a hlášení chyb byly odstraněny, stejně jako jejich nastavení v Systémové konzoli (<b>Povolit bezpečnostní upozornění</b>, <b>Povolit diagnostiku a hlášení chyb</b>) a stránka <b>Oznámení</b>.</li>
 </ul>

@@ -1,10 +1,10 @@
 title: Σύνταξη εφαρμογών (πρόσθετα)
-description: Πώς να γράψετε μια εφαρμογή (πρόσθετο) για το Antimatter: η δομή του δέσμευματος και το plugin.json, οι server hooks και το API, το μητρώο της web app, η υποστήριξη του Fusion interface, ρυθμίσεις, το key-value store, μεταφράσεις, συσκευασία και εγκατάσταση.
+description: Πώς να γράψετε μια εφαρμογή Antimatter (πρόσθετο): η διάταξη του δέσμευματος και το plugin.json, οι server hooks και το API, η υπηρεσία AI, το μητρώο web app, η υποστήριξη του Fusion interface, οι ρυθμίσεις, το key-value store, οι μεταφράσεις, η συσκευασία και η εγκατάσταση.
 guide: developers
 order: 6
 nav: Σύνταξη εφαρμογών
 lead: Οι εφαρμογές προσθέτουν λειτουργικότητα στο Antimatter από μέσα: ένα server μέρος σε Go που συνδέεται με τον server, και ένα web app μέρος σε React που προσθέτει μενού, πάνελ, τύπους μηνυμάτων και σελίδες. Αυτή η σελίδα δείχνει πώς δομείται μια εφαρμογή, χρησιμοποιώντας τη συσκευασμένη εφαρμογή Polls ως παράδειγμα, και τι αλλάζει στο Fusion interface του Antimatter.
-source: d9c132cac759
+source: f2c14bacc2f3
 ---
 <h2 id="overview">Πώς λειτουργεί μια εφαρμογή</h2>
 <ul>
@@ -131,6 +131,22 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 <li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: έλεγχος ποιος μπορεί να κάνει τι, πριν ενεργήσετε για λογαριασμό χρήστη.</li>
 </ul>
 <p>Μια εφαρμογή εκτελείται σε κάθε διακομιστή ενός κλάστου. Κρατήστε την κατάσταση (state) στο αποθετήριο κλειδιών-τιμών ή στη βάση δεδομένων, όχι μόνο στη μνήμη.</p>
+<h3 id="ai">Η υπηρεσία AI</h3>
+<p>Ο server του Antimatter καλεί μοντέλα AI για τις εφαρμογές, μέσω των συνδέσεων μοντέλων που έχει ορίσει ένας διαχειριστής (βλ. <a href="{{root}}docs/admins/ai.html">AI</a> στον οδηγό διαχείρισης). Μια εφαρμογή δεν κατέχει ποτέ το κλειδί ενός προμηθευτή: ονοματίζει το πρόσωπο για το οποίο ενεργεί και το πού, και ο server ελέγχει ότι αυτό το πρόσωπο μπορεί να χρησιμοποιήσει τη σύνδεση εκεί, εφαρμόζει τα όρια και τα προϋπολογισμούς της, μετράει τα tokens έναντι του προσώπου και της εφαρμογής, και ελέγχει την κλήση χωρίς το περιεχόμενό της.</p>
+<table>
+<thead><tr><th>Μέθοδος</th><th>Λειτουργία</th></tr></thead>
+<tbody>
+<tr><td><code>AIChat(actingUserID, channelID, teamID, *ai.ChatRequest)</code></td><td>Μια ολοκλήρωση συνομιλίας: μηνύματα, εργαλεία, δομημένη έξοδος (<code>JSONSchema</code>).</td></tr>
+<tr><td><code>AIChatStream(…)</code></td><td>Το ίδιο, με streaming: διαβάστε τα <code>Events</code> του stream μέχρι να κλείσει το κανάλι, ή <code>Close</code> το για να σταματήσετε την κλήση.</td></tr>
+<tr><td><code>AIEmbed(…, *ai.EmbedRequest)</code></td><td>Embeddings κειμένων.</td></tr>
+<tr><td><code>AITranscribe(…, *ai.TranscribeRequest)</code></td><td>Μετατροπή ομιλίας σε κείμενο.</td></tr>
+<tr><td><code>AIDecide(…, *ai.DecideRequest)</code></td><td>Τυποποιημένες ερωτήσεις σε ένα μοντέλο λήψης αποφάσεων (ναι ή όχι, μια επιλογή, μια βαθμολογία) σχετικά με ένα κείμενο.</td></tr>
+<tr><td><code>AIConnectionsForUser(userID, channelID, teamID)</code></td><td>Οι συνδέσεις που μπορεί να χρησιμοποιήσει ένα πρόσωπο εκεί, με τα μοντέλα και τις ικανότητές τους, ποτέ τα κλειδιά τους.</td></tr>
+</tbody>
+</table>
+<p>Το <code>ConnectionID</code> κάθε αιτήματος επιλέγει τη σύνδεση, και το <code>Model</code> ένα από τα μοντέλα της (κενό για το προεπιλεγμένο της σύνδεσης). Το <code>Operation</code> είναι μια σύντομη ετικέτα για τα αρχεία χρήσης και ελέγχου, ποτέ περιεχόμενο. Η ελάχιστη έκδοση server είναι 11.11.</p>
+<div class="callout warn">Πάρτε το <code>actingUserID</code> μόνο από μια πηγή που έχει επαληθεύσει ο server: το header <code>Mattermost-User-Id</code> ενός αιτήματος προς το <code>ServeHTTP</code> σας, ή το χρήστη του context ενός hook (ο συγγραφέας μιας αναρτησης, το χρήστης που εκτέλεσε μια εντολή). Ποτέ μην το παίρνετε από ένα μήνυμα, ένα webhook payload, ένα URL ή ένα αίτημα από άλλη εφαρμογή: η εφαρμογή σας θα δαπανούσε την πρόσβαση κάποιου άλλου.</div>
+<p>Αυτές οι μέθοδοι και το πακέτο <code>ai</code> (<code>server/public/ai</code>) υπάρχουν μόνο στην αντίγραφο του Antimatter του module, όχι στην έκδοση που δημοσιεύεται από το Mattermost. Για να τις χρησιμοποιήσετε, συγκεντρώστε (build) εναντίον του <code>server/public</code> του Antimatter με μια γραμμή <code>replace</code> στο <code>go.mod</code> σας, για παράδειγμα <code>replace github.com/mattermost/mattermost/server/public =&gt; ../antimatter/server/public</code>. Μια τέτοια εφαρμογή εκτελείται μόνο στο Antimatter.</p>
 
 <h2 id="kv">Αποθήκευση δεδομένων</h2>
 <p>Κάθε εφαρμογή έχει το δικό της αποθετήριο κλειδιών-τιμών στη βάση δεδομένων του διακομιστή:</p>
@@ -172,17 +188,17 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <pre><code>export function isFusionUI(): boolean {
     return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
 }</code></pre>
-<p>Οι ενσωματωμένες εφαρμογές χρησιμοποιούν αυτό για να αποδίδονται διαφορετικά. Η εφαρμογή Ψηφοφοριών αποδίδει τις κάρτες ψηφοφορίας και τον διάλογο δημιουργίας της στο στυλ του Fusion, και ανοίγει τον δικό της διάλογο για την <code>/poll</code> εντολή στο Fusion. Οι κλήσεις και τα φωνητικά κανάλια παραλείπουν τα στοιχεία της πλευρικής στήλης και των ειδοποιήσεων (toasts) που το Fusion αντικαθιστά με τη δική του διεπαφή κλήσεων. Η εφαρμογή Πράκτορες τοποθετεί τις ενέργειες Τ.Π. της σε ένα υπομενού του μενού μηνύματος, αντί για την εργαλειοθήκη που εμφανίζεται με το πέρασμα του δείκτη. Οι δικές του κλάσεις CSS (με πρόθεμα <code>am-</code>) και η στρώση διαλόγων (το στοιχείο <code>am-layer</code>) είναι αυτά που χρησιμοποιούν οι εφαρμογές για να ταιριάζουν με τη διεπαφή· δεν πρόκειται για τεκμηριωμένο, σταθερό API.</p>
+<p>Οι ενσωματωμένες εφαρμογές χρησιμοποιούν αυτό για να αποδίδονται διαφορετικά. Η εφαρμογή Ψηφοφοριών αποδίδει τις κάρτες ψηφοφορίας και τον διάλογο δημιουργίας στο στυλ του Fusion, και ανοίγει τον δικό της διάλογο για την <code>/poll</code> εντολή στο Fusion. Οι κλήσεις και τα φωνητικά κανάλια παραλείπουν τα στοιχεία της πλευρικής στήλης και των ειδοποιήσεων (toasts) που το Fusion αντικαθιστά με τη δική του διεπαφή κλήσεων. Η εφαρμογή Πράκτορες τοποθετεί τις ενέργειες Τεχνητής Νοημοσύνης στο μενού μηνύματος, ως ομάδα κάτω από <b>Περισσότερες ενέργειες</b>, αντί για την εργαλειοθήκη που εμφανίζεται κατά τον δείκτη. Τα ίδια CSS κλάσεις του Fusion (με πρόθεμα <code>am-</code>) και η στρώση διαλόγων (το στοιχείο <code>am-layer</code>) είναι αυτά που χρησιμοποιούν αυτές οι εφαρμογές για να ταιριάζουν με τη διεπαφή· δεν πρόκειται για τεκμηριωμένο, σταθερό API.</p>
 <h3>Πού εμφανίζει το Fusion τα στοιχεία των προσθηκών</h3>
 <table>
 <thead><tr><th>Μέθοδος μητρώου</th><th>Πού εμφανίζεται στο Fusion</th></tr></thead>
 <tbody>
 <tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>Η ράβα εφαρμογών, η στήλη εικονιδίων στην ακροδεξιά άκρη, ανάμεσα στο avatar σας και το κουμπί <b>Σχετικά με το Antimatter</b>. Εκεί τοποθετούνται και τα κουμπία κεφαλίδας καναλιού, όχι στην κεφαλίδα του καναλιού. Κρύβεται όταν ένας διαχειριστής συστήματος ενεργοποιήσει την <b>Απενεργοποίηση Λωρίδας εφαρμογών</b> (<code>ExperimentalSettings.DisableAppBar</code>, απενεργοποιημένη από προεπιλογή).</td></tr>
-<tr><td><code>registerRightHandSidebarComponent</code></td><td>Ο δεξιός πίνακας. Οι χρήστες μπορούν να τον αλλάξουν σε μέγεθος σύροντας την άκρη του. Αν η εφαρμογή είναι και προϊόν, ο πίνακας προσφέρει την επιλογή <b>Άνοιγμα σε πλήρη σελίδα</b>.</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>Ο πίνακας στη δεξιά πλευρά. Οι χρήστες μπορούν να τον αλλάξουν σε μέγεθος σύροντας την άκρη του, και να τον ανοίξουν σε νέο παράθυρο. Αν η εφαρμογή είναι και προϊόν, ο πίνακας προσφέρει <b>Άνοιγμα σε πλήρη σελίδα</b>. Δείτε <a href="#panel-state">Ο πίνακας σε νέο παράθυρο</a>.</td></tr>
 <tr><td><code>registerChannelHeaderIcon</code></td><td>Εικονίδια στο κεφάλαιο του καναλιού, μετά τα κουμπία κλήσης· σε κινητά, στο μενού <b>Περισσότερα</b> του κεφαλαίου.</td></tr>
 <tr><td><code>registerCallButtonAction</code></td><td>Το κουμπί κλήσης στο κεφάλαιο του καναλιού· πολλοί πάροχοι μοιράζονται ένα μενού <b>Άλλοι τρόποι κλήσης</b>.</td></tr>
-<tr><td><code>registerPostDropdownMenuAction</code></td><td>Το μενού <b>Περισσότερες ενέργειες</b> (⋯) του μηνύματος, σε ένα υπομενού <b>Ενέργειες μηνύματος</b>· επίσης στο μενού <b>Ενέργειες νήματος</b> του πίνακα νήματος, κάτω από <b>Περισσότερες ενέργειες</b>.</td></tr>
-<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Το δικό της υπομενού των ίδιων μενύ, με το όνομα και το εικονίδιο της εφαρμογής.</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>Το μενού <b>Ενέργειες μηνύματος</b> (⋯) του μηνύματος, στο υπομενού <b>Περισσότερες ενέργειες</b>· επίσης στο μενού <b>Ενέργειες νήματος</b> του πίνακα νήματος, κάτω από <b>Περισσότερες ενέργειες</b>. Το Fusion αποδίδει το εικονίδιο της εφαρμογής πριν από κάθε ενέργεια, σε γκρι: το δικό του εικονίδιο για τις ενσωματωμένες εφαρμογές, αλλιώς το εικονίδιο που εμφανίζει η εφαρμογή στη ράγα εφαρμογών, αλλιώς ένα ουδέτερο. Ένα στοιχείο χωρίς κείμενο στην αρχή του κειμένου της ενέργειας (ένα εικονίδιο που αποδίδει η ίδια η εφαρμογή) κρύβεται.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Μια ομάδα με τίτλο στο ίδιο υπομενού <b>Περισσότερες ενέργειες</b>, μετά τις μεμονωμένες ενέργειες. Καμία εφαρμογή δεν αποκτά δική της είσοδο στο μενού μηνύματος.</td></tr>
 <tr><td><code>registerPostActionComponent</code></td><td>Η εργαλειοθήκη που εμφανίζεται με το πέρασμα του δείκτη στο μήνυμα, πριν το κουμπί ⋯.</td></tr>
 <tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>Το ίδιο το μήνυμα: το σώμα του, κάτω από το κείμενό του, μετά την ώρα του, και στη θέση των προεπισκοπήσεων συνδέσμων.</td></tr>
 <tr><td><code>registerChannelHeaderMenuAction</code></td><td>Το μενού <b>Επιλογές καναλιού</b> (⋯ σε ένα κανάλι της πλευρικής στήλης, ή δεξί κλικ), ως στοιχεία με εικονίδιο πρίζας.</td></tr>
@@ -200,7 +216,7 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <tr><td><code>registerChannelTypeOption</code></td><td>Οι τύποι καναλιών του διαλόγου <b>Δημιουργία καναλιού</b>.</td></tr>
 <tr><td><code>registerSearchComponents</code></td><td>Το πεδίο αναζήτησης στην κεφαλίδα του καναλιού: τα πεδία εφαρμογών εμφανίζονται όταν είναι άδειο.</td></tr>
 <tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>Σχετικά με το Antimatter</b> (κάτω μέρος του πλαισίου της εφαρμογής), κάτω από <b>Βοήθεια</b>.</td></tr>
-<tr><td><code>registerProduct</code></td><td>Ολόκληρες σελίδες στη διεύθυνση URL του προϊόντος, που αναφέρονται κάτω από <b>Προϊόντα</b> στο <b>Σχετικά με το Antimatter</b>. Οι σελίδες προϊόντων διατηρούν το κλασικό πλαίσιο σελίδας.</td></tr>
+<tr><td><code>registerProduct</code></td><td>Πλήρεις σελίδες στη διεύθυνση URL του προϊόντος, που εμφανίζονται κάτω από <b>Προϊόντα</b> στο <b>Σχετικά με το Antimatter</b>. Οι σελίδες προϊόντων διατηρούν το κλασικό πλαίσιο σελίδας, του οποίου το μενού προϊόντων εμφανίζεται μόνο όταν μια εφαρμογή καταγράφει ένα προϊόν ή προσθέτει μια είσοδο σε αυτό. Οι ενσωματωμένες εφαρμογές Kanban και Playbooks δεν καταγράφουν πλέον προϊόντα: οι σελίδες τους ανοίγουν στους πλευρικούς πίνακες τους.</td></tr>
 <tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, hooks όπως <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>Λειτουργούν όπως στο κλασικό περιβάλλον.</td></tr>
 <tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>Η Κονσόλα συστήματος, που είναι η κλασική και στα δύο περιβάλλοντα.</td></tr>
 </tbody>
@@ -230,12 +246,21 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <thead><tr><th>Μέθοδος</th><th>Τι προσθέτει</th></tr></thead>
 <tbody>
 <tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>Ένα στοιχείο στο μενού <b>+</b> του πεδίου μηνύματος, και στα δύο περιβάλλοντα. Το <code>action</code> λαμβάνει <code>{channelId, rootId}</code>.</td></tr>
-<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Μια καρτέλα του επιλογέα emoji του πεδίου μηνύματος, όπως GIF ή αυτοκόλλητα. Στο Fusion, οι καρτέλες με τιμή <code>order</code> μικρότερη από 10 εμφανίζονται πριν την καρτέλα Emoji. Το στοιχείο λαμβάνει <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> και <code>isFusion</code>.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Μια καρτέλα του επιλογέα emoji του πεδίου μηνύματος, όπως GIFs ή αυτοκόλλητα. Στο Fusion, οι καρτέλες με <code>order</code> κάτω από 10 εμφανίζονται πριν από την καρτέλα Emoji. Το στοιχείο λαμβάνει <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code>, <code>isFusion</code> και, στο Fusion, <code>pickerKit</code> (βλ. παρακάτω).</td></tr>
 <tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>Ένα πάνελ ανάμεσα στην κεφαλίδα του καναλιού και τα μηνύματα, για τα κανάλια που επιλέγει ο <code>matcher(state, channel)</code>. Μπορεί να κρύψει τα μηνύματα και το πεδίο σύνταξης (<code>setMessagesVisible</code>), όπως κάνουν τα φωνητικά κανάλια.</td></tr>
 <tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>Μια γραμμή κάτω από ένα κανάλι στην πλευρική στήλη, όπως τα άτομα που συμμετέχουν στην κλήση του. Λαμβάνει το <code>channel</code>.</td></tr>
 <tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Μόνο Fusion: μια εγγραφή στις σελίδες <b>Ολοκληρώσεις</b>, δίπλα στα προσαρμοσμένα emoji. Η εφαρμογή GIFs προσθέτει εκεί τα προσαρμοσμένα GIFs και τα αυτοκόλλητα της.</td></tr>
 </tbody>
 </table>
+<h3 id="picker-kit">Προσθήκη και διαχείριση προβολών στον επιλογέα emoji</h3>
+<p>Στο Fusion, η καρτέλα του επιλογέα emoji λαμβάνει την ιδιότητα <code>pickerKit</code>: τα συστατικά που χρησιμοποιεί η καρτέλα Emoji για τις δικές της προβολές προσθήκης και διαχείρισης, ώστε οι προβολές μιας καρτέλας να έχουν την ίδια εμφάνιση και να παραμένουν εντός του επιλογέα. Οι εφαρμογές GIFs και Memes το χρησιμοποιούν για να προσθέτουν και να διαχειρίζονται GIF, αυτοκόλλητα και προτυπώσεις meme. Περιέχει το <code>version</code> (1), τα hooks <code>usePickerView</code> και <code>useOnEscape</code>, καθώς και τα συστατικά <code>PickerViewButtons</code> (τα κουμπιά <b>+</b> και διαχείρισης δίπλα στο πεδίο αναζήτησης), <code>PickerViewFrame</code> (μια προβολή με το βέλος επιστροφής), <code>PickerNotice</code>, <code>PickerField</code>, <code>PickerSearch</code>, <code>PickerDropZone</code> και <code>PickerManageList</code>. Το Escape επιστρέφει από μια προβολή στο πλέγμα της καρτέλας. Βεβαιωθείτε ότι η ιδιότητα υπάρχει: άλλοι ξενιστές δεν την παρέχουν, οπότε η καρτέλα διατηρεί τότε τα δικά της διαλόγα. Οι τύποι βρίσκονται στο <code>webapp/fusion/src/types/store/plugins.ts</code> (<code>EmojiPickerTabProps</code>) και τα συστατικά στο <code>webapp/fusion/src/fusion/popovers/picker_views.tsx</code>.</p>
+<h3 id="panel-state">Το πάνελ σε νέο παράθυρο</h3>
+<p>Το Fusion παρέχει δύο επιπλέον ιδιότητες στο συστατικό του <code>registerRightHandSidebarComponent</code>, ώστε το <b>Άνοιγμα σε νέο παράθυρο</b> να ανοίγει το πάνελ εκεί που βρισκόταν και όχι στην αρχική σελίδα της εφαρμογής:</p>
+<ul>
+<li><code>setPanelState(state)</code>: καλέστε το όταν το πάνελ αλλάζει θέση, με μια σύντομη συμβολοσειρά που ορίζει η εφαρμογή σας, όπως <code>'note/&lt;id&gt;'</code> ή <code>'board/&lt;id&gt;/card/&lt;id&gt;'</code>, ή <code>null</code> στην αρχική του σελίδα. Εμφανίζεται στη διεύθυνση του παραθύρου, οπότε μην τοποθετείτε ποτέ απόρρητες πληροφορίες σε αυτό. Μια κατάσταση μεγαλύτερη από 512 χαρακτήρες, ή που περιέχει χαρακτήρες ελέγχου, απορρίπτεται.</li>
+<li><code>initialPanelState</code>: στο νέο παράθυρο, η κατάσταση που είχε το πάνελ, ή <code>undefined</code>. Θεωρήστε την ως μη αξιόπιστη είσοδο: ανακτήστε ξανά το στοιχείο ως ο συνδεδεμένος χρήστης και εμφανίστε την αρχική σελίδα της εφαρμογής ή μια προβολή «δεν βρέθηκε» αν δεν μπορούν να το ανοίξουν.</li>
+</ul>
+<p>Η κατάσταση ξεχνάται όταν το πάνελ κλείνει ή όταν το πάνελ μιας άλλης εφαρμογής καταλαμβάνει τη θέση του. Για να ανοίξετε μόνοι σας το παράθυρο ενός πάνελ, το <code>popoutRhsPlugin</code> (επίσης στο <code>window.WebappUtils.popouts</code>) δέχεται την κατάσταση ως προαιρετικό πέμπτο όρισμα. Οι εφαρμογές Notes, Whiteboard, Todo, Kanban και Playbooks χρησιμοποιούν αυτό.</p>
 <p>Το <code>fusionIcon</code> ονομάζει ένα εικονίδιο του σετ εικονιδίων του Fusion (για παράδειγμα <code>poll</code>, <code>sticker</code>, <code>calendar</code> ή <code>image</code>; δείτε <code>webapp/fusion/src/fusion/components/icon</code>). Το Fusion το εμφανίζει αντί για το <code>icon</code>, ώστε το στοιχείο να ταιριάζει με τα υπόλοιπα.</p>
 
 <h2 id="settings">Ρυθμίσεις</h2>

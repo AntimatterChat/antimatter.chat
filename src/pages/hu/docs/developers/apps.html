@@ -1,10 +1,10 @@
 title: Alkalmazások (bővítmények) írása
-description: Hogyan írjon Antimatter-alkalmazást (bővítményt): a csomag szerkezete és a plugin.json, a szerverhorgonyok és API, a webalkalmazás-rejiszter, a Fusion-felület támogatása, beállítások, kulcs-érték tároló, fordítások, csomagolás és telepítés.
+description: Antimatter-alkalmazás (bővítmény) írása: a csomag felépítése és a plugin.json, a szerverhurokok és API, az AI-szolgáltatás, a webalkalmazás-rejiszter, a Fusion-felhasználói felület támogatása, beállítások, kulcs-érték tároló, fordítások, csomagolás és telepítés.
 guide: developers
 order: 6
 nav: Alkalmazások írása
 lead: Az alkalmazások belülről bővítik az Antimattert: egy Go nyelven írt szerverrész, amely a szerverbe horgonyozódik, és egy React nyelven írt webalkalmazásrész, amely menüket, paneleket, üzenettípusokat és oldalakat ad hozzá. Ez az oldal a csatolt Polls-alkalmazás példáján mutatja be, hogyan épül fel egy alkalmazás, és mi változik az Antimatter Fusion-felületén.
-source: d9c132cac759
+source: f2c14bacc2f3
 ---
 <h2 id="overview">Hogyan működik egy alkalmazás</h2>
 <ul>
@@ -131,6 +131,22 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 <li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: ellenőrzés, ki mit tehet, mielőtt felhasználó nevében cselekszik.</li>
 </ul>
 <p>Egy alkalmazás a klaszter minden szerverén fut. Az állapotot tárolja a kulcs-érték tárolóban vagy az adatbázisban, ne csak a memóriaban.</p>
+<h3 id="ai">Az AI-szolgáltatás</h3>
+<p>Az Antimatter szervere AI-modelleket hív meg az alkalmazások számára, az adminisztrátor által beállított modellkapcsolatokon keresztül (lásd <a href="{{root}}docs/admins/ai.html">AI</a> az adminisztrátori útmutatóban). Egy alkalmazás sosem tárol szolgáltatói kulcsot: megadja, kinek nevében és hol hajt végre műveletet, a szerver pedig ellenőrzi, hogy az adott felhasználó használhatja-e ott a kapcsolatot, alkalmazza a korlátokat és kereteket, a tokeneket pedig az adott felhasználó és az alkalmazás számlájára írja, a hívás tartalmának rögzítése nélkül.</p>
+<table>
+<thead><tr><th>Metódus</th><th>Mire szolgál</th></tr></thead>
+<tbody>
+<tr><td><code>AIChat(actingUserID, channelID, teamID, *ai.ChatRequest)</code></td><td>Csevegés-befejezés: üzenetek, eszközök, strukturált kimenet (<code>JSONSchema</code>).</td></tr>
+<tr><td><code>AIChatStream(…)</code></td><td>Ugyanez áramlással: olvasd a stream <code>Events</code> elemeit, amíg a csatorna nem záródik, vagy állítsd le a hívást a <code>Close</code> metódussal.</td></tr>
+<tr><td><code>AIEmbed(…, *ai.EmbedRequest)</code></td><td>Szövegek beágyazása (embeddings).</td></tr>
+<tr><td><code>AITranscribe(…, *ai.TranscribeRequest)</code></td><td>Beszéd szöveggé alakítása.</td></tr>
+<tr><td><code>AIDecide(…, *ai.DecideRequest)</code></td><td>Típusos kérdések egy döntéshozatali modellhez (igen vagy nem, választás, pontszám) egy szöveggel kapcsolatban.</td></tr>
+<tr><td><code>AIConnectionsForUser(userID, channelID, teamID)</code></td><td>Azok a kapcsolatok, amelyeket egy felhasználó ott használhat, modellekkel és képességekkel, de soha kulcsokkal.</td></tr>
+</tbody>
+</table>
+<p>Minden kérés <code>ConnectionID</code> mezője választja ki a kapcsolatot, a <code>Model</code> pedig annak egy modeljét (üresen a kapcsolat alapértelmezett modeljét jelöli). Az <code>Operation</code> egy rövid címké a használati és audit-nyilvántartásokhoz, soha nem tartalmaz tartalmat. Ezek minimális szerververziója 11.11.</p>
+<div class="callout warn">A <code>actingUserID</code> értékét csak olyan forrásból vedd fel, amelyet a szerver hitelesített: a <code>Mattermost-User-Id</code> fejléc a <code>ServeHTTP</code> felé érkező kérésben, vagy a hurok kontextusában lévő felhasználó (a bejegyzés szerzője, vagy az a felhasználó, aki egy parancsot futtatott). Soha ne vedd fel egy üzenetből, webhook-teherből, URL-ből vagy egy másik alkalmazás kéréséből: így az alkalmazásod mások hozzáférését használná fel.</div>
+<p>Ezek a metódusok és az <code>ai</code> csomag (<code>server/public/ai</code>) csak az Antimatter saját modulmásolatában létezik, nem a Mattermost által kiadott verzióban. Használatukhoz az Antimatter <code>server/public</code> könyvtára ellen kell fordítani, egy <code>replace</code> sorral a <code>go.mod</code> fájlban, például: <code>replace github.com/mattermost/mattermost/server/public =&gt; ../antimatter/server/public</code>. Ilyen alkalmazás csak Antimatter-en fut.</p>
 
 <h2 id="kv">Adattárolás</h2>
 <p>Minden alkalmazásnak van saját kulcs-érték tárolója a szerver adatbázisában:</p>
@@ -172,17 +188,17 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <pre><code>export function isFusionUI(): boolean {
     return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
 }</code></pre>
-<p>A csatolt alkalmazások ezt használják a felület eltérő megjelenítésére. A Szavazás a szavazási kártyáit és a létrehozási párbeszédablakát a Fusion stílusában rajzolja meg, és a Fusionban a <code>/poll</code> parancsra saját párbeszédablakot nyit. A Hívások és a Hangcsatornák kihagyják az oldalsávot és a toast-komponenseket, amelyeket a Fusion a saját hívásfelületével helyettesít. Az Ügynökök alkalmazás a MI-műveleteit az üzenetmenü almeneüjébe helyezi, nem a lebegő eszköztáblára. A Fusion saját CSS-osztályai (a <code>am-</code> előtaggal) és a párbeszédablak-rétege (az <code>am-layer</code> elem) azok, amiket ezek az alkalmazások a felülethez igazodáshoz használnak; ezek nem dokumentált, stabil API-k.</p>
+<p>A csatolt alkalmazások ezt használják a megjelenítés eltérő formában történő megjelenítésére. A Szavazás alkalmazás a szavazási kártyáit és a létrehozási párbeszédablakot a Fusion stílusában rajzolja meg, és a Fusionban a <code>/poll</code> parancs saját párbeszédablakát nyitja meg. A Hívások és a Hangcsatornák kihagyják az oldalsávot és a toast-komponenseket, amelyeket a Fusion a saját hívásfelületével helyettesít. Az Ügynökök alkalmazás a mesterséges intelligencia műveleteit az üzenet menüjébe helyezi, a <b>További műveletek</b> csoportjába, nem pedig a lebegő eszköztáblába. A Fusion saját CSS-osztályai (az <code>am-</code> előtaggal) és a párbeszédablak-rétege (az <code>am-layer</code> elem) azok, amelyeket ezek az alkalmazások a felület illesztésére használnak; ezek nem dokumentált, stabil API-k.</p>
 <h3>Ahol a Fusion a bővítménykomponenseket megjeleníti</h3>
 <table>
 <thead><tr><th>Regisztrációs metódus</th><th>Ahol jelenik meg a Fusionban</th></tr></thead>
 <tbody>
 <tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>Az app-sáv, a jobb szélen lévő ikonok oszlopa, az avatarod és az <b>Az Antimatter névjegye</b> gomb között. Ide kerülnek a csatorna-fejléc gombjai is, nem a csatorna-fejlécbe. Rejtve van, ha a rendszeradminisztrátor bekapcsolja az <b>Apps Bar letiltása</b> beállítást (<code>ExperimentalSettings.DisableAppBar</code>, alapértelmezetten ki).</td></tr>
-<tr><td><code>registerRightHandSidebarComponent</code></td><td>A jobb oldali panel. Az emberek a szélét húzva átméretezhetik. Ha az app egyben termék is, a panel kínál <b>Megnyitás teljes oldalként</b> lehetőséget.</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>A jobb oldali panel. Az emberek a szélét húzva átméretezhetik, és új ablakban megnyithatják. Ha az alkalmazás egyben termék is, a panel a <b>Megnyitás teljes oldalként</b> lehetőséget kínálja. Lásd: <a href="#panel-state">A panel új ablakban</a>.</td></tr>
 <tr><td><code>registerChannelHeaderIcon</code></td><td>Ikonok a csatorna-fejlécben, a hívás gombok után; mobilon a fejléc <b>További</b> menüjében.</td></tr>
 <tr><td><code>registerCallButtonAction</code></td><td>A csatorna-fejléc hívás gombja; több szolgáltató is megosztja a <b>Egyéb hívási módok</b> menüt.</td></tr>
-<tr><td><code>registerPostDropdownMenuAction</code></td><td>Az üzenet <b>További műveletek</b> (⋯) menüje, a <b>Üzenet műveletek</b> alménüben; valamint az üzenetszál-panel <b>Üzenetszál műveletei</b> menüjében, a <b>További műveletek</b> alatt.</td></tr>
-<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Saját almeneüje e menüknek, az alkalmazás nevével és ikonjával.</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>Az üzenet <b>Üzenet műveletek</b> (⋯) menüje, a <b>További műveletek</b> almenujában; valamint az üzenetszál panel <b>Üzenetszál műveletei</b> menüjében, a <b>További műveletek</b> alatt. A Fusion szürke színnel rajzolja meg az alkalmazás ikonját minden művelet előtt: a csatolt alkalmazások saját ikonját, egyébként pedig azt az ikont, amelyet az alkalmazás az alkalmazás-sínen mutat, vagy ha ez sincs, egy semleges ikont. Egy elem, amely nem tartalmaz szöveget a művelet szövegének elején (egy ikon, amelyet az alkalmazás maga rajzol), rejtve marad.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Egy csoport a <b>További műveletek</b> almenujában, a különálló műveletek után. Egyik alkalmazás sem kap saját bejegyzést az üzenet menüjében.</td></tr>
 <tr><td><code>registerPostActionComponent</code></td><td>Az üzenet lebegő eszköztáblája, a ⋯ gomb előtt.</td></tr>
 <tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>Az üzenet maga: a teste, a szövege alatt, az idő után, valamint a hivatkozási előnévek helyett.</td></tr>
 <tr><td><code>registerChannelHeaderMenuAction</code></td><td>A csatorna <b>Csatorna opciók</b> menüje (⋯ egy csatornán az oldalsávban, vagy jobb klikk), dugós ikonú elemként.</td></tr>
@@ -200,7 +216,7 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <tr><td><code>registerChannelTypeOption</code></td><td>A <b>Csatorna létrehozása</b> párbeszédablak csatornatípusai.</td></tr>
 <tr><td><code>registerSearchComponents</code></td><td>A csatorna fejlécének keresőmezője: ha üres, akkor az alkalmazáskörzetek jelennek meg benne.</td></tr>
 <tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>Az Antimatter névjegye</b> (az alkalmazás sávjának alján), a <b>Súgó</b> menü alatt.</td></tr>
-<tr><td><code>registerProduct</code></td><td>Teljes oldalak a termék URL-címén, amelyek a <b>Termékek</b> menüben találhatók az <b>Az Antimatter névjegye</b> ablakban. A termékoldalak a klasszikus oldalkeretet használják.</td></tr>
+<tr><td><code>registerProduct</code></td><td>Teljes oldalak a termék URL-címén, amelyek a <b>Termékek</b> alatt szerepelnek az <b>Az Antimatter névjegye</b> menüben. A termékoldalak megtartják a klasszikus oldalkeretet, amelynek termékmenüje csak akkor jelenik meg, ha egy alkalmazás regisztrál egy terméket, vagy hozzáad egy bejegyzést. A csatolt Kanban és Playbook alkalmazások már nem regisztrálnak termékeket: az oldalaik a saját oldalsávjaikban nyílnak meg.</td></tr>
 <tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, valamint olyan hookok, mint a <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code> és <code>registerTranslations</code></td><td>A klasszikus felülettel megegyező működés.</td></tr>
 <tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>A Rendszerkonzol, amely mindkét felületen a klasszikus változat.</td></tr>
 </tbody>
@@ -230,12 +246,21 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <thead><tr><th>Metódus</th><th>Mit ad hozzá</th></tr></thead>
 <tbody>
 <tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>Egy elem az üzenetmező <b>+</b> menüjében, mindkét felületen. Az <code>action</code> paraméter <code>{channelId, rootId}</code> értéket kap.</td></tr>
-<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Az üzenetmező emoji-választójának egy fülé, például GIF-ek vagy matricák. A Fusionban a 10-nél kisebb <code>order</code> értékű fülek az Emoji fül előtt jelennek meg. A komponens <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> és <code>isFusion</code> paramétereket kap.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>Az üzenetmező emoji-választó egy füle, például GIF-ek vagy matricák. A Fusionban a 10-nél kisebb <code>order</code> értékű fülök az Emoji fül előtt jelennek meg. A komponens megkapja a <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code>, <code>isFusion</code> és a Fusionban a <code>pickerKit</code> paramétert (lásd alább).</td></tr>
 <tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>Egy panel a csatorna-fejléc és az üzenetek között, amelyeket a <code>matcher(state, channel)</code> függvény választ ki. Elrejtheti az üzeneteket és a szerkesztőt (<code>setMessagesVisible</code>), ahogy a hangcsatornák teszik.</td></tr>
 <tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>Egy sor a csatorna alatt az oldalsávban, például a csatlakozottak listája egy hívás során. A komponens a <code>channel</code> objektumot kapja.</td></tr>
 <tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Csak Fusion: egy bejegyzés az <b>Integrációk</b> oldalon, a saját emoji mellett. A GIFs app a saját GIFjeit és matricáit ide adja hozzá.</td></tr>
 </tbody>
 </table>
+<h3 id="picker-kit">Nézetek hozzáadása és kezelése az emoji-választóban</h3>
+<p>A Fusionban az emoji-választó fülekhez egy <code>pickerKit</code> prop tartozik: azokat a komponenseket, amelyeket az Emoji-fül a saját hozzáadói és kezelő nézeteihez használ, így a fülek nézetei egységesek maradnak, és a választón belül maradnak. A GIFs és Memes alkalmazások ezzel adják hozzá és kezelik a GIF-eket, matricákat és meme-sablonokat. Tartalmazza a <code>version</code> (1) mezőt, a <code>usePickerView</code> és <code>useOnEscape</code> hookokat, valamint a <code>PickerViewButtons</code> (a keresőmező melletti <b>+</b> és kezelő gombok), <code>PickerViewFrame</code> (a vissza nyilakkal ellátott nézet), <code>PickerNotice</code>, <code>PickerField</code>, <code>PickerSearch</code>, <code>PickerDropZone</code> és <code>PickerManageList</code> komponenseket. A Escape billentyűvel a nézetből a fül rácsnézetére lehet visszatérni. Ellenőrizd, hogy a prop jelen van: más gazdák nem adják meg, és ilyenkor a fül saját párbeszédablakait használja. A típusok a <code>webapp/fusion/src/types/store/plugins.ts</code> (<code>EmojiPickerTabProps</code>) és a komponensek a <code>webapp/fusion/src/fusion/popovers/picker_views.tsx</code> fájlban találhatók.</p>
+<h3 id="panel-state">A panel új ablakban</h3>
+<p>A Fusion a <code>registerRightHandSidebarComponent</code> komponensét két további prop-pal látja el, hogy a <b>Megnyitás új ablakban</b> opció a panelt ott nyissa meg, ahol éppen volt, nem pedig az alkalmazás főoldalán:</p>
+<ul>
+<li><code>setPanelState(state)</code>: akkor hívd meg, ha a panel helye változik, egy rövid, az alkalmazásod által definiált szöveggel, például <code>'note/&lt;id&gt;'</code> vagy <code>'board/&lt;id&gt;/card/&lt;id&gt;'</code>, illetve <code>null</code> értékkel, ha a panel a főoldalon van. Ez az ablak címébe kerül, ezért soha ne helyezz belé titkot. A 512 karaktert meghaladó, vagy vezérlő karaktereket tartalmazó állapot elvetettik.</li>
+<li><code>initialPanelState</code>: az új ablakban ez a panel korábbi állapota, vagy <code>undefined</code>. Kezeld mint nem megbízható bemenetet: a bejelentkezett felhasználóként szerezd be újra az elemet, és ha nem nyitható meg, az alkalmazás főoldalát vagy egy „nem található” nézetet jeleníts meg.</li>
+</ul>
+<p>Az állapot felejtődik el, ha a panel bezárul, vagy egy másik alkalmazás panelje veszi át a helyét. Ha saját kezdeményezésből nyitod meg a panel ablakát, a <code>popoutRhsPlugin</code> (amely a <code>window.WebappUtils.popouts</code>-ban is elérhető) az állapotot opcionális ötödik argumentumként fogadja el. A Notes, Whiteboard, Todo, Kanban és Playbooks alkalmazások használják ezt.</p>
 <p>A <code>fusionIcon</code> a Fusion ikonkészletének egy ikonját nevezi meg (például <code>poll</code>, <code>sticker</code>, <code>calendar</code> vagy <code>image</code>; lásd <code>webapp/fusion/src/fusion/components/icon</code>). A Fusion ezt jeleníti meg a <code>icon</code> helyett, hogy az elem összhangban legyen a többivel.</p>
 
 <h2 id="settings">Beállítások</h2>

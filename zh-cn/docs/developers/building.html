@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>从源代码构建 · Antimatter</title>
-<meta name="description" content="如何从源代码构建 Antimatter：Go 服务器、Fusion 和经典 Web 界面、开发服务器、测试、发布归档、Docker 镜像，以及桌面和移动应用。">
+<meta name="description" content="如何从源代码构建 Antimatter：Go 服务器、Fusion 和经典 Web 界面、开发服务器、测试、发布归档和软件包、Docker 镜像，以及桌面和移动应用。">
 <meta property="og:title" content="从源代码构建 · Antimatter">
-<meta property="og:description" content="如何从源代码构建 Antimatter：Go 服务器、Fusion 和经典 Web 界面、开发服务器、测试、发布归档、Docker 镜像，以及桌面和移动应用。">
+<meta property="og:description" content="如何从源代码构建 Antimatter：Go 服务器、Fusion 和经典 Web 界面、开发服务器、测试、发布归档和软件包、Docker 镜像，以及桌面和移动应用。">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://antimatter.chat/zh-cn/docs/developers/building.html">
 <meta property="og:locale" content="zh_CN">
@@ -137,7 +137,16 @@ npm run build    # the classic interface, then Fusion</code></pre>
 cd server
 make build-linux       # the antimatter and amctl binaries
 make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
-<p><code>make build</code> 一次性构建 Web 界面和 Linux 二进制文件。归档包含 <code>bin/antimatter</code>、<code>bin/amctl</code>、默认的 <code>config/config.json</code>、两个 Web 界面、模板、字体和翻译。其他平台：<code>make package-osx</code>、<code>make package-windows</code>、<code>make package-freebsd</code>。归档不包含内置应用；Docker 镜像包含。</p>
+<p><code>make build</code> 可一次性构建 Web 界面和 Linux 二进制文件。归档包含 <code>bin/antimatter</code>、<code>bin/amctl</code>、默认的 <code>config/config.json</code>（附带说明如何更改设置的 <code>README.md</code>）、两个 Web 界面、模板、字体和翻译文件。其他平台：<code>make package-osx</code>、<code>make package-windows</code>、<code>make package-freebsd</code>。</p>
+<h3>内置应用</h3>
+<p>普通的 <code>make package-linux</code> 会构建一个不包含应用的归档。若要像正式发布版本那样捆绑应用，请先获取签名后的应用包，并传入其所在文件夹：</p>
+<pre><code>build/package/fetch-apps.sh "$HOME/release-apps"   # needs gh, python3 and gpg
+make package-linux PREPACKAGED_PLUGINS_DIR="$HOME/release-apps"</code></pre>
+<p><code>fetch-apps.sh</code> 会下载 antimatter-docker 的 <code>plugins.json</code> 中列出的每个应用的最新 GitHub 发布版本及其签名，并使用 Antimatter 的插件密钥验证签名。默认包含白板、语音频道、通话、智能体、待办事项、投票、笔记、GIF 和表情包；可通过 <code>AM_BUNDLED_APPS</code>（以空格分隔的仓库名称）更改列表。没有发布版本或没有签名的应用将被跳过并发出警告。应用包将放置在归档的 <code>prepackaged_plugins/</code> 目录中。</p>
+<h3>.deb 和 .rpm 软件包</h3>
+<p><code>build/package/build-packages.sh &lt;archive&gt; &lt;amd64|arm64&gt; &lt;version&gt; &lt;out-dir&gt;</code> 使用 <a href="https://nfpm.goreleaser.com">nfpm</a> 将发布归档转换为包含所有内容的 <code>.deb</code> 和 <code>.rpm</code> 软件包。管理员指南中介绍了这些软件包安装的内容：请参阅 <a href="../../../zh-cn/docs/admins/install.html#packages">安装 .deb 或 .rpm 软件包</a>。</p>
+<h3>发布工作流</h3>
+<p>服务器仓库中的 <code>antimatter-release.yml</code> 工作流在 GitHub 上自动执行所有这些操作：当推送 <code>v*</code> 标签时，它会为 <code>amd64</code> 和 <code>arm64</code> 构建归档和软件包，附带 <code>SHA256SUMS</code>，并将其发布为该标签的 GitHub 发布版本（如果版本号包含 <code>-</code>，则作为预发布版本）。手动运行时，它会将构建编号设为 <code>0.9.0-dev.&lt;run&gt;</code>，并将文件保留为工作流工件。每个应用仓库都有一个 <code>release.yml</code> 工作流，以相同方式发布其签名后的应用包。</p>
 
 <h2 id="docker">Docker 镜像</h2>
 <p><a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> 仓库在 Docker 内部完全构建已发布的镜像，包括服务器及其应用：</p>
@@ -166,9 +175,9 @@ VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatt
 npm run build          # development build, into dist/
 npm start              # run it
 npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
-<p>构建时设置（例如预配置的服务器）位于 <code>src/common/config/buildConfig.ts</code> 中。</p>
+<p>构建时设置（例如要预配置的服务器）位于 <code>src/common/config/buildConfig.ts</code> 中。如果没有 Apple 证书，请设置 <code>AM_MAC_ADHOC_SIGN=true</code> 以临时签名 macOS 应用（不进行公证）：Apple 芯片的 Mac 会拒绝未签名的代码。该仓库的 <code>release.yml</code> 工作流会在 <code>v*</code> 标签上为 Linux、Windows 和 macOS 构建未签名的软件包。</p>
 <h3>移动应用</h3>
-<p><a href="https://github.com/AntimatterChat/mobile-app">移动应用</a> 是一个 React Native 应用；其 README 列出了相关命令（<code>npm run ios</code>、<code>npm run android</code>）。要构建自己的副本，您还需要自己的签名密钥、用于 Android 通知的 Firebase 项目、用于 iOS 的 APNs 密钥，以及持有这些凭据的 <a href="https://github.com/AntimatterChat/push-proxy">推送代理</a>。</p>
+<p><a href="https://github.com/AntimatterChat/mobile-app">移动应用</a> 是一个 React Native 应用；其 README 列出了相关命令（<code>npm run ios</code>、<code>npm run android</code>）。要构建自己的副本，您还需要自己的签名密钥、用于 Android 通知的 Firebase 项目、用于 iOS 的 APNs 密钥，以及一个持有这些凭据的<a href="https://github.com/AntimatterChat/push-proxy">推送代理</a>。该仓库的 <code>release.yml</code> 工作流会在 <code>v*</code> 标签上构建 Android APK 和 AAB 以及未签名的 iOS <code>.ipa</code>，无需商店账号；其 README 列出了用于签名 Android 构建并配置 Firebase 的密钥。</p>
 <nav class="pager"><a class="prev" href="../../docs/developers/apps.html"><small>上一页</small>编写应用</a><a class="next" href="../../docs/developers/contributing.html"><small>下一页</small>参与贡献</a></nav>
 </article>
 </div>

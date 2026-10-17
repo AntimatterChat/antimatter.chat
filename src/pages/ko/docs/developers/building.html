@@ -1,14 +1,14 @@
 title: 소스에서 빌드하기
-description: Antimatter를 소스에서 빌드하는 방법: Go 서버, Fusion 및 클래식 웹 인터페이스, 개발 서버, 테스트, 릴리스 아카이브, Docker 이미지, 데스크톱 및 모바일 앱.
+description: 소스에서 Antimatter를 빌드하는 방법: Go 서버, Fusion 및 클래식 웹 인터페이스, 개발 서버, 테스트, 릴리스 아카이브 및 패키지, Docker 이미지, 데스크톱 및 모바일 앱.
 guide: developers
 order: 7
 nav: 소스에서 빌드하기
 lead: 이 페이지는 Antimatter를 소스 코드에서 빌드하고 실행하는 방법을 설명하며, 개발 작업이나 자체 빌드를 생성하려는 경우를 위해 작성되었습니다. 하나의 저장소에 포함된 서버와 웹 인터페이스, 그리고 Docker 이미지와 앱을 다룹니다.
-source: dfdf67f34f6e
+source: 04025042c2ad
 ---
 <h2 id="requirements">필요한 것</h2>
 <ul>
-<li><b>시작</b>, <code>server/go.mod</code>의 버전(작성 시점 기준 1.26.7).</li>
+<li><b>Go</b>, <code>server/go.mod</code>에 명시된 버전(작성 시점 기준 1.26.7).</li>
 <li><b>Node.js와 npm</b>, <code>.nvmrc</code>와 <code>webapp/package.json</code>에 명시된 버전(Node 24.11.1, npm 11.6.2). <a href="https://mise.jdx.dev">mise</a>를 사용하면 저장소의 <code>mise.toml</code>가 올바른 Node를 설치합니다.</li>
 <li><b>Docker</b>와 Compose: 개발 환경 설정은 PostgreSQL과 기타 몇 가지 서비스를 컨테이너에서 실행합니다.</li>
 <li><b>make</b>, <b>git</b>, 그리고 Linux 또는 macOS 머신.</li>
@@ -68,7 +68,16 @@ npm run build    # the classic interface, then Fusion</code></pre>
 cd server
 make build-linux       # the antimatter and amctl binaries
 make package-linux     # dist/antimatter-linux-amd64.tar.gz and -arm64</code></pre>
-<p><code>make build</code>를 실행하면 웹 인터페이스와 Linux 바이너리를 한 번에 빌드합니다. 아카이브에는 <code>bin/antimatter</code>, <code>bin/amctl</code>, 기본 <code>config/config.json</code>, 두 가지 웹 인터페이스, 템플릿, 폰트 및 번역 파일이 포함됩니다. 다른 플랫폼의 경우: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>. 아카이브에는 번들 앱이 포함되지 않지만, Docker 이미지에는 포함됩니다.</p>
+<p><code>make build</code>는 웹 인터페이스와 Linux 바이너리를 한 번에 빌드합니다. 아카이브에는 <code>bin/antimatter</code>, <code>bin/amctl</code>, 설정 변경에 대한 <code>README.md</code>가 포함된 기본 <code>config/config.json</code>, 두 가지 웹 인터페이스, 템플릿, 폰트 및 번역 파일이 포함됩니다. 다른 플랫폼: <code>make package-osx</code>, <code>make package-windows</code>, <code>make package-freebsd</code>.</p>
+<h3>번들 앱</h3>
+<p>단순한 <code>make package-linux</code>은 앱이 없는 아카이브를 빌드합니다. 공개된 릴리스처럼 앱을 포함하려면, 먼저 서명된 앱 번들을 가져와 해당 폴더를 전달해야 합니다:</p>
+<pre><code>build/package/fetch-apps.sh "$HOME/release-apps"   # needs gh, python3 and gpg
+make package-linux PREPACKAGED_PLUGINS_DIR="$HOME/release-apps"</code></pre>
+<p><code>fetch-apps.sh</code>는 antimatter-docker의 <code>plugins.json</code>에 나열된 각 앱의 최신 GitHub 릴리스를 서명과 함께 다운로드하고, Antimatter의 플러그인 키와 서명을 대조하여 검증합니다. 기본적으로 Whiteboard, Voice channels, Calls, Agents, Todo, Polls, Notes, GIFs, Memes를 포함하며, <code>AM_BUNDLED_APPS</code>(공백으로 구분된 저장소 이름)로 목록을 변경할 수 있습니다. 릴리스가 없거나 서명이 없는 앱은 경고와 함께 건너뜁니다. 번들은 아카이브의 <code>prepackaged_plugins/</code>에 배치됩니다.</p>
+<h3>.deb 및 .rpm 패키지</h3>
+<p><code>build/package/build-packages.sh &lt;archive&gt; &lt;amd64|arm64&gt; &lt;version&gt; &lt;out-dir&gt;</code>는 릴리스 아카이브를 <a href="https://nfpm.goreleaser.com">nfpm</a>을 사용하여 올인원 <code>.deb</code> 및 <code>.rpm</code> 패키지로 변환합니다. 설치되는 내용에 대한 설명은 관리자 가이드를 참고하세요: <a href="{{root}}docs/admins/install.html#packages">.deb 또는 .rpm 패키지 설치</a>.</p>
+<h3>릴리스 워크플로</h3>
+<p>서버 저장소의 <code>antimatter-release.yml</code> 워크플로는 GitHub에서 이 모든 작업을 수행합니다: <code>v*</code> 태그가 생성되면 <code>amd64</code> 및 <code>arm64</code>용 아카이브와 패키지를 <code>SHA256SUMS</code>와 함께 빌드하고, 해당 태그의 GitHub 릴리스로 게시합니다(<code>-</code>가 포함된 버전의 경우 사전 릴리스로 게시). 수동으로 실행하면 빌드 번호를 <code>0.9.0-dev.&lt;run&gt;</code>으로 지정하고 파일을 워크플로 아티팩트로 유지합니다. 각 앱 저장소에는 동일한 방식으로 서명된 번들을 게시하는 <code>release.yml</code> 워크플로가 있습니다.</p>
 
 <h2 id="docker">Docker 이미지</h2>
 <p><a href="https://github.com/AntimatterChat/antimatter-docker">antimatter-docker</a> 저장소는 서버와 그 앱이 포함된 공개 이미지를 Docker 내부에서 완전히 빌드합니다:</p>
@@ -97,6 +106,6 @@ VARIANT=next scripts/build-all.sh        # the "next" image, with every Antimatt
 npm run build          # development build, into dist/
 npm start              # run it
 npm run package:linux  # packages into release/ (also package:windows, package:mac)</code></pre>
-<p>서버 사전 구성과 같은 빌드 시 설정은 <code>src/common/config/buildConfig.ts</code>에 있습니다.</p>
+<p>서버 사전 구성과 같은 빌드 시 설정은 <code>src/common/config/buildConfig.ts</code>에 있습니다. Apple 인증서가 없으면 <code>AM_MAC_ADHOC_SIGN=true</code>를 설정하여 macOS 앱을 노타리제이션 없이 어드혹으로 서명할 수 있습니다. Apple 실리콘 Mac은 서명되지 않은 코드를 거부합니다. 저장소의 <code>release.yml</code> 워크플로우는 <code>v*</code> 태그에서 Linux, Windows, macOS용 서명되지 않은 패키지를 빌드합니다.</p>
 <h3>모바일 앱</h3>
-<p><a href="https://github.com/AntimatterChat/mobile-app">모바일 앱</a>은 React Native 앱이며, README에 명령어(<code>npm run ios</code>, <code>npm run android</code>)가 나열되어 있습니다. 자체 복사본을 빌드하려면 자체 서명 키, Android 알림용 Firebase 프로젝트, iOS용 APNs 키, 그리고 해당 자격 증명을 보관하는 <a href="https://github.com/AntimatterChat/push-proxy">push proxy</a>도 필요합니다.</p>
+<p><a href="https://github.com/AntimatterChat/mobile-app">모바일 앱</a>은 React Native 앱이며, README에 명령어(<code>npm run ios</code>, <code>npm run android</code>)가 나열되어 있습니다. 자체 카피를 빌드하려면 자체 서명 키, Android 알림용 Firebase 프로젝트, iOS용 APNs 키, 그리고 해당 자격 증명을 보관하는 <a href="https://github.com/AntimatterChat/push-proxy">push proxy</a>도 필요합니다. 저장소의 <code>release.yml</code> 워크플로우는 <code>v*</code> 태그에서 스토어 계정 없이 Android APK와 AAB, 서명되지 않은 iOS <code>.ipa</code>를 빌드하며, README에는 Android 빌드를 서명하고 Firebase를 설정하는 시크릿이 나열되어 있습니다.</p>

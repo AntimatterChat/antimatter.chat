@@ -4,13 +4,13 @@ guide: admins
 order: 3
 nav: Konfigurasi
 lead: Di mana Antimatter menyimpan pengaturannya, tiga cara untuk mengubahnya (Konsol Sistem, variabel lingkungan, amctl), dan ke mana log diarahkan.
-source: e2d6546121d3
+source: 6a785009ab32
 ---
 <h2 id="where">Di mana pengaturan disimpan</h2>
 <p>Setiap pengaturan server memiliki nama yang terdiri dari bagian dan kunci, seperti <code>ServiceSettings.SiteURL</code> atau <code>EmailSettings.SMTPServer</code>. Keduanya membentuk satu konfigurasi, yang disimpan di salah satu dari dua tempat:</p>
 <ul>
 <li><b>Di database.</b> File compose situs mengatur <code>AM_CONFIG</code> ke URL koneksi PostgreSQL, sehingga konfigurasi menjadi baris di database dan kontainer tidak menyimpan apa pun di disk. Beberapa server yang berbagi satu database juga berbagi konfigurasi mereka.</li>
-<li><b>Di file.</b> Tanpa <code>AM_CONFIG</code>, server membaca <code>config/config.json</code> di sebelah direktori <code>bin/</code> (<code>/antimatter/config/config.json</code> di image Docker). Arsip rilis dan file compose produksi dari antimatter-docker bekerja dengan cara ini. Simpan file ini agar hanya dapat dibaca oleh pengguna server: file ini menyimpan kata sandi dan kunci.</li>
+<li><b>Dalam file.</b> Tanpa <code>AM_CONFIG</code>, server membaca <code>config/config.json</code> di sebelah direktori <code>bin/</code> (<code>/antimatter/config/config.json</code> dalam image Docker). Arsip rilis dan file compose produksi dari antimatter-docker bekerja dengan cara ini, begitu juga paket .deb dan .rpm, yang file-nya adalah <code>/etc/antimatter/config/config.json</code>. Pastikan file ini hanya dapat dibaca oleh pengguna server: file ini menyimpan kata sandi dan kunci.</li>
 </ul>
 <p><code>AM_CONFIG</code> (atau flag <code>--config</code> dari perintah <code>antimatter</code>) menerima jalur file atau URL <code>postgres://</code>. Pengaturan yang Anda tinggalkan akan mengambil nilai defaultnya.</p>
 <p>Untuk memindahkan konfigurasi yang sudah ada dari file ke database, jalankan ini di server, lalu mulai server dengan <code>AM_CONFIG</code> diatur ke URL yang sama:</p>
@@ -47,10 +47,11 @@ source: e2d6546121d3
       AM_LOGSETTINGS_CONSOLELEVEL: INFO</code></pre>
 <p>Terapkan perubahan dengan <code>docker compose up -d</code>, yang akan membuat ulang kontainer.</p>
 <h3>Variabel yang dibaca oleh aplikasi</h3>
+<p>Beberapa variabel bukan pengaturan dan tidak memiliki kolom di Konsol Sistem: <code>AM_CONFIG</code> (lokasi konfigurasi), serta <code>AM_AI_ENCRYPTION_KEY</code> dan <code>AM_AI_ENCRYPTION_PREVIOUS_KEYS</code>, yaitu kunci yang mengenkripsi kunci API dari koneksi model (lihat <a href="{{root}}docs/admins/ai.html#encryption-key">AI</a>).</p>
 <p>Beberapa aplikasi membaca variabelnya sendiri, yang disetel pada layanan <code>antimatter</code>: aplikasi Calls membaca <code>AM_CALLS_*</code> (lihat <a href="{{root}}docs/admins/calls.html">Panggilan dan suara</a>), dan aplikasi GIFs membaca <code>AM_GIFS_SERVICE_URL</code>, <code>AM_GIFS_API_KEY</code>, dan <code>AM_GIFS_UPLOAD_KEY</code> (lihat <a href="{{root}}docs/admins/apps.html">Aplikasi bawaan</a>).</p>
 
 <h2 id="console">Konsol Sistem</h2>
-<p>Konsol Sistem adalah area administrasi dari aplikasi web, untuk administrator sistem. Untuk membukanya, klik foto profil Anda dan pilih <b>Konsol Sistem</b>, atau buka <code>https://chat.example.com/admin_console</code>. Bilah Sampingnya memiliki kotak <b>Cari Pengaturan</b> yang mencari di setiap halaman.</p>
+<p>Konsol Sistem adalah area administrasi dari aplikasi web, untuk administrator sistem. Untuk membukanya, klik foto Anda di bagian atas bilah aplikasi dan pilih <b>Konsol Sistem</b>, atau buka <code>https://chat.example.com/admin_console</code>. Bilah sampingnya memiliki kotak <b>Cari pengaturan</b> yang mencari di semua halaman.</p>
 <figure><img src="{{root}}assets/img/shots/admin.webp" alt="The System Console, with its sidebar of sections on the left and the SAML 2.0 settings page on the right."><figcaption>Konsol Sistem. Bilah Samping mengelompokkan halaman ke dalam bagian seperti Pelaporan, Manajemen Pengguna, dan Lingkungan.</figcaption></figure>
 <p>Bagian-bagiannya adalah:</p>
 <ul>
@@ -60,6 +61,7 @@ source: e2d6546121d3
 <li><b>Lingkungan</b>: server web, database, penyimpanan file, proxy gambar, SMTP, notifikasi push, pembatasan laju, pencatatan log, durasi sesi, dan pemantauan kinerja.</li>
 <li><b>Konfigurasi Situs</b>: branding, pengguna dan tim, notifikasi, kiriman, berbagi file, dan perilaku server lainnya.</li>
 <li><b>Autentikasi</b>: pendaftaran, masuk dengan email dan kata sandi, MFA, AD/LDAP, SAML 2.0, OAuth 2.0, OpenID Connect, dan akses tamu.</li>
+<li><b>AI</b>: koneksi model dan fitur AI bawaan (tulis ulang, ringkasan, penerjemahan otomatis, teks ke suara). Lihat <a href="{{root}}docs/admins/ai.html">AI</a>.</li>
 <li><b>Plugin</b>: manajemen aplikasi dan pengaturan masing-masing aplikasi yang terpasang.</li>
 <li><b>Integrasi</b>: webhook, perintah garis miring, akun bot, GIFs, teks ke suara, CORS.</li>
 <li><b>Kepatuhan</b>: retensi data, ekspor dan pemantauan kepatuhan, pencatatan audit, serta ketentuan layanan khusus.</li>
@@ -68,14 +70,25 @@ source: e2d6546121d3
 <p>Dalam panduan ini, sebuah pengaturan ditulis sebagai jalurnya di Konsol Sistem, lalu labelnya, lalu kunci konfigurasinya, misalnya <b>Konsol Sistem › Konfigurasi Situs › Pengguna dan Tim › Aktifkan pengabaian, pemblokiran, dan permintaan pesan</b> (<code>PrivacySettings.EnableUserBlocking</code>).</p>
 <p>Sebagian besar perubahan berlaku segera setelah Anda mengklik <b>Simpan</b>. Beberapa (alamat dengar, beberapa pengaturan database dan cache) memerlukan restart, dan halaman tersebut akan menyatakannya.</p>
 
+<h2 id="community-kind">Tempat kerja atau komunitas</h2>
+<p>Setiap komunitas memiliki jenis, yang mengatur beberapa nilai default-nya:</p>
+<ul>
+<li><b>Komunitas</b>, untuk komunitas publik atau hobi: panggilan dimatikan di kanalnya (orang-orang berbicara di kanal suara), dan hanya admin-nya, serta peran yang mengelola kanal, yang mengarsipkan kanal.</li>
+<li><b>Tempat kerja</b>, untuk perusahaan atau organisasi: panggilan diaktifkan di kanalnya, dan admin dari sebuah kanal (siapa pun yang membuatnya, dan mereka yang mereka jadikan admin) juga dapat mengarsipkannya.</li>
+</ul>
+<p><b>Konsol Sistem › Konfigurasi Situs › Pengguna dan Tim › Jenis komunitas baru</b> (<code>TeamSettings.DefaultCommunityKind</code>, <code>AM_TEAMSETTINGS_DEFAULTCOMMUNITYKIND</code>) adalah jenis komunitas yang dibuat mulai saat itu: <code>community</code> (default) atau <code>workplace</code>. Preset tata letak yang dipilih saat membuat komunitas mengatur jenisnya sendiri. Admin dari setiap komunitas dapat mengubah jenisnya nanti, di <b>Pengaturan tim › Kanal › Jenis komunitas</b>.</p>
+<div class="callout">Untuk perusahaan, atur ke <b>Tempat kerja</b> sebelum Anda membuat komunitas pertama, atau sebelum Anda memutakhirkan server yang ada ke 0.9.0: pemutakhiran memberikan nilai pengaturan saat itu kepada setiap komunitas yang ada (lihat <a href="{{root}}docs/admins/backups-upgrades.html#v090">Memutakhirkan ke 0.9.0</a>).</div>
+
 <h2 id="amctl">Perintah baris perintah amctl</h2>
 <p><code>amctl</code> mengelola server dari baris perintah: pengguna, komunitas, kanal, aplikasi, konfigurasi, tugas, dan lainnya. Alat ini berkomunikasi dengan server melalui salah satu dari dua cara.</p>
 <h3>Mode lokal, di server</h3>
-<p>Mode lokal memungkinkan <code>amctl</code> berkomunikasi dengan server melalui soket Unix, tanpa perlu masuk. Mode ini aktif di image Docker. Pada server yang diinstal dari arsip, aktifkan dengan <b>ServiceSettings.EnableLocalMode</b> (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>). Soketnya secara bawaan adalah <code>/var/tmp/antimatter_local.socket</code> (<code>ServiceSettings.LocalModeSocketLocation</code>).</p>
+<p>Mode lokal memungkinkan <code>amctl</code> berbicara dengan server melalui soket Unix, tanpa masuk. Mode ini aktif pada image Docker dan dengan paket .deb dan .rpm. Pada server yang diinstal dari arsip, aktifkan dengan <b>ServiceSettings.EnableLocalMode</b> (<code>AM_SERVICESETTINGS_ENABLELOCALMODE=true</code>). Soket secara default adalah <code>/var/tmp/antimatter_local.socket</code> (<code>ServiceSettings.LocalModeSocketLocation</code>).</p>
 <pre><code># with Docker Compose
 docker compose exec antimatter amctl --local system status
 # with a release archive
-sudo -u antimatter /opt/antimatter/bin/amctl --local system status</code></pre>
+sudo -u antimatter /opt/antimatter/bin/amctl --local system status
+# with the .deb or .rpm package
+sudo -u antimatter amctl --local system status</code></pre>
 <div class="callout warn">Siapa pun yang dapat menggunakan soket tersebut, atau menjalankan <code>docker compose exec</code> di host, memiliki hak administrator sistem penuh.</div>
 <h3>Jarak jauh, dengan akun</h3>
 <p>Dari mesin mana pun, masuk dengan akun administrator sistem (atau token akses pribadi), lalu jalankan perintah terhadap server tersebut:</p>
@@ -116,5 +129,5 @@ EOF</code></pre>
 <p>Berkas compose situs menonaktifkan pencatatan ke berkas (<code>AM_LOGSETTINGS_ENABLEFILE=false</code>), sehingga log hanya ada di keluaran kontainer:</p>
 <pre><code>docker compose logs -f antimatter
 docker compose logs --since 1h antimatter | grep -i error</code></pre>
-<p>Level konsol bawaan adalah <code>DEBUG</code>, yang sangat rinci. Pada server yang sibuk, atur <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code>. Dengan arsip rilis di bawah systemd, keluaran konsol masuk ke jurnal (<code>journalctl -u antimatter</code>) dan berkas ke <code>/opt/antimatter/logs/antimatter.log</code>.</p>
+<p>Level konsol secara default adalah <code>DEBUG</code>, yang sangat rinci. Pada server yang sibuk, atur <code>AM_LOGSETTINGS_CONSOLELEVEL=INFO</code>. <code>config.json</code> dari arsip rilis dan paket sudah mengaturnya ke <code>INFO</code>. Dengan arsip rilis di bawah systemd, keluaran konsol masuk ke jurnal (<code>journalctl -u antimatter</code>) dan file ke <code>/opt/antimatter/logs/antimatter.log</code>. Paket mematikan pencatatan file, sehingga log mereka hanya ada di jurnal.</p>
 <p>Ketika pencatatan log ke file diaktifkan, administrator sistem juga dapat membaca baris log terbaru di <b>Konsol Sistem › Pelaporan › Log Server</b>, atau dengan <code>amctl logs</code>.</p>
