@@ -833,10 +833,25 @@
 
     // --- channels ------------------------------------------------------------------------------------------------
 
-    function channelByName(tid, name) {
+    function namedChannel(tid, name) {
         return values(S.channels).find(function (c) {
             return c.name === name && (c.team_id === tid || !c.team_id);
         });
+    }
+
+    // A community's default channel, as the server finds it: the one it chose, else general, else a town-square not
+    // renamed yet; only while it is a public channel that isn't archived.
+    function defaultChannel(tid) {
+        var t = S.teams[tid] || {};
+        var c = (t.default_channel_id && S.channels[t.default_channel_id]) || namedChannel(tid, 'general') || namedChannel(tid, 'town-square');
+        return c && c.team_id === tid && c.type === 'O' && !c.delete_at ? c : undefined;
+    }
+
+    // channelByName answers as the server does since the default channel became general: town-square, its old name,
+    // gives the community's default channel when no channel has that name. The apps built before the rename ask for
+    // town-square by name (old links, the playbook runner...).
+    function channelByName(tid, name) {
+        return namedChannel(tid, name) || (name === 'town-square' ? defaultChannel(tid) : undefined);
     }
 
     function myChannels(tid) {

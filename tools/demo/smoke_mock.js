@@ -177,6 +177,16 @@ async function pagesOfEveryChannel(S) {
     await req('GET', `/api/v4/teams/${team.id}/channels/managed_categories`);
     await req('GET', `/api/v4/teams/${team.id}/server_categories`, undefined, Array.isArray);
     await req('GET', `/api/v4/teams/${community.id}/timeouts`, undefined, Array.isArray);
+    // The default channel by its name, and by its old one (town-square), which apps built before the rename ask for.
+    await req('GET', `/api/v4/teams/${team.id}/channels/name/general`, undefined, (c) => c.id === town.id);
+    await req('GET', `/api/v4/teams/${team.id}/channels/name/town-square`, undefined, (c) => c.id === town.id);
+    await req('GET', '/api/v4/teams/name/lumen/channels/name/town-square', undefined, (c) => c.id === town.id);
+    await req('GET', `/api/v4/teams/${community.id}/channels/name/town-square`, undefined, (c) => c.team_id === community.id && c.name === 'general');
+    const unknown = await server.handle({method: 'GET', url: `/api/v4/teams/${team.id}/channels/name/no-such-channel`, headers: {}, body: null});
+    if (unknown.status !== 404) {
+        failures++;
+        console.log('FAIL an unknown channel name is not a 404');
+    }
     await req('GET', `/api/v4/channels/${channel.id}/overrides/effective`, undefined, Array.isArray);
     await req('GET', '/api/v4/groups?group_source=custom&include_member_ids=true&page=0&per_page=200', undefined, (g) => g.length > 5);
     await req('GET', `/api/v4/users/me/teams/${team.id}/drafts`, undefined, Array.isArray);
