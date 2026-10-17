@@ -163,7 +163,9 @@
             ExperimentalEnableAuthenticationTransfer: 'false',
         });
         S.license = core.license || {};
-        S.serverVersion = core.server_version || '';
+        // As the server tells it (X-Version-Id, the websocket's hello): <version>.<build>.<config hash>.<licensed>. The app
+        // checks features against the version's first three numbers.
+        S.serverVersion = [S.config.Version || '12.0.0', S.config.BuildNumber || '0', 'demo', 'true'].join('.');
         S.me = core.me;
         if (opts.locale) {
             S.me.locale = opts.locale;
@@ -214,7 +216,7 @@
         S.categories = core.categories || {};
         S.preferences = core.preferences || [];
         S.roles = {};
-        (core.roles || []).forEach(function (r) {
+        (core.roles || []).concat(values(core.group_team_roles || {})).forEach(function (r) {
             S.roles[r.name] = r;
         });
         S.emoji = {};
