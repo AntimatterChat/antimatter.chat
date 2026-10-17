@@ -47,6 +47,14 @@ MEDIA_BASE = '__MEDIA__'  # The fixtures' media folder (/demo/fixtures/media/).
 MAX_FILE = 1_500_000
 MAX_GIF_MEDIA = 6_000_000  # All GIF and sticker media together.
 
+# Real-looking places the seed links to, and their stand-ins in the demo (the seed itself uses the stand-ins since
+# 2026-10-17; this catches data recorded before a reseed).
+REAL_DOMAINS = [
+    ('https://github.com/lumen-labs/', f'https://git.{DEMO_DOMAIN}/lumen-labs/'),
+    ('github.com/lumen-labs', f'git.{DEMO_DOMAIN}/lumen-labs'),
+    ('https://www.cve.org/CVERecord?id=', f'https://security.{DEMO_DOMAIN}/advisories/'),
+    ('lumenlabs.dev', DEMO_DOMAIN),
+]
 SECRET_KEYS = re.compile(
     r'^(token|password|passwd|secret|salt|api_?key|access_?key|private_?key|session_?id|auth_?data|mfa_?secret|'
     r'credentials?|cookie|giphysdkkey|googledeveloperkey|asymmetricsigningpublickey|cwsurl|cwsapiurl|'
@@ -372,8 +380,9 @@ class Cleaner:
                 self.email_of[user['email'].lower()] = f'{user["username"]}@{DEMO_DOMAIN}'
 
     def string(self, s):
-        # The seed's own domains, kept on reserved names (example.com style) in the demo.
-        s = s.replace('lumenlabs.dev', DEMO_DOMAIN)
+        # The sample company's links stay on reserved names (*.example): no real organisation or domain is linked.
+        for real, demo in REAL_DOMAINS:
+            s = s.replace(real, demo)
         for url in self.site_urls:
             s = s.replace(url, SITE)
         s = self.local_url.sub(SITE, s)

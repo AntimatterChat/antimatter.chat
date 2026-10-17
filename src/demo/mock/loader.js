@@ -1,5 +1,6 @@
 // The demo's first page (/demo/): it installs the service worker that carries the app's requests to the mock server,
 // then opens the app. Its links from the site pass the site's language (?lang=fr), which becomes the app's language.
+// When the demo couldn't be built (data-mode="updating", see build_demo.py --placeholder), it only says so.
 (function () {
     'use strict';
     var script = document.getElementById('demo-loader');
@@ -55,6 +56,15 @@
         var status = document.querySelector('.demo-loader-status');
         status.classList.add('error');
         status.textContent = (t && t.no_sw) || 'This demo needs service workers, which this browser or window has turned off.';
+    }
+
+    if (script.dataset.mode === 'updating') {
+        ready.then(function (t) {
+            var status = document.querySelector('.demo-loader-status');
+            status.classList.add('error');
+            status.textContent = (t && t.updating) || 'The demo is being updated. Try again in a few minutes.';
+        });
+        return;
     }
 
     if (!('serviceWorker' in navigator)) {

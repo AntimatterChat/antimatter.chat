@@ -17,7 +17,9 @@ mock server in the page, which answers from recorded fixtures and keeps what vis
 `demo/` itself is not committed: the Pages workflow (`.github/workflows/static.yml`) builds it at each deployment,
 from the web app and app bundles of the published `ghcr.io/antimatterchat/antimatter-next` image. Besides pushes, the
 workflow runs every three hours and deploys again when that image has changed, so the demo follows the app's
-changes on its own.
+changes on its own. A registry failure never blocks the site: the demo is then built from the last image the
+workflow cached, or, without one, `/demo/` says (in the visitor's language) that it is being updated, and the next
+scheduled run builds it again.
 
 **Refreshing the fixtures** (when the sample data changes, or the app needs data it lacks), from a local server with
 the Lumen Labs data:
@@ -25,8 +27,10 @@ the Lumen Labs data:
     DEMO_PASSWORD=... python3 tools/demo/record_fixtures.py --server http://localhost:8067 --user maya
     python3 tools/demo/test_fixtures.py && node tools/demo/smoke_mock.js
 
-The recorder moves e-mail addresses to `@lumenlabs.example`, replaces the server's address, empties secret-looking
-keys and private addresses, and refuses to write anything the checks reject. Look at the diff, then commit
+The recorder moves e-mail addresses to `@lumenlabs.example`, moves the sample company's links to reserved
+`*.example` names (`git.lumenlabs.example`...), replaces the server's address, empties secret-looking keys and
+private addresses, and refuses to write anything the checks reject (they also refuse any link to a real-looking
+domain other than Antimatter's own). Look at the diff, then commit
 `src/demo/fixtures/`.
 
 **Trying it locally:** `python3 tools/demo/build_demo.py --image ghcr.io/antimatterchat/antimatter-next:latest`, or

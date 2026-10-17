@@ -9,6 +9,11 @@ in the browser against a mock server (src/demo/mock/) that answers from recorded
         A local Fusion build (npm run build in webapp/fusion) and a folder of plugin bundles (*.tar.gz).
     python3 tools/demo/build_demo.py --digest ghcr.io/antimatterchat/antimatter-next:latest
         Prints the image's digest, to tell whether the demo needs rebuilding.
+    python3 tools/demo/build_demo.py --from-cache
+        Fusion and the apps of the last image read into the cache (the Pages workflow's fallback when the registry
+        can't be reached).
+    python3 tools/demo/build_demo.py --placeholder
+        Only a page saying the demo is being updated (the fallback when there is nothing to build from).
 
 The output (demo/, ignored by git) is built again by the Pages workflow at each deployment. To try it locally,
 serve the site's root (python3 -m http.server 8000) and open http://localhost:8000/demo/.
@@ -156,7 +161,24 @@ def fetch_image(ref, cache):
     if not (dest / 'client-fusion' / 'root.html').exists():
         raise SystemExit(f'{ref} has no /antimatter/client-fusion/root.html')
     done.write_text(json.dumps(details))
+    # Only this image is kept: the cache holds the last image read, for --from-cache.
+    for other in cache.iterdir():
+        if other.is_dir() and other != dest:
+            shutil.rmtree(other, ignore_errors=True)
     return dest / 'client-fusion', dest / 'prepackaged_plugins', details
+
+
+def cached_image(cache):
+    """The image last read into the cache: (fusion dir, plugins dir, details), or None."""
+    found = sorted((d for d in cache.glob('sha256-*') if (d / '.complete').exists()),
+                   key=lambda d: (d / '.complete').stat().st_mtime, reverse=True) if cache.exists() else []
+    if not found:
+        return None
+    d = found[0]
+    details = json.loads((d / '.complete').read_text())
+    details['from_cache'] = True
+    log(f'using the cached image {details.get("image")} ({details.get("digest", "")[:19]})')
+    return d / 'client-fusion', d / 'prepackaged_plugins', details
 
 
 # --- Assembling the demo ---------------------------------------------------------------------------------------
@@ -294,6 +316,24 @@ def copy_tree(src, dst):
             shutil.copyfile(f, target)
 
 
+def placeholder(out, base):
+    """demo/ when it can't be built: the loader page, saying in the visitor's language that the demo is being
+    updated. Its build.json has no digest, so the next scheduled deployment builds the demo again."""
+    if out.exists():
+        shutil.rmtree(out)
+    (out / 'mock').mkdir(parents=True)
+    version = 'updating-' + time.strftime('%Y%m%d%H%M', time.gmtime())
+    for name in ('loader.js', 'banner.css', 'i18n.json'):
+        shutil.copyfile(SRC / 'mock' / name, out / 'mock' / name)
+    page = (SRC / 'loader.html').read_text().replace('{{base}}', base).replace('{{version}}', version).replace(
+        '{{mode}}', 'updating')
+    (out / 'index.html').write_text(page)
+    (out / 'build.json').write_text(json.dumps({'version': version, 'placeholder': True,
+                                                'built_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                                                'source': {}}, indent=1) + '\n')
+    log(f'demo placeholder written to {out}')
+
+
 def size_of(path):
     return sum(f.stat().st_size for f in path.rglob('*') if f.is_file())
 
@@ -307,13 +347,24 @@ def main():
     p.add_argument('--base', default='/demo/', help='the path the demo is served at')
     p.add_argument('--cache', type=pathlib.Path, default=DEFAULT_CACHE)
     p.add_argument('--digest', metavar='IMAGE', help="print the image's digest and exit")
+    p.add_argument('--from-cache', action='store_true', help='use the image last read into the cache')
+    p.add_argument('--placeholder', action='store_true', help='only write a page saying the demo is being updated')
     args = p.parse_args()
 
     if args.digest:
         print(image_digest(args.digest))
         return
+    base = '/' + args.base.strip('/') + '/'
+    if args.placeholder:
+        placeholder(args.out, base)
+        return
     details = {}
-    if args.image:
+    if args.from_cache:
+        found = cached_image(args.cache)
+        if not found:
+            raise SystemExit(f'no image in the cache ({args.cache})')
+        fusion, plugins, details = found
+    elif args.image:
         fusion, plugins, details = fetch_image(args.image, args.cache)
         fusion = args.fusion or fusion
         plugins = args.plugins or plugins
@@ -321,8 +372,7 @@ def main():
         fusion, plugins = args.fusion, args.plugins
         details = {'fusion': str(fusion.resolve()), 'plugins': str(plugins.resolve())}
     else:
-        p.error('give --image, or --fusion and --plugins')
-    base = '/' + args.base.strip('/') + '/'
+        p.error('give --image, --from-cache, or --fusion and --plugins')
 
     out = args.out
     if out.exists():
@@ -346,7 +396,8 @@ def main():
     version = h.hexdigest()[:12]
 
     (out / 'app.html').write_text(app_page(root_html, base, version))
-    loader = (SRC / 'loader.html').read_text().replace('{{base}}', base).replace('{{version}}', version)
+    loader = (SRC / 'loader.html').read_text().replace('{{base}}', base).replace('{{version}}', version).replace(
+        '{{mode}}', 'start')
     (out / 'index.html').write_text(loader)
     shutil.copyfile(SRC / 'sw.js', out / 'sw.js')
 

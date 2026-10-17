@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Checks that the demo's fixtures (src/demo/fixtures/) hold nothing private: no token, password, secret key, real
-e-mail address, private or local network address, or address of the server they were recorded from.
+e-mail address, private or local network address, address of the server they were recorded from, or link to a
+real-looking domain (only reserved *.example names and Antimatter's own places are allowed).
 
     python3 tools/demo/test_fixtures.py        (or python3 -m unittest tools/demo/test_fixtures.py)
 
@@ -39,6 +40,28 @@ LOCAL_HOST = re.compile(r'\blocalhost\b|\[::1\]|\bamdev[-\w]*\b|host\.docker\.in
 # so the recorder checks its own token; here, bearer headers and JWTs are refused.
 BEARER = re.compile(r'Bearer\s+[A-Za-z0-9._-]{10,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}')
 PASSWORDS = ['Antimatter-Local-1']
+# Links may only lead to reserved names (RFC 2606: *.example, example.com/org/net) or to Antimatter's own places;
+# a real-looking domain in the sample data could be someone's.
+DOMAIN = re.compile(
+    r'(?<![@\w.-])(https?://)?((?:[a-z0-9-]+\.)+(?:[a-z]{2,24}))(?::\d+)?(/[^\s"\'<>)\]]*)?', re.I)
+# Without a scheme, only the common top-level domains are taken for domains: dotted names such as permission or
+# message ids (authentication.roles.team), files (notes.md) and code (window.location) are not.
+BARE_TLDS = re.compile(r'\.(com|org|net|dev|io|app|co|ai)$', re.I)
+ALLOWED_HOSTS = {'antimatter.chat', 'www.antimatter.chat', 'www.w3.org'}
+# github.com only for Antimatter's own repositories.
+ALLOWED_PATHS = {'github.com': re.compile(r'^/AntimatterChat(/|$)')}
+
+
+def domain_problem(host, path, scheme=True):
+    host = host.lower()
+    if host.endswith('.example') or host in ('example.com', 'example.org', 'example.net') or \
+            re.search(r'\.example\.(com|org|net)$', host) or host in ALLOWED_HOSTS:
+        return None
+    if host in ALLOWED_PATHS and ALLOWED_PATHS[host].match(path or ''):
+        return None
+    if not scheme and not BARE_TLDS.search(host):
+        return None
+    return f'{host}{path or ""}'
 
 
 def json_files():
@@ -89,6 +112,10 @@ def problems_in(doc, name='fixture'):
             out.append(f'{name}: private or local IP address: {m.group(0)}')
         for m in LOCAL_HOST.finditer(s):
             out.append(f'{name}: local host name: {m.group(0)}')
+        for m in DOMAIN.finditer(s):
+            bad = domain_problem(m.group(2), m.group(3), scheme=bool(m.group(1)))
+            if bad:
+                out.append(f'{name}: link to a real-looking domain: {bad[:80]}')
         if BEARER.search(s):
             out.append(f'{name}: bearer token or JWT')
         for p in PASSWORDS:
@@ -129,11 +156,13 @@ class CheckerTest(unittest.TestCase):
             'post': {'message': 'see 192.168.1.20 or 10.0.0.1', 'props': {'token': 'pqrstuvwxyz'}},
             'hook': {'url': 'http://amdev-hooks:8069/x', 'auth': 'Bearer abcdefghijklmnop'},
             'mail': 'write to jason@gmail.com',
+            'links': 'see https://github.com/lumen-labs/lumen-os/pull/1 and jira.lumenlabs.dev/browse/LUM-1',
             'pw': 'login with Antimatter-Local-1',
         }
         found = '\n'.join(problems_in(bad))
         for needle in ('/user/password', 'GiphySdkKey', 'lumen.example', 'localhost', '192.168.1.20', '10.0.0.1',
-                       '/props/token', 'amdev-hooks', 'bearer', 'gmail.com', 'password'):
+                       '/props/token', 'amdev-hooks', 'bearer', 'gmail.com', 'password', 'github.com/lumen-labs',
+                       'jira.lumenlabs.dev'):
             self.assertIn(needle.lower(), found.lower(), needle)
 
     def test_accepts_clean_data(self):
@@ -141,7 +170,10 @@ class CheckerTest(unittest.TestCase):
             'user': {'email': 'maya@lumenlabs.example', 'username': 'maya', 'id': 'xrcihg84tpbktq71599617cw6h'},
             'config': {'PasswordMinimumLength': '8', 'EnableUserAccessTokens': 'true', 'GiphySdkKey': '',
                        'SiteURL': '__SITE__'},
-            'post': {'message': 'v1.2.3 ships with @mattermost/types and react@18; IP 8.8.8.8 is public'},
+            'post': {'message': 'v1.2.3 ships with @mattermost/types and react@18; IP 8.8.8.8 is public; see '
+                                'https://git.lumenlabs.example/lumen-labs/lumen-os, notes.md and window.location'},
+            'links': ['https://antimatter.chat/help.html', 'https://github.com/AntimatterChat/desktop-app/releases',
+                      'https://status.lumen.example', 'mailto:maya@lumenlabs.example'],
         }
         self.assertEqual(problems_in(good), [])
 

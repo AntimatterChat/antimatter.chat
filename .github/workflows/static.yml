@@ -5,7 +5,8 @@
 # Besides pushes to main, it runs every three hours and deploys again when that image changed: the image is built
 # each night and whenever a repository's main branch asks for it (see antimatter-docker's README), so the demo
 # follows Fusion's changes without anything being committed here. A repository_dispatch event of type
-# demo-update deploys at once.
+# demo-update deploys at once. When the image can't be read, the site still deploys, with the demo built from the
+# last image cached, or with a "being updated" notice in its place.
 name: Deploy static content to Pages
 
 on:
@@ -53,37 +54,65 @@ jobs:
       - name: Find the app image
         id: image
         run: |
-          set -euo pipefail
-          digest="$(python3 tools/demo/build_demo.py --digest "${DEMO_IMAGE}:${DEMO_TAG}")"
-          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
-          # A scheduled run deploys only when the image changed since the demo that is online.
-          live="$(curl -fsSL https://antimatter.chat/demo/build.json \
-            | python3 -c 'import json, sys; print(json.load(sys.stdin)["source"].get("digest", ""))' || true)"
-          if [ "$GITHUB_EVENT_NAME" = "schedule" ] && [ "$live" = "$digest" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "The demo online already runs ${DEMO_IMAGE}@${digest}: nothing to deploy." >> "$GITHUB_STEP_SUMMARY"
+          set -uo pipefail
+          if digest="$(python3 tools/demo/build_demo.py --digest "${DEMO_IMAGE}:${DEMO_TAG}")"; then
+            echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          else
+            digest=""
+            echo "::warning::The registry didn't answer for ${DEMO_IMAGE}:${DEMO_TAG}: the demo is built from the last cached image, or replaced by a short notice."
+          fi
+          # A scheduled run deploys only when the image changed since the demo that is online (and could be read).
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+            live="$(curl -fsSL https://antimatter.chat/demo/build.json \
+              | python3 -c 'import json, sys; print(json.load(sys.stdin)["source"].get("digest", ""))' || true)"
+            if [ -z "$digest" ] || [ "$live" = "$digest" ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "Nothing to deploy: the demo online runs ${live:-nothing}, the image is ${digest:-unreachable}." >> "$GITHUB_STEP_SUMMARY"
+            fi
           fi
 
-      - name: Cache the image's web files
+      # The last image read (by digest), kept between runs: what the demo is built from when the registry fails.
+      - name: Restore the image's web files
+        id: restore
         if: steps.image.outputs.skip != 'true'
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/antimatter-demo
-          key: demo-image-${{ steps.image.outputs.digest }}
+          key: demo-image-${{ steps.image.outputs.digest || 'unreachable' }}
+          restore-keys: demo-image-
 
+      # The site never waits for the demo: from the image, else from the last cached image, else /demo/ only says
+      # the demo is being updated (in the visitor's language).
       - name: Build the demo
+        id: demo
         if: steps.image.outputs.skip != 'true'
         env:
           DIGEST: ${{ steps.image.outputs.digest }}
         run: |
-          set -euo pipefail
-          python3 tools/demo/build_demo.py --image "${DEMO_IMAGE}@${DIGEST}"
+          set -uo pipefail
+          if [ -n "$DIGEST" ] && python3 tools/demo/build_demo.py --image "${DEMO_IMAGE}@${DIGEST}"; then
+            echo "fresh=true" >> "$GITHUB_OUTPUT"
+            echo "Demo built from ${DEMO_IMAGE}@${DIGEST}:" >> "$GITHUB_STEP_SUMMARY"
+          elif python3 tools/demo/build_demo.py --from-cache; then
+            echo "::warning::The demo was built from the last cached image."
+            echo "Demo built from the last cached image:" >> "$GITHUB_STEP_SUMMARY"
+          else
+            python3 tools/demo/build_demo.py --placeholder
+            echo "::warning::No image to build the demo from: /demo/ says it is being updated."
+            echo "Demo replaced by its \"being updated\" notice:" >> "$GITHUB_STEP_SUMMARY"
+          fi
           {
-            echo "Demo built from ${DEMO_IMAGE}@${DIGEST}:"
             echo '```json'
             cat demo/build.json
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save the image's web files
+        if: steps.demo.outputs.fresh == 'true' && steps.restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/antimatter-demo
+          key: demo-image-${{ steps.image.outputs.digest }}
 
       - name: Setup Pages
         if: steps.image.outputs.skip != 'true'
