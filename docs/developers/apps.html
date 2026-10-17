@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Writing apps (plugins) · Antimatter</title>
-<meta name="description" content="How to write an Antimatter app (plugin): the bundle layout and plugin.json, the server hooks and API, the web app registry, supporting the Fusion interface, settings, the key-value store, translations, packaging and installing.">
+<meta name="description" content="How to write an Antimatter app (plugin): the bundle layout and plugin.json, the server hooks and API, the AI service, the web app registry, supporting the Fusion interface, settings, the key-value store, translations, packaging and installing.">
 <meta property="og:title" content="Writing apps (plugins) · Antimatter">
-<meta property="og:description" content="How to write an Antimatter app (plugin): the bundle layout and plugin.json, the server hooks and API, the web app registry, supporting the Fusion interface, settings, the key-value store, translations, packaging and installing.">
+<meta property="og:description" content="How to write an Antimatter app (plugin): the bundle layout and plugin.json, the server hooks and API, the AI service, the web app registry, supporting the Fusion interface, settings, the key-value store, translations, packaging and installing.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://antimatter.chat/docs/developers/apps.html">
 <meta property="og:locale" content="en">
@@ -200,6 +200,22 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 <li><code>GetUser</code>, <code>GetChannel</code>, <code>HasPermissionToChannel</code>: check who may do what before acting for a user.</li>
 </ul>
 <p>An app runs on every server of a cluster. Keep state in the key-value store or the database, not only in memory.</p>
+<h3 id="ai">The AI service</h3>
+<p>Antimatter's server calls AI models for apps, through the model connections an admin set up (see <a href="../../docs/admins/ai.html">AI</a> in the admin guide). An app never holds a provider's key: it names the person it acts for and where, and the server checks that this person may use the connection there, applies its limits and budgets, counts the tokens against the person and the app, and audits the call without its content.</p>
+<table>
+<thead><tr><th>Method</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>AIChat(actingUserID, channelID, teamID, *ai.ChatRequest)</code></td><td>A chat completion: messages, tools, structured output (<code>JSONSchema</code>).</td></tr>
+<tr><td><code>AIChatStream(…)</code></td><td>The same, streamed: read the stream's <code>Events</code> until the channel closes, or <code>Close</code> it to stop the call.</td></tr>
+<tr><td><code>AIEmbed(…, *ai.EmbedRequest)</code></td><td>Embeddings of texts.</td></tr>
+<tr><td><code>AITranscribe(…, *ai.TranscribeRequest)</code></td><td>Speech to text.</td></tr>
+<tr><td><code>AIDecide(…, *ai.DecideRequest)</code></td><td>Typed questions to a decision model (yes or no, a choice, a score) about a text.</td></tr>
+<tr><td><code>AIConnectionsForUser(userID, channelID, teamID)</code></td><td>The connections a person may use there, with their models and capabilities, never their keys.</td></tr>
+</tbody>
+</table>
+<p>Each request's <code>ConnectionID</code> picks the connection, and <code>Model</code> one of its models (empty for the connection's default). <code>Operation</code> is a short label for the usage and audit records, never content. Their minimum server version is 11.11.</p>
+<div class="callout warn">Take <code>actingUserID</code> only from a source the server verified: the <code>Mattermost-User-Id</code> header of a request to your <code>ServeHTTP</code>, or the user of a hook's context (a post's author, the user who ran a command). Never take it from a message, a webhook payload, a URL or another app's request: your app would spend someone else's access.</div>
+<p>These methods and the <code>ai</code> package (<code>server/public/ai</code>) exist only in Antimatter's copy of the module, not in the version published by Mattermost. To use them, build against Antimatter's <code>server/public</code> with a <code>replace</code> line in your <code>go.mod</code>, for example <code>replace github.com/mattermost/mattermost/server/public =&gt; ../antimatter/server/public</code>. Such an app only runs on Antimatter.</p>
 
 <h2 id="kv">Storing data</h2>
 <p>Each app has its own key-value store in the server's database:</p>
@@ -241,17 +257,17 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <pre><code>export function isFusionUI(): boolean {
     return window.antimatterWebUI === 'fusion' || document.documentElement.dataset.amWebUi === 'fusion';
 }</code></pre>
-<p>The bundled apps use this to draw differently. Polls draws its poll cards and its creation dialog in Fusion's style, and opens its own dialog for <code>/poll</code> in Fusion. Calls and Voice channels leave out the sidebar and toast components that Fusion replaces with its own call interface. The Agents app puts its AI actions in a submenu of the message menu instead of the hover toolbar. Fusion's own CSS classes (prefixed <code>am-</code>) and its dialog layer (the <code>am-layer</code> element) are what these apps use to match the interface; they are not a documented, stable API.</p>
+<p>The bundled apps use this to draw differently. Polls draws its poll cards and its creation dialog in Fusion's style, and opens its own dialog for <code>/poll</code> in Fusion. Calls and Voice channels leave out the sidebar and toast components that Fusion replaces with its own call interface. The Agents app puts its AI actions in the message menu, as a group under <b>More actions</b>, instead of the hover toolbar. Fusion's own CSS classes (prefixed <code>am-</code>) and its dialog layer (the <code>am-layer</code> element) are what these apps use to match the interface; they are not a documented, stable API.</p>
 <h3>Where Fusion shows plugin components</h3>
 <table>
 <thead><tr><th>Registry method</th><th>Where it appears in Fusion</th></tr></thead>
 <tbody>
 <tr><td><code>registerAppBarComponent</code>, <code>registerChannelHeaderButtonAction</code></td><td>The app rail, the column of icons on the right edge, between your avatar and the <b>About Antimatter</b> button. Channel header buttons go there too, not in the channel header. Hidden when a system admin turns on <b>Disable Apps Bar</b> (<code>ExperimentalSettings.DisableAppBar</code>, off by default).</td></tr>
-<tr><td><code>registerRightHandSidebarComponent</code></td><td>The right-hand panel. People can resize it by dragging its edge. If the app is also a product, the panel offers <b>Open as a full page</b>.</td></tr>
+<tr><td><code>registerRightHandSidebarComponent</code></td><td>The right-hand panel. People can resize it by dragging its edge, and open it in a new window. If the app is also a product, the panel offers <b>Open as a full page</b>. See <a href="#panel-state">The panel in a new window</a>.</td></tr>
 <tr><td><code>registerChannelHeaderIcon</code></td><td>Icons in the channel header, after the call buttons; on phones, in the header's <b>More</b> menu.</td></tr>
 <tr><td><code>registerCallButtonAction</code></td><td>The channel header's call button; several providers share an <b>Other ways to call</b> menu.</td></tr>
-<tr><td><code>registerPostDropdownMenuAction</code></td><td>The message's <b>More actions</b> (⋯) menu, in a <b>Message actions</b> submenu; also in the thread panel's <b>Thread actions</b> menu, under <b>More actions</b>.</td></tr>
-<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>Its own submenu of the same menus, with the app's name and icon.</td></tr>
+<tr><td><code>registerPostDropdownMenuAction</code></td><td>The message's <b>Message actions</b> (⋯) menu, in its <b>More actions</b> submenu; also in the thread panel's <b>Thread actions</b> menu, under <b>More actions</b>. Fusion draws the app's icon before each action, in grey: its own icon for the bundled apps, otherwise the icon the app shows in the app rail, otherwise a neutral one. An element without text at the start of the action's text (an icon the app draws itself) is hidden.</td></tr>
+<tr><td><code>registerPostDropdownSubMenuAction</code></td><td>A group with a heading in the same <b>More actions</b> submenu, after the single actions. No app gets an entry of its own in the message menu.</td></tr>
 <tr><td><code>registerPostActionComponent</code></td><td>The message hover toolbar, before the ⋯ button.</td></tr>
 <tr><td><code>registerPostTypeComponent</code>, <code>registerPostMessageAttachmentComponent</code>, <code>registerPostHeaderComponent</code>, <code>registerPostWillRenderEmbedComponent</code></td><td>The message itself: its body, below its text, after its time, and in place of link previews.</td></tr>
 <tr><td><code>registerChannelHeaderMenuAction</code></td><td>The channel's <b>Channel options</b> menu (⋯ on a channel in the sidebar, or right-click), as items with a plug icon.</td></tr>
@@ -269,7 +285,7 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <tr><td><code>registerChannelTypeOption</code></td><td>The <b>Create channel</b> dialog's channel types.</td></tr>
 <tr><td><code>registerSearchComponents</code></td><td>The channel header's search box: app scopes appear when it is empty.</td></tr>
 <tr><td><code>registerUserGuideDropdownMenuAction</code></td><td><b>About Antimatter</b> (bottom of the app rail), under <b>Help</b>.</td></tr>
-<tr><td><code>registerProduct</code></td><td>Full pages at the product's URL, listed under <b>Products</b> in <b>About Antimatter</b>. Product pages keep the classic page frame.</td></tr>
+<tr><td><code>registerProduct</code></td><td>Full pages at the product's URL, listed under <b>Products</b> in <b>About Antimatter</b>. Product pages keep the classic page frame, whose product menu only shows when an app registers a product or adds an entry to it. The bundled Kanban and Playbooks apps no longer register products: their pages open in their side panels.</td></tr>
 <tr><td><code>registerRootComponent</code>, <code>registerGlobalComponent</code>, hooks such as <code>registerMessageWillBePostedHook</code>, <code>registerSlashCommandWillBePostedHook</code>, <code>registerMessageWillFormatHook</code>, <code>registerFilesWillUploadHook</code>, <code>registerDesktopNotificationHook</code>, <code>registerWebSocketEventHandler</code>, <code>registerReducer</code>, <code>registerTranslations</code></td><td>Work as in the classic interface.</td></tr>
 <tr><td><code>registerAdminConsolePlugin</code>, <code>registerAdminConsoleCustomSetting</code></td><td>The System Console, which is the classic one in both interfaces.</td></tr>
 </tbody>
@@ -299,12 +315,21 @@ window.registerPlugin(manifest.id, new Plugin());</code></pre>
 <thead><tr><th>Method</th><th>What it adds</th></tr></thead>
 <tbody>
 <tr><td><code>registerComposerMenuItem({text, icon, fusionIcon, action, shouldRender})</code></td><td>An item in the message box's <b>+</b> menu, in both interfaces. <code>action</code> receives <code>{channelId, rootId}</code>.</td></tr>
-<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>A tab of the message box's emoji picker, such as GIFs or stickers. In Fusion, tabs with an <code>order</code> below 10 come before the Emoji tab. The component receives <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code> and <code>isFusion</code>.</td></tr>
+<tr><td><code>registerEmojiPickerTab({id, label, icon, fusionIcon, order, component, shouldRender, replacesGifPicker})</code></td><td>A tab of the message box's emoji picker, such as GIFs or stickers. In Fusion, tabs with an <code>order</code> below 10 come before the Emoji tab. The component receives <code>channelId</code>, <code>rootId</code>, <code>filter</code>, <code>onFilterChange</code>, <code>onSelectDone</code>, <code>insertText</code>, <code>isFusion</code> and, in Fusion, <code>pickerKit</code> (see below).</td></tr>
 <tr><td><code>registerChannelViewPanel({matcher, component})</code></td><td>A panel between the channel header and the messages, for the channels <code>matcher(state, channel)</code> selects. It can hide the messages and the composer (<code>setMessagesVisible</code>), as voice channels do.</td></tr>
 <tr><td><code>registerSidebarChannelFooterComponent(component)</code></td><td>A line under a channel in the sidebar, such as the people in its call. It receives the <code>channel</code>.</td></tr>
 <tr><td><code>registerIntegrationsOption({title, description, fusionIcon, action, shouldRender})</code></td><td>Fusion only: an entry on the <b>Integrations</b> pages, next to custom emoji. The GIFs app adds its custom GIFs and stickers there.</td></tr>
 </tbody>
 </table>
+<h3 id="picker-kit">Add and manage views in the emoji picker</h3>
+<p>In Fusion, an emoji picker tab gets a <code>pickerKit</code> prop: the components the Emoji tab uses for its own add and manage views, so that a tab's views look the same and stay inside the picker. The GIFs and Memes apps use it to add and manage GIFs, stickers and meme templates. It holds <code>version</code> (1), the hooks <code>usePickerView</code> and <code>useOnEscape</code>, and the components <code>PickerViewButtons</code> (the <b>+</b> and manage buttons beside the search box), <code>PickerViewFrame</code> (a view with its back arrow), <code>PickerNotice</code>, <code>PickerField</code>, <code>PickerSearch</code>, <code>PickerDropZone</code> and <code>PickerManageList</code>. Escape goes back from a view to the tab's grid. Check that the prop is there: other hosts leave it out, and the tab keeps its own dialogs then. The types are in <code>webapp/fusion/src/types/store/plugins.ts</code> (<code>EmojiPickerTabProps</code>) and the components in <code>webapp/fusion/src/fusion/popovers/picker_views.tsx</code>.</p>
+<h3 id="panel-state">The panel in a new window</h3>
+<p>Fusion gives the component of <code>registerRightHandSidebarComponent</code> two more props, so that <b>Open in new window</b> opens the panel where it was rather than at the app's home:</p>
+<ul>
+<li><code>setPanelState(state)</code>: call it when the panel changes place, with a short string your app defines, such as <code>'note/&lt;id&gt;'</code> or <code>'board/&lt;id&gt;/card/&lt;id&gt;'</code>, or <code>null</code> on its home. It goes into the window's address, so never put a secret in it. A state longer than 512 characters, or with control characters, is dropped.</li>
+<li><code>initialPanelState</code>: in the new window, the state the panel had, or <code>undefined</code>. Treat it as untrusted input: fetch the item again as the signed-in person, and show the app's home or a not-found view if they can't open it.</li>
+</ul>
+<p>The state is forgotten when the panel closes or another app's panel takes its place. To open a panel's window yourself, <code>popoutRhsPlugin</code> (also in <code>window.WebappUtils.popouts</code>) takes the state as an optional fifth argument. Notes, Whiteboard, Todo, Kanban and Playbooks use this.</p>
 <p><code>fusionIcon</code> names an icon of Fusion's icon set (for example <code>poll</code>, <code>sticker</code>, <code>calendar</code> or <code>image</code>; see <code>webapp/fusion/src/fusion/components/icon</code>). Fusion shows it instead of <code>icon</code>, so the item matches the others.</p>
 
 <h2 id="settings">Settings</h2>

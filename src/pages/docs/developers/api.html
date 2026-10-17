@@ -13,7 +13,7 @@ lead: Everything the Antimatter apps do goes through the same HTTP API, so your 
 <li><b>Communities are teams</b>: the API calls them <code>teams</code>, with a <code>team_id</code>.</li>
 <li><b>Yourself</b>: wherever a path takes a <code>user_id</code>, <code>me</code> means the signed-in user, as in <code>GET /users/me</code>.</li>
 </ul>
-<p>The full list of endpoints is in the server's code: the routes are declared in <code>server/channels/api4/*.go</code> and the types in <code>server/public/model</code>. The OpenAPI description in the repository's <code>api/v4/source</code> folder covers the endpoints inherited from Mattermost, not Antimatter's additions.</p>
+<p>The full list of endpoints is in the server's code: the routes are declared in <code>server/channels/api4/*.go</code> and the types in <code>server/public/model</code>. The OpenAPI description in the repository's <code>api/v4/source</code> folder covers the endpoints inherited from Mattermost, and some of Antimatter's additions: moving threads, model connections and message actions. The others are only in the code.</p>
 
 <h2 id="auth">Authentication</h2>
 <p>Every request, except signing in and a few public endpoints, needs a token in the <code>Authorization</code> header:</p>
@@ -143,7 +143,7 @@ func main() {
 <tr><td><code>GET /teams/{team_id}/user_attributes/fields</code><br><code>POST</code> same path<br><code>PATCH</code>, <code>DELETE …/fields/{field_id}</code></td><td>Community attributes: the profile fields a community's admins define for its members (up to 20). Members can read them; community admins create and change them.</td></tr>
 <tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> same path<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>A member's attribute values, as <code>{field_id: value}</code>. Members set their own (except admin-managed ones); admins set anyone's. The search takes <code>{"user_ids": [...]}</code> (up to 200).</td></tr>
 <tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>Timeouts: <code>{"until": time, "reason": "…"}</code> keeps someone from posting, reacting and uploading in the community until then (at most 28 days); <code>"until": 0</code> lifts it. The moderation view gives when they joined and how much they posted lately.</td></tr>
-<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Messages kept on top of a channel (up to 10). <code>{"duration": ms}</code>, at most 30 days; 0 keeps it until removed. Needs the right to post in the channel.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Messages kept on top of a channel (up to 10). <code>{"duration": ms}</code>, at most 30 days; 0 keeps it until removed. Anyone who can read the channel lists them. Putting a message on top or taking it off needs the right to post in the channel, and, in a community's channel, being an admin of the channel or of the community, or having <b>Manage messages</b> (<code>delete_others_posts</code>) there. In a direct or group message, its members can. Refused in archived channels.</td></tr>
 <tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>Acts on your own message request: <code>{"action": "accept"}</code>, <code>"dismiss"</code>, or <code>"request"</code> to put a conversation back among the requests. Returns your channel member.</td></tr>
 <tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>What a role or a person may do in a channel, and which roles see a role-gated channel.</td></tr>
 <tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>The community's shared channel categories, and the overrides that apply to every channel in a category.</td></tr>
@@ -151,13 +151,75 @@ func main() {
 <tr><td><code>POST /teams/{team_id}/autolinks/preview</code></td><td>Tries the community's autolink rules on a text.</td></tr>
 <tr><td><code>POST /channels/{channel_id}/export?format=csv&amp;since=&amp;until=</code></td><td>Downloads a channel's messages as CSV (up to 50,000), for people who can read the channel.</td></tr>
 <tr><td><code>GET /posts/{post_id}/speech</code></td><td>The message read aloud, as audio, when text-to-speech is set up.</td></tr>
+<tr><td><code>POST /posts/{post_id}/move_to_channel</code></td><td>Moves a thread to another channel of the same community: see <a href="#move-thread">Move a thread</a>.</td></tr>
+<tr><td><code>GET</code>, <code>POST /ai/connections</code><br><code>GET</code>, <code>PATCH</code>, <code>DELETE /ai/connections/{connection_id}</code><br><code>GET /ai/connections/usable</code></td><td>Model connections, the AI providers the server's AI features and apps use: see <a href="#ai-connections">Model connections</a>.</td></tr>
+<tr><td><code>GET /channels/{channel_id}/message_actions</code><br><code>POST /posts/{post_id}/message_actions/{hook_id}</code><br><code>GET</code>, <code>POST /hooks/outgoing/{hook_id}/icon</code></td><td>Message actions: outgoing webhooks that people run from the message menu. See <a href="{{root}}docs/developers/webhooks.html#message-actions">Message actions</a>.</td></tr>
 </tbody>
 </table>
 <h3>New fields</h3>
 <ul>
-<li><b>Communities</b> (<code>Team</code>, and <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (everyone is in every channel they may see), <code>default_channel_id</code> (where newcomers land; empty means Town Square), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> and <code>autolinks</code> (both JSON strings).</li>
+<li><b>Communities</b> (<code>Team</code>, and <code>PUT /teams/{team_id}/patch</code>): <code>all_channels_membership</code> (everyone is in every channel they may see), <code>default_channel_id</code> (where newcomers land; empty means General), <code>kind</code> (<code>community</code> or <code>workplace</code>: in a workplace, channel admins can archive their channels too; new communities get the server's <code>TeamSettings.DefaultCommunityKind</code>, <code>community</code> by default), <code>member_list_view</code> (how the member list groups members: <code>choice</code>, the default, lets each member choose; <code>roles</code> or <code>teams</code> fixes it), <code>hide_role_colors</code>, <code>require_team_badges</code>, <code>onboarding</code> and <code>autolinks</code> (both JSON strings).</li>
+<li><b>The default channel</b> of a new community is <code>general</code> (<b>General</b>), not <code>town-square</code>. The 0.9.0 upgrade renames each community's <code>town-square</code> to <code>general</code>, keeping its ID, unless the community already has a <code>general</code> channel. Old names keep working: <code>GET /teams/{team_id}/channels/name/town-square</code>, <code>GET /teams/name/{team}/channels/name/town-square</code> and an incoming webhook's <code>channel</code> give the community's default channel when no channel has that name. Use <code>default_channel_id</code>, or the name <code>general</code>, in new code.</li>
+<li><b>Channel links</b>: <code>#channel-name</code> links a channel, as <code>~channel-name</code> does. The post's <code>channel_mentions</code> prop lists the channels linked either way; a <code>#word</code> that names no channel stays a hashtag. Antimatter's web interface and mobile app write <code>#name</code>.</li>
+<li><b>Archived channels</b> still take new members (<code>POST /channels/{channel_id}/members</code>), who can read their history. Nobody can post, react, pin, put a message on top, rename the channel or change its members' roles there.</li>
 <li><b>Inline replies</b>: a post with <code>"props": {"reply_to": "&lt;post id&gt;"}</code> quotes that message of the same channel. Add <code>"reply_to_mention": false</code> to leave its author unnotified. The server fills <code>metadata.reply_to</code> with a short description of the quoted message.</li>
 <li><b>Spoilers</b>: <code>"props": {"spoiler": true}</code> hides a post's text and files until the reader chooses to see them.</li>
 <li><b>Ignoring and blocking</b> are preferences: category <code>user_block</code>, named after the other person's ID, with the value <code>ignore</code> or <code>block</code>. Whether a direct message waits as a request is in your channel member's <code>notify_props.dm_request</code> (<code>pending</code>, <code>accepted</code> or <code>dismissed</code>).</li>
 <li><b>Message attachments</b> can carry <code>stages</code> and a <code>chart</code>: see <a href="{{root}}docs/developers/webhooks.html#cards">Cards</a>.</li>
 </ul>
+
+<h2 id="move-thread">Move a thread</h2>
+<p><code>POST /posts/{post_id}/move_to_channel</code> moves a thread, its first message and all its replies, to another channel of the same community. <code>post_id</code> can be the first message or any reply.</p>
+<pre><code>curl -X POST https://chat.example.com/api/v4/posts/$POST_ID/move_to_channel \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"channel_id": "'$TARGET_CHANNEL_ID'", "flatten": false}'</code></pre>
+<ul>
+<li><code>channel_id</code> (required): the channel the thread moves to.</li>
+<li><code>flatten</code> (default <code>false</code>): <code>true</code> makes the replies messages of the target channel instead of a thread. Fusion's <b>Make it a channel</b> uses it.</li>
+</ul>
+<p>The messages keep their authors, times, reactions and files. Their copies carry the <code>silent_notification</code> prop, so they notify nobody. The original messages are deleted. The answer is the moved first message, with its new ID.</p>
+<h3>Who may move a thread</h3>
+<ul>
+<li>You must be able to read the thread and to post in the target channel.</li>
+<li>The channel's admins, the community's admins, people with <b>Manage messages</b> (<code>delete_others_posts</code>) in the channel, and system admins may move any thread.</li>
+<li>The thread's author may move it when both channels are public, or when every message of the thread is theirs. Otherwise the answer is <code>403</code> with the ID <code>api.post.move_thread.private_needs_moderator.app_error</code>.</li>
+<li>Both channels must be in the same community (no direct or group messages), different, and not archived. System messages and burn-on-read messages can't be moved.</li>
+<li>A thread longer than <code>WranglerSettings.MoveThreadMaxCount</code> messages (100 by default; 0 for no limit) is refused.</li>
+</ul>
+<h3>The pointer and the note</h3>
+<p>The move leaves two system messages of type <code>system_wrangler</code>: a pointer in the old channel ("A thread with 13 messages has been moved to #target") and a note in the target ("This thread was moved from #source"), under the moved thread or, with <code>flatten</code>, after its messages. Besides the message text, their props let a client draw the channel name as a link:</p>
+<ul>
+<li>The pointer: <code>MovedThreadPermalink</code>, <code>NumMessages</code>, <code>MovedThreadChannelId</code>, <code>MovedThreadTeamName</code>, <code>MovedThreadPostId</code>, and, for a public target, <code>MovedThreadChannelName</code> and <code>MovedThreadChannelDisplayName</code>.</li>
+<li>The note: <code>MovedFromChannelId</code>, <code>MovedFromTeamName</code>, <code>MovedFromPostId</code> (the pointer), <code>MovedFromPermalink</code>, and, for a public source, <code>MovedFromChannelName</code> and <code>MovedFromChannelDisplayName</code>.</li>
+</ul>
+<p>Both also have a <code>TranslationID</code>. A private channel's name is left out: readers see "another channel". Mattermost's own <code>POST /posts/{post_id}/move</code> stays off in Antimatter; use this endpoint.</p>
+
+<h2 id="ai-connections">Model connections</h2>
+<p>A model connection is an AI provider's address and key, set up by an admin. The server's AI features and the apps that call the AI service use them. System admins manage the server-wide connections (<code>manage_ai_connections</code>); a community's admins manage their community's own (<code>manage_team_ai_connections</code>). Keys are write-only: no answer carries one, only <code>api_key_set</code> and <code>api_key_last4</code>.</p>
+<table>
+<thead><tr><th>Endpoint</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>GET /ai/connections?scope=</code></td><td>The connections you manage. <code>scope</code> is <code>server</code> or a community's ID; without it, every scope you manage.</td></tr>
+<tr><td><code>POST /ai/connections</code></td><td>Adds a connection (answers <code>201</code>).</td></tr>
+<tr><td><code>POST /ai/connections/test</code>, <code>POST /ai/connections/models</code></td><td>Tests a connection, or lists its models, before it is saved. Same body as adding one; nothing is stored.</td></tr>
+<tr><td><code>GET</code>, <code>PATCH</code> (or <code>PUT</code>), <code>DELETE /ai/connections/{connection_id}</code></td><td>Reads, changes or deletes a connection. A patch carries only the fields to change; leave out <code>api_key</code> to keep the key.</td></tr>
+<tr><td><code>POST /ai/connections/{connection_id}/test</code></td><td>Tests a saved connection: <code>{"ok", "error", "status_code", "latency_ms", "model_count"}</code>.</td></tr>
+<tr><td><code>GET /ai/connections/{connection_id}/models</code></td><td>The models the provider offers.</td></tr>
+<tr><td><code>GET /ai/connections/{connection_id}/usage</code></td><td>This month's requests and tokens.</td></tr>
+<tr><td><code>GET /ai/connections/usable?channel_id=&amp;team_id=</code></td><td>For anyone signed in: the connections you may use there, with their models and capabilities, never their keys or addresses.</td></tr>
+</tbody>
+</table>
+<p>The body of a new connection:</p>
+<pre><code>{
+  "name": "Local models",
+  "scope": "server",
+  "provider": "openai_compatible",
+  "base_url": "http://llm.internal:8000/v1",
+  "api_key": "…",
+  "extra_headers": {},
+  "models": {"chat": "qwen3-32b", "embeddings": "", "transcription": "", "decisions": ""},
+  "limits": {"requests_per_minute": 0, "monthly_token_budget": 0, "per_user_requests_per_minute": 0, "per_user_monthly_token_budget": 0},
+  "sharing": {"all_teams": true, "team_ids": []},
+  "audience": {"everyone": true, "group_ids": [], "roles": [], "allow_guests": false}
+}</code></pre>
+<p><code>provider</code> is <code>openai_compatible</code> or <code>anthropic</code>. <code>scope</code> defaults to <code>server</code>; a community's ID makes it that community's connection. In <code>limits</code>, 0 means no limit; requests per minute are counted on each server, token budgets per calendar month (UTC) for the whole cluster. <code>sharing</code> says which communities may use a server-wide connection (direct and group messages need <code>all_teams</code>), and <code>audience</code> who may use it; guests only with <code>allow_guests</code>. Changes are written to the audit log. The admin guide explains the settings: see <a href="{{root}}docs/admins/ai.html">AI</a>.</p>

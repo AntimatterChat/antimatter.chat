@@ -1,9 +1,9 @@
 title: Webhooks
-description: Antimatter's incoming and outgoing webhooks: creating them, their payloads and responses, message attachments and cards, overriding the name and icon, with examples.
+description: Antimatter's incoming and outgoing webhooks: creating them, their payloads and responses, message actions in the message menu, message attachments and cards, overriding the name and icon, with examples.
 guide: developers
 order: 3
 nav: Webhooks
-lead: An incoming webhook lets another system post into a channel by sending JSON to a secret URL. An outgoing webhook does the opposite: it sends messages that start with a trigger word to your URL, and posts what you answer.
+lead: An incoming webhook lets another system post into a channel by sending JSON to a secret URL. An outgoing webhook does the opposite: it sends messages to your URL, those that start with a trigger word or those people pick it for in the message menu, and posts what you answer.
 ---
 <h2 id="where">Where to manage webhooks</h2>
 <p>Open your avatar at the top right, then <b>Integrations</b>. The integrations pages of the current community list <b>Incoming webhooks</b> and <b>Outgoing webhooks</b>. Each webhook belongs to one community.</p>
@@ -31,7 +31,7 @@ lead: An incoming webhook lets another system post into a channel by sending JSO
 <thead><tr><th>Field</th><th>Meaning</th></tr></thead>
 <tbody>
 <tr><td><code>text</code></td><td>The message, in Markdown. Required unless there are <code>attachments</code>. A text longer than the server's message limit is split into several messages.</td></tr>
-<tr><td><code>channel</code></td><td>Another channel of the webhook's community, by name (<code>ops-alerts</code> or <code>#ops-alerts</code>), or <code>@username</code> for a direct message from the webhook's owner. Refused when the webhook is locked to its channel.</td></tr>
+<tr><td><code>channel</code></td><td>Another channel of the webhook's community, by name (<code>ops-alerts</code> or <code>#ops-alerts</code>), or <code>@username</code> for a direct message from the webhook's owner. Refused when the webhook is locked to its channel. The old name <code>town-square</code> still reaches the community's default channel, now called <code>general</code>.</td></tr>
 <tr><td><code>username</code>, <code>icon_url</code>, <code>icon_emoji</code></td><td>The name and picture to show, when the server allows overrides.</td></tr>
 <tr><td><code>attachments</code></td><td>Message attachments, drawn as cards (below).</td></tr>
 <tr><td><code>props</code></td><td>Extra properties stored on the message, for apps that read them.</td></tr>
@@ -41,7 +41,7 @@ lead: An incoming webhook lets another system post into a channel by sending JSO
 <tr><td><code>silent</code></td><td><code>true</code> sends the message without push notifications.</td></tr>
 </tbody>
 </table>
-<p>Messages shown under an overridden name carry a <b>BOT</b> tag next to it, so people can tell them from real accounts. Webhook messages never trigger outgoing webhooks.</p>
+<p>Every message a webhook posts carries a <b>BOT</b> tag next to its name, even when it shows under its creator's name, so people can tell it from a real person's message. Webhook messages never trigger outgoing webhooks.</p>
 
 <h2 id="identity">Name and icon</h2>
 <p>A webhook posts as the person who created it, unless the server allows overrides. Two settings in <b>System Console › Integrations › Integration Management</b>, both off by default, change that:</p>
@@ -111,18 +111,18 @@ lead: An incoming webhook lets another system post into a channel by sending JSO
 <p>The classic interface and other clients ignore these two fields, so put the essentials in <code>text</code> or <code>fields</code> too.</p>
 
 <h2 id="outgoing">Create an outgoing webhook</h2>
-<p>An outgoing webhook watches the <b>public</b> channels of a community. When a message's first word matches one of its trigger words, Antimatter sends the message to your URL.</p>
+<p>An outgoing webhook watches the <b>public</b> channels of a community. It sends a message to your URL either when the message's first word matches one of its trigger words, or when someone picks it in the message's menu (a <a href="#message-actions">message action</a>).</p>
 <ol>
 <li>In <b>Integrations</b>, choose <b>Outgoing webhooks</b>, then <b>Add Outgoing Webhook</b>.</li>
 <li>Fill in the <b>Title</b> and <b>Description</b>.</li>
 <li>Choose the <b>Content Type</b> of the request: <code>application/x-www-form-urlencoded</code> or <code>application/json</code>.</li>
 <li>Pick a <b>Channel</b>, enter <b>Trigger Words (One Per Line)</b>, or both. With a channel and no trigger words, every message of that channel is sent. With both, the message must match both.</li>
-<li>Under <b>Trigger When</b>, choose <b>First word matches a trigger word exactly</b> or <b>First word starts with a trigger word</b>.</li>
+<li>Under <b>Trigger When</b>, choose <b>First word matches a trigger word exactly</b>, <b>First word starts with a trigger word</b>, or <b>From the message menu</b>. With <b>From the message menu</b>, the trigger words disappear, the <b>Channel</b> is optional (without one, the action is offered in every public channel of the community), and the <b>Title</b> is required: it is the action's name in the menu.</li>
 <li>Enter the <b>Callback URLs (One Per Line)</b>. Each URL gets every matching message.</li>
-<li>Optionally set the <b>Username</b> and <b>Profile Picture</b> used for replies.</li>
+<li>Optionally set the <b>Username</b> and <b>Profile Picture</b> used for replies. For an action from the message menu, the <b>Icon</b> field replaces <b>Profile Picture</b>: the URL of a .png or .jpg image or, in Antimatter's default interface, an uploaded image. The menu shows it in grey; without one, the action gets a neutral icon.</li>
 <li>Choose <b>Save</b> and copy the token shown. Your service uses it to check that requests come from your server.</li>
 </ol>
-<p>With the API: <code>POST /api/v4/hooks/outgoing</code> with <code>{"team_id", "channel_id", "trigger_words", "trigger_when", "callback_urls", "content_type", "display_name"}</code> (<code>trigger_when</code>: 0 for an exact match, 1 for "starts with").</p>
+<p>With the API: <code>POST /api/v4/hooks/outgoing</code> with <code>{"team_id", "channel_id", "trigger_words", "trigger_when", "callback_urls", "content_type", "display_name"}</code> (<code>trigger_when</code>: 0 for an exact match, 1 for "starts with", 2 for "from the message menu"). A webhook with <code>trigger_when</code> 2 takes no trigger words and needs a <code>display_name</code>. Upload its icon with <code>POST /api/v4/hooks/outgoing/{hook_id}/icon</code> (multipart, field <code>image</code>: PNG, JPEG or GIF, stored as a 128 px PNG); its <code>icon_url</code> then points at <code>GET /api/v4/hooks/outgoing/{hook_id}/icon</code>.</p>
 <div class="callout">If your service is on a private network, a system admin must allow its address in <b>Allow untrusted internal connections to</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>). The server doesn't call private addresses otherwise.</div>
 
 <h2 id="outgoing-request">The outgoing request</h2>
@@ -159,11 +159,62 @@ lead: An incoming webhook lets another system post into a channel by sending JSO
 </ul>
 <p>The reply is posted as the webhook's creator, under the overridden name when there is one. For anything longer than a quick answer, answer at once and post later with an incoming webhook or the API.</p>
 
+<h2 id="message-actions">Message actions</h2>
+<p>A message action is an outgoing webhook with <b>Trigger When</b> set to <b>From the message menu</b>. It never fires on posted messages. Instead, people see it in a message's menu: <b>Message actions</b> (⋯) › <b>More actions</b>, under the <b>Integrations</b> heading, with its icon. The classic interface doesn't show message actions. Picking it sends that one message to the callback URLs, and a short notice says <b>Sent to</b> the action's name, or shows your <code>ephemeral_text</code>.</p>
+<ul>
+<li><b>Where it shows</b>: in the webhook's channel, or, without a channel, in every public channel of its community. Only public channels have message actions.</li>
+<li><b>Guests</b> only get the actions bound to a channel they are in, not the community-wide ones.</li>
+<li><b>Archived and read-only channels</b>: the message can still be sent. Archiving a channel deletes the webhooks bound to it, so an archived channel keeps only the community-wide actions. An answer the person couldn't post there is shown to them alone.</li>
+<li><b>Rate limit</b>: each person can run 10 message actions a minute, after a burst of 5. Above that, the server answers <code>429</code>.</li>
+<li><b>Private networks</b>: as for other outgoing webhooks, internal addresses must be allowed in <b>Allow untrusted internal connections to</b>.</li>
+</ul>
+<h3>The request</h3>
+<p>The payload is sent as JSON or form-encoded, as the webhook's content type says:</p>
+<pre><code>{
+  "token": "6kd1ofo5ojr5zgu5ipfipybgnc",
+  "trigger": "message_action",
+  "team_id": "…",
+  "team_domain": "lumen-labs",
+  "channel_id": "…",
+  "channel_name": "ops-alerts",
+  "timestamp": 1760010000000,
+  "user_id": "…",
+  "user_name": "priya",
+  "post_id": "…",
+  "post_root_id": "",
+  "post_create_at": 1760009000000,
+  "post_user_id": "…",
+  "post_user_name": "jonas",
+  "permalink": "https://chat.example.com/lumen-labs/pl/…",
+  "text": "The staging database is full again",
+  "files": [{"id": "…", "name": "df.txt", "link": "https://chat.example.com/api/v4/files/…"}],
+  "priority": "",
+  "requested_ack": false,
+  "burn_on_read": false
+}</code></pre>
+<ul>
+<li><code>user_id</code> and <code>user_name</code> are the person who picked the action; <code>post_user_id</code> and <code>post_user_name</code> the message's author.</li>
+<li>Only that message is sent, never the rest of its thread.</li>
+<li><code>files</code> lists the message's files only when the person who picked the action may download them. Downloading a <code>link</code> needs a session or a token, like any file of the API.</li>
+<li>A burn-on-read message is sent without its text and files, with <code>burn_on_read</code> set to <code>true</code>.</li>
+<li>Form-encoded, the files come as repeated <code>file_id</code>, <code>file_name</code> and <code>file_link</code> fields, in the same order.</li>
+</ul>
+<h3>The answer</h3>
+<p>Answer as for any outgoing webhook (see <a href="#outgoing-response">Reply to an outgoing webhook</a>): <code>text</code> or <code>attachments</code> posts a reply in the channel, and <code>"response_type": "comment"</code> posts it in the message's thread. You can also answer with <code>ephemeral_text</code> (cut to 300 characters): it is shown to the person who picked the action alone, in the notice. An empty body posts nothing.</p>
+<pre><code>{"ephemeral_text": "Ticket OPS-412 created"}</code></pre>
+<h3>With the API</h3>
+<ul>
+<li><code>GET /api/v4/channels/{channel_id}/message_actions</code>: the actions you may pick in a channel, with <code>id</code>, <code>display_name</code>, <code>description</code> and <code>icon_url</code>. Neither tokens nor callback URLs are returned.</li>
+<li><code>POST /api/v4/posts/{post_id}/message_actions/{hook_id}</code>: runs an action on a message you can read. It answers <code>{"ephemeral_text"}</code>.</li>
+</ul>
+
 <h2 id="troubleshooting">When a webhook doesn't work</h2>
 <ul>
 <li><b>501 from the hook URL</b>: incoming webhooks are turned off on the server.</li>
 <li><b>400 "Failed to decode the payload…"</b>: the JSON is invalid, or the form field isn't named <code>payload</code>. <b>"No text specified."</b> means the request has neither <code>text</code> nor <code>attachments</code>.</li>
 <li><b>403</b>: the webhook is locked to another channel, or its owner can no longer read the channel.</li>
-<li><b>An outgoing webhook never fires</b>: the channel is private, the trigger is not the first word, or the message came from a webhook.</li>
+<li><b>An outgoing webhook never fires</b>: the channel is private, the trigger is not the first word, the message came from a webhook, or the webhook is set to trigger <b>From the message menu</b>.</li>
+<li><b>A message action isn't in the menu</b>: the channel is private, the action is bound to another channel, the person is a guest and the action has no channel, or outgoing webhooks are turned off.</li>
+<li><b>404 when running a message action</b>: the action doesn't exist, or it doesn't cover that message's channel for that person. <b>429</b>: the person ran more than 10 actions in a minute. <b>502</b>: none of the callback URLs could be reached (the log has the reason).</li>
 <li><b>Logs</b>: with <b>Enable Webhook Debugging</b> on (<code>LogSettings.EnableWebhookDebugging</code>), and the log level at <code>DEBUG</code>, the server logs the payloads of failed incoming requests. Failed outgoing calls are logged as <code>Outgoing Webhook POST failed</code>.</li>
 </ul>

@@ -1,0 +1,40 @@
+# An optional push notification proxy for the Antimatter mobile app, to use next to compose.yaml.
+#
+# Push notifications reach phones through Apple (APNs) and Google (FCM), which only deliver them
+# when they are sent with the mobile app's own credentials. The push proxy holds those credentials:
+# an APNs key and a Firebase service account of the app build your users run. How to get them and
+# what to put in the proxy's configuration: https://github.com/AntimatterChat/push-proxy#self-hosting
+#
+#   1. Next to compose.yaml, create push-proxy/config/antimatter-push-proxy.json (start from the
+#      sample in the push-proxy repository) and put the credentials it names in push-proxy/certs/:
+#        push-proxy/certs/AuthKey_<KEY ID>.p8            (iOS)
+#        push-proxy/certs/firebase-service-account.json  (Android)
+#   2. docker compose -f compose.yaml -f compose.push.example.yaml --profile push up -d
+#   3. In Antimatter's System Console > Environment > Push Notification Server, choose
+#      "Send push notifications through your own push proxy" and enter http://push-proxy:8066
+#      (or set AM_EMAILSETTINGS_PUSHNOTIFICATIONSERVER, below).
+#
+# The proxy only talks to Antimatter and to Apple and Google: it publishes no port.
+
+services:
+  push-proxy:
+    image: ghcr.io/antimatterchat/push-proxy:latest
+    profiles: [push]
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ./push-proxy/config:/antimatter-push-proxy/config:ro
+      - ./push-proxy/certs:/antimatter-push-proxy/certs:ro
+    networks:
+      - default
+
+  # To set the push proxy without the System Console, uncomment (the System Console then shows
+  # the setting as set by the environment):
+  # antimatter:
+  #   environment:
+  #     AM_EMAILSETTINGS_SENDPUSHNOTIFICATIONS: "true"
+  #     AM_EMAILSETTINGS_PUSHNOTIFICATIONSERVER: http://push-proxy:8066
