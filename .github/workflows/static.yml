@@ -1,15 +1,23 @@
-# Simple workflow for deploying static content to GitHub Pages
+# Deploys the site to GitHub Pages: the pages as committed, plus the interactive demo (demo/), which is assembled at
+# each deployment by tools/demo/build_demo.py from the published antimatter-next image (the Fusion web app and the
+# default apps, as built from the repositories' main branches) and the fixtures committed in src/demo/fixtures.
+#
+# Besides pushes to main, it runs every three hours and deploys again when that image changed: the image is built
+# each night and whenever a repository's main branch asks for it (see antimatter-docker's README), so the demo
+# follows Fusion's changes without anything being committed here. A repository_dispatch event of type
+# demo-update deploys at once. When the image can't be read, the site still deploys, with the demo built from the
+# last image cached, or with a "being updated" notice in its place.
 name: Deploy static content to Pages
 
 on:
-  # Runs on pushes targeting the default branch
   push:
     branches: ["main"]
-
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
+  schedule:
+    - cron: "40 */3 * * *"
+  repository_dispatch:
+    types: [demo-update]
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
   pages: write
@@ -21,23 +29,103 @@ concurrency:
   group: "pages"
   cancel-in-progress: false
 
+env:
+  DEMO_IMAGE: ghcr.io/antimatterchat/antimatter-next
+  DEMO_TAG: latest
+
 jobs:
-  # Single deploy job since we're just deploying
   deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          # Upload entire repository
+          persist-credentials: false
+
+      - name: Check the demo's fixtures and mock server
+        run: |
+          python3 tools/demo/test_fixtures.py
+          node tools/demo/smoke_mock.js
+
+      - name: Find the app image
+        id: image
+        run: |
+          set -uo pipefail
+          if digest="$(python3 tools/demo/build_demo.py --digest "${DEMO_IMAGE}:${DEMO_TAG}")"; then
+            echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          else
+            digest=""
+            echo "::warning::The registry didn't answer for ${DEMO_IMAGE}:${DEMO_TAG}: the demo is built from the last cached image, or replaced by a short notice."
+          fi
+          # A scheduled run deploys only when the image changed since the demo that is online (and could be read).
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+            live="$(curl -fsSL https://antimatter.chat/demo/build.json \
+              | python3 -c 'import json, sys; print(json.load(sys.stdin)["source"].get("digest", ""))' || true)"
+            if [ -z "$digest" ] || [ "$live" = "$digest" ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "Nothing to deploy: the demo online runs ${live:-nothing}, the image is ${digest:-unreachable}." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
+      # The last image read (by digest), kept between runs: what the demo is built from when the registry fails.
+      - name: Restore the image's web files
+        id: restore
+        if: steps.image.outputs.skip != 'true'
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/antimatter-demo
+          key: demo-image-${{ steps.image.outputs.digest || 'unreachable' }}
+          restore-keys: demo-image-
+
+      # The site never waits for the demo: from the image, else from the last cached image, else /demo/ only says
+      # the demo is being updated (in the visitor's language).
+      - name: Build the demo
+        id: demo
+        if: steps.image.outputs.skip != 'true'
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -uo pipefail
+          if [ -n "$DIGEST" ] && python3 tools/demo/build_demo.py --image "${DEMO_IMAGE}@${DIGEST}"; then
+            echo "fresh=true" >> "$GITHUB_OUTPUT"
+            echo "Demo built from ${DEMO_IMAGE}@${DIGEST}:" >> "$GITHUB_STEP_SUMMARY"
+          elif python3 tools/demo/build_demo.py --from-cache; then
+            echo "::warning::The demo was built from the last cached image."
+            echo "Demo built from the last cached image:" >> "$GITHUB_STEP_SUMMARY"
+          else
+            python3 tools/demo/build_demo.py --placeholder
+            echo "::warning::No image to build the demo from: /demo/ says it is being updated."
+            echo "Demo replaced by its \"being updated\" notice:" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          {
+            echo '```json'
+            cat demo/build.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save the image's web files
+        if: steps.demo.outputs.fresh == 'true' && steps.restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/antimatter-demo
+          key: demo-image-${{ steps.image.outputs.digest }}
+
+      - name: Setup Pages
+        if: steps.image.outputs.skip != 'true'
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+
+      - name: Upload artifact
+        if: steps.image.outputs.skip != 'true'
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          # Upload entire repository, with the demo just built
           path: '.'
+
       - name: Deploy to GitHub Pages
+        if: steps.image.outputs.skip != 'true'
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

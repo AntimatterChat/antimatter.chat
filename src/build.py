@@ -152,6 +152,7 @@ def icon(name, cls=''):
 
 NAV = [
     ('Features', 'features.html'),
+    ('Try the demo', 'demo/'),
     ('Docs', 'docs/index.html'),
     ('Compare', 'compare/index.html'),
     ('Self-host', 'install.html'),
@@ -177,6 +178,12 @@ LEGAL_LICENSE = 'Antimatter is free software, licensed under the GNU AGPL v3.0. 
 LEGAL_TRADEMARKS = 'Antimatter is an independent project. Product names are trademarks of their respective owners.'
 
 
+def demo_link(root, lang):
+    """The demo (demo/, built by tools/demo/build_demo.py) is one page for every language: it is told the page's
+    language, which becomes the app's."""
+    return f'{root}demo/' + ('' if lang == 'en' else f'?lang={lang}')
+
+
 def link(href, base):
     return href if href.startswith('http') else base + href
 
@@ -195,6 +202,8 @@ def lang_menu(path, lang, root):
 def layout(path, meta, body, lang):
     """The page around a page's content. path is the page's path within a language, e.g. compare/slack.html."""
     root = '../' * (path.count('/') + (lang != 'en'))
+    if path == '404.html':
+        root = '/'  # GitHub Pages serves it at any depth: its links start from the site's root.
     base = root + lang_dir(lang)
     tag = LANGS[lang][0]
     page_url = SITE + '/' + lang_dir(lang) + ('' if path == 'index.html' else path)
@@ -203,7 +212,7 @@ def layout(path, meta, body, lang):
         for code, (tg, _) in LANGS.items())
     alternates += f'<link rel="alternate" hreflang="x-default" href="{SITE}/{"" if path == "index.html" else path}">\n'
     nav = ''.join(
-        f'<a href="{base}{href}"{" aria-current=\"page\"" if href == path or (href == "docs/index.html" and path.startswith("docs/")) else ""}>{t(lang, label)}</a>'
+        f'<a href="{demo_link(root, lang) if href == "demo/" else base + href}"{" aria-current=\"page\"" if href == path or (href == "docs/index.html" and path.startswith("docs/")) else ""}>{t(lang, label)}</a>'
         for label, href in NAV)
     cols = ''.join(
         f'<div><h4>{t(lang, title)}</h4><ul>' + ''.join(f'<li><a href="{link(h, base)}">{t(lang, l)}</a></li>' for l, h in items)
@@ -326,10 +335,12 @@ def docs_page(rel, meta, content, lang):
 </div>'''
 
 
-def render(text, root, base):
-    """Expands the content's shortcuts: {{icon:name}}, {{icon:name:cls}} and {{root}}, the path to the site's root
-    for assets (assets/...) and to the root of the page's language for links to pages."""
+def render(text, root, base, lang='en'):
+    """Expands the content's shortcuts: {{icon:name}}, {{icon:name:cls}}, {{demo}} (the link to the demo) and
+    {{root}}, the path to the site's root for assets (assets/...) and to the root of the page's language for links to
+    pages."""
     text = re.sub(r'\{\{icon:([a-z-]+)(?::([a-z]+))?\}\}', lambda m: icon(m.group(1), m.group(2) or ''), text)
+    text = text.replace('{{demo}}', demo_link(root, lang))
     return text.replace('{{root}}assets/', root + 'assets/').replace('{{root}}', base)
 
 
@@ -485,13 +496,13 @@ def main():
         for rel, raw in compare_pages(code).items():
             pages[rel] = parse(raw)
         for rel, (meta, content) in pages.items():
-            root = '../' * (rel.count('/') + (code != 'en'))
+            root = '../' * (rel.count('/') + (code != 'en')) if rel != '404.html' else '/'
             out = ROOT / lang_dir(code) / rel
             out.parent.mkdir(parents=True, exist_ok=True)
             if meta.get('guide'):
                 meta = dict(meta, plain='yes')
                 content = docs_page(rel, meta, content.strip(), code)
-            out.write_text(layout(rel, meta, render(content.strip(), root, root + lang_dir(code)), code))
+            out.write_text(layout(rel, meta, render(content.strip(), root, root + lang_dir(code), code), code))
     print('built', len(LANGS), 'languages')
 
 
