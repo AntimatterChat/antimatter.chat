@@ -1,14 +1,16 @@
 # Antimatter, ready to run: https://antimatter.chat/install.html
 #
 # Antimatter, its database (PostgreSQL), its file storage (RustFS, S3-compatible) and its GIF and
-# sticker service. Antimatter itself keeps nothing on disk: its settings live in the database and
-# its files in the storage service, so the container can be replaced at any time.
+# sticker service. Antimatter's settings live in the database and its files in the storage
+# service, so the container can be replaced at any time; its data volume only keeps the key file
+# of the AI model connections, when AM_AI_ENCRYPTION_KEY doesn't set the key.
 #
 #   1. Put this file in an empty directory, with a .env file next to it (see install.html):
 #        SITE_URL=http://localhost:8065
 #        POSTGRES_PASSWORD=<random>
 #        S3_SECRET_KEY=<random>
 #        GIFS_API_KEY=<random>
+#        AM_AI_ENCRYPTION_KEY=<openssl rand -base64 32>   (optional, recommended)
 #   2. docker compose up -d
 #   3. Open SITE_URL and create the first account: it becomes the system administrator.
 #
@@ -58,6 +60,12 @@ services:
       AM_GIFS_SERVICE_URL: http://gifs:8080/v2
       AM_GIFS_API_KEY: ${GIFS_API_KEY:?set GIFS_API_KEY in .env}
       AM_GIFS_UPLOAD_KEY: ${GIFS_UPLOAD_KEY:-}
+      # Encrypts the API keys of AI model connections in the database. Make one with
+      # `openssl rand -base64 32` and keep a copy apart from the database backups: without it, the
+      # saved keys can't be read and every connection must be given its key again. Empty: the
+      # server makes a key file, ai-encryption.key, in the data volume. If it already made one, put
+      # that key in .env (docker compose exec antimatter cat /antimatter/data/ai-encryption.key).
+      AM_AI_ENCRYPTION_KEY: ${AM_AI_ENCRYPTION_KEY:-}
       # Client addresses (for rate limits, audit logs and IP filtering) come from Caddy, and only from
       # it: the header counts for requests from the edge network alone, so clients can't fake theirs.
       AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER: X-Forwarded-For
@@ -65,6 +73,9 @@ services:
       # Calls: voice and video go straight to this port, UDP and TCP. Open it in the firewall.
       AM_CALLS_UDP_SERVER_PORT: ${CALLS_PORT:-8443}
       AM_CALLS_TCP_SERVER_PORT: ${CALLS_PORT:-8443}
+    volumes:
+      # The data directory: the AI encryption key file (see AM_AI_ENCRYPTION_KEY above).
+      - data:/antimatter/data
     ports:
       - "${HTTP_PORT:-8065}:8065"
       - "${CALLS_PORT:-8443}:${CALLS_PORT:-8443}/udp"
@@ -203,6 +214,7 @@ networks:
 
 volumes:
   postgres:
+  data:
   files:
   gifs:
   https:

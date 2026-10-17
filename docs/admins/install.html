@@ -89,9 +89,10 @@ SITE_URL=http://localhost:8065
 POSTGRES_PASSWORD=$(openssl rand -hex 24)
 S3_SECRET_KEY=$(openssl rand -hex 24)
 GIFS_API_KEY=$(openssl rand -hex 24)
+AM_AI_ENCRYPTION_KEY=$(openssl rand -base64 32)
 EOF
 chmod 600 .env</code></pre>
-<p>Set <code>SITE_URL</code> to the address people will type in their browser, for example <code>http://192.168.1.20:8065</code> on a local network or <code>https://chat.example.com</code> with a domain. Keep the <code>.env</code> file: the database and the storage use these passwords from the first start, and you need the same file to restore a backup.</p>
+<p>Set <code>SITE_URL</code> to the address people will type in their browser, for example <code>http://192.168.1.20:8065</code> on a local network or <code>https://chat.example.com</code> with a domain. Keep the <code>.env</code> file: the database and the storage use these passwords from the first start, the API keys of AI model connections are encrypted with <code>AM_AI_ENCRYPTION_KEY</code>, and you need the same file to restore a backup.</p>
 
 <h3>3. Start it</h3>
 <pre><code>docker compose up -d
@@ -107,6 +108,7 @@ docker compose ps</code></pre>
 <tr><td><code>POSTGRES_PASSWORD</code></td><td>required</td><td>Password of the <code>antimatter</code> database user.</td></tr>
 <tr><td><code>S3_SECRET_KEY</code></td><td>required</td><td>Secret key of the file storage.</td></tr>
 <tr><td><code>GIFS_API_KEY</code></td><td>required</td><td>Key Antimatter uses to call the GIF service.</td></tr>
+<tr><td><code>AM_AI_ENCRYPTION_KEY</code></td><td>empty</td><td>The key that encrypts the API keys of AI model connections (<code>openssl rand -base64 32</code>). Empty: the server makes a key file in the <code>data</code> volume. See <a href="../../docs/admins/ai.html#encryption-key">The encryption key</a>.</td></tr>
 <tr><td><code>GIFS_UPLOAD_KEY</code></td><td>empty</td><td>Lets people add their own GIFs and stickers from the picker, and delete them. Empty turns uploads off.</td></tr>
 <tr><td><code>DOMAIN</code></td><td>empty</td><td>Your domain name, for the <code>https</code> profile.</td></tr>
 <tr><td><code>HTTP_PORT</code></td><td><code>8065</code></td><td>Host port of Antimatter's web server.</td></tr>
@@ -121,7 +123,7 @@ docker compose ps</code></pre>
 <table>
 <thead><tr><th>Service</th><th>Image</th><th>Role</th></tr></thead>
 <tbody>
-<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>The server, the web app and the bundled apps. Publishes <code>HTTP_PORT</code> and <code>CALLS_PORT</code>.</td></tr>
+<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>The server, the web app and the bundled apps. Publishes <code>HTTP_PORT</code> and <code>CALLS_PORT</code>. Its data directory is the <code>data</code> volume.</td></tr>
 <tr><td><code>postgres</code></td><td><code>postgres:17-alpine</code></td><td>The database, in the <code>postgres</code> volume.</td></tr>
 <tr><td><code>files</code></td><td><code>rustfs/rustfs</code></td><td>S3-compatible storage for uploaded files and installed apps, in the <code>files</code> volume.</td></tr>
 <tr><td><code>bucket</code></td><td><code>amazon/aws-cli</code></td><td>Creates the <code>antimatter</code> bucket, then exits.</td></tr>
@@ -131,7 +133,7 @@ docker compose ps</code></pre>
 </tbody>
 </table>
 <p>PostgreSQL, the storage and the GIF service are on an internal network (<code>private</code>) with no Internet access, which only Antimatter joins. None of them publishes a port.</p>
-<p>The Antimatter container keeps nothing on disk: its settings are in the database (<code>AM_CONFIG</code> points at it) and its files and apps are in the storage service. You can remove and recreate the container at any time. Everything to back up is in the <code>postgres</code>, <code>files</code> and <code>gifs</code> volumes, plus your <code>.env</code>.</p>
+<p>The Antimatter container keeps nothing on disk: its settings are in the database (<code>AM_CONFIG</code> points at it) and its files and apps are in the storage service. You can remove and recreate the container at any time. Its <code>data</code> volume only holds the AI encryption key file, which the server makes when <code>AM_AI_ENCRYPTION_KEY</code> is empty. Everything to back up is in the <code>postgres</code>, <code>files</code>, <code>gifs</code> and <code>data</code> volumes, plus your <code>.env</code>.</p>
 
 <h2 id="images">Choose an image</h2>
 <p>Two Antimatter images are published, both for <code>linux/amd64</code> and <code>linux/arm64</code>, and both built from the <code>main</code> branch of every repository:</p>

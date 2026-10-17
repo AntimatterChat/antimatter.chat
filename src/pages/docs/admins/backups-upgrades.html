@@ -14,7 +14,7 @@ lead: What to back up, how to restore it on a new host, how to upgrade, and how 
 <tr><td>The configuration file</td><td>(in the database)</td><td><code>config/config.json</code></td><td><code>/etc/antimatter/config/config.json</code></td></tr>
 <tr><td>GIFs and stickers</td><td>volume <code>antimatter_gifs</code></td><td>the GIF service's data directory</td><td><code>/var/lib/gifs-server</code></td></tr>
 <tr><td>Secrets</td><td><code>.env</code> (and <code>compose.override.yaml</code>)</td><td>your environment file</td><td><code>/etc/antimatter/antimatter.env</code>, <code>/etc/gifs-server</code></td></tr>
-<tr><td>The AI encryption key, which encrypts the keys of model connections</td><td><code>AM_AI_ENCRYPTION_KEY</code> in <code>.env</code> (recommended), or the file <code>/antimatter/data/ai-encryption.key</code> in the container</td><td><code>AM_AI_ENCRYPTION_KEY</code>, or <code>data/ai-encryption.key</code></td><td><code>AM_AI_ENCRYPTION_KEY</code> in <code>antimatter.env</code>, or <code>/var/lib/antimatter/data/ai-encryption.key</code></td></tr>
+<tr><td>The AI encryption key, which encrypts the keys of model connections</td><td><code>AM_AI_ENCRYPTION_KEY</code> in <code>.env</code> (recommended), or the file <code>ai-encryption.key</code> in the volume <code>antimatter_data</code></td><td><code>AM_AI_ENCRYPTION_KEY</code>, or <code>data/ai-encryption.key</code></td><td><code>AM_AI_ENCRYPTION_KEY</code> in <code>antimatter.env</code>, or <code>/var/lib/antimatter/data/ai-encryption.key</code></td></tr>
 </tbody>
 </table>
 <p>Without the AI encryption key, a restored server can't read the API keys of its model connections, and each one has to be typed again. Keep a copy of the key apart from the database backups, so that one stolen backup doesn't hold both. See <a href="{{root}}docs/admins/ai.html#encryption-key">The encryption key</a>.</p>
@@ -28,15 +28,15 @@ docker compose stop antimatter
 # Database
 docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
     &gt; "backups/antimatter-db-$stamp.dump"
-# File storage and GIF service
-for v in files gifs; do
+# File storage, GIF service and the data directory (the AI key file)
+for v in files gifs data; do
     docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
         alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
 done
 docker compose start antimatter
 # Secrets
 cp .env "backups/env-$stamp"</code></pre>
-<p>If you haven't set <code>AM_AI_ENCRYPTION_KEY</code> and the server has created its key file, copy the file too (once is enough: it doesn't change): <code>docker compose cp antimatter:/antimatter/data/ai-encryption.key "backups/ai-encryption.key"</code>. Better, put its content in <code>.env</code> as <a href="{{root}}docs/admins/ai.html#encryption-key">The encryption key</a> explains: the backup of <code>.env</code> then holds it.</p>
+<p>If you haven't set <code>AM_AI_ENCRYPTION_KEY</code>, the server's key file is in the <code>data</code> volume, which the loop above saves with the files. Better, put its content in <code>.env</code> as <a href="{{root}}docs/admins/ai.html#encryption-key">The encryption key</a> explains, and keep a copy of it apart from the database backups.</p>
 <p>Run it from cron for daily backups, and copy the <code>backups/</code> directory to another machine. Keep the copies of <code>.env</code> as safe as the server: they hold its passwords.</p>
 <p>To copy the uploaded files object by object instead (for example to another S3 storage), use the AWS command-line tool of the <code>bucket</code> service:</p>
 <pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
@@ -50,7 +50,7 @@ docker compose create           # creates the volumes, starts nothing
 docker compose up -d postgres
 docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
     &lt; "backups/antimatter-db-$stamp.dump"
-for v in files gifs; do
+for v in files gifs data; do
     docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
         alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
 done
@@ -59,6 +59,7 @@ docker compose up -d</code></pre>
 <p>Test your backups by restoring them on another machine from time to time.</p>
 
 <h2 id="upgrade">Upgrade</h2>
+<div class="callout warn">Compose files downloaded before 17 October 2026 had no <code>data</code> volume: the AI key file was in the container. Before you use the new <code>compose.yaml</code>, and if <code>.env</code> has no <code>AM_AI_ENCRYPTION_KEY</code>, save the key the server made: <code>echo "AM_AI_ENCRYPTION_KEY=$(docker compose exec -T antimatter cat /antimatter/data/ai-encryption.key)" &gt;&gt; .env</code>. If the command finds no file, no model connection has saved a key yet.</div>
 <ol>
 <li>Take a backup.</li>
 <li>Change the image tag in <code>.env</code> (<code>ANTIMATTER_IMAGE</code>), if you pin one, as recommended.</li>
