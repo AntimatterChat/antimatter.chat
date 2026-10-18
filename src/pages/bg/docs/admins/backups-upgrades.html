@@ -4,7 +4,7 @@ guide: admins
 order: 10
 nav: Резервни копия и ъпгрейди
 lead: Какво да резервирате, как да го възстановите на нов хост, как да ъпгрейдирате и как да преместите сървър Mattermost или отделна общност към Antimatter.
-source: 74a523a2c4c3
+source: 531ec332715c
 ---
 <h2 id="what">Какво да резервирате</h2>
 <table>
@@ -15,7 +15,7 @@ source: 74a523a2c4c3
 <tr><td>Конфигурационният файл</td><td>(в базата данни)</td><td><code>config/config.json</code></td><td><code>/etc/antimatter/config/config.json</code></td></tr>
 <tr><td>GIF-ове и стикери</td><td>том <code>antimatter_gifs</code></td><td>каталогът с данни на GIF услугата</td><td><code>/var/lib/gifs-server</code></td></tr>
 <tr><td>Тайни</td><td><code>.env</code> (и <code>compose.override.yaml</code>)</td><td>вашият файл с променливи на средата</td><td><code>/etc/antimatter/antimatter.env</code>, <code>/etc/gifs-server</code></td></tr>
-<tr><td>Ключът за шифроване на AI, който шифрова ключовете на връзките с модели</td><td><code>AM_AI_ENCRYPTION_KEY</code> в <code>.env</code> (препоръчително), или файла <code>/antimatter/data/ai-encryption.key</code> в контейнера</td><td><code>AM_AI_ENCRYPTION_KEY</code>, или <code>data/ai-encryption.key</code></td><td><code>AM_AI_ENCRYPTION_KEY</code> в <code>antimatter.env</code>, или <code>/var/lib/antimatter/data/ai-encryption.key</code></td></tr>
+<tr><td>Ключът за шифроване на AI, който шифрова ключовете на връзките с модели</td><td><code>AM_AI_ENCRYPTION_KEY</code> в <code>.env</code> (препоръчително) или файла <code>ai-encryption.key</code> в обема <code>antimatter_data</code></td><td><code>AM_AI_ENCRYPTION_KEY</code>, или <code>data/ai-encryption.key</code></td><td><code>AM_AI_ENCRYPTION_KEY</code> в <code>antimatter.env</code>, или <code>/var/lib/antimatter/data/ai-encryption.key</code></td></tr>
 </tbody>
 </table>
 <p>Без ключа за шифроване на AI, възстановен сървър не може да прочете API ключовете на връзките си с модели и всеки от тях трябва да се въведе отново. Пазете копие на ключа отделно от резервните копия на базата данни, така че едно откраднато копие да не съдържа и двете. Вижте <a href="{{root}}docs/admins/ai.html#encryption-key">Ключът за шифроване</a>.</p>
@@ -29,15 +29,15 @@ docker compose stop antimatter
 # Database
 docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
     &gt; "backups/antimatter-db-$stamp.dump"
-# File storage and GIF service
-for v in files gifs; do
+# File storage, GIF service and the data directory (the AI key file)
+for v in files gifs data; do
     docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
         alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
 done
 docker compose start antimatter
 # Secrets
 cp .env "backups/env-$stamp"</code></pre>
-<p>Ако не сте задали <code>AM_AI_ENCRYPTION_KEY</code> и сървърът е създадал файла си с ключ, копирайте и файла (еднократно е достатъчно: той не се променя): <code>docker compose cp antimatter:/antimatter/data/ai-encryption.key "backups/ai-encryption.key"</code>. По-добре е да поставите съдържанието му в <code>.env</code>, както обяснява <a href="{{root}}docs/admins/ai.html#encryption-key">Ключът за шифроване</a>: тогава резервното копие на <code>.env</code> ще го съдържа.</p>
+<p>Ако не сте задали <code>AM_AI_ENCRYPTION_KEY</code>, файлът с ключа на сървъра се намира в обема <code>data</code>, който горният цикъл запазва заедно с файловете. По-добре е да поставите съдържанието му в <code>.env</code>, както обяснява <a href="{{root}}docs/admins/ai.html#encryption-key">Ключът за шифроване</a>, и да държите копие отделно от резервните копия на базата данни.</p>
 <p>Изпълнявайте го от cron за ежедневни резервни копия и копирайте каталога <code>backups/</code> на друга машина. Пазете копията на <code>.env</code> толкова сигурно, колкото и самия сървър: те съдържат паролите му.</p>
 <p>За да копирате качените файлове обект по обект (напр. към друго S3 хранилище), използвайте AWS командния инструмент на услугата <code>bucket</code>:</p>
 <pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
@@ -51,7 +51,7 @@ docker compose create           # creates the volumes, starts nothing
 docker compose up -d postgres
 docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
     &lt; "backups/antimatter-db-$stamp.dump"
-for v in files gifs; do
+for v in files gifs data; do
     docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
         alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
 done
@@ -60,6 +60,7 @@ docker compose up -d</code></pre>
 <p>Тествайте резервните си копия, като ги възстановявате от време на време на друга машина.</p>
 
 <h2 id="upgrade">Ъпгрейд</h2>
+<div class="callout warn">Файловете Compose, изтеглени преди 17 октомври 2026 г., нямат обем <code>data</code>: файлът с ключа на AI е бил в контейнера. Преди да използвате новия <code>compose.yaml</code>, и ако <code>.env</code> няма <code>AM_AI_ENCRYPTION_KEY</code>, запазете ключа, който сървърът е генерирал: <code>echo "AM_AI_ENCRYPTION_KEY=$(docker compose exec -T antimatter cat /antimatter/data/ai-encryption.key)" &gt;&gt; .env</code>. Ако командата не намери файл, все още няма свързана модель, която да е запазила ключ.</div>
 <ol>
 <li>Направете резервно копие.</li>
 <li>Променете тага на образа в <code>.env</code> (<code>ANTIMATTER_IMAGE</code>), ако го фиксирате, както се препоръчва.</li>
@@ -124,7 +125,7 @@ docker compose logs -f antimatter</code></pre></li>
 <li>Адресите на Mattermost за пазара на приложения (<b>URL адрес на Marketplace</b>) и за продуктови известия се изчистят;</li>
 <li>връзките за сваляне на приложения, които са били стойности по подразбиране на Mattermost (<b>Връзка за страница за сваляне на приложения Antimatter</b>, <b>Връзка за сваляне на приложение за Android</b> и <b>Връзка за изтегляне на приложение за iOS</b>), се заменят със страниците за сваляне на приложенията на Antimatter в GitHub; връзки, които сте задали сами, се запазват;</li>
 <li>приложението Calls използва публичния STUN сървър на Cloudflare вместо този на Mattermost, без да променя запазената настройка (вижте <a href="{{root}}docs/admins/calls.html#network">Calls</a>);</li>
-<li>the security update check and crash reporting are gone, and so are their System Console settings (<b>Enable Security Alerts</b>, <b>Enable Diagnostics and Error Reporting</b>) and the <b>Notices</b> page.</li>
+<li>проверката за сигурност и докладването за сривове са премахнати, заедно с настройките им в Системната конзола (<b>Включване на предупреждения за сигурност</b>, <b>Включване на диагностика и докладване за грешки</b>) и страницата <b>Бележки</b>.</li>
 </ul>
 <p>Сокетът за локален режим сега е <code>/var/tmp/antimatter_local.socket</code>; <code>amctl</code> също опитва стария <code>/var/tmp/mattermost_local.socket</code>. Mattermost поддържа само PostgreSQL в последните си версии, и Antimatter също: първо преместете MySQL базата данни в PostgreSQL. Връщане към Mattermost след надграждане на базата данни от Antimatter означава възстановяване на резервното копие на Mattermost.</p>
 

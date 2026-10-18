@@ -1,23 +1,23 @@
 title: Domen, HTTPS és reverse proxy
-description: Szolgáltassa az Antimattert saját doménen keresztül HTTPS-en, a csomagolt Caddy-profil vagy saját nginx reverse proxy használatával, és állítsa be helyesen a rendszer URL-t és a kliens címeket.
+description: Antimatter kiszolgálása saját doménen HTTPS-en keresztül, a csomagolt Caddy-profil vagy saját nginx reverse proxy használatával, valamint a rendszer URL és a klienscímek helyes beállítása.
 guide: admins
 order: 4
 nav: Domen és HTTPS
-lead: Helyezze az Antimattert egy domén névre HTTPS használatával, a compose fájl Caddy profiljával vagy saját reverse proxyval, és állítsa be helyesen a rendszer URL-t és a kliens címeket.
+lead: Antimatter telepítése doménnévre HTTPS-tel, a compose-fájl Caddy-profiljának vagy saját reverse proxy használatával, valamint a rendszer URL és a klienscímek helyes beállítása.
 source: 69e8779d356e
 ---
 <h2 id="site-url">A rendszer URL</h2>
-<p>A rendszer URL (<code>ServiceSettings.SiteURL</code>) az az cím, amelyet a felhasználók az Antimatter eléréséhez használnak, például <code>https://chat.example.com</code>. A szerver ezt használja a levelekben és értesítésekben szereplő linkekben, a bejelentkezési átirányításoknál (OAuth, OpenID Connect, SAML), a mobil- és asztali alkalmazásokban, valamint a kérések forrásának ellenőrzéséhez. Állítsa be pontosan a böngésző címsorában szereplő címre: protokoll, domén és port (ha nem az alapértelmezett), utólagos perjel nélkül.</p>
+<p>A rendszer URL (<code>ServiceSettings.SiteURL</code>) az az cím, amellyel a felhasználók eléri az Antimattert, például <code>https://chat.example.com</code>. A szerver ezt használja a levelekben és értesítésekben szereplő hivatkozásokban, a bejelentkezési átirányításoknál (OAuth, OpenID Connect, SAML), a mobil- és asztali alkalmazásokban, valamint a kérések forrásának ellenőrzéséhez. Állítsa be pontosan a böngésző címsorában szereplő címre: protokoll, domén és port (ha nem az alapértelmezett), utólagos perjel nélkül.</p>
 <ul>
-<li>A webhely compose fájljával: <code>SITE_URL</code> a <code>.env</code> fájlban.</li>
+<li>A helyi compose-fájllal: <code>SITE_URL</code> a <code>.env</code> fájlban.</li>
 <li>Máshol: <code>AM_SERVICESETTINGS_SITEURL</code>, vagy <b>Rendszerkonzol › Környezet › Webszerver › Rendszer URL</b>.</li>
 </ul>
-<p>Ha a rendszer URL hibás, a hitelesítő szolgáltatóval történő bejelentkezés sikertelen lesz, a levelekben szereplő linkek rossz helyre mutatnak, és az alkalmazások nem tudnak csatlakozni. A domén megváltoztatása után frissítse itt és minden hitelesítő szolgáltató átirányítási URL-ein.</p>
+<p>Ha a rendszer URL hibás, a hitelesítő szolgáltatóval történő bejelentkezés sikertelen lesz, a levelekben szereplő hivatkozások rossz helyre mutatnak, és az alkalmazások nem tudnak csatlakozni. A domén megváltoztatása után frissítse itt és minden hitelesítő szolgáltató átirányítási URL-einél.</p>
 
 <h2 id="caddy">HTTPS a csomagolt Caddy-profil használatával</h2>
-<p>A webhely <code>compose.yaml</code> fájlja tartalmaz egy <a href="https://caddyserver.com">Caddy</a> szolgáltatást az <code>https</code> profilban. Let's Encrypt-től szert tanúsítványt, automatikusan megújítja, átirányítja az HTTP-t HTTPS-re, és továbbít mindent, websockets is, az Antimatternek.</p>
+<p>A helyi <code>compose.yaml</code> fájl tartalmaz egy <a href="https://caddyserver.com">Caddy</a> szolgáltatást az <code>https</code> profilban. Ez Let's Encrypt-től szerez tanúsítványt, automatikusan megújítja, átirányítja az HTTP-t HTTPS-re, és továbbítja mindent, websockets-t is, az Antimatternek.</p>
 <ol>
-<li>Mutassa a domén DNS rekordját (A, és AAAA IPv6 esetén) a szerverre.</li>
+<li>Mutassa a domén DNS-rekordját (A, és AAAA IPv6-hoz) a szerverre.</li>
 <li>Nyissa meg a tűzfalban a 80/tcp, 443/tcp és 443/udp (HTTP/3) portokat. A Let's Encryptnek elérhetőnek kell lennie a 80-as vagy 443-as porton az internetről.</li>
 <li>Adja hozzá a domént a <code>.env</code> fájlhoz, és állítsa be a rendszer URL-t:
 <pre><code>echo "DOMAIN=chat.example.com" &gt;&gt; .env
@@ -26,17 +26,17 @@ sed -i 's|^SITE_URL=.*|SITE_URL=https://chat.example.com|' .env</code></pre></li
 <pre><code>docker compose --profile https up -d</code></pre></li>
 </ol>
 <p>Adja hozzá a <code>--profile https</code> opciót minden későbbi <code>docker compose up</code> parancshoz, vagy tegye be a <code>COMPOSE_PROFILES=https</code> bejegyzést a <code>.env</code> fájlba, hogy a sima <code>docker compose up -d</code> is tartalmazza. A Caddy a <code>https</code> kötetben tárolja a tanúsítványokat.</p>
-<p>Az Antimatter saját portja továbbra is publikálva marad a gazdagépen (<code>HTTP_PORT</code>, alapértelmezetten 8065). Caddy használata esetén csak a szerver számára tartsa meg:</p>
+<p>Az Antimatter saját portja továbbra is közzé van téve a gazdagépen (<code>HTTP_PORT</code>, alapértelmezetten 8065). Caddy használata esetén ezt csak a szerver saját használatára tartsa meg:</p>
 <pre><code>echo "HTTP_PORT=127.0.0.1:8065" &gt;&gt; .env
 docker compose --profile https up -d</code></pre>
 <p>A Caddy a belső <code>edge</code> hálózaton keresztül éri el az Antimattert, nem ezen a porton, így ez nem változtat semmit a felhasználók számára.</p>
 
-<h2 id="nginx">Saját reverse proxyval (nginx)</h2>
-<p>Ha a szerveren már fut nginx, vagy más proxy, akkor ne engedélyezze az <code>https</code> profilt, és mutassa a proxyt az Antimatter 8065-ös portjára. A proxy-nak a következőket kell tennie:</p>
+<h2 id="nginx">Saját reverse proxy (nginx) használatával</h2>
+<p>Ha a szerveren már fut nginx, vagy más proxy, ne engedélyezze az <code>https</code> profilt, és mutassa a proxyt az Antimatter 8065-ös portjára. A proxy-nak a következőket kell tennie:</p>
 <ul>
-<li>továbbítania a websocket-eszkálálást (a webböngészős és a mobilalkalmazások nyitva tartanak egy websocketet a <code>/api/v4/websocket</code> útvonalon, egyes alkalmazások pedig sajátot nyitnak);</li>
-<li>elfogadnia olyan kéréseket, amelyek testje legalább a legnagyobb feltöltés méretű (<b>Maximális fájl méret</b>, alapértelmezés szerint 100 MB);</li>
-<li>nyitva tartania a hosszú ideig fennálló kapcsolatok (websocketek, nagy méretű feltöltések és letöltések);</li>
+<li>továbbítania a websocket-eszkálációkat (a webes és a mobil alkalmazások nyitva tartanak egy websocketet a <code>/api/v4/websocket</code> útvonalon, egyes alkalmazások pedig sajátot nyitnak);</li>
+<li>elfogadnia olyan kéréseket, amelyek testje legalább olyan nagy, mint a legnagyobb feltöltés (<b>Maximális fájl méret</b>, alapértelmezés szerint 100 MB);</li>
+<li>nyitva tartania a hosszú ideig fennálló kapcsolatok (websockets, nagy méretű feltöltések és letöltések);</li>
 <li>továbbítania a <code>Host</code> fejlécet és a kliens címet.</li>
 </ul>
 <p>Egy teljes szerverblokk, az antimatter-docker gyártási sablonjából átdolgozva. Cserélje ki a domainnevet és a tanúsítványok útvonalait:</p>
@@ -110,41 +110,41 @@ server {
         proxy_pass http://antimatter;
     }
 }</code></pre>
-<p>Ellenőrizze a fájlt a <code>nginx -t</code> paranccsal, és alkalmazza a <code>systemctl reload nginx</code> paranccsal. A szerver maga küldi a <code>X-Content-Type-Options</code>, <code>Referrer-Policy</code>, <code>Permissions-Policy</code> és <code>X-Frame-Options</code> fejléceket; csak az HSTS van a proxy hatáskörében. Amint az HTTPS működik, emelje meg a <code>max-age</code> értékét, és csak akkor adja hozzá a <code>includeSubDomains</code> opciót, ha minden altartomány HTTPS-t használ.</p>
-<p>Docker Compose és a hoston futó nginx esetén a fenti <code>upstream</code> a publikált 8065-ös portot célozza. Csak a <code>127.0.0.1</code> címen publikálja (<code>HTTP_PORT=127.0.0.1:8065</code>), hogy senki ne kerülhessen meg a proxyt.</p>
-<p>Az antimatter-docker repozitóriumban található egy teljes beállítás nginx-sel konténerben és Let's Encrypt-tel certbot-on keresztül, a <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">deploy/compose</a> mappában.</p>
+<p>Ellenőrizze a fájlt a <code>nginx -t</code> paranccsal, és alkalmazza a <code>systemctl reload nginx</code> paranccsal. A szerver maga küldi az <code>X-Content-Type-Options</code>, <code>Referrer-Policy</code>, <code>Permissions-Policy</code> és <code>X-Frame-Options</code> fejléceket; csak az HSTS van a proxy hatáskörében. Amint az HTTPS működik, emelje meg a <code>max-age</code> értékét, és csak akkor adja hozzá az <code>includeSubDomains</code> opciót, ha minden altartomány HTTPS-t használ.</p>
+<p>Docker Compose és a hoston futó nginx esetén a fenti <code>upstream</code> a publikált 8065-ös portra mutat. Csak a <code>127.0.0.1</code> címen publikálja (<code>HTTP_PORT=127.0.0.1:8065</code>), hogy senki ne kerülhessen meg a proxyt.</p>
+<p>Az antimatter-docker repository-ban található egy teljes beállítás nginx-sel konténerben, és Let's Encrypt-tel certboton keresztül, a <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">deploy/compose</a> mappában.</p>
 
 <h3>Egyéb proxyk</h3>
-<p>Bármely proxy működik, ha teljesíti a fenti négy pontot. A hangos és videos hívások sosem mennek át a proxyon: saját portot használnak, lásd <a href="{{root}}docs/admins/calls.html">Hívások és hang</a>.</p>
+<p>Bármely proxy megfelel, ha teljesíti a fenti négy pontot. A hangos és videóhívások sosem mennek át a proxyon: saját portot használnak, lásd <a href="{{root}}docs/admins/calls.html">Hívások és hang</a>.</p>
 
 <h2 id="client-address">Klienscímek proxy mögött</h2>
-<p>Proxy mögött minden kérés úgy tűnik, mintha a proxytól származna. A valódi kliens cím rögzítéséhez, a kliensenkénti sebességkorlátozás alkalmazásához és az IP-szűréshez állítsa be, melyik fejléc tartalmazza a címet, és mely proxykat tekintheti a szerver megbízhatónak. Ezeknek a beállításoknak nincs mezője a Rendszerkonzolban: állítsa be őket a <code>config.json</code> fájlban vagy változókkal.</p>
+<p>Proxy mögött minden kérés úgy tűnik, mintha a proxytól származna. A valódi kliens cím rögzítéséhez, a kliensenkénti sebességkorlátozás alkalmazásához és az IP-szűréshez állítsa be, melyik fejléc hordozza a címet, és mely proxykban bízhat a szerver. Ezeknek a beállításoknak nincs mezője a Rendszerkonzolban: állítsa be őket a <code>config.json</code> fájlban, vagy változókkal.</p>
 <table>
 <thead><tr><th>Kulcs és változó</th><th>Alapérték</th><th>Mire szolgál</th></tr></thead>
 <tbody>
-<tr><td><code>ServiceSettings.TrustedProxyIPHeader</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER</code></td><td>üres: a szerver a kapcsolat címét használja</td><td>A kliens címét tartalmazó fejlécek, például <code>X-Forwarded-For</code>. A kérésben jelen lévő első ilyen fejlécet használja a rendszer.</td></tr>
-<tr><td><code>ServiceSettings.TrustedProxyIPs</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code></td><td>üres</td><td>A proxyi címek vagy CIDR-tartományok, például <code>172.29.71.0/28</code>. A fejlécek csak akkor számítanak, ha a kérés az egyik ilyen címről érkezik.</td></tr>
+<tr><td><code>ServiceSettings.TrustedProxyIPHeader</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER</code></td><td>üres: a szerver a kapcsolat címét használja</td><td>A kliens címét hordozó fejlécek, például <code>X-Forwarded-For</code>. A kérésben előforduló első ilyen fejlécet használja a rendszer.</td></tr>
+<tr><td><code>ServiceSettings.TrustedProxyIPs</code>, <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code></td><td>üres</td><td>A proxyk címei vagy CIDR-határai, például <code>172.29.71.0/28</code>. A fejlécek csak akkor számítanak, ha a kérés egyikükől származik.</td></tr>
 </tbody>
 </table>
-<p>Egy változóban több értéket szóközzel kell elválasztani: <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>. A szerver elutasítja a konfigurációt, ha a <code>TrustedProxyIPs</code> bejegyzése nem IP-cím és nem CIDR-hálózat.</p>
+<p>Egy változóban több értéket szóközzel kell elválasztani: <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPHEADER="X-Forwarded-For X-Real-IP"</code>. A szerver elutasítja a konfigurációt, ha a <code>TrustedProxyIPs</code> bejegyzése nem IP-cím, és nem CIDR-hálózat sem.</p>
 <h3>Hogyan határozza meg a szerver a kliens címét</h3>
-<p>Minden proxy a <code>X-Forwarded-For</code> fejléc jobb oldalára fűzi azt a címet, ahonnan a kérést kapta. A kliens által a fejlécben küldött érték a bal oldalon marad. Így a szerver jobbról balra olvassa a fejlécet, kihagyja a megbízható proxyk címét, és az első más címet tekinti a kliens címének. A kliens nem tudja saját címét megadni a fejléc elküldésével.</p>
+<p>Minden proxy a <code>X-Forwarded-For</code> mező jobb oldalára fűzi azt a címet, ahonnan a kérést kapta. A kliens által a fejlécben küldött érték a bal oldalon marad. Így a szerver jobbról balra olvassa a fejlécet, kihagyja a megbízható proxyk címét, és az első más címet tekinti a kliens címének. A kliens nem tudja saját címét megadni a fejléc küldésével.</p>
 <ul>
-<li>Egy proxy mögött a <code>TrustedProxyIPHeader</code> önmagában elegendő a helyes címhez: a szerver a fejléc legjobb oldalán lévő címét veszi. Indításkor figyelmeztetést ír a naplóba, amíg be nem állítod a <code>TrustedProxyIPs</code> értékét is. Enélkül bárki, aki közvetlenül eléri a 8065-ös portot, beállíthatja a fejlécet, ezért csak a <code>127.0.0.1</code>-re vagy egy privát hálózatra publikáld ezt a portot.</li>
-<li>Több proxy mögött, például CDN vagy terheléselosztó esetén a saját proxy előtt, mindet sorold fel a <code>TrustedProxyIPs</code>-ben. Ellenkező esetben a szerver a külső proxy címét tekinti a kliens címének.</li>
+<li>Egy proxy mögött a <code>TrustedProxyIPHeader</code> beállítás önmagában elegendő a helyes címhez: a szerver a fejléc legjobb oldalán lévő címét veszi. Indításkor figyelmeztetést ír a naplóba, amíg be nem állítja a <code>TrustedProxyIPs</code> bejegyzést is. Enélkül bárki, aki közvetlenül elérte a 8065-ös portot, beállíthatja a fejlécet, ezért a portot csak a <code>127.0.0.1</code> címen vagy egy privát hálózaton tegye közzé.</li>
+<li>Több proxy mögött, például CDN vagy terheléselosztó esetén, ha az ön proxyja előtt áll, mindent soroljon fel a <code>TrustedProxyIPs</code> bejegyzésben. Ellenkező esetben a szerver a külső proxy címét tekinti a kliens címének.</li>
 <li>A proxy lecserélheti a fejlécet a látott címre, ahogy a fenti nginx példa is teszi (<code>X-Forwarded-For $remote_addr</code>), vagy hozzáfűzheti a meglévőhöz (nginx <code>$proxy_add_x_forwarded_for</code>). Mindkettő működik.</li>
 </ul>
 <h3>Mely címeket kell felsorolni</h3>
-<p>Sorold fel azt a címet, ahonnan a proxy kérései érkeznek, ahogy az Antimatter látja.</p>
+<p>Sorolja fel azt a címet, ahonnan a proxy kérései érkeznek, ahogy az Antimatter látja.</p>
 <ul>
-<li>A webhely compose fájljával és a Caddy-vel ez már megvan: a Caddy az <code>edge</code> hálózaton keresztül éri el az Antimattert, a compose fájl pedig a <code>TrustedProxyIPHeader</code> értékét <code>X-Forwarded-For</code>-re, a <code>TrustedProxyIPs</code> értékét pedig a hálózat tartományára, az <code>EDGE_SUBNET</code>-re állítja (<code>172.29.71.0/28</code>, hacsak nem módosítod a <code>.env</code> fájlban). Módosítsd az <code>EDGE_SUBNET</code> értékét, ha átfedi valamelyik hálózati tartományod.</li>
-<li>Az antimatter-docker produkciós telepítése ugyanígy jár el az nginx konténerével, a <code>FRONTEND_SUBNET</code> használatával.</li>
-<li>Ha az nginx a gazdagépen, az Antimatter pedig Dockerben fut, a kérések a publikált porton keresztül érik el az Antimattert, általában a compose projekt hálózatának átjáró-címéről (<code>docker network inspect</code> mutatja). Állítsd be az <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code> értékét erre a címre a <code>compose.override.yaml</code> fájlban.</li>
-<li>Docker nélkül, nginx-szel ugyanazon a gépen ez <code>127.0.0.1</code> (és <code>::1</code>, ha nginx IPv6-n keresztül csatlakozik).</li>
+<li>A webhely compose fájljával és a Caddy-vel ez már megvan: a Caddy az <code>edge</code> hálózaton keresztül éri el az Antimattert, a compose fájl pedig a <code>TrustedProxyIPHeader</code> bejegyzést <code>X-Forwarded-For</code>-ra, a <code>TrustedProxyIPs</code> bejegyzést pedig a hálózat tartományára, az <code>EDGE_SUBNET</code> értékre állítja (<code>172.29.71.0/28</code>, hacsak nem módosítja a <code>.env</code> fájlban). Módosítsa az <code>EDGE_SUBNET</code> értékét, ha az átfed valamelyik hálózatával.</li>
+<li>Az antimatter-docker gyártási környezetbeállításai ugyanezt teszik az nginx konténerhez, a <code>FRONTEND_SUBNET</code> használatával.</li>
+<li>Ha az nginx a gazdagépen fut, az Antimatter pedig Dockerben, a kérések a publikált porton keresztül érik el az Antimattert, általában a compose projekt hálózatának átjáró-címéről (<code>docker network inspect</code> mutatja meg). Állítsa be az <code>AM_SERVICESETTINGS_TRUSTEDPROXYIPS</code> értékét erre a címre a <code>compose.override.yaml</code> fájlban.</li>
+<li>Docker nélkül, ha nginx ugyanazon a gazdagépen fut, akkor <code>127.0.0.1</code> (és <code>::1</code>, ha nginx IPv6-n keresztül kapcsolódik).</li>
 </ul>
 
 <h2 id="builtin-tls">TLS proxy nélkül</h2>
-<p>A szerver maga is kiszolgálhat HTTPS-t a <b>Rendszerkonzol › Környezet › Webszerver</b> menüben: a <b>Kapcsolat biztonság</b> beállítás legyen TLS (<code>ServiceSettings.ConnectionSecurity</code>), a <b>TLS tanúsítvány fájl</b> és a <b>TLS kulcs fájl</b> (<code>ServiceSettings.TLSCertFile</code>, <code>ServiceSettings.TLSKeyFile</code>) megadása mellett, vagy a <b>Használjon Let's Encrypt-et</b> (<code>ServiceSettings.UseLetsEncrypt</code>) opcióval. Ekkor a szervernek a 443-as porton kell hallgatnia (<b>Hallgatási cím</b>, <code>ServiceSettings.ListenAddress</code>, alapértelmezetten <code>:8065</code>), a <code>ServiceSettings.Forward80To443</code> pedig átirányítja a 80-as portot. A fordított proxyt könnyebb üzemeltetni és megújítani, és ez a útmutató is ezt feltételezi.</p>
+<p>A szerver maga is kiszolgálhat HTTPS-t a <b>Rendszerkonzol › Környezet › Webszerver</b> menüben: a <b>Kapcsolat biztonság</b> legyen TLS-re (<code>ServiceSettings.ConnectionSecurity</code>) állítva, a <b>TLS tanúsítvány fájl</b> és a <b>TLS kulcs fájl</b> (<code>ServiceSettings.TLSCertFile</code>, <code>ServiceSettings.TLSKeyFile</code>) megadása mellett, vagy a <b>Használjon Let's Encrypt-et</b> (<code>ServiceSettings.UseLetsEncrypt</code>) bekapcsolásával. Ekkor a szervernek a 443-as porton kell hallgatnia (<b>Hallgatási cím</b>, <code>ServiceSettings.ListenAddress</code>, alapértelmezetten <code>:8065</code>), a <code>ServiceSettings.Forward80To443</code> pedig átirányítja a 80-as portot. A reverse proxyt könnyebb üzemeltetni és megújítani, és ezt feltételezi a jelen útmutató is.</p>
 
 <h2 id="timeouts">Szerveridőzítők és kérés mérete</h2>
 <p>A szerver saját webszerverének beállításai a <b>Rendszerkonzol › Környezet › Webszerver</b> menüben:</p>
@@ -154,8 +154,8 @@ server {
 <tr><td><b>Hallgatási cím</b></td><td><code>ServiceSettings.ListenAddress</code></td><td><code>:8065</code></td></tr>
 <tr><td><b>Olvasási időtúllépés</b></td><td><code>ServiceSettings.ReadTimeout</code></td><td>300 másodperc</td></tr>
 <tr><td><b>írás időtúllépés</b></td><td><code>ServiceSettings.WriteTimeout</code></td><td>300 másodperc</td></tr>
-<tr><td>Inaktivitási időtúllépés (nincs erre Rendszerkonzol mező)</td><td><code>ServiceSettings.IdleTimeout</code></td><td>60 másodperc</td></tr>
+<tr><td>Inaktivitási időtúllépés (nincs erre mező a Rendszerkonzolban)</td><td><code>ServiceSettings.IdleTimeout</code></td><td>60 másodperc</td></tr>
 <tr><td><b>Maximális terhelési méret (bájt)</b></td><td><code>ServiceSettings.MaximumPayloadSizeBytes</code></td><td>lásd <a href="{{root}}docs/admins/security.html">Biztonság</a></td></tr>
 </tbody>
 </table>
-<p>A proxy saját időtúllépéseit legalább ennyi ideig, a testméretét pedig legalább a <b>Maximális fájl méret</b> értékig állítsa be a normál kérésekhez.</p>
+<p>A proxy saját időtúllépéseit legalább ennyi ideig állítsa be a normál kérésekhez, a testméretét pedig legalább a <b>Maximális fájl méret</b> értékére.</p>

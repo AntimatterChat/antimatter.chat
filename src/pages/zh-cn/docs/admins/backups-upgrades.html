@@ -3,26 +3,26 @@ description: 备份和还原 Antimatter 服务器（数据库、文件存储、�
 guide: admins
 order: 10
 nav: 备份与升级
-lead: 需要备份的内容、如何在新主机上还原、如何升级，以及如何将 Mattermost 服务器或单个社区迁移到 Antimatter。
+lead: 需要备份哪些内容，如何在新主机上还原，如何升级，以及如何将 Mattermost 服务器或单个社区迁移到 Antimatter。
 source: 531ec332715c
 ---
 <h2 id="what">需要备份的内容</h2>
 <table>
 <thead><tr><th>内容</th><th>使用站点的 compose 文件</th><th>使用发布包</th><th>使用 .deb 或 .rpm 软件包</th></tr></thead>
 <tbody>
-<tr><td>数据库：消息、用户、社区、频道，以及使用站点 compose 文件时的配置</td><td>卷 <code>antimatter_postgres</code>，通过 <code>pg_dump</code></td><td>你的 PostgreSQL 数据库</td><td>你的 PostgreSQL 数据库</td></tr>
+<tr><td>数据库：消息、用户、社区、频道，以及使用站点 compose 文件时的配置</td><td>卷 <code>antimatter_postgres</code>，通过 <code>pg_dump</code></td><td>您的 PostgreSQL 数据库</td><td>您的 PostgreSQL 数据库</td></tr>
 <tr><td>上传的文件、图片和已安装的应用</td><td>卷 <code>antimatter_files</code>（S3 存储）</td><td><code>FileSettings.Directory</code>，默认为 <code>./data/</code></td><td><code>/var/lib/antimatter</code></td></tr>
 <tr><td>配置文件</td><td>（在数据库中）</td><td><code>config/config.json</code></td><td><code>/etc/antimatter/config/config.json</code></td></tr>
 <tr><td>GIF 和贴纸</td><td>卷 <code>antimatter_gifs</code></td><td>GIF 服务的数据目录</td><td><code>/var/lib/gifs-server</code></td></tr>
-<tr><td>密钥</td><td><code>.env</code>（以及 <code>compose.override.yaml</code>）</td><td>你的环境文件</td><td><code>/etc/antimatter/antimatter.env</code>, <code>/etc/gifs-server</code></td></tr>
+<tr><td>密钥</td><td><code>.env</code>（以及 <code>compose.override.yaml</code>）</td><td>您的环境文件</td><td><code>/etc/antimatter/antimatter.env</code>, <code>/etc/gifs-server</code></td></tr>
 <tr><td>AI 加密密钥，用于加密模型连接的密钥</td><td><code>.env</code> 中的 <code>AM_AI_ENCRYPTION_KEY</code>（推荐），或卷 <code>antimatter_data</code> 中的文件 <code>ai-encryption.key</code></td><td><code>AM_AI_ENCRYPTION_KEY</code>，或 <code>data/ai-encryption.key</code></td><td><code>antimatter.env</code> 中的 <code>AM_AI_ENCRYPTION_KEY</code>，或 <code>/var/lib/antimatter/data/ai-encryption.key</code></td></tr>
 </tbody>
 </table>
-<p>如果没有 AI 加密密钥，还原后的服务器将无法读取其模型连接的 API 密钥，必须重新输入每一个密钥。请将密钥的副本与数据库备份分开保存，以免单个被窃取的备份同时包含两者。参见<a href="{{root}}docs/admins/ai.html#encryption-key">加密密钥</a>。</p>
-<p>数据库和文件是相互关联的：请同时备份它们，并在服务器之外保留副本。卷名称以 compose 项目名称 <code>antimatter</code> 开头（<code>docker volume ls</code> 会列出它们）。</p>
+<p>如果没有 AI 加密密钥，还原后的服务器将无法读取其模型连接的 API 密钥，必须重新输入每一个密钥。请将密钥的副本与数据库备份分开保存，以免一个被盗的备份同时包含两者。参见 <a href="{{root}}docs/admins/ai.html#encryption-key">加密密钥</a>。</p>
+<p>数据库和文件是配套的：请同时备份它们，并在服务器之外保留副本。卷名称以 compose 项目名称 <code>antimatter</code> 开头（<code>docker volume ls</code> 会列出它们）。</p>
 
 <h2 id="backup">备份</h2>
-<p>从 <code>compose.yaml</code> 所在的目录执行。先停止 Antimatter 可以获得完全一致的副本；在运行时进行的备份通常也没问题，但备份期间上传的文件可能会缺失。</p>
+<p>从 <code>compose.yaml</code> 所在的目录执行。先停止 Antimatter 可以获得完全一致的副本；在运行期间进行的备份通常也没问题，但备份期间上传的文件可能会缺失。</p>
 <pre><code>stamp=$(date +%Y%m%d-%H%M%S)
 mkdir -p backups
 docker compose stop antimatter
@@ -37,15 +37,15 @@ done
 docker compose start antimatter
 # Secrets
 cp .env "backups/env-$stamp"</code></pre>
-<p>如果尚未设置 <code>AM_AI_ENCRYPTION_KEY</code>，服务器的密钥文件位于 <code>data</code> 卷中，上述循环会将其与文件一起保存。更好的做法是，按照<a href="{{root}}docs/admins/ai.html#encryption-key">加密密钥</a>中的说明，将其内容放入 <code>.env</code> 文件中，并将其副本与数据库备份分开保存。</p>
-<p>通过 cron 运行以实现每日备份，并将 <code>backups/</code> 目录复制到另一台机器上。请像保护服务器一样妥善保管 <code>.env</code> 的副本：其中包含服务器的密码。</p>
+<p>如果您未设置 <code>AM_AI_ENCRYPTION_KEY</code>，服务器的密钥文件位于 <code>data</code> 卷中，上述循环会将其与文件一起保存。更好的做法是，按照<a href="{{root}}docs/admins/ai.html#encryption-key">加密密钥</a>中的说明，将其内容放入 <code>.env</code> 文件中，并将其副本与数据库备份分开保存。</p>
+<p>通过 cron 运行以实现每日备份，并将 <code>backups/</code> 目录复制到另一台机器上。请像保护服务器一样妥善保管 <code>.env</code> 的副本，因为它们包含服务器的密码。</p>
 <p>若要逐个对象复制上传的文件（例如复制到另一个 S3 存储），请使用 <code>bucket</code> 服务的 AWS 命令行工具：</p>
 <pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
     "aws --endpoint-url http://files:9000 s3 sync s3://antimatter /backup"</code></pre>
-<p>如果使用发布版压缩包，请使用 <code>pg_dump -Fc</code> 备份数据库，并使用常用工具备份 <code>data/</code> 和 <code>config/</code> 目录（<code>data/</code> 包含 AI 密钥文件）。如果使用软件包，请以相同方式备份数据库，并备份 <code>/etc/antimatter</code>、<code>/var/lib/antimatter</code>、<code>/etc/gifs-server</code> 和 <code>/var/lib/gifs-server</code>。</p>
+<p>如果使用发布归档，请使用 <code>pg_dump -Fc</code> 备份数据库，并使用常用工具备份 <code>data/</code> 和 <code>config/</code> 目录（<code>data/</code> 包含 AI 密钥文件）。如果使用软件包，请以相同方式备份数据库，并备份 <code>/etc/antimatter</code>、<code>/var/lib/antimatter</code>、<code>/etc/gifs-server</code> 和 <code>/var/lib/gifs-server</code>。</p>
 
 <h2 id="restore">在新主机上恢复</h2>
-<p>将 <code>compose.yaml</code>、保存的 <code>.env</code> 文件和备份放入一个新目录，然后：</p>
+<p>将 <code>compose.yaml</code>、保存的 <code>.env</code> 和备份文件放入一个新目录，然后：</p>
 <pre><code>stamp=20261016-030000          # the backup to restore
 docker compose create           # creates the volumes, starts nothing
 docker compose up -d postgres
@@ -56,81 +56,81 @@ for v in files gifs data; do
         alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
 done
 docker compose up -d</code></pre>
-<p>使用相同的 <code>.env</code>：存储和数据库必须保留原有的密码，模型连接需要相同的 AI 加密密钥。如果新主机拥有不同的地址，请更新 <code>SITE_URL</code>（以及 <code>DOMAIN</code>）。</p>
-<p>请不时地在另一台机器上通过恢复备份来测试备份的有效性。</p>
+<p>使用相同的 <code>.env</code>：存储和数据库必须保留原有的密码，模型连接需要相同的 AI 加密密钥。如果新主机的地址不同，请更新 <code>SITE_URL</code>（以及 <code>DOMAIN</code>）。</p>
+<p>请不时地在另一台机器上恢复备份，以测试备份的有效性。</p>
 
 <h2 id="upgrade">升级</h2>
-<div class="callout warn">2026 年 10 月 17 日之前下载的 Compose 文件没有 <code>data</code> 卷：AI 密钥文件位于容器内。在使用新的 <code>compose.yaml</code> 之前，如果 <code>.env</code> 中没有 <code>AM_AI_ENCRYPTION_KEY</code>，请保存服务器生成的密钥：<code>echo "AM_AI_ENCRYPTION_KEY=$(docker compose exec -T antimatter cat /antimatter/data/ai-encryption.key)" &gt;&gt; .env</code>。如果命令未找到文件，说明尚未有模型连接保存过密钥。</div>
+<div class="callout warn">2026 年 10 月 17 日之前下载的 Compose 文件没有 <code>data</code> 卷：AI 密钥文件位于容器内。在使用新的 <code>compose.yaml</code> 之前，如果 <code>.env</code> 中没有 <code>AM_AI_ENCRYPTION_KEY</code>，请保存服务器生成的密钥：<code>echo "AM_AI_ENCRYPTION_KEY=$(docker compose exec -T antimatter cat /antimatter/data/ai-encryption.key)" &gt;&gt; .env</code>。如果该命令未找到文件，说明尚未有模型连接保存密钥。</div>
 <ol>
-<li>执行备份。</li>
-<li>按照建议，如果固定了镜像标签，请更改 <code>.env</code> 中的镜像标签（<code>ANTIMATTER_IMAGE</code>）。</li>
+<li>执行一次备份。</li>
+<li>按照建议，如果您固定了版本，请更改 <code>.env</code> 中的镜像标签（<code>ANTIMATTER_IMAGE</code>）。</li>
 <li>拉取并重启：
 <pre><code>docker compose pull
 docker compose up -d
 docker compose logs -f antimatter</code></pre></li>
 </ol>
-<p>启动时，服务器会升级数据库架构（可在日志中查看进度；大型服务器可能需要几分钟），并从镜像中安装捆绑应用的新版本。如果使用发布存档：请停止服务器，将除 <code>config/</code>、<code>data/</code>、<code>logs/</code>、<code>plugins/</code> 和 <code>client/plugins/</code> 以外的所有内容替换为新存档的内容，然后重新启动。如果使用 .deb 或 .rpm 软件包，请按照<a href="{{root}}docs/admins/install.html#packages">升级软件包</a>中的说明安装新软件包。</p>
-<div class="callout warn">升级只能向前进行。一旦较新的服务器升级了数据库，旧版本就无法使用它：若要回退，请恢复升级前创建的备份。从 <code>antimatter-next</code> 回退到 <code>antimatter</code> 的情况也是如此。</div>
+<p>启动时，服务器会升级数据库架构（可在日志中跟踪进度；大型服务器可能需要几分钟），并从镜像中安装捆绑应用的较新版本。如果使用发布存档：请停止服务器，用新存档的内容替换除 <code>config/</code>、<code>data/</code>、<code>logs/</code>、<code>plugins/</code> 和 <code>client/plugins/</code> 以外的所有内容，然后重新启动。如果使用 .deb 或 .rpm 软件包，请按照<a href="{{root}}docs/admins/install.html#packages">升级软件包</a>中的说明安装新软件包。</p>
+<div class="callout warn">升级只能向前进行。一旦较新的服务器升级了数据库，旧版本就无法再使用它：若要回退，请恢复升级前创建的备份。从 <code>antimatter-next</code> 回退到 <code>antimatter</code> 的情况也是如此。</div>
 <h3>版本</h3>
-<p>Antimatter 服务器会报告其基于的 Mattermost 版本（目前为 12.0.0）。GitHub 上的发布版本（包含存档和软件包）拥有自己的版本号，在测试期间为 0.9.0 系列：<code>antimatter version</code> 将其显示为<b>编译号</b>。镜像从 <code>main</code> 分支重新构建：<code>antimatter-next</code> 每晚构建一次（标签为 <code>nightly-&lt;YYYYMMDD&gt;</code>），两个镜像则在每次更改时构建（标签为 <code>sha-&lt;commit&gt;</code>）。请固定使用其中一个标签，有意进行升级，并记录之前的标签，以便知道哪个备份与之对应。</p>
+<p>Antimatter 服务器会报告其基于的 Mattermost 版本（目前为 12.0.0）。GitHub 上的发布版本（包含其存档和软件包）拥有独立的版本号，在测试期间为 0.9.0 系列：<code>antimatter version</code> 将其显示为<b>编译号</b>。镜像从 <code>main</code> 分支重新构建：<code>antimatter-next</code> 每晚构建一次（标签为 <code>nightly-&lt;YYYYMMDD&gt;</code>），两个镜像则在每次更改时构建（标签为 <code>sha-&lt;commit&gt;</code>）。请固定使用其中一个标签，有意进行升级，并记录之前的标签，以便知道哪个备份与之对应。</p>
 <h3>PostgreSQL 主要版本</h3>
 <p>compose 文件使用 <code>postgres:17-alpine</code>。Antimatter 需要 PostgreSQL 15 或更高版本。PostgreSQL 的新主要版本无法读取旧版本的数据目录：若要迁移，请转储数据库，在新卷上启动新版本，并将转储内容恢复到其中。</p>
 
 <h2 id="v090">升级到 0.9.0</h2>
-<p>版本 0.9.0（或 2026 年 10 月 17 日及之后构建的镜像）首次启动时，会对数据进行一些一次性更改。每项更改仅运行一次，并记录在数据库中。这些更改会将保留在旧默认值的内容更新为新默认值，而不会更改管理员已选择的设置。请在日志中查看这些更改。</p>
+<p>版本 0.9.0（或 2026 年 10 月 17 日及之后构建的镜像）首次启动时，会对数据进行一些一次性更改。每项更改仅运行一次，并记录在数据库中。这些更改会将保留在旧默认值的内容更新为新默认值，同时保留管理员已选择的设置。请在日志中跟踪这些更改。</p>
 <div class="callout warn">If Antimatter is for a company or an organisation, set <b>Kind of new communities</b> to <b>Workplace</b> <em>before</em> you upgrade: <code>AM_TEAMSETTINGS_DEFAULTCOMMUNITYKIND=workplace</code>. The upgrade gives every community the kind this setting has at that moment, and calls are off by default in the channels of communities of the <b>Community</b> kind. See <a href="{{root}}docs/admins/configuration.html#community-kind">Workplace or community</a>.</div>
 <table>
 <thead><tr><th>内容</th><th>变更内容</th></tr></thead>
 <tbody>
-<tr><td>社区类型</td><td>每个社区都有一个类型，即 <b>社区</b> 或 <b>工作场所</b>：首次启动时 <b>新社区的类型</b>（<code>TeamSettings.DefaultCommunityKind</code>）的值。已设置的类型会被保留。社区管理员之后可以在 <b>团队设置 › 频道 › 社区类型</b> 中更改其社区的类型。</td></tr>
-<tr><td>谁可以归档频道</td><td>频道成员不再能归档他们所在的频道，而是由社区管理员执行。在工作场所中，频道的管理员（创建者及其指定的管理员）也可以归档该频道。这会更改系统方案的权限；系统管理员为某些社区创建的权限方案保持不变。</td></tr>
-<tr><td>布局预设中的“Moderators”角色</td><td>从布局预设获得的 <b>Moderators</b> 角色将获得 <b>移除成员</b> 权限，这是将成员移出和移除所必需的。只有仍与预设完全一致的角色才会更改；有人编辑过的角色保持不变。</td></tr>
-<tr><td>具有 <b>管理员</b> 权限的角色</td><td>开启 <b>管理员</b> 开关的社区角色现在拥有社区管理员能执行的所有操作，正如开关所示，而不仅仅是社区设置。</td></tr>
-<tr><td>成员上限</td><td><b>每个社区的最大成员数</b>（<code>TeamSettings.MaxUsersPerTeam</code>）从旧默认值 50 变为 0（无限制）。其他值会被保留，通过 <code>AM_TEAMSETTINGS_MAXUSERSPERTEAM</code> 设置的限制也会保留。</td></tr>
-<tr><td>模型连接</td><td>系统管理员获得模型连接的管理权限，社区管理员（以及具有 <b>管理员</b> 权限的角色）获得其社区自身模型连接的管理权限。Agents 应用的 AI 服务变为服务器范围的 <a href="{{root}}docs/admins/ai.html#connections">模型连接</a>，详见下文。</td></tr>
-<tr><td>Town Square 变为 General</td><td>每个社区的默认频道将从 <code>town-square</code>（Town Square）重命名为 <code>general</code>（General）。该频道将保留其 ID、成员、消息和设置，以及管理员选择的显示名称。指向 <code>town-square</code> 的旧链接和查找操作仍会指向该频道。如果社区已经有一个名为 <code>general</code> 的频道（即使已归档），或者其 <code>town-square</code> 频道已被归档，则 <code>town-square</code> 仍保持为默认频道。日志中会列出这些社区，其管理员可以重命名相关频道。</td></tr>
-<tr><td>收藏</td><td>所有人的“Favorites”侧栏分类已重命名为“Favourites”，以与界面显示保持一致。用户自行创建的、名称为该名称的分类保持不变。</td></tr>
+<tr><td>社区类型</td><td>每个社区都有一个类型，即 <b>社区</b> 或 <b>工作场所</b>：取首次启动时 <b>新社区的类型</b>（<code>TeamSettings.DefaultCommunityKind</code>）的值。已设置的类型将保持不变。社区管理员之后可以在 <b>团队设置 › 频道 › 社区类型</b> 中更改其社区的类型。</td></tr>
+<tr><td>谁可以归档频道</td><td>频道成员不再能归档他们所在的频道，改由社区管理员执行。在工作场所中，频道的管理员（创建者及其指定的管理员）也可以归档该频道。这会更改系统方案的权限；系统管理员为某些社区创建的权限方案保持不变。</td></tr>
+<tr><td>布局预设中的“Moderators”角色</td><td>社区从布局预设中获得的 <b>Moderators</b> 角色将增加 <b>移除成员</b> 权限，因为限制成员发言和移除成员需要此权限。仅当角色仍与预设完全一致时才会更改；经过人工编辑的角色保持不变。</td></tr>
+<tr><td>具有 <b>管理员</b> 权限的角色</td><td>具有 <b>管理员</b> 开关的社区角色现在拥有社区管理员能执行的所有操作，正如开关名称所示，而不仅仅是社区设置。</td></tr>
+<tr><td>成员数量限制</td><td><b>每个社区的最大成员数</b>（<code>TeamSettings.MaxUsersPerTeam</code>）从旧默认值 50 变为 0（无限制）。其他值将保持不变，通过 <code>AM_TEAMSETTINGS_MAXUSERSPERTEAM</code> 设置的限制也保持不变。</td></tr>
+<tr><td>模型连接</td><td>系统管理员获得模型连接的管理权限，社区管理员（以及具有 <b>管理员</b> 权限的角色）获得其社区模型连接的管理权限。Agents 应用的 AI 服务变为服务器范围的 <a href="{{root}}docs/admins/ai.html#connections">模型连接</a>，详见下文。</td></tr>
+<tr><td>Town Square 变为 General</td><td>每个社区的默认频道名称从 <code>town-square</code>（Town Square）更改为 <code>general</code>（General）。该频道保留其 ID、成员、消息和设置，以及管理员选择的显示名称。指向 <code>town-square</code> 的旧链接和查找操作仍会指向该频道。如果社区已经存在一个名为 <code>general</code> 的频道（即使已归档），则其 <code>town-square</code> 仍作为默认频道保留；同样，如果社区的 <code>town-square</code> 已被归档，情况也是如此：日志中会列出这些频道，其管理员可以重命名这些频道。</td></tr>
+<tr><td>收藏</td><td>所有用户的“Favorites”侧栏分类名称更改为“Favourites”，以与界面显示保持一致。用户自行创建的、名称为该名称的分类保持不变。</td></tr>
 </tbody>
 </table>
 <h3>Agents 应用的服务</h3>
-<p>升级过程会将 Agents 应用的每个 AI 服务复制为服务器范围的模型连接，供所有社区共享，除访客外所有人都可使用（开启 <b>Guests too</b> 以允许访客使用）。密钥在传输过程中会加密，因此服务器需要其 AI 加密密钥：如果集群的文件存储在 S3 中，请先设置 <code>AM_AI_ENCRYPTION_KEY</code>，否则复制操作将等待下次启动。然后检查 <b>系统控制台 › AI › Model connections</b>：</p>
+<p>升级过程会将 Agents 应用的每个 AI 服务复制为服务器范围的模型连接，供所有社区共享，除访客外所有人都可使用（开启 <b>Guests too</b> 以允许访客使用）。密钥在传输过程中会加密，因此服务器需要其 AI 加密密钥：对于文件存储在 S3 上的集群，请先设置 <code>AM_AI_ENCRYPTION_KEY</code>，否则复制操作将等待下次启动。然后检查 <b>系统控制台 › AI › Model connections</b>：</p>
 <ul>
-<li>每个连接都保留其服务的 ID，因此该应用的智能体以及设置为 Agents 服务的自动翻译功能仍能找到它。</li>
+<li>每个连接保留其服务的 ID，因此该应用的智能体以及设置为 Agents 服务的自动翻译功能仍能找到它。</li>
 <li>OpenAI、OpenAI 兼容、Anthropic、Mistral、Cohere 和 Gemini 服务将变为指向其 OpenAI 兼容（或 Anthropic）端点的连接。Azure 服务将变为指向该资源 OpenAI 兼容端点的连接：请进行测试。</li>
-<li>AWS Bedrock、Google Vertex AI 和 Cohere North 服务，以及未知类型的服务，将被标记为 <b>Needs attention</b>，并附带原因。它们的云凭据不会被复制：请将其指向提供商的 OpenAI 兼容端点或 LiteLLM 等网关，然后保存。</li>
+<li>AWS Bedrock、Google Vertex AI 和 Cohere North 服务，以及未知类型的服务，将被标记为 <b>Needs attention</b>，并附带原因。它们的云凭证不会被复制：请将它们指向提供商的 OpenAI 兼容端点或 LiteLLM 等网关，然后保存。</li>
 <li>嵌入服务将变为具有相同地址和密钥的连接的 <b>Embeddings</b> 模型，或成为其自身的连接。转录服务将获得 <code>whisper-1</code> 模型。</li>
 <li>当重写和摘要功能尚未有连接时，它们将使用应用默认智能体的服务和模型。</li>
 </ul>
 <p>Agents 应用自身的设置和数据保持不变：其智能体将继续使用其服务。</p>
 <h3>其他默认值更改</h3>
 <ul>
-<li><b>通话</b>：<b>Test mode</b> 默认关闭，<b>Enable video</b> 默认开启。配置中保存的选择将被保留。通话还遵循社区类型（参见 <a href="{{root}}docs/admins/calls.html#where-calls">通话和语音</a>）。</li>
+<li><b>通话</b>：<b>Test mode</b> 默认关闭，<b>Enable video</b> 默认开启。配置中保存的选择将保留。通话还遵循社区类型（参见 <a href="{{root}}docs/admins/calls.html#where-calls">通话和语音</a>）。</li>
 <li>将消息置顶是频道管理员、社区管理员和版主（拥有<b>管理消息</b>权限）的权限；私信或群组消息的成员仍然可以执行此操作。</li>
-<li>已归档的频道可以添加新成员，他们可以阅读历史记录。但任何人都无法在其中发布消息、添加表情回应或更改任何内容。</li>
+<li>已归档的频道可以接受新成员，他们可以阅读历史记录。但没有人可以在其中发布消息、添加表情回应或更改任何内容。</li>
 </ul>
 
 <h2 id="mattermost">从 Mattermost 迁移</h2>
-<p>Antimatter 使用 Mattermost 的数据库架构并添加了自定义表，因此可以接管 Mattermost 服务器的 PostgreSQL 数据库和文件。请先在副本上尝试：</p>
+<p>Antimatter 使用 Mattermost 的数据库架构并添加了自身的表，因此可以接管 Mattermost 服务器的 PostgreSQL 数据库和文件。请先在副本上尝试：</p>
 <ol>
 <li>备份 Mattermost 数据库、其文件存储（<code>data/</code> 或 S3 存储桶）以及 <code>config.json</code>，然后停止 Mattermost。</li>
-<li>将数据库恢复到 Antimatter 的 PostgreSQL 中，或者将 Antimatter 指向该数据库的副本（<code>AM_SQLSETTINGS_DATASOURCE</code>）。</li>
-<li>将文件复制到 Antimatter 的存储中，保持其路径不变：使用 S3 工具复制到 <code>antimatter</code> 存储桶，或使用发布包复制到 <code>data/</code>。</li>
-<li>重用您的设置：复制 <code>config.json</code>，或使用 <code>amctl --local config migrate</code> 将其迁移到数据库中（参见<a href="{{root}}docs/admins/configuration.html">配置</a>）。您的 <code>MM_</code> 环境变量将继续有效；在方便时将其重命名为 <code>AM_</code>。</li>
-<li>启动 Antimatter 并跟踪日志以查看数据库升级过程。然后检查<b>系统控制台 › 插件 › 插件管理</b>。当 Antimatter 自带的通话、操作手册、看板（Boards）、智能体及集成版本比已安装版本更新时，它将自动安装这些组件。如果 Mattermost 安装了其中某个组件的更新版本，请移除该应用并重启 Antimatter，以便安装其自带的版本。</li>
-<li>使用您自己的推送代理重新设置推送通知：Antimatter 从不向 Mattermost 的推送服务（无论是测试版还是托管版）发送通知，因为这些服务仅向 Mattermost 自己的应用投递通知。在更改<b>推送通知服务器</b>之前，服务器不会发送任何推送通知（参见<a href="{{root}}docs/admins/email-push.html#push">推送通知</a>）。</li>
+<li>将数据库恢复到 Antimatter 的 PostgreSQL 中，或者将 Antimatter 指向其副本（<code>AM_SQLSETTINGS_DATASOURCE</code>）。</li>
+<li>将文件复制到 Antimatter 的存储中，并保持其路径不变：使用 S3 工具复制到 <code>antimatter</code> 存储桶，或使用发布包复制到 <code>data/</code>。</li>
+<li>重用您的设置：复制 <code>config.json</code>，或使用 <code>amctl --local config migrate</code> 将其迁移到数据库中（参见<a href="{{root}}docs/admins/configuration.html">配置</a>）。您的 <code>MM_</code> 环境变量将继续有效；方便时可将其重命名为 <code>AM_</code>。</li>
+<li>启动 Antimatter 并跟踪日志以查看数据库升级过程。然后检查<b>系统控制台 › 插件 › 插件管理</b>。当 Antimatter 自带的通话、操作手册、看板（Boards）、智能体及集成版本比已安装版本更新时，Antimatter 会安装其自带的构建版本。如果 Mattermost 拥有其中某个应用的更新版本，请移除该应用并重启 Antimatter，以便安装 Antimatter 自带的构建版本。</li>
+<li>重新设置推送通知，使用您自己的推送代理：Antimatter 从不向 Mattermost 的推送服务（无论是测试还是托管服务）发送通知，因为这些服务仅向 Mattermost 自己的应用投递通知。在您更改<b>推送通知服务器</b>之前，服务器不会发送任何推送通知（参见<a href="{{root}}docs/admins/email-push.html#push">推送通知</a>）。</li>
 </ol>
-<p>Antimatter 不会联系由 Mattermost, Inc. 运行的任何服务（参见<a href="{{root}}docs/admins/security.html#outbound">对外部服务的连接</a>），即使您的配置中仍包含相关设置：</p>
+<p>Antimatter 不会联系由 Mattermost, Inc. 运行的任何服务（参见<a href="{{root}}docs/admins/security.html#outbound">与外部服务的连接</a>），即使您的配置中仍然指定了这些服务：</p>
 <ul>
-<li>Mattermost 的推送通知服务器会保留在设置中，但永远不会被使用；</li>
+<li>Mattermost 的推送通知服务器保留在设置中，但永远不会被使用；</li>
 <li>Mattermost 的应用市场（<b>市场 URL</b>）和产品通知地址将被清空；</li>
-<li>应用下载链接（<b>Antimatter Apps Download Page Link</b>、<b>安卓应用下载链接</b>和<b>iOS 应用下载 URL</b>）已由 Antimatter 应用在 GitHub 上的下载页面替代；您自行设置的链接将予以保留；</li>
-<li>通话应用使用 Cloudflare 的公共 STUN 服务器，而非 Mattermost 的，且不会更改已保存的设置（参见<a href="{{root}}docs/admins/calls.html#network">通话</a>）；</li>
-<li>安全更新检查和崩溃报告功能已被移除，相应的系统控制台设置（<b>Enable Security Alerts</b>、<b>Enable Diagnostics and Error Reporting</b>）以及<b>通知</b>页面也随之移除。</li>
+<li>应用下载链接（<b>Antimatter Apps Download Page Link</b>、<b>安卓应用下载链接</b> 和 <b>iOS 应用下载 URL</b>）已替换为 Antimatter 应用在 GitHub 上的下载页面；您自行设置的链接将予以保留；</li>
+<li>通话应用现在使用 Cloudflare 的公共 STUN 服务器，而非 Mattermost 的，且不会更改已保存的设置（参见 <a href="{{root}}docs/admins/calls.html#network">通话</a>）；</li>
+<li>安全更新检查和崩溃报告功能已移除，相关的系统控制台设置（<b>Enable Security Alerts</b>、<b>Enable Diagnostics and Error Reporting</b>）以及 <b>通知</b> 页面也随之移除。</li>
 </ul>
-<p>本地模式套接字现为 <code>/var/tmp/antimatter_local.socket</code>；<code>amctl</code> 也会尝试旧的 <code>/var/tmp/mattermost_local.socket</code>。Mattermost 的近期版本仅支持 PostgreSQL，Antimatter 亦然：请先将 MySQL 数据库迁移至 PostgreSQL。在 Antimatter 升级数据库后若要回退到 Mattermost，需恢复 Mattermost 备份。</p>
+<p>本地模式套接字现为 <code>/var/tmp/antimatter_local.socket</code>；<code>amctl</code> 也会尝试旧的 <code>/var/tmp/mattermost_local.socket</code>。Mattermost 的近期版本仅支持 PostgreSQL，Antimatter 也是如此：请先将 MySQL 数据库迁移至 PostgreSQL。如果 Antimatter 升级数据库后您想回退到 Mattermost，则需恢复 Mattermost 的备份。</p>
 
 <h2 id="export-import">导出和导入数据</h2>
-<p>批量导出格式用于在服务器之间迁移数据：可导出整个服务器、部分团队或部分频道，并可选择包含附件、个人资料图片和自定义表情符号。</p>
+<p>批量导出格式用于在不同服务器之间迁移数据：可以是整个服务器、某些社区或某些频道，并可选择包含附件、个人资料图片和自定义表情符号。</p>
 <pre><code># on the source server
 amctl export create --team-name design --include-profile-pictures
 amctl export list
@@ -139,5 +139,5 @@ amctl export download &lt;export file&gt; design.zip
 amctl import upload design.zip
 amctl import list available
 amctl import process &lt;uploaded file&gt; --imported-users active</code></pre>
-<p>使用 <code>amctl export job list</code> 和 <code>amctl import job list</code> 查看任务状态。对于团队或频道导出，<code>--imported-users</code> 为必填项：当用户迁移至此服务器时设为 <code>active</code>；当导入到用户已有账户的服务器时设为 <code>inactive</code>，这样从不确定匹配创建的账户将保持停用状态，直到管理员核实。使用 <code>--destination-team-name</code> 可导入到现有团队。导出和导入文件默认在服务器存储（<code>ExportSettings.Directory</code>、<code>ImportSettings.Directory</code>）中保留 30 天。</p>
-<p>在服务器本机上，<code>antimatter export bulk</code> 和 <code>antimatter import bulk --apply</code> 可从文件执行相同操作，无需通过 API。</p>
+<p>使用 <code>amctl export job list</code> 和 <code>amctl import job list</code> 监控任务。对于社区或频道导出，必须指定 <code>--imported-users</code>：当人员迁移到该服务器时设为 <code>active</code>；当导入到用户已有账户的服务器时设为 <code>inactive</code>，这样从不确定匹配中创建的账户将保持停用状态，直到管理员核实。使用 <code>--destination-team-name</code> 可导入到现有社区。导出和导入文件默认在服务器存储（<code>ExportSettings.Directory</code>、<code>ImportSettings.Directory</code>）中保留 30 天。</p>
+<p>在服务器本机，<code>antimatter export bulk</code> 和 <code>antimatter import bulk --apply</code> 可从文件执行相同操作，无需通过 API。</p>

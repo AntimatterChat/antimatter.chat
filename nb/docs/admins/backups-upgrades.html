@@ -84,10 +84,10 @@
 <tr><td>Konfigurasjonsfilen</td><td>(i databasen)</td><td><code>config/config.json</code></td><td><code>/etc/antimatter/config/config.json</code></td></tr>
 <tr><td>GIF-er og klistermerker</td><td>volumet <code>antimatter_gifs</code></td><td>datakatalogen til GIF-tjenesten</td><td><code>/var/lib/gifs-server</code></td></tr>
 <tr><td>Hemmeligheter</td><td><code>.env</code> (og <code>compose.override.yaml</code>)</td><td>din miljøfil</td><td><code>/etc/antimatter/antimatter.env</code>, <code>/etc/gifs-server</code></td></tr>
-<tr><td>AI-krypteringsnøkkelen, som krypterer nøklene for modellforbindelsene</td><td><code>AM_AI_ENCRYPTION_KEY</code> i <code>.env</code> (anbefalt), eller filen <code>ai-encryption.key</code> i volumet <code>antimatter_data</code></td><td><code>AM_AI_ENCRYPTION_KEY</code>, eller <code>data/ai-encryption.key</code></td><td><code>AM_AI_ENCRYPTION_KEY</code> i <code>antimatter.env</code>, eller <code>/var/lib/antimatter/data/ai-encryption.key</code></td></tr>
+<tr><td>AI-krypteringsnøkkelen, som krypterer nøklene for modelltilkoblingene</td><td><code>AM_AI_ENCRYPTION_KEY</code> i <code>.env</code> (anbefalt), eller filen <code>ai-encryption.key</code> i volumet <code>antimatter_data</code></td><td><code>AM_AI_ENCRYPTION_KEY</code>, eller <code>data/ai-encryption.key</code></td><td><code>AM_AI_ENCRYPTION_KEY</code> i <code>antimatter.env</code>, eller <code>/var/lib/antimatter/data/ai-encryption.key</code></td></tr>
 </tbody>
 </table>
-<p>Uten AI-krypteringsnøkkelen kan en gjenopprettet server ikke lese API-nøklene for modellforbindelsene, og hver nøkkel må skrives inn på nytt. Oppbevar en kopi av nøkkelen separat fra databasens sikkerhetskopier, slik at en stjålet sikkerhetskopi ikke inneholder begge. Se <a href="../../../nb/docs/admins/ai.html#encryption-key">Krypteringsnøkkelen</a>.</p>
+<p>Uten AI-krypteringsnøkkelen kan en gjenopprettet server ikke lese API-nøklene for modelltilkoblingene, og hver nøkkel må skrives inn på nytt. Oppbevar en kopi av nøkkelen separat fra database-sikkerhetskopiene, slik at én stjålet sikkerhetskopier ikke inneholder begge. Se <a href="../../../nb/docs/admins/ai.html#encryption-key">Krypteringsnøkkelen</a>.</p>
 <p>Databasen og filene hører sammen: sikkerhetskopier dem samtidig, og hold kopiene unna tjeneren. Volumnavnene starter med compose-prosjektnavnet, <code>antimatter</code> (<code>docker volume ls</code> viser dem).</p>
 
 <h2 id="backup">Sikkerhetskopier</h2>
@@ -106,7 +106,7 @@ done
 docker compose start antimatter
 # Secrets
 cp .env "backups/env-$stamp"</code></pre>
-<p>Hvis du ikke har satt <code>AM_AI_ENCRYPTION_KEY</code>, ligger serverens nøkkelfil i <code>data</code>-volumet, som løkken ovenfor lagrer sammen med filene. Det er bedre å legge innholdet i <code>.env</code>, som <a href="../../../nb/docs/admins/ai.html#encryption-key">Krypteringsnøkkelen</a> forklarer, og oppbevare en kopi separat fra databasens sikkerhetskopier.</p>
+<p>Hvis du ikke har satt <code>AM_AI_ENCRYPTION_KEY</code>, ligger serverens nøkkelfil i <code>data</code>-volumet, som løkken ovenfor lagrer sammen med filene. Det er bedre å legge innholdet i <code>.env</code>, som <a href="../../../nb/docs/admins/ai.html#encryption-key">Krypteringsnøkkelen</a> forklarer, og oppbevare en kopi separat fra database-sikkerhetskopiene.</p>
 <p>Kjør den fra cron for daglige sikkerhetskopier, og kopier <code>backups/</code>-katalogen til en annen maskin. Hold kopiene av <code>.env</code> like sikre som tjeneren: de inneholder passordene.</p>
 <p>Hvis du i stedet vil kopiere de opplastede filene objekt for objekt (for eksempel til en annen S3-opplagring), bruk AWS-kommandolinjeverktøyet til <code>bucket</code>-tjenesten:</p>
 <pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
@@ -125,11 +125,11 @@ for v in files gifs data; do
         alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
 done
 docker compose up -d</code></pre>
-<p>Bruk samme <code>.env</code>: lagringen og databasen må beholde passordene de hadde, og modellforbindelsene trenger samme AI-krypteringsnøkkel. Hvis den nye verten har en annen adresse, oppdater <code>SITE_URL</code> (og <code>DOMAIN</code>).</p>
+<p>Bruk samme <code>.env</code>: lagringen og databasen må beholde passordene de hadde, og modelltilkoblingene trenger samme AI-krypteringsnøkkel. Hvis den nye verten har en annen adresse, oppdater <code>SITE_URL</code> (og <code>DOMAIN</code>).</p>
 <p>Test sikkerhetskopiene ved å gjenopprette dem på en annen maskin fra tid til annen.</p>
 
 <h2 id="upgrade">Oppgrader</h2>
-<div class="callout warn">Compose-filer lastet ned før 17. oktober 2026 hadde ingen <code>data</code>-volum: AI-nøkkelfilen var i beholderen. Før du bruker den nye <code>compose.yaml</code>, og hvis <code>.env</code> ikke har <code>AM_AI_ENCRYPTION_KEY</code>, lagre nøkkelen serveren har laget: <code>echo "AM_AI_ENCRYPTION_KEY=$(docker compose exec -T antimatter cat /antimatter/data/ai-encryption.key)" &gt;&gt; .env</code>. Hvis kommandoen ikke finner noen fil, har ingen modellforbindelse ennå lagret en nøkkel.</div>
+<div class="callout warn">Compose-filer lastet ned før 17. oktober 2026 hadde ingen <code>data</code>-volum: AI-nøkkelfilen var i containeren. Før du bruker den nye <code>compose.yaml</code>, og hvis <code>.env</code> ikke har <code>AM_AI_ENCRYPTION_KEY</code>, lagre nøkkelen serveren har laget: <code>echo "AM_AI_ENCRYPTION_KEY=$(docker compose exec -T antimatter cat /antimatter/data/ai-encryption.key)" &gt;&gt; .env</code>. Hvis kommandoen ikke finner noen fil, har ingen modelltilkobling ennå lagret en nøkkel.</div>
 <ol>
 <li>Ta en sikkerhetskopi.</li>
 <li>Endre bildeetiketten i <code>.env</code> (<code>ANTIMATTER_IMAGE</code>), hvis du fester en, som anbefalt.</li>
@@ -138,43 +138,43 @@ docker compose up -d</code></pre>
 docker compose up -d
 docker compose logs -f antimatter</code></pre></li>
 </ol>
-<p>Ved oppstart oppgraderer serveren databasens skjema (du kan følge dette i loggen; en stor server kan ta flere minutter) og installerer de nyere versjonene av de medfølgende appene fra bildet. Med et utgavearkiv: stopp serveren, erstatt alt unntatt <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> og <code>client/plugins/</code> med innholdet fra det nye arkivet, og start den på nytt. Med .deb- eller .rpm-pakken, installer den nye pakken som <a href="../../../nb/docs/admins/install.html#packages">Oppgradering av en pakke</a> forklarer.</p>
+<p>Ved oppstart oppgraderer serveren databasestrukturen (du kan følge med i loggen; en stor server kan ta flere minutter) og installerer de nyere versjonene av de medfølgende appene fra bildet. Med et utgavearkiv: stopp serveren, erstatt alt unntatt <code>config/</code>, <code>data/</code>, <code>logs/</code>, <code>plugins/</code> og <code>client/plugins/</code> med innholdet i det nye arkivet, og start den på nytt. Med .deb- eller .rpm-pakken, installer den nye pakken som <a href="../../../nb/docs/admins/install.html#packages">Oppgradering av en pakke</a> forklarer.</p>
 <div class="callout warn">Oppgraderinger går kun fremover. Når en nyere server har oppgradert databasen, kan en eldre versjon ikke lenger bruke den: for å gå tilbake, gjenopprett sikkerhetskopien som ble tatt før oppgraderingen. Det samme gjelder å gå tilbake fra <code>antimatter-next</code> til <code>antimatter</code>.</div>
 <h3>Versjoner</h3>
-<p>Antimatters server rapporterer versjonen av Mattermost-linjen den er basert på (for tiden 12.0.0). Utgavene på GitHub, med deres arkiver og pakker, har egne versjonsnumre, i 0.9.0-serien under beta: <code>antimatter version</code> viser dette som <b>Byggenummer</b>. Bildene bygges på nytt fra <code>main</code>-greinene: <code>antimatter-next</code> hver natt (tags <code>nightly-&lt;YYYYMMDD&gt;</code>), og begge bildene ved hver endring (tags <code>sha-&lt;commit&gt;</code>). Fest deg til én av disse taggene, oppgrader med vilje, og merk deg den forrige taggen slik at du vet hvilken sikkerhetskopi som hører til den.</p>
+<p>Antimatters server rapporterer versjonen av Mattermost-linjen den er basert på (for tiden 12.0.0). Utgavene på GitHub, med arkivene og pakkene sine, har egne versjonsnummer, i 0.9.0-serien under betaen: <code>antimatter version</code> viser det som <b>Byggenummer</b>. Bildene bygges på nytt fra <code>main</code>-greinene: <code>antimatter-next</code> hver natt (tags <code>nightly-&lt;YYYYMMDD&gt;</code>), og begge bildene ved hver endring (tags <code>sha-&lt;commit&gt;</code>). Fest deg til én av disse tags, oppgrader med hensikt, og merk deg den forrige tagen slik at du vet hvilken sikkerhetskopi som hører til den.</p>
 <h3>PostgreSQL-hovedversjoner</h3>
 <p>Compose-filen bruker <code>postgres:17-alpine</code>. Antimatter krever PostgreSQL 15 eller nyere. En ny hovedversjon av PostgreSQL kan ikke lese datakataloget til den forrige: for å flytte til en ny, dump databasen, start den nye versjonen på et nytt volum og gjenopprett dumpen der.</p>
 
 <h2 id="v090">Oppgradering til 0.9.0</h2>
-<p>Første oppstart av versjon 0.9.0 (eller av et bilde bygget fra 17. oktober 2026) foretar noen engangs-endringer i dataene. Hver endring kjøres én gang og registreres i databasen. De bringer det som var igjen på en gammel standardverdi til den nye, og lar i fred det en administrator har valgt. Følg dem i loggen.</p>
-<div class="callout warn">Hvis Antimatter er for et selskap eller en organisasjon, sett <b>Type for nye fellesskap</b> til <b>Arbeidsplass</b> <em>før</em> du oppgraderer: <code>AM_TEAMSETTINGS_DEFAULTCOMMUNITYKIND=workplace</code>. Oppgraderingen gir hvert fellesskap den typen denne innstillingen har på det tidspunktet, og samtaler er av som standard i kanalene i fellesskap av typen <b>Fellesskap</b>. Se <a href="../../../nb/docs/admins/configuration.html#community-kind">Arbeidsplass eller fellesskap</a>.</div>
+<p>Første oppstart av versjon 0.9.0 (eller av et bilde bygget fra 17. oktober 2026) gjør noen engangsendringer i dataene. Hver kjører én gang, og blir logget i databasen. De bringer det som var igjen på et gammelt standardvalg til det nye, og lar i fred det en administrator valgte. Følg dem i loggen.</p>
+<div class="callout warn">Hvis Antimatter er for en bedrift eller en organisasjon, sett <b>Type av nye fellesskap</b> til <b>Arbeidsplass</b> <em>før</em> du oppgraderer: <code>AM_TEAMSETTINGS_DEFAULTCOMMUNITYKIND=workplace</code>. Oppgraderingen gir hvert fellesskap typen denne innstillingen har på det tidspunktet, og samtaler er av som standard i kanalene i fellesskap av typen <b>Fellesskap</b>. Se <a href="../../../nb/docs/admins/configuration.html#community-kind">Arbeidsplass eller fellesskap</a>.</div>
 <table>
 <thead><tr><th>Hva</th><th>Endringen</th></tr></thead>
 <tbody>
-<tr><td>Typer av fellesskap</td><td>Hvert fellesskap får en type, <b>Fellesskap</b> eller <b>Arbeidsplass</b>: verdien av <b>Type for nye fellesskap</b> (<code>TeamSettings.DefaultCommunityKind</code>) ved første oppstart. En type som allerede er satt, beholdes. Fellesskapsadministratorer kan endre typen til sitt fellesskap senere, i <b>Teaminnstillinger › Kanaler › Type for fellesskap</b>.</td></tr>
-<tr><td>Hvem arkiverer kanaler</td><td>Kanalmedlemmer arkiverer lenger ikke kanaler de er med i: Det er teamadministratorer som gjør det. På et arbeidsplass-team er det kanalens administratorer (den som opprettet den, og de som ble gjort til administratorer) som arkiverer den. Dette endrer rollene i systemordningen. Tillopordninger som en systemadministrator har laget for visse teams, forblir uendrede.</td></tr>
-<tr><td>Moderator-rollen i layoutforhåndsinnstillingene</td><td>Rollen <b>Moderators</b> som teams fikk fra en layoutforhåndsinnstilling, får <b>Fjern personer</b>, som er nødvendig for å utsette og fjerne personer. Bare roller som fortsatt er nøyaktig som forhåndsinnstillingen laget dem, endres. En rolle som noen har redigert, forblir uendret.</td></tr>
-<tr><td>Roller med <b>Administrator</b></td><td>En teamrolle med <b>Administrator</b>-bryteren på, inneholder nå alt som teamets administratorer kan gjøre, som bryteren sier, og ikke bare teamets innstillinger.</td></tr>
+<tr><td>Typer av fellesskap</td><td>Hvert fellesskap får en type, <b>Fellesskap</b> eller <b>Arbeidsplass</b>: verdien av <b>Type av nye fellesskap</b> (<code>TeamSettings.DefaultCommunityKind</code>) ved første oppstart. En type som allerede er satt, beholdes. Fellesskapsadministratorer kan endre typen på sitt fellesskap senere, i <b>Teaminnstillinger › Kanaler › Type av fellesskap</b>.</td></tr>
+<tr><td>Hvem arkiverer kanaler</td><td>Kanalmedlemmer arkiverer lenger kanaler de er med i: Det er teamadministratorer som gjør det. På et arbeidsplass-team er det kanalens administratorer (den som opprettet den, og de som ble gjort til administratorer) som arkiverer den. Dette endrer rollene i systemordningen, mens tillatelsesordninger som en systemadministrator har laget for visse teams, forblir uendret.</td></tr>
+<tr><td>Moderator-rollen i layoutforhåndsinnstillingene</td><td>Rollen <b>Moderatorer</b> som teams har fått fra en layoutforhåndsinnstilling, får <b>Fjern personer</b>, som er nødvendig for å utsette og fjerne personer. Bare roller som fortsatt er nøyaktig som forhåndsinnstillingen laget dem, endres. En rolle som noen har redigert, forblir uendret.</td></tr>
+<tr><td>Roller med <b>Administrator</b></td><td>En teamrolle med <b>Administrator</b>-bryteren på, har nå alt som teamets administratorer kan gjøre, som bryteren sier, og ikke bare teamets innstillinger.</td></tr>
 <tr><td>Medlemsgrensen</td><td><b>Maks. medlemmer per team</b> (<code>TeamSettings.MaxUsersPerTeam</code>) går fra 50, den gamle standardverdien, til 0 (ingen grense). Eventuelle andre verdier beholdes, og også en grense satt med <code>AM_TEAMSETTINGS_MAXUSERSPERTEAM</code>.</td></tr>
 <tr><td>Modelltilkoblinger</td><td>Systemadministratorer får administrasjon av modelltilkoblinger, og teamadministratorer (og roller med <b>Administrator</b>) får administrasjon av deres eget teams. AI-tjenestene i Agents-appen blir servervide <a href="../../../nb/docs/admins/ai.html#connections">modelltilkoblinger</a>, se nedenfor.</td></tr>
-<tr><td>Town Square blir General</td><td>Hvert teams standardkanal omdøpes fra <code>town-square</code> (Town Square) til <code>general</code> (General). Den beholder sin ID, medlemmer, meldinger og innstillinger, samt et visningsnavn som administratorer har valgt. Gamle lenker og oppslag med <code>town-square</code> fører fortsatt til den. Et team som allerede har en kanal med navnet <code>general</code>, selv om den er arkivert, beholder <code>town-square</code> som standardkanal. Det samme gjør et team hvis <code>town-square</code> er arkivert: Loggen navngir dem, og deres administratorer kan omdøpe kanalene.</td></tr>
-<tr><td>Favoritter</td><td>Alle brukeres sidefeltkategori «Favorites» omdøpes til «Favourites», slik grensesnittet nå heter. Kategorier som brukere har opprettet med det navnet, forblir uendret.</td></tr>
+<tr><td>Town Square blir General</td><td>Standardkanalen i hvert team blir omdøpt fra <code>town-square</code> (Town Square) til <code>general</code> (General). Den beholder sin ID, medlemmer, meldinger og innstillinger, samt et visningsnavn som administratorer har valgt. Gamle lenker og oppslag med <code>town-square</code> fører fortsatt til den. Et team som allerede har en kanal med navnet <code>general</code>, selv om den er arkivert, beholder <code>town-square</code> som standardkanal, og samme gjelder et team hvis <code>town-square</code> er arkivert: Loggen navngir dem, og deres administratorer kan omdøpe kanalene.</td></tr>
+<tr><td>Favoritter</td><td>Alle brukeres sidefeltkategori Favorites blir omdøpt til Favoritter, som grensesnittet nå viser. Kategorier som brukere har opprettet med det navnet, forblir uendret.</td></tr>
 </tbody>
 </table>
-<h3>Agents-appens tjenester</h3>
-<p>Oppgraderingen kopierer hver AI-tjeneste i Agents-appen til en modelltilkobling for hele serveren. Den deles med alle samfunn og kan brukes av alle bortsett fra gjester (slå på <b>Gjester også</b> for å tillate dette). Nøklene krypteres underveis, så serveren må ha en AI-krypteringsnøkkel: på en kluster der filene ligger i S3, må du først sette <code>AM_AI_ENCRYPTION_KEY</code>, ellers venter kopieringen på neste oppstart. Deretter sjekker du <b>Systemkonsoll › AI › Modelltilkoblinger</b>:</p>
+<h3>Tjenestene i Agents-appen</h3>
+<p>Oppgraderingen kopierer hver AI-tjeneste i Agents-appen til en modelltilkobling for hele serveren. Den deles med alle samfunn og kan brukes av alle bortsett fra gjester (slå på <b>Gjester kan også</b> for å tillate dette). Nøklene krypteres underveis, så serveren trenger en AI-krypteringsnøkkel: på en kluster med filer i S3, må du først sette <code>AM_AI_ENCRYPTION_KEY</code>, ellers venter kopieringen på neste oppstart. Deretter sjekker du <b>Systemkonsoll › AI › Modelltilkoblinger</b>:</p>
 <ul>
-<li>Hver tilkobling beholder ID-en til tjenesten, så appens agenter og en automatisk oversettelse satt til en Agents-tjeneste finner den fortsatt.</li>
+<li>Hver tilkobling beholder ID-en for tjenesten, slik at agentene i appen og en automatisk oversettelse som er satt til en Agents-tjeneste fortsatt finner den.</li>
 <li>OpenAI-, OpenAI-kompatible, Anthropic-, Mistral-, Cohere- og Gemini-tjenester blir tilkoblinger til deres OpenAI-kompatible (eller Anthropic) endepunkt. En Azure-tjeneste blir en tilkobling til ressursens OpenAI-kompatible endepunkt: test den.</li>
-<li>AWS Bedrock-, Google Vertex AI- og Cohere North-tjenester, samt ukjente typer, merkes som <b>Krever oppfølging</b>, med årsaken. Deres skykredensialer kopieres ikke: peker du dem mot leverandørens OpenAI-kompatible endepunkt eller en gateway som LiteLLM, og lagre deretter.</li>
-<li>Inkapslingstjenesten (embedding) blir <b>Inkapsling</b>-modellen i tilkoblingen med samme adresse og nøkkel, eller en egen tilkobling. Transkripsjonstjenesten får modellen <code>whisper-1</code>.</li>
-<li>Når omskrivning og resyméer ennå ikke har en tilkobling, får de tjenesten og modellen til appens standardagent.</li>
+<li>AWS Bedrock-, Google Vertex AI- og Cohere North-tjenester, samt ukjente typer, merkes som <b>Krever oppfølging</b>, med årsak. Deres skykredensialer kopieres ikke: peker du dem mot leverandørens OpenAI-kompatible endepunkt eller en gateway som LiteLLM, og lagre deretter.</li>
+<li>Inkapslingstjenesten (embedding) blir <b>Inkapsling</b>-modellen for tilkoblingen med samme adresse og nøkkel, eller en egen tilkobling. Transkripsjonstjenesten får <code>whisper-1</code>-modellen.</li>
+<li>Når omskrivning og oppsummeringer ennå ikke har en tilkobling, får de tjenesten og modellen til appens standardagent.</li>
 </ul>
 <p>Agents-appens egne innstillinger og data forblir som de var: dens agenter fortsetter å bruke dens tjenester.</p>
 <h3>Andre endringer av standardinnstillinger</h3>
 <ul>
 <li><b>Samtaler</b>: <b>Testmodus</b> er av og <b>Slå på video</b> er på som standard. Et valg som er lagret i konfigurasjonen beholdes. Samtaler følger også typen av samfunnet (se <a href="../../../nb/docs/admins/calls.html#where-calls">Samtaler og tale</a>).</li>
-<li>Å feste meldinger øverst er for kanalens administratorer, samfunnets administratorer og moderatorer (med <b>Administrer meldinger</b>); medlemmer av en direktemelding eller gruppemelding kan fortsatt gjøre dette.</li>
+<li>Å feste meldinger til toppen er for kanalens administratorer, samfunnets administratorer og moderatorer (med <b>Administrer meldinger</b>); medlemmer av en direktemelding eller gruppemelding kan fortsatt gjøre dette.</li>
 <li>Arkiverte kanaler kan få nye medlemmer, som leser historikken. Ingen poster, reagerer eller endrer noe i dem.</li>
 </ul>
 
@@ -192,7 +192,7 @@ docker compose logs -f antimatter</code></pre></li>
 <ul>
 <li>en push-varselserver hos Mattermost beholdes i innstillingene, men brukes aldri;</li>
 <li>Mattermosts adresser for appmarkedet (<b>Markeds-URL</b>) og for produktmeldinger blir tomme;</li>
-<li>app-nedlastingslenkene som var Mattermosts standarder (<b>Antimatter Apps Download Page Link</b>, <b>Lenke for nedlasting av Android-app</b> og <b>Lenke for nedlasting av iOS-app</b>) erstattes av nedlastingsssidene for Antimatters apper på GitHub; lenker du har satt selv beholdes;</li>
+<li>app-nedlastingslenkene som var Mattermosts standarder (<b>Antimatter Apps Download Page Link</b>, <b>Android App Download Link</b> og <b>iOS App Download Link</b>) erstattes av nedlastingsssidene for Antimatters apper på GitHub; lenker du har satt selv beholdes;</li>
 <li>Calls-appen bruker Cloudflares offentlige STUN-server i stedet for Mattermosts, uten å endre den lagrede innstillingen (se <a href="../../../nb/docs/admins/calls.html#network">Calls</a>);</li>
 <li>sjekken for sikkerhetsoppdateringer og rapportering av krassh er borte, og med dem også innstillingene i Systemkonsollen (<b>Slå på sikkerhetsvarsel</b>, <b>Slå på diagnostikk og feilrapportering</b>) og siden <b>Meldinger</b>.</li>
 </ul>

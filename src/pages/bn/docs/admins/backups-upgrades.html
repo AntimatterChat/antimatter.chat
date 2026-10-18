@@ -4,7 +4,7 @@ guide: admins
 order: 10
 nav: ব্যাকআপ এবং আপগ্রেড
 lead: কী কী ব্যাকআপ করতে হবে, নতুন হোস্টে কীভাবে রিস্টোর করবেন, কীভাবে আপগ্রেড করবেন এবং Mattermost সার্ভার বা একটি নির্দিষ্ট কমিউনিটি Antimatter-এ কীভাবে স্থানান্তর করবেন।
-source: 74a523a2c4c3
+source: 531ec332715c
 ---
 <h2 id="what">কী কী ব্যাকআপ করতে হবে</h2>
 <table>
@@ -15,7 +15,7 @@ source: 74a523a2c4c3
 <tr><td>কনফিগারেশন ফাইল</td><td>(ডেটাবেসে)</td><td><code>config/config.json</code></td><td><code>/etc/antimatter/config/config.json</code></td></tr>
 <tr><td>GIF এবং স্টিকার</td><td>ভলিউম <code>antimatter_gifs</code></td><td>GIF সার্ভিসের ডেটা ডিরেক্টরি</td><td><code>/var/lib/gifs-server</code></td></tr>
 <tr><td>সিক্রেটস</td><td><code>.env</code> (এবং <code>compose.override.yaml</code>)</td><td>আপনার এনভাইরনমেন্ট ফাইল</td><td><code>/etc/antimatter/antimatter.env</code>, <code>/etc/gifs-server</code></td></tr>
-<tr><td>AI এনক্রিপশন কী, যা মডেল সংযোগের কীগুলো এনক্রিপ্ট করে</td><td><code>.env</code>-এ <code>AM_AI_ENCRYPTION_KEY</code> (প্রস্তাবিত), অথবা কন্টেইনারে <code>/antimatter/data/ai-encryption.key</code> ফাইল</td><td><code>AM_AI_ENCRYPTION_KEY</code>, অথবা <code>data/ai-encryption.key</code></td><td><code>antimatter.env</code>-এ <code>AM_AI_ENCRYPTION_KEY</code>, অথবা <code>/var/lib/antimatter/data/ai-encryption.key</code></td></tr>
+<tr><td>AI এনক্রিপশন কী, যা মডেল সংযোগের কীগুলো এনক্রিপ্ট করে</td><td><code>.env</code>-এ <code>AM_AI_ENCRYPTION_KEY</code> (প্রস্তাবিত), অথবা <code>antimatter_data</code> ভলিউমে <code>ai-encryption.key</code> ফাইল</td><td><code>AM_AI_ENCRYPTION_KEY</code>, অথবা <code>data/ai-encryption.key</code></td><td><code>antimatter.env</code>-এ <code>AM_AI_ENCRYPTION_KEY</code>, অথবা <code>/var/lib/antimatter/data/ai-encryption.key</code></td></tr>
 </tbody>
 </table>
 <p>AI এনক্রিপশন কী ছাড়া একটি পুনরুদ্ধারকৃত সার্ভার তার মডেল সংযোগগুলোর API কী পড়তে পারে না, এবং প্রতিটি কী আবার টাইপ করতে হয়। ডেটাবেস ব্যাকআপ থেকে আলাদাভাবে কীটির একটি কপি রাখুন, যাতে একটি চুরি হওয়া ব্যাকআপে দুটোই থাকে না। <a href="{{root}}docs/admins/ai.html#encryption-key">এনক্রিপশন কী</a> দেখুন।</p>
@@ -29,15 +29,15 @@ docker compose stop antimatter
 # Database
 docker compose exec -T postgres pg_dump -U antimatter -d antimatter -Fc \
     &gt; "backups/antimatter-db-$stamp.dump"
-# File storage and GIF service
-for v in files gifs; do
+# File storage, GIF service and the data directory (the AI key file)
+for v in files gifs data; do
     docker run --rm -v "antimatter_$v:/data:ro" -v "$PWD/backups:/backup" \
         alpine tar -czf "/backup/antimatter-$v-$stamp.tar.gz" -C /data .
 done
 docker compose start antimatter
 # Secrets
 cp .env "backups/env-$stamp"</code></pre>
-<p>আপনি যদি <code>AM_AI_ENCRYPTION_KEY</code> সেট না করে থাকেন এবং সার্ভার তার কী ফাইল তৈরি করে থাকে, তবে ফাইলটিও কপি করুন (একবারই যথেষ্ট: এটি পরিবর্তন হয় না): <code>docker compose cp antimatter:/antimatter/data/ai-encryption.key "backups/ai-encryption.key"</code>। আরও ভালো, <a href="{{root}}docs/admins/ai.html#encryption-key">এনক্রিপশন কী</a> যেভাবে ব্যাখ্যা করে, তার কনটেন্ট <code>.env</code>-এ রাখুন: তখন <code>.env</code>-এর ব্যাকআপে তা থাকবে।</p>
+<p>আপনি যদি <code>AM_AI_ENCRYPTION_KEY</code> সেট করেন না, তবে সার্ভারের কী ফাইলটি <code>data</code> ভলিউমে থাকে, যা উপরের লুপ ফাইলগুলোর সাথে সেভ করে। আরও ভালো হবে, <a href="{{root}}docs/admins/ai.html#encryption-key">এনক্রিপশন কী</a> অনুযায়ী এর কন্টেন্ট <code>.env</code>-এ রাখুন এবং ডাটাবেস ব্যাকআপের আলাদা জায়গায় এর একটি কপি সংরক্ষণ করুন।</p>
 <p>দৈনিক ব্যাকআপের জন্য cron থেকে এটি চালান এবং <code>backups/</code> ডিরেক্টরিটি অন্য একটি মেশিনে কপি করুন। <code>.env</code> এর কপিগুলো সার্ভারের মতোই নিরাপদ রাখুন: এতে এর পাসওয়ার্ড থাকে।</p>
 <p>আপলোড করা ফাইলগুলো অবজেক্ট-বাই-অবজেক্ট কপি করতে (যেমন অন্য S3 স্টোরেজে), <code>bucket</code> সার্ভিসের AWS কমান্ড-লাইন টুল ব্যবহার করুন:</p>
 <pre><code>docker compose run --rm -v "$PWD/backups/files:/backup" bucket \
@@ -51,7 +51,7 @@ docker compose create           # creates the volumes, starts nothing
 docker compose up -d postgres
 docker compose exec -T postgres pg_restore -U antimatter -d antimatter --no-owner \
     &lt; "backups/antimatter-db-$stamp.dump"
-for v in files gifs; do
+for v in files gifs data; do
     docker run --rm -v "antimatter_$v:/data" -v "$PWD/backups:/backup" \
         alpine tar -xzf "/backup/antimatter-$v-$stamp.tar.gz" -C /data
 done
@@ -60,6 +60,7 @@ docker compose up -d</code></pre>
 <p>কখনো কখনো অন্য একটি মেশিনে রিস্টোর করে আপনার ব্যাকআপগুলোর পরীক্ষা করুন।</p>
 
 <h2 id="upgrade">আপগ্রেড</h2>
+<div class="callout warn">১৭ অক্টোবর ২০২৬-এর আগে ডাউনলোড করা Compose ফাইলে <code>data</code> ভলিউম ছিল না: AI কী ফাইলটি কন্টেইনারের মধ্যে ছিল। নতুন <code>compose.yaml</code> ব্যবহার করার আগে, এবং যদি <code>.env</code>-এ <code>AM_AI_ENCRYPTION_KEY</code> না থাকে, তবে সার্ভার তৈরি করা কীটি সেভ করুন: <code>echo "AM_AI_ENCRYPTION_KEY=$(docker compose exec -T antimatter cat /antimatter/data/ai-encryption.key)" &gt;&gt; .env</code>। যদি কমান্ডটি কোনো ফাইল না খুঁজে পায়, তবে এখনও কোনো মডেল কানেকশন কী সেভ করেনি।</div>
 <ol>
 <li>একটি ব্যাকআপ নিন।</li>
 <li>যদি আপনি একটি পিন করেন (যেমনটি পরামর্শিত), তবে <code>.env</code> এ ইমেজ ট্যাগ (<code>ANTIMATTER_IMAGE</code>) পরিবর্তন করুন।</li>

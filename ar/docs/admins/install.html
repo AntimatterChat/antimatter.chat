@@ -89,9 +89,10 @@ SITE_URL=http://localhost:8065
 POSTGRES_PASSWORD=$(openssl rand -hex 24)
 S3_SECRET_KEY=$(openssl rand -hex 24)
 GIFS_API_KEY=$(openssl rand -hex 24)
+AM_AI_ENCRYPTION_KEY=$(openssl rand -base64 32)
 EOF
 chmod 600 .env</code></pre>
-<p>اضبط <code>SITE_URL</code> على العنوان الذي سيكتبه المستخدمون في متصفحاتهم، على سبيل المثال <code>http://192.168.1.20:8065</code> على شبكة محلية أو <code>https://chat.example.com</code> باستخدام نطاق. احتفظ بملف <code>.env</code>: تستخدم قاعدة البيانات والتخزين هذه كلمات المرور من أول تشغيل، وتحتاج إلى نفس الملف لاستعادة نسخة احتياطية.</p>
+<p>اضبط <code>SITE_URL</code> على العنوان الذي سيكتبه المستخدمون في متصفحاتهم، مثل <code>http://192.168.1.20:8065</code> على شبكة محلية أو <code>https://chat.example.com</code> مع نطاق. احتفظ بملف <code>.env</code>: فقاعدة البيانات والتخزين تستخدمان هذه كلمات المرور منذ التشغيل الأول، وتُشفَّر مفاتيح API لاتصالات نماذج الذكاء الاصطناعي باستخدام <code>AM_AI_ENCRYPTION_KEY</code>، وتحتاج إلى نفس الملف لاستعادة نسخة احتياطية.</p>
 
 <h3>3. التشغيل</h3>
 <pre><code>docker compose up -d
@@ -107,6 +108,7 @@ docker compose ps</code></pre>
 <tr><td><code>POSTGRES_PASSWORD</code></td><td>مطلوب</td><td>كلمة مرور مستخدم قاعدة البيانات <code>antimatter</code>.</td></tr>
 <tr><td><code>S3_SECRET_KEY</code></td><td>مطلوب</td><td>المفتاح السري لتخزين الملفات.</td></tr>
 <tr><td><code>GIFS_API_KEY</code></td><td>مطلوب</td><td>المفتاح الذي تستخدمه Antimatter لاستدعاء خدمة GIF.</td></tr>
+<tr><td><code>AM_AI_ENCRYPTION_KEY</code></td><td>فارغ</td><td>المفتاح الذي يُشفِّر مفاتيح API لاتصالات نماذج الذكاء الاصطناعي (<code>openssl rand -base64 32</code>). إذا كان فارغاً، ينشئ الخادم ملف مفتاح في مجلد <code>data</code>. راجع <a href="../../../ar/docs/admins/ai.html#encryption-key">مفتاح التشفير</a>.</td></tr>
 <tr><td><code>GIFS_UPLOAD_KEY</code></td><td>فارغ</td><td>يسمح للأشخاص بإضافة GIFs وملصقاتهم الخاصة من منتقي الرموز التعبيرية، وحذفها. إذا تُرك الحقل فارغًا، يُعطَّل الرفع.</td></tr>
 <tr><td><code>DOMAIN</code></td><td>فارغ</td><td>اسم النطاق الخاص بك، لملف <code>https</code>.</td></tr>
 <tr><td><code>HTTP_PORT</code></td><td><code>8065</code></td><td>منفذ المضيف لخادم الويب الخاص بـ Antimatter.</td></tr>
@@ -121,7 +123,7 @@ docker compose ps</code></pre>
 <table>
 <thead><tr><th>الخدمة</th><th>الصورة</th><th>الدور</th></tr></thead>
 <tbody>
-<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>الخادم، وتطبيق الويب، والتطبيقات المدمجة. ينشر <code>HTTP_PORT</code> و<code>CALLS_PORT</code>.</td></tr>
+<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>الخادم، وتطبيق الويب، والتطبيقات المدمجة. ينشر <code>HTTP_PORT</code> و<code>CALLS_PORT</code>. مجلد بياناته هو مجلد <code>data</code>.</td></tr>
 <tr><td><code>postgres</code></td><td><code>postgres:17-alpine</code></td><td>قاعدة البيانات، في مجلد <code>postgres</code>.</td></tr>
 <tr><td><code>files</code></td><td><code>rustfs/rustfs</code></td><td>تخزين متوافق مع S3 للملفات المرفقة والتطبيقات المثبتة، في مجلد <code>files</code>.</td></tr>
 <tr><td><code>bucket</code></td><td><code>amazon/aws-cli</code></td><td>ينشئ حاوية <code>antimatter</code> ثم يخرج.</td></tr>
@@ -131,7 +133,7 @@ docker compose ps</code></pre>
 </tbody>
 </table>
 <p>PostgreSQL، والتخزين، وخدمة GIF على شبكة داخلية (<code>private</code>) لا تملك اتصالاً بالإنترنت، ولا ينضم إليها سوى Antimatter. لا ينشر أي منها منفذًا.</p>
-<p>لا يحتفظ حاوية Antimatter بأي شيء على القرص: إعداداتها في قاعدة البيانات (<code>AM_CONFIG</code> تشير إليها)، وملفاتها وتطبيقاتها في خدمة التخزين. يمكنك حذف الحاوية وإنشائها من جديد في أي وقت. كل ما يجب عليك نسخه احتياطيًا موجود في مجلدات <code>postgres</code> و<code>files</code> و<code>gifs</code>، بالإضافة إلى ملف <code>.env</code> الخاص بك.</p>
+<p>لا يحتفظ حاوية Antimatter بأي شيء على القرص: إعداداتها في قاعدة البيانات (يشير <code>AM_CONFIG</code> إليها)، وملفاتها وتطبيقاتها في خدمة التخزين. يمكنك حذف الحاوية وإنشائها من جديد في أي وقت. مجلد <code>data</code> الخاص بها يحتوي فقط على ملف مفتاح تشفير الذكاء الاصطناعي، الذي ينشئه الخادم عندما يكون <code>AM_AI_ENCRYPTION_KEY</code> فارغاً. كل ما يجب نسخه احتياطياً موجود في مجلدات <code>postgres</code>، <code>files</code>، <code>gifs</code>، و<code>data</code>، بالإضافة إلى ملف <code>.env</code> الخاص بك.</p>
 
 <h2 id="images">اختر صورة</h2>
 <p>يُنشر صورتان لـ Antimatter، وكلاهما لـ <code>linux/amd64</code> و<code>linux/arm64</code>، وكلاهما مبنيان من فرع <code>main</code> لكل مستودع:</p>

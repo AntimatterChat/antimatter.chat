@@ -4,7 +4,7 @@ guide: admins
 order: 2
 nav: Инсталиране
 lead: Инсталирайте Antimatter с готовия compose файл, от .deb или .rpm пакет на версия или от архив на версия. После създайте първата администраторска сметка.
-source: 0cf64caa4d34
+source: bb05a35899c4
 ---
 <h2 id="compose">Инсталиране с Docker Compose</h2>
 <p>Това е препоръчителният начин. Един compose файл пуска Antimatter, PostgreSQL, хранилището за файлове и GIF услугата. Нужен ви е Linux сървър с Docker Engine и неговия Compose плъгин (<code>docker compose</code>), 2 ядра на процесора и 4 GB или повече памет.</p>
@@ -20,9 +20,10 @@ SITE_URL=http://localhost:8065
 POSTGRES_PASSWORD=$(openssl rand -hex 24)
 S3_SECRET_KEY=$(openssl rand -hex 24)
 GIFS_API_KEY=$(openssl rand -hex 24)
+AM_AI_ENCRYPTION_KEY=$(openssl rand -base64 32)
 EOF
 chmod 600 .env</code></pre>
-<p>Задайте <code>SITE_URL</code> на адреса, който хората ще въведат в браузъра си, например <code>http://192.168.1.20:8065</code> в локална мрежа или <code>https://chat.example.com</code> с домейн. Запазете <code>.env</code> файла: базата данни и хранилището използват тези пароли от първото стартиране, а същият файл ви трябва за възстановяване на резервно копие.</p>
+<p>Задайте <code>SITE_URL</code> на адреса, който потребителите ще въведат в браузъра си, например <code>http://192.168.1.20:8065</code> в локална мрежа или <code>https://chat.example.com</code> с домейн. Запазете файла <code>.env</code>: базата данни и хранилището използват паролите от него при първия старт, ключовете на API за връзките с AI модели се шифроват с <code>AM_AI_ENCRYPTION_KEY</code>, а същият файл е необходим за възстановяване на резервно копие.</p>
 
 <h3>3. Стартиране</h3>
 <pre><code>docker compose up -d
@@ -38,6 +39,7 @@ docker compose ps</code></pre>
 <tr><td><code>POSTGRES_PASSWORD</code></td><td>задължително</td><td>Парола за потребителя <code>antimatter</code> в базата данни.</td></tr>
 <tr><td><code>S3_SECRET_KEY</code></td><td>задължително</td><td>Тайен ключ за хранилището на файлове.</td></tr>
 <tr><td><code>GIFS_API_KEY</code></td><td>задължително</td><td>Ключ, който Antimatter използва, за да се обръща към GIF услугата.</td></tr>
+<tr><td><code>AM_AI_ENCRYPTION_KEY</code></td><td>празно</td><td>Ключът, който шифрова ключовете на API за връзките с AI модели (<code>openssl rand -base64 32</code>). Празно: сървърът създава файл с ключ в обема <code>data</code>. Вижте <a href="{{root}}docs/admins/ai.html#encryption-key">Ключ за шифроване</a>.</td></tr>
 <tr><td><code>GIFS_UPLOAD_KEY</code></td><td>празно</td><td>Позволява на хората да добавят свои GIF-ове и стикери от изборника и да ги изтриват. Празната стойност изключва качването.</td></tr>
 <tr><td><code>DOMAIN</code></td><td>празно</td><td>Вашето име на домейн, за <code>https</code> профила.</td></tr>
 <tr><td><code>HTTP_PORT</code></td><td><code>8065</code></td><td>Порт на хоста за уеб сървъра на Antimatter.</td></tr>
@@ -52,7 +54,7 @@ docker compose ps</code></pre>
 <table>
 <thead><tr><th>Услуга</th><th>Образ</th><th>Роля</th></tr></thead>
 <tbody>
-<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>Сървърът, уеб приложението и вградените приложения. Публикува <code>HTTP_PORT</code> и <code>CALLS_PORT</code>.</td></tr>
+<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>Сървърът, уеб приложението и вградените приложения. Публикува <code>HTTP_PORT</code> и <code>CALLS_PORT</code>. Неговата директория за данни е обемът <code>data</code>.</td></tr>
 <tr><td><code>postgres</code></td><td><code>postgres:17-alpine</code></td><td>Базата данни, в <code>postgres</code> обема.</td></tr>
 <tr><td><code>files</code></td><td><code>rustfs/rustfs</code></td><td>S3-съвместимо хранилище за качени файлове и инсталирани приложения, в обема <code>files</code>.</td></tr>
 <tr><td><code>bucket</code></td><td><code>amazon/aws-cli</code></td><td>Създава коша <code>antimatter</code>, след което излиза.</td></tr>
@@ -62,7 +64,7 @@ docker compose ps</code></pre>
 </tbody>
 </table>
 <p>PostgreSQL, хранилището и услугата за GIF са на вътрешна мрежа (<code>private</code>) без достъп до интернет, към която се присъединява само Antimatter. Нито едно от тях не публикува порт.</p>
-<p>Контейърът на Antimatter не запазва нищо на диска: настройките му са в базата данни (<code>AM_CONFIG</code> сочи към нея), а файловете и приложенията му са в услугата за хранилище. Можете да премахнете и да създадете контейъра отново по всяко време. Всичко, което трябва да се архивира, се намира в обемите <code>postgres</code>, <code>files</code> и <code>gifs</code>, както и във вашия <code>.env</code> файл.</p>
+<p>Контейнерът на Antimatter не запазва нищо на диска: настройките му са в базата данни (<code>AM_CONFIG</code> сочи към нея), а файловете и приложенията му са в услугата за хранилище. Можете да премахнете и да създадете контейнера отново по всяко време. Неговият обем <code>data</code> съдържа само файла с ключа за шифроване на AI, който сървърът създава, когато <code>AM_AI_ENCRYPTION_KEY</code> е празно. Всичко, което трябва да се резервира, се намира в обемите <code>postgres</code>, <code>files</code>, <code>gifs</code> и <code>data</code>, както и във вашия <code>.env</code>.</p>
 
 <h2 id="images">Изберете образ</h2>
 <p>Публикуват се два образа на Antimatter, и двата за <code>linux/amd64</code> и <code>linux/arm64</code>, и и двата изградени от <code>main</code> клонът на всяко хранилище:</p>

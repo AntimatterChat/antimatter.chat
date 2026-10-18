@@ -89,9 +89,10 @@ SITE_URL=http://localhost:8065
 POSTGRES_PASSWORD=$(openssl rand -hex 24)
 S3_SECRET_KEY=$(openssl rand -hex 24)
 GIFS_API_KEY=$(openssl rand -hex 24)
+AM_AI_ENCRYPTION_KEY=$(openssl rand -base64 32)
 EOF
 chmod 600 .env</code></pre>
-<p><code>SITE_URL</code> সেট করুন সেই ঠিকানায় যেখানে ব্যবহারকারীরা তাদের ব্রাউজারে টাইপ করবেন, যেমন লোকাল নেটওয়ার্কে <code>http://192.168.1.20:8065</code> বা ডোমেইন সহ <code>https://chat.example.com</code>। <code>.env</code> ফাইলটি সংরক্ষণ করুন: ডাটাবেস এবং স্টোরেজ প্রথমবার চালুর সময় এই পাসওয়ার্ডগুলো ব্যবহার করে, এবং ব্যাকআপ রিস্টোর করতেও এই একই ফাইল প্রয়োজন।</p>
+<p>ব্রাউজারে লোকে যে ঠিকানাটি টাইপ করবে, সেটি <code>SITE_URL</code>-এ সেট করুন, যেমন লোকাল নেটওয়ার্কে <code>http://192.168.1.20:8065</code> অথবা ডোমেইন থাকলে <code>https://chat.example.com</code>। <code>.env</code> ফাইলটি রাখুন: প্রথমবার চালুর সময় ডাটাবেস এবং স্টোরেজ এই পাসওয়ার্ডগুলো ব্যবহার করে, AI মডেল সংযোগের API কীগুলো <code>AM_AI_ENCRYPTION_KEY</code> দিয়ে এনক্রিপ্ট করা থাকে, এবং ব্যাকআপ রিস্টোর করতেও এই একই ফাইল প্রয়োজন।</p>
 
 <h3>৩. চালু করুন</h3>
 <pre><code>docker compose up -d
@@ -107,6 +108,7 @@ docker compose ps</code></pre>
 <tr><td><code>POSTGRES_PASSWORD</code></td><td>প্রয়োজনীয়</td><td><code>antimatter</code> ডাটাবেস ইউজারের পাসওয়ার্ড।</td></tr>
 <tr><td><code>S3_SECRET_KEY</code></td><td>প্রয়োজনীয়</td><td>ফাইল স্টোরেজের সিক্রেট কী।</td></tr>
 <tr><td><code>GIFS_API_KEY</code></td><td>প্রয়োজনীয়</td><td>Antimatter-এর GIF সার্ভিস কল করতে ব্যবহৃত কী।</td></tr>
+<tr><td><code>AM_AI_ENCRYPTION_KEY</code></td><td>খালি</td><td>AI মডেল সংযোগের API কীগুলো এনক্রিপ্ট করার কী (<code>openssl rand -base64 32</code>)। খালি থাকলে: সার্ভার <code>data</code> ভলিউমে একটি কী ফাইল তৈরি করে। <a href="../../../bn/docs/admins/ai.html#encryption-key">এনক্রিপশন কী</a> দেখুন।</td></tr>
 <tr><td><code>GIFS_UPLOAD_KEY</code></td><td>খালি</td><td>ব্যবহারকারীদের পিকার থেকে নিজস্ব GIF এবং স্টিকার যোগ করতে এবং মুছে ফেলতে দেয়। খালি রাখলে আপলোড বন্ধ হয়ে যায়।</td></tr>
 <tr><td><code>DOMAIN</code></td><td>খালি</td><td>আপনার ডোমেইন নাম, <code>https</code> প্রোফাইলের জন্য।</td></tr>
 <tr><td><code>HTTP_PORT</code></td><td><code>8065</code></td><td>Antimatter-এর ওয়েব সার্ভারের হোস্ট পোর্ট।</td></tr>
@@ -121,7 +123,7 @@ docker compose ps</code></pre>
 <table>
 <thead><tr><th>সার্ভিস</th><th>ইমেজ</th><th>ভূমিকা</th></tr></thead>
 <tbody>
-<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>সার্ভার, ওয়েব অ্যাপ এবং বান্ডল অ্যাপস। <code>HTTP_PORT</code> এবং <code>CALLS_PORT</code> প্রকাশ করে।</td></tr>
+<tr><td><code>antimatter</code></td><td><code>ghcr.io/antimatterchat/antimatter-next</code></td><td>সার্ভার, ওয়েব অ্যাপ এবং বান্ডল করা অ্যাপস। <code>HTTP_PORT</code> এবং <code>CALLS_PORT</code> পাবলিশ করে। এর ডাটা ডিরেক্টরি হলো <code>data</code> ভলিউম।</td></tr>
 <tr><td><code>postgres</code></td><td><code>postgres:17-alpine</code></td><td>ডাটাবেস, <code>postgres</code> ভলিউমে।</td></tr>
 <tr><td><code>files</code></td><td><code>rustfs/rustfs</code></td><td>আপলোড করা ফাইল এবং ইনস্টল করা অ্যাপসের জন্য S3-সম্মত স্টোরেজ, <code>files</code> ভলিউমে।</td></tr>
 <tr><td><code>bucket</code></td><td><code>amazon/aws-cli</code></td><td><code>antimatter</code> বাক্সটি তৈরি করে, তারপর বেরিয়ে যায়।</td></tr>
@@ -131,7 +133,7 @@ docker compose ps</code></pre>
 </tbody>
 </table>
 <p>PostgreSQL, স্টোরেজ এবং GIF সার্ভিস একটি অভ্যন্তরীণ নেটওয়ার্ক (<code>private</code>)-এ আছে, যার কোনো ইন্টারনেট অ্যাক্সেস নেই, এবং শুধুমাত্র Antimatter এই নেটওয়ার্কে যোগদান করে। তাদের কেউই কোনো পোর্ট পাবলিশ করে না।</p>
-<p>Antimatter কন্টেইনারটি ডিস্কে কিছুই রাখে না: এর সেটিংস ডাটাবেসে (<code>AM_CONFIG</code> এর দিকে ইঙ্গিত করে) এবং এর ফাইল ও অ্যাপস স্টোরেজ সার্ভিসে। আপনি যেকোনো সময় কন্টেইনারটি মুছে ফেলে আবার তৈরি করতে পারেন। ব্যাকআপ করার সবকিছু <code>postgres</code>, <code>files</code> এবং <code>gifs</code> ভলিউমে, সাথে আপনার <code>.env</code>।</p>
+<p>Antimatter কন্টেইনারটি ডিস্কে কিছুই রাখে না: এর সেটিংস ডাটাবেসে (<code>AM_CONFIG</code> এর দিকে ইঙ্গিত করে) এবং এর ফাইল ও অ্যাপস স্টোরেজ সার্ভিসে থাকে। আপনি যেকোনো সময় কন্টেইনারটি মুছে নতুন করে তৈরি করতে পারেন। এর <code>data</code> ভলিউমে শুধুমাত্র AI এনক্রিপশন কী ফাইল থাকে, যা <code>AM_AI_ENCRYPTION_KEY</code> খালি থাকলে সার্ভার তৈরি করে। ব্যাকআপ করার সবকিছু <code>postgres</code>, <code>files</code>, <code>gifs</code> এবং <code>data</code> ভলিউমসমূহে, সাথে আপনার <code>.env</code> ফাইলে থাকে।</p>
 
 <h2 id="images">একটি ইমেজ নির্বাচন করুন</h2>
 <p>দুটি Antimatter ইমেজ প্রকাশিত হয়েছে, উভয়ই <code>linux/amd64</code> এবং <code>linux/arm64</code>-এর জন্য, এবং উভয়ই প্রতিটি রিপোজিটরির <code>main</code> ব্রাঞ্চ থেকে তৈরি:</p>
