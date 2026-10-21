@@ -13,7 +13,7 @@ lead: Everything the Antimatter apps do goes through the same HTTP API, so your 
 <li><b>Communities are teams</b>: the API calls them <code>teams</code>, with a <code>team_id</code>.</li>
 <li><b>Yourself</b>: wherever a path takes a <code>user_id</code>, <code>me</code> means the signed-in user, as in <code>GET /users/me</code>.</li>
 </ul>
-<p>The full list of endpoints is in the server's code: the routes are declared in <code>server/channels/api4/*.go</code> and the types in <code>server/public/model</code>. The OpenAPI description in the repository's <code>api/v4/source</code> folder covers the endpoints inherited from Mattermost, and some of Antimatter's additions: moving threads, model connections and message actions. The others are only in the code.</p>
+<p>The full list of endpoints is in the server's code: the routes are declared in <code>server/channels/api4/*.go</code> and the types in <code>server/public/model</code>. The OpenAPI description in the repository's <code>api/v4/source</code> folder covers the endpoints inherited from Mattermost, and some of Antimatter's additions: moving threads, model connections, agents and message actions. The others are only in the code.</p>
 
 <h2 id="auth">Authentication</h2>
 <p>Every request, except signing in and a few public endpoints, needs a token in the <code>Authorization</code> header:</p>
@@ -106,7 +106,7 @@ lead: Everything the Antimatter apps do goes through the same HTTP API, so your 
 }</code></pre>
 <p>Note that <code>data.post</code> is the post as a JSON string. Common events: <code>posted</code>, <code>post_edited</code>, <code>post_deleted</code>, <code>reaction_added</code>, <code>reaction_removed</code>, <code>typing</code>, <code>status_change</code>, <code>user_added</code>, <code>direct_added</code>. Apps send their own events, named <code>custom_&lt;app id&gt;_&lt;event&gt;</code>.</p>
 <p>You can also send actions, each with an increasing <code>seq</code>: <code>user_typing</code> with <code>{"channel_id", "parent_id"}</code>, or <code>get_statuses</code>. Reconnect when the connection drops, and fetch what you missed with <code>since</code> (see <a href="#pagination">Pagination</a>).</p>
-<p>Antimatter adds these events: <code>community_attributes_updated</code>, <code>member_timeouts_updated</code>, <code>post_put_on_top</code>, <code>post_removed_from_top</code>, <code>server_categories_updated</code>, <code>channel_overrides_updated</code> and <code>category_overrides_updated</code>.</p>
+<p>Antimatter adds these events: <code>agent_activity_changed</code> and <code>agent_post_stream</code> (see <a href="{{root}}docs/developers/bots.html#agents">Agents</a>), <code>community_attributes_updated</code>, <code>member_timeouts_updated</code>, <code>post_put_on_top</code>, <code>post_removed_from_top</code>, <code>server_categories_updated</code>, <code>channel_overrides_updated</code> and <code>category_overrides_updated</code>.</p>
 
 <h2 id="clients">Client libraries</h2>
 <ul>
@@ -153,6 +153,7 @@ func main() {
 <tr><td><code>GET /posts/{post_id}/speech</code></td><td>The message read aloud, as audio, when text-to-speech is set up.</td></tr>
 <tr><td><code>POST /posts/{post_id}/move_to_channel</code></td><td>Moves a thread to another channel of the same community: see <a href="#move-thread">Move a thread</a>.</td></tr>
 <tr><td><code>GET</code>, <code>POST /ai/connections</code><br><code>GET</code>, <code>PATCH</code>, <code>DELETE /ai/connections/{connection_id}</code><br><code>GET /ai/connections/usable</code></td><td>Model connections, the AI providers the server's AI features and apps use: see <a href="#ai-connections">Model connections</a>.</td></tr>
+<tr><td><code>GET</code>, <code>POST /ai/agents</code><br><code>GET</code>, <code>PATCH</code>, <code>DELETE /ai/agents/{agent_id}</code><br><code>POST /ai/agents/{agent_id}/tasks</code><br><code>GET /ai/agents/conversations</code></td><td>AI agents, their activity, and the tasks and conversations of the AI chat: see <a href="#agents">Agents</a>.</td></tr>
 <tr><td><code>GET /channels/{channel_id}/message_actions</code><br><code>POST /posts/{post_id}/message_actions/{hook_id}</code><br><code>GET</code>, <code>POST /hooks/outgoing/{hook_id}/icon</code></td><td>Message actions: outgoing webhooks that people run from the message menu. See <a href="{{root}}docs/developers/webhooks.html#message-actions">Message actions</a>.</td></tr>
 </tbody>
 </table>
@@ -223,3 +224,33 @@ func main() {
   "audience": {"everyone": true, "group_ids": [], "roles": [], "allow_guests": false}
 }</code></pre>
 <p><code>provider</code> is <code>openai_compatible</code> or <code>anthropic</code>. <code>scope</code> defaults to <code>server</code>; a community's ID makes it that community's connection. In <code>limits</code>, 0 means no limit; requests per minute are counted on each server, token budgets per calendar month (UTC) for the whole cluster. <code>sharing</code> says which communities may use a server-wide connection (direct and group messages need <code>all_teams</code>), and <code>audience</code> who may use it; guests only with <code>allow_guests</code>. Changes are written to the audit log. The admin guide explains the settings: see <a href="{{root}}docs/admins/ai.html">AI</a>.</p>
+
+<h2 id="agents">Agents</h2>
+<p>An agent is a bot account of the kind <code>agent</code> (<code>is_agent</code> on its user), with its settings: its scope (<code>server</code>, or a community's ID), built-in or <code>external</code>, and for a built-in agent its model connection, model, system prompt and reasoning. System admins manage the server-wide agents (<code>manage_system</code>), a community's admins their community's (<code>manage_team</code>); on top of that, <code>manage_own_agent</code> for an agent they made and <code>manage_others_agent</code> for the others. The agent's ID in these paths is its user ID. Running an external agent is explained in <a href="{{root}}docs/developers/bots.html#agents">Bots</a>.</p>
+<table>
+<thead><tr><th>Endpoint</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>GET /ai/agents?scope=</code></td><td>The agents you manage: <code>scope</code> is <code>server</code> or a community's ID; without it, every agent you manage.</td></tr>
+<tr><td><code>POST /ai/agents</code></td><td>Makes an agent and its account (answers <code>201</code>). A community's agent joins its community.</td></tr>
+<tr><td><code>GET</code>, <code>PATCH</code>, <code>DELETE /ai/agents/{agent_id}</code><br><code>POST …/enable</code>, <code>POST …/disable</code></td><td>Reads, changes, deletes (its account is deactivated, its messages stay), turns on or off an agent.</td></tr>
+<tr><td><code>GET /ai/agents/connections?scope=</code><br><code>GET /ai/agents/connections/{connection_id}/models</code></td><td>The model connections an agent of that scope may use, and their models.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /ai/agents/{agent_id}/activity</code><br><code>POST /ai/agents/activity/ids</code></td><td>What an agent is doing; set by its own token or its managers. The batch takes up to 200 user IDs.</td></tr>
+<tr><td><code>POST /ai/agents/{agent_id}/tasks</code></td><td>Asks a built-in agent you may use for a task: <code>summarize_thread</code>, <code>find_action_items</code> or <code>find_open_questions</code> (on a thread's <code>post_id</code>, or a <code>channel_id</code> from <code>since</code> on), <code>summarize_channel</code>, <code>ask_channel</code> (with a <code>question</code>) or <code>summarize_transcription</code> (a call's transcription post). The request becomes your message in your direct message with the agent, in your language, and is answered there; the answer (<code>201</code>) is that message. A post or channel you can't read is answered as one that isn't there.</td></tr>
+<tr><td><code>GET /ai/agents/conversations?agent_id=&amp;before=&amp;per_page=</code></td><td>Your conversations with the agents you may use, the most recent first: the threads you started in your direct messages with them, and the threads elsewhere one of them replied in that you follow. <code>before</code> (a time) gives the next page; <code>per_page</code> is 100 at most.</td></tr>
+</tbody>
+</table>
+<p>The body of a new agent:</p>
+<pre><code>{
+  "username": "researcher",
+  "display_name": "Researcher",
+  "description": "Answers with sources",
+  "scope": "server",
+  "external": false,
+  "connection_id": "…",
+  "model": "",
+  "system_prompt": "You research questions and answer with sources.",
+  "reasoning": {"enabled": false, "effort": "", "budget_tokens": 0},
+  "max_tool_turns": 0,
+  "access": {"everyone": true, "team_ids": [], "channel_ids": [], "roles": [], "user_ids": [], "allow_guests": false}
+}</code></pre>
+<p>An empty <code>model</code> uses the connection's chat model. <code>access.channel_ids</code> means the members of those channels. An external agent has no connection, model or system prompt. <code>GET /agents</code> lists the agents you may talk to, as the AI chat app reads them.</p>
