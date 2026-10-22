@@ -4,7 +4,7 @@ guide: developers
 order: 2
 nav: REST-API
 lead: Alt, hvad Antimatter-appene gør, sker gennem samme HTTP-API, så dine scripts kan også gøre det. Denne side forklarer, hvordan du autentificerer, hvilke ressourcer du oftest vil bruge, hvordan svar og fejl ser ud, og hvordan du følger hændelser live via WebSocket.
-source: a18155751d3e
+source: 6e2ac7019f81
 ---
 <h2 id="basics">Grundlæggende</h2>
 <ul>
@@ -14,7 +14,7 @@ source: a18155751d3e
 <li><b>Fællesskaber er teams</b>: API'et kalder dem <code>teams</code>, med et <code>team_id</code>.</li>
 <li><b>Dig selv</b>: hvor en sti tager et <code>user_id</code>, betyder <code>me</code> den indloggede bruger, som i <code>GET /users/me</code>.</li>
 </ul>
-<p>Den fulde liste over endpoints findes i serverens kode: ruterne er erklæret i <code>server/channels/api4/*.go</code>, og typerne i <code>server/public/model</code>. OpenAPI-beskrivelsen i repositoryens <code>api/v4/source</code>-mappe dækker de endpoints, der er arvet fra Mattermost, samt nogle af Antimatters tilføjelser: flytning af tråde, modelforbindelser og beskedhandlinger. De øvrige findes kun i koden.</p>
+<p>Den fulde liste over slutpunkter findes i serverens kode: ruterne er deklareret i <code>server/channels/api4/*.go</code> og typerne i <code>server/public/model</code>. OpenAPI-beskrivelsen i lagerets mappe <code>api/v4/source</code> dækker de slutpunkter, der er arvet fra Mattermost, samt nogle af Antimatters tilføjelser: flytning af tråde, modeltilslutninger, agenter, fællesskabsregler, fokustilstand og beskedhandlinger. De øvrige findes kun i koden.</p>
 
 <h2 id="auth">Autentificering</h2>
 <p>Alle anmodninger, undtagen indlogning og et par offentlige endpoints, kræver et token i <code>Authorization</code>-headeren:</p>
@@ -43,7 +43,7 @@ source: a18155751d3e
 <p>For at lade folk logge ind på din applikation med deres Antimatter-konto, registrerer du en OAuth 2.0-app. Antimatter er derefter OAuth-udbyderen:</p>
 <ol>
 <li><b>Aktivér OAuth 2.0-tjenesteudbyder</b> skal være slået til (<b>Systemkonsol › Integrationer › Integrationshåndtering</b>, <code>ServiceSettings.EnableOAuthServiceProvider</code>, slået til som standard).</li>
-<li>En person med rettigheder til at administrere OAuth-apps (systemadministratorer som standard) åbner deres avatar og derefter <b>Integrationer › OAuth 2.0-apps</b> og tilføjer appen med dens callback-URL'er. De får et client ID og en client secret.</li>
+<li>En person med rettigheder til at administrere OAuth-apps (som standard systemadministratorer) åbner <b>Integrationer › OAuth 2.0-apps</b> (fællesskabsmenu › <b>Teamindstillinger</b> › <b>Integrationer</b>) og tilføjer appen med dens callback-URL'er. De modtager et klient-ID og en klienthemmelighed.</li>
 <li>Din applikation sender brugere til <code>https://chat.example.com/oauth/authorize</code> med <code>response_type=code</code>, <code>client_id</code>, <code>redirect_uri</code> og <code>state</code>. PKCE med <code>code_challenge_method=S256</code> understøttes.</li>
 <li>Den bytter koden ud ved <code>POST https://chat.example.com/oauth/access_token</code> (<code>grant_type=authorization_code</code>, derefter <code>refresh_token</code> for fornyelse) og kalder API'et med <code>Authorization: Bearer &lt;access token&gt;</code>.</li>
 </ol>
@@ -107,7 +107,7 @@ source: a18155751d3e
 }</code></pre>
 <p>Bemærk, at <code>data.post</code> er posten som en JSON-streng. Almindelige hændelser: <code>posted</code>, <code>post_edited</code>, <code>post_deleted</code>, <code>reaction_added</code>, <code>reaction_removed</code>, <code>typing</code>, <code>status_change</code>, <code>user_added</code>, <code>direct_added</code>. Apps sender deres egne hændelser, navngivet <code>custom_&lt;app id&gt;_&lt;event&gt;</code>.</p>
 <p>Du kan også sende handlinger, hver med en stigende <code>seq</code>: <code>user_typing</code> med <code>{"channel_id", "parent_id"}</code>, eller <code>get_statuses</code>. Forbind igen, når forbindelsen afbrydes, og hente det, du manglede, med <code>since</code> (se <a href="#pagination">Paginering</a>).</p>
-<p>Antimatter tilføjer disse begivenheder: <code>community_attributes_updated</code>, <code>member_timeouts_updated</code>, <code>post_put_on_top</code>, <code>post_removed_from_top</code>, <code>server_categories_updated</code>, <code>channel_overrides_updated</code> og <code>category_overrides_updated</code>.</p>
+<p>Antimatter tilføjer disse begivenheder: <code>agent_activity_changed</code> og <code>agent_post_stream</code> (se <a href="{{root}}docs/developers/bots.html#agents">Agenter</a>), <code>community_rules_updated</code> og <code>community_rules_accepted</code> (se <a href="#community-rules">Fællesskabsregler</a>), <code>focus_ended</code> (se <a href="#focus">Fokustilstand</a>), <code>community_attributes_updated</code>, <code>member_timeouts_updated</code>, <code>post_put_on_top</code>, <code>post_removed_from_top</code>, <code>server_categories_updated</code>, <code>channel_overrides_updated</code> og <code>category_overrides_updated</code>.</p>
 
 <h2 id="clients">Klientbiblioteker</h2>
 <ul>
@@ -145,6 +145,8 @@ func main() {
 <tr><td><code>GET /teams/{team_id}/members/{user_id}/user_attributes</code><br><code>PATCH</code> samme sti<br><code>POST /teams/{team_id}/user_attributes/values/search</code></td><td>Et medlems attributværdier, som <code>{field_id: value}</code>. Medlemmer sætter deres egne (undtagen dem, der administreres af administratorer); administratorer sætter andres. Søgningen tager <code>{"user_ids": [...]}</code> (op til 200).</td></tr>
 <tr><td><code>GET /teams/{team_id}/timeouts</code><br><code>PUT /teams/{team_id}/members/{user_id}/timeout</code><br><code>GET /teams/{team_id}/members/{user_id}/moderation</code></td><td>Timeouts: <code>{"until": time, "reason": "…"}</code> forhindrer en person i at oprette indlæg, reagere og uploade i fællesskabet indtil da (højst 28 dage); <code>"until": 0</code> løfter det. Modereringsvisningen viser, hvornår de joined, og hvor meget de har oprettet indlæg for nylig.</td></tr>
 <tr><td><code>GET /channels/{channel_id}/on_top</code><br><code>PUT</code>, <code>DELETE /posts/{post_id}/on_top</code></td><td>Beskeder, der fastgøres øverst i en kanal (op til 10). <code>{"duration": ms}</code>, i højst 30 dage; 0 holder dem, indtil de fjernes. Alle, der kan læse kanalen, kan se dem. For at fastgøre eller fjerne en besked skal man have rettighed til at skrive i kanalen og, i en fællesskabs kanal, være administrator for kanalen eller fællesskabet eller have <b>Administrer beskeder</b> (<code>delete_others_posts</code>) der. I en direkte eller gruppebesked kan medlemmerne det. Afvist i arkiverede kanaler.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /teams/{team_id}/rules</code><br><code>POST /teams/{team_id}/rules/accept</code><br><code>GET /teams/{team_id}/rules/stats</code></td><td>Fællesskabsregler: se <a href="#community-rules">Fællesskabsregler</a>.</td></tr>
+<tr><td><code>GET</code>, <code>POST</code>, <code>DELETE /users/me/focus</code><br><code>GET /users/me/focus/summary?since=&amp;until=</code><br><code>POST /users/me/focus/summary/read</code></td><td>Fokustilstand: se <a href="#focus">Fokustilstand</a>.</td></tr>
 <tr><td><code>POST /channels/{channel_id}/message_request</code></td><td>Handler på din egen beskedanmodning: <code>{"action": "accept"}</code>, <code>"dismiss"</code> eller <code>"request"</code> for at lægge en samtale tilbage blandt anmodningerne. Returnerer din kanalmedlem.</td></tr>
 <tr><td><code>GET</code>, <code>PUT /channels/{channel_id}/overrides</code><br><code>GET /channels/{channel_id}/overrides/effective</code><br><code>GET</code>, <code>PUT /channels/{channel_id}/role_access</code></td><td>Hvad en rolle eller en person må gøre i en kanal, og hvilke roller der kan se en kanal med rolle-beskyttelse.</td></tr>
 <tr><td><code>GET</code>, <code>PUT /teams/{team_id}/server_categories</code><br><code>GET</code>, <code>PUT …/server_categories/overrides</code></td><td>Fællesskabets fælles kanal-kategorier og de overrides, der gælder for alle kanaler i en kategori.</td></tr>
@@ -154,6 +156,7 @@ func main() {
 <tr><td><code>GET /posts/{post_id}/speech</code></td><td>Den besked, der læses højt som lyd, når tekst-til-lyd er konfigureret.</td></tr>
 <tr><td><code>POST /posts/{post_id}/move_to_channel</code></td><td>Flytter en tråd til en anden kanal i samme fællesskab: se <a href="#move-thread">Flyt en tråd</a>.</td></tr>
 <tr><td><code>GET</code>, <code>POST /ai/connections</code><br><code>GET</code>, <code>PATCH</code>, <code>DELETE /ai/connections/{connection_id}</code><br><code>GET /ai/connections/usable</code></td><td>Model-forbindelser, de AI-udbydere, som serverens AI-funktioner og apps bruger: se <a href="#ai-connections">Model-forbindelser</a>.</td></tr>
+<tr><td><code>GET</code>, <code>POST /ai/agents</code><br><code>GET</code>, <code>PATCH</code>, <code>DELETE /ai/agents/{agent_id}</code><br><code>POST /ai/agents/{agent_id}/tasks</code><br><code>GET /ai/agents/conversations</code></td><td>AI-agenter, deres aktivitet samt opgaver og samtaler i AI-chatten: se <a href="#agents">Agenter</a>.</td></tr>
 <tr><td><code>GET /channels/{channel_id}/message_actions</code><br><code>POST /posts/{post_id}/message_actions/{hook_id}</code><br><code>GET</code>, <code>POST /hooks/outgoing/{hook_id}/icon</code></td><td>Besked-handlinger: udgående webhooks, som folk kører fra beskedmenuen. Se <a href="{{root}}docs/developers/webhooks.html#message-actions">Besked-handlinger</a>.</td></tr>
 </tbody>
 </table>
@@ -195,6 +198,33 @@ func main() {
 </ul>
 <p>Begge har også en <code>TranslationID</code>. Et privat kanals navn udelades: læserne ser "en anden kanal". Mattermosts egen <code>POST /posts/{post_id}/move</code> er slået fra i Antimatter; brug denne endepunkt i stedet.</p>
 
+<h2 id="community-rules">Fællesskabsregler</h2>
+<p>Administratorerne for et samfund kan kræve, at dets medlemmer accepterer samfundets regler, før de skriver i kanalerne. Når reglerne er aktiveret, kan et medlem, der ikke har accepteret den nuværende version, ikke skrive, svare, sende filer, planlægge, redigere eller gendanne en besked eller køre en kommando, der skriver i samfundets kanaler: Serveren svarer <code>403</code> med ID&#39;et <code>api.post.community_rules_not_accepted</code>, og en planlagt besked, der skal sendes på det tidspunkt, fejler med fejlcode <code>community_rules_not_accepted</code>. Læsning, reaktioner samt direkte beskeder og gruppebeskeder begrænses ikke. Det samme gælder bots, indgående webhooks, systembeskeder og samfundets administratorer (<code>manage_team</code>, som systemadministratorer også har).</p>
+<table>
+<thead><tr><th>Endpoint</th><th>Hvad den gør</th></tr></thead>
+<tbody>
+<tr><td><code>GET /teams/{team_id}/rules</code></td><td>Reglerne (<code>enabled</code>, <code>text</code> i Markdown, <code>version</code>), den seneste version du accepterede (<code>accepted_version</code>) og om du skal acceptere før du kan sende beskeder (<code>must_accept</code>). For medlemmer og for alle, der kan deltage i et åbent fællesskab.</td></tr>
+<tr><td><code>PUT /teams/{team_id}/rules</code></td><td>Gemmer dem med <code>{"enabled", "text", "ask_again"}</code> (<code>manage_team</code>). <code>ask_again</code> opretter en ny version, som alle skal godkende igen; den første gemning er version 1. Teksten er påkrævet for at aktivere dem, og må højst være 16.000 tegn.</td></tr>
+<tr><td><code>POST /teams/{team_id}/rules/accept</code></td><td>Aftaler, som medlem, <code>version</code>, du læser; <code>409</code>, når en nyere version er blevet gemt siden da, og 0 aftaler den nuværende.</td></tr>
+<tr><td><code>GET /teams/{team_id}/rules/stats</code></td><td>Hvor mange af arbejdsmrådets medlemmer har accepteret den nuværende version (<code>manage_team</code>).</td></tr>
+</tbody>
+</table>
+<p>Hændelsen <code>community_rules_updated</code> sendes til fællesskabet, når en administrator gemmer reglerne (<code>team_id</code>, <code>enabled</code>, <code>version</code>), og <code>community_rules_accepted</code> sendes til den, der accepterede dem, på alle deres sessioner (<code>team_id</code>, <code>version</code>).</p>
+
+<h2 id="focus">Fokustilstand</h2>
+<p>Fokustilstand er Forstyr ikke med et sluttidspunkt: Notifikationer er sat til lyd af (ingen push-, e-mail-, skrivebords- eller vedvarende notifikationer, inklusive hastige beskeder), årsagen bliver til den brugerdefinerede status med 🎯-emoji (<code>dart</code>), som udløber ved slutningen, og Antimatters apps skjuler personens egne ulæste badges. Kun personen selv kan bruge disse slutpunkter (<code>me</code> eller deres eget ID): Ingen andre, inklusive systemadministratorer, må starte, afslutte eller læse nogens fokus eller dets resumé.</p>
+<table>
+<thead><tr><th>Endpoint</th><th>Hvad den gør</th></tr></thead>
+<tbody>
+<tr><td><code>GET /users/me/focus</code></td><td>Den nuværende fokus (<code>active</code>, <code>start_at</code>, <code>end_at</code>, <code>reason</code>), eller den sidste, når den er afsluttet (<code>ended_at</code> er angivet), eller alle nul.</td></tr>
+<tr><td><code>POST /users/me/focus</code></td><td>Starter fokus, eller ændrer slutningen og årsagen, mens fokus er aktivt: <code>{"duration": "1h30m", "reason": "…"}</code>, eller <code>{"end_at": ms}</code> i stedet for varigheden, fra et minut til en uge frem. <code>"duration": "tomorrow"</code> slutter kl. 09:00 næste dag i personens tidszone. Slutningen afrundes ned til nærmeste minut; årsagen må højst være 100 tegn. Kræver, at brugerstatus er aktiveret (<code>ServiceSettings.EnableUserStatuses</code>); bots kan ikke fokusere.</td></tr>
+<tr><td><code>DELETE /users/me/focus</code></td><td>Afslutter fokuseret tilstand nu.</td></tr>
+<tr><td><code>GET /users/me/focus/summary?since=&amp;until=</code></td><td>Hvad der er gået glip af i det vindue (en fokuserings <code>start_at</code> og <code>ended_at</code>): Kanalerne med ulæste beskeder fra andre (direkte beskeder og gruppebeskeder først, derefter dem med omtaler; kanaler med lyd af kun ved omtale), og, med sammenklappede svartråde, de fulgte tråde med nye svar, hver med dens antal, omtaler og sidste afsender.</td></tr>
+<tr><td><code>POST /users/me/focus/summary/read</code></td><td>Med <code>{"since", "until"}</code>: markerer kanaler og tråde som læst op til <code>until</code>. Det, der er kommet efter, forbliver ulæst.</td></tr>
+</tbody>
+</table>
+<p>Mens en person er i fokus, har deres bruger egenskaben <code>focus_until</code> (millisekunder), som klienterne bruger til at vise fokusstatus. Den kan ikke ændres gennem profilen. Fokus slutter, når personen selv afslutter det, når tiden er inde (inden for et minut), eller når de vælger en status selv, som derefter bliver stående. Ellers kommer status og tilpasset status fra før tilbage. Alle deres sessioner modtager derefter hændelsen <code>focus_ended</code> med <code>start_at</code>, <code>end_at</code> og <code>ended_by</code> (<code>user</code>, <code>timer</code> eller <code>status</code>).</p>
+
 <h2 id="ai-connections">Modelforbindelser</h2>
 <p>En modelforbindelse er en AI-udbyders adresse og nøgle, der oprettes af en administrator. Serverens AI-funktioner og de apps, der kalder AI-tjenesten, bruger dem. Systemadministratorer administrerer serverens forbindelser (<code>manage_ai_connections</code>), mens en fællesskabs administratorer administrerer deres fællesskabs egne (<code>manage_team_ai_connections</code>). Nøgler er skrivealene: intet svar indeholder en nøgle, kun <code>api_key_set</code> og <code>api_key_last4</code>.</p>
 <table>
@@ -224,3 +254,33 @@ func main() {
   "audience": {"everyone": true, "group_ids": [], "roles": [], "allow_guests": false}
 }</code></pre>
 <p><code>provider</code> er <code>openai_compatible</code> eller <code>anthropic</code>. <code>scope</code> er standard <code>server</code>; et fællesskabs ID gør det til det fællesskabs forbindelse. I <code>limits</code> betyder 0 ingen grænse; anmodninger pr. minut tæller på hver server, token-budgetter pr. kalendermåned (UTC) for hele clusteret. <code>sharing</code> angiver, hvilke fællesskaber der må bruge en serverbred forbindelse (direkte og gruppebeskeder kræver <code>all_teams</code>), og <code>audience</code> hvem der må bruge den; gæster kun med <code>allow_guests</code>. Ændringer skrives til auditloggen. Administrationsguiden forklarer indstillingerne: se <a href="{{root}}docs/admins/ai.html">AI</a>.</p>
+
+<h2 id="agents">Agenter</h2>
+<p>En agent er en bot-konto af typen <code>agent</code> (<code>is_agent</code> på dens bruger) med dens indstillinger: dens omfang (<code>server</code> eller et samfunds-ID), indbygget eller <code>external</code>, og for en indbygget agent dens modelforbindelse, model, systemprompt og ræsonnement. Systemadministratorer administrerer serverdækkende agenter (<code>manage_system</code>), mens et samfunds administratorer administrerer samfundets agenter (<code>manage_team</code>). Derudover kan de administrere deres egne oprettede agenter med <code>manage_own_agent</code> og andres agenter med <code>manage_others_agent</code>. Agentens ID i disse stier er dens bruger-ID. Kørsel af en ekstern agent er forklaret i <a href="{{root}}docs/developers/bots.html#agents">Bots</a>.</p>
+<table>
+<thead><tr><th>Endpoint</th><th>Hvad den gør</th></tr></thead>
+<tbody>
+<tr><td><code>GET /ai/agents?scope=</code></td><td>De agenter, du administrerer: <code>scope</code> er <code>server</code> eller et fællesskabs-ID. Uden denne parameter administrerer du alle agenter.</td></tr>
+<tr><td><code>POST /ai/agents</code></td><td>Opretter en agent og dens konto (svarer med <code>201</code>). En agents tilhørsforhold til et fællesskab oprettes, når agenten oprettes.</td></tr>
+<tr><td><code>GET</code>, <code>PATCH</code>, <code>DELETE /ai/agents/{agent_id}</code><br><code>POST …/enable</code>, <code>POST …/disable</code></td><td>Læser, ændrer og sletter (kontoen deaktiveres, men beskederne bevares), samt aktiverer eller deaktiverer en agent.</td></tr>
+<tr><td><code>GET /ai/agents/connections?scope=</code><br><code>GET /ai/agents/connections/{connection_id}/models</code></td><td>De modelforbindelser, som en agent med dette omfang kan bruge, og deres modeller.</td></tr>
+<tr><td><code>GET</code>, <code>PUT /ai/agents/{agent_id}/activity</code><br><code>POST /ai/agents/activity/ids</code></td><td>Hvad en agent gør; angives af dens egen token eller af dens administratorer. Massen kan indeholde op til 200 bruger-ID'er.</td></tr>
+<tr><td><code>POST /ai/agents/{agent_id}/tasks</code></td><td>Spørger en indbygget agent, du kan bruge til en opgave: <code>summarize_thread</code>, <code>find_action_items</code> eller <code>find_open_questions</code> (på en tråds <code>post_id</code>, eller et <code>channel_id</code> fra <code>since</code> og frem), <code>summarize_channel</code>, <code>ask_channel</code> (med et <code>question</code>) eller <code>summarize_transcription</code> (en transkription af et opkald). Forespørgslen bliver til din besked i den direkte besked med agenten, på dit sprog, og besvares der; svaret (<code>201</code>) er denne besked. En besked eller kanal, du ikke kan læse, besvares som om den ikke findes.</td></tr>
+<tr><td><code>GET /ai/agents/conversations?agent_id=&amp;before=&amp;per_page=</code></td><td>Dine samtaler med de agenter, du kan bruge, med de seneste først: de tråde, du startede i dine direkte beskeder med dem, og de tråde andre steder, hvor en af dem svarede, og som du følger. <code>before</code> (et tidspunkt) giver den næste side; <code>per_page</code> er højst 100.</td></tr>
+</tbody>
+</table>
+<p>Indholdet af en ny agent:</p>
+<pre><code>{
+  "username": "researcher",
+  "display_name": "Researcher",
+  "description": "Answers with sources",
+  "scope": "server",
+  "external": false,
+  "connection_id": "…",
+  "model": "",
+  "system_prompt": "You research questions and answer with sources.",
+  "reasoning": {"enabled": false, "effort": "", "budget_tokens": 0},
+  "max_tool_turns": 0,
+  "access": {"everyone": true, "team_ids": [], "channel_ids": [], "roles": [], "user_ids": [], "allow_guests": false}
+}</code></pre>
+<p>En tom <code>model</code> bruger forbindelsens chatmodel. <code>access.channel_ids</code> betyder medlemmerne af disse kanaler. En ekstern agent har ingen forbindelse, model eller systemprompt. <code>GET /agents</code> viser en liste over de agenter, du kan tale med, som AI-chatappen læser dem.</p>
