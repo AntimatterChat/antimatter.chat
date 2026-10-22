@@ -73,6 +73,74 @@ async function req(method, url, body, check) {
     return res.json;
 }
 
+// Fusion pages through a channel from the first and last rows of its list, and folds join and leave messages into a
+// row whose id ("user-activity-<ids>") no server knows: a page that stops on one of them while more posts lie beyond
+// makes Fusion ask for that id again and again, and the list flickers (General, 2026-10-17). Every channel, read the
+// way Fusion reads it, in both directions and with small and large pages, must reach its ends and leave nothing out.
+const USER_ACTIVITY = new Set(['system_add_to_channel', 'system_join_channel', 'system_leave_channel', 'system_remove_from_channel',
+    'system_add_to_team', 'system_join_team', 'system_leave_team', 'system_remove_from_team']);
+async function pagesOfEveryChannel(S) {
+    const q = 'skipFetchThreads=false&collapsedThreads=true&collapsedThreadsExtended=false';
+    const problem = (c, what) => {
+        failures++;
+        console.log(`FAIL paging ${c.name || c.id}: ${what}`);
+    };
+    let checked = 0;
+    for (const c of Object.values(S.channels)) {
+        const all = Object.values(S.posts).filter((p) => p.channel_id === c.id && !p.delete_at && !p.root_id)
+            .sort((a, b) => b.create_at - a.create_at).map((p) => p.id);
+        if (!all.length) {
+            continue;
+        }
+        checked++;
+        for (const [first, per] of [[30, 60], [5, 5]]) {
+            // Older: the latest page, then before= the oldest post listed until the channel's first post.
+            const seen = new Set();
+            let page = await req('GET', `/api/v4/channels/${c.id}/posts?page=0&per_page=${first}&${q}`);
+            for (let n = 0; page && n < 100; n++) {
+                page.order.forEach((id) => seen.add(id));
+                if (!page.prev_post_id) {
+                    break;
+                }
+                const oldest = S.posts[page.order[page.order.length - 1]];
+                if (USER_ACTIVITY.has(oldest.type)) {
+                    problem(c, `a page of older posts ends on a ${oldest.type} message with more before it`);
+                    break;
+                }
+                page = await req('GET', `/api/v4/channels/${c.id}/posts?before=${oldest.id}&page=0&per_page=${per}&${q}`);
+            }
+            if (seen.size !== all.length) {
+                problem(c, `reading back from the latest page gave ${seen.size} of ${all.length} posts`);
+            }
+            // Newer: after= the newest post listed, from the channel's first post up to the latest.
+            const ahead = new Set([all[all.length - 1]]);
+            let after = all[all.length - 1];
+            for (let n = 0; n < 100; n++) {
+                page = await req('GET', `/api/v4/channels/${c.id}/posts?after=${after}&page=0&per_page=${per}&${q}`);
+                if (!page || !page.order.length) {
+                    break;
+                }
+                page.order.forEach((id) => ahead.add(id));
+                if (!page.next_post_id) {
+                    break;
+                }
+                const newest = S.posts[page.order[0]];
+                if (USER_ACTIVITY.has(newest.type)) {
+                    problem(c, `a page of newer posts ends on a ${newest.type} message with more after it`);
+                    break;
+                }
+                after = newest.id;
+            }
+            if (ahead.size !== all.length) {
+                problem(c, `reading on from the first post gave ${ahead.size} of ${all.length} posts`);
+            }
+        }
+    }
+    if (!checked) {
+        problem({name: 'all channels'}, 'no channel has posts');
+    }
+}
+
 (async () => {
     await server.load({base: BASE, version: 'test', locale: '', systemAdmin: false});
     const S = server.api.state();
@@ -109,6 +177,16 @@ async function req(method, url, body, check) {
     await req('GET', `/api/v4/teams/${team.id}/channels/managed_categories`);
     await req('GET', `/api/v4/teams/${team.id}/server_categories`, undefined, Array.isArray);
     await req('GET', `/api/v4/teams/${community.id}/timeouts`, undefined, Array.isArray);
+    // The default channel by its name, and by its old one (town-square), which apps built before the rename ask for.
+    await req('GET', `/api/v4/teams/${team.id}/channels/name/general`, undefined, (c) => c.id === town.id);
+    await req('GET', `/api/v4/teams/${team.id}/channels/name/town-square`, undefined, (c) => c.id === town.id);
+    await req('GET', '/api/v4/teams/name/lumen/channels/name/town-square', undefined, (c) => c.id === town.id);
+    await req('GET', `/api/v4/teams/${community.id}/channels/name/town-square`, undefined, (c) => c.team_id === community.id && c.name === 'general');
+    const unknown = await server.handle({method: 'GET', url: `/api/v4/teams/${team.id}/channels/name/no-such-channel`, headers: {}, body: null});
+    if (unknown.status !== 404) {
+        failures++;
+        console.log('FAIL an unknown channel name is not a 404');
+    }
     await req('GET', `/api/v4/channels/${channel.id}/overrides/effective`, undefined, Array.isArray);
     await req('GET', '/api/v4/groups?group_source=custom&include_member_ids=true&page=0&per_page=200', undefined, (g) => g.length > 5);
     await req('GET', `/api/v4/users/me/teams/${team.id}/drafts`, undefined, Array.isArray);
@@ -125,6 +203,7 @@ async function req(method, url, body, check) {
         undefined, (p) => Array.isArray(p.order));
     await req('GET', `/api/v4/channels/${channel.id}/posts?since=${Date.now() - 1000}&skipFetchThreads=false&collapsedThreads=true&collapsedThreadsExtended=false`,
         undefined, (p) => Array.isArray(p.order));
+    await pagesOfEveryChannel(S);
     await req('POST', '/api/v4/channels/members/me/view', {channel_id: channel.id, collapsed_threads_supported: true}, (r) => r.status === 'OK');
     await req('GET', `/api/v4/channels/${channel.id}/on_top`, undefined, Array.isArray);
     await req('GET', `/api/v4/channels/${dm.id}/posts?page=0&per_page=5&skipFetchThreads=true&collapsedThreads=true&collapsedThreadsExtended=false`,

@@ -833,10 +833,25 @@
 
     // --- channels ------------------------------------------------------------------------------------------------
 
-    function channelByName(tid, name) {
+    function namedChannel(tid, name) {
         return values(S.channels).find(function (c) {
             return c.name === name && (c.team_id === tid || !c.team_id);
         });
+    }
+
+    // A community's default channel, as the server finds it: the one it chose, else general, else a town-square not
+    // renamed yet; only while it is a public channel that isn't archived.
+    function defaultChannel(tid) {
+        var t = S.teams[tid] || {};
+        var c = (t.default_channel_id && S.channels[t.default_channel_id]) || namedChannel(tid, 'general') || namedChannel(tid, 'town-square');
+        return c && c.team_id === tid && c.type === 'O' && !c.delete_at ? c : undefined;
+    }
+
+    // channelByName answers as the server does since the default channel became general: town-square, its old name,
+    // gives the community's default channel when no channel has that name. The apps built before the rename ask for
+    // town-square by name (old links, the playbook runner...).
+    function channelByName(tid, name) {
+        return namedChannel(tid, name) || (name === 'town-square' ? defaultChannel(tid) : undefined);
     }
 
     function myChannels(tid) {
@@ -1328,6 +1343,36 @@
         return list;
     }
 
+    // The join and leave messages the app folds into one row, "user-activity-<ids>" (its USER_ACTIVITY_POST_TYPES).
+    var USER_ACTIVITY = ['system_add_to_channel', 'system_join_channel', 'system_leave_channel', 'system_remove_from_channel',
+        'system_add_to_team', 'system_join_team', 'system_leave_team', 'system_remove_from_team'];
+
+    function isUserActivity(id) {
+        return USER_ACTIVITY.indexOf((S.posts[id] || {}).type) >= 0;
+    }
+
+    // pageEnd: where a page of a channel's posts (newest first) ends, at end or a little further. Fusion asks for older
+    // messages before the first row of its list, and when that row is folded join and leave messages it sends the
+    // row's own id ("before=user-activity-..."), which no server can answer: the older page never comes, Fusion asks
+    // again at once, and the list flickers with its "Loading older messages" line. So a page doesn't end on such a
+    // message while older ones remain: it goes on to the next ordinary message, or to the channel's first post.
+    // pageStart does the same at the newest end of a page of newer messages (after=).
+    function pageEnd(ids, end) {
+        end = Math.min(end, ids.length);
+        while (end > 0 && end < ids.length && isUserActivity(ids[end - 1])) {
+            end++;
+        }
+        return end;
+    }
+
+    function pageStart(ids, start) {
+        start = Math.max(start, 0);
+        while (start > 0 && start < ids.length && isUserActivity(ids[start])) {
+            start--;
+        }
+        return start;
+    }
+
     route('GET', '/api/v4/channels/:cid/posts', function (req, p) {
         var q = req.query;
         var collapsed = q.get('collapsedThreads') === 'true';
@@ -1345,18 +1390,20 @@
         if (before) {
             var bi = ids.indexOf(before);
             var older = bi >= 0 ? ids.slice(bi + 1) : [];
-            var chunk = older.slice(page * per, page * per + per);
-            return json(withRoots(postList(chunk, {next_post_id: before, prev_post_id: older[page * per + per] || ''})));
+            var from = pageEnd(older, page * per);
+            var to = pageEnd(older, from + per);
+            return json(withRoots(postList(older.slice(from, to), {next_post_id: before, prev_post_id: older[to] || ''})));
         }
         if (after) {
             var ai = ids.indexOf(after);
             var newer = ai >= 0 ? ids.slice(0, ai) : [];
-            var start = Math.max(0, newer.length - per * (page + 1));
-            var part = newer.slice(start, newer.length - per * page);
-            return json(withRoots(postList(part, {next_post_id: start > 0 ? newer[start - 1] : '', prev_post_id: after})));
+            var stop = pageStart(newer, newer.length - per * page);
+            var start = pageStart(newer, stop - per);
+            return json(withRoots(postList(newer.slice(start, stop), {next_post_id: start > 0 ? newer[start - 1] : '', prev_post_id: after})));
         }
-        var slice = ids.slice(page * per, page * per + per);
-        return json(withRoots(postList(slice, {prev_post_id: ids[page * per + per] || ''})));
+        var first = pageEnd(ids, page * per);
+        var last = pageEnd(ids, first + per);
+        return json(withRoots(postList(ids.slice(first, last), {prev_post_id: ids[last] || ''})));
     });
     route('GET', '/api/v4/users/:uid/channels/:cid/posts/unread', function (req, p) {
         var collapsed = req.query.get('collapsedThreads') === 'true';
