@@ -711,6 +711,10 @@
         return json(S.statuses[uid(p.uid)] || {user_id: uid(p.uid), status: 'offline'});
     });
     route('PUT', '/api/v4/users/:uid/status', function (req, p) {
+        // Picking a status ends a focus (keeping that status).
+        if (uid(p.uid) === S.me.id && S.focus && S.focus.active) {
+            endFocus('status');
+        }
         var st = Object.assign(S.statuses[uid(p.uid)] || {}, req.body || {}, {user_id: uid(p.uid), last_activity_at: now()});
         S.statuses[st.user_id] = st;
         emit('status_change', {status: st.status, user_id: st.user_id});
@@ -849,7 +853,7 @@
 
     // channelByName answers as the server does since the default channel became general: town-square, its old name,
     // gives the community's default channel when no channel has that name. The apps built before the rename ask for
-    // town-square by name (old links, the playbook runner...).
+    // town-square by name (old links, apps built before the rename...).
     function channelByName(tid, name) {
         return namedChannel(tid, name) || (name === 'town-square' ? defaultChannel(tid) : undefined);
     }
@@ -2382,6 +2386,60 @@
     route('GET', '/api/v4/agents', function () {
         return json([]);
     });
+    // AI agents need a language model, which the demo doesn't have: there are none, and none can be made.
+    ['/api/v4/ai/agents', '/api/v4/ai/agents/conversations', '/api/v4/ai/agents/connections', '/api/v4/ai/connections',
+        '/api/v4/ai/connections/usable'].forEach(function (path) {
+        route('GET', path, function () {
+            return json([]);
+        });
+    });
+    route('POST', '/api/v4/ai/agents/activity/ids', function () {
+        return json([]);
+    });
+    route('POST', '/api/v4/ai/agents', function () {
+        return forbidden('Agents need a language model, which the demo doesn\'t have.');
+    });
+    route('POST', '/api/v4/ai/connections', function () {
+        return forbidden('Agents need a language model, which the demo doesn\'t have.');
+    });
+    // Message actions run outgoing webhooks, which the demo has none of.
+    route('GET', '/api/v4/channels/:cid/message_actions', function () {
+        return json([]);
+    });
+    route('POST', '/api/v4/posts/:pid/message_actions/:hook', function () {
+        return forbidden('Message actions aren\'t part of the demo.');
+    });
+    // What a community's autolinks (as edited) make of a text: each pattern (named groups (?P<name>...)) is replaced by
+    // its template ($name), as the server does (server/channels/app/autolink.go).
+    route('POST', '/api/v4/teams/:tid/autolinks/preview', function (req) {
+        var b = req.body || {};
+        var links = (b.autolinks && (b.autolinks.links || b.autolinks)) || [];
+        var text = String(b.text || '');
+        (Array.isArray(links) ? links : []).forEach(function (l) {
+            if (!l || l.disabled || !l.pattern || (l.channels && l.channels.length && l.channels.indexOf(b.channel_id) < 0)) {
+                return;
+            }
+            try {
+                var pattern = String(l.pattern).replace(/\(\?P</g, '(?<');
+                var before = l.word_match ? '\\b' : (l.disable_non_word_prefix ? '' : '(?<=^|[\\s(*_~])');
+                var after = l.word_match ? '\\b' : (l.disable_non_word_suffix ? '' : '(?=$|[\\s.,;:!?)*_~])');
+                var re = new RegExp(before + '(?:' + pattern + ')' + after, 'g');
+                text = text.replace(re, function () {
+                    var args = Array.prototype.slice.call(arguments);
+                    var groups = typeof args[args.length - 1] === 'object' ? args[args.length - 1] : {};
+                    return String(l.template || '').replace(/\$\{?([A-Za-z_][A-Za-z0-9_]*|\d+)\}?/g, function (m, name) {
+                        if (/^\d+$/.test(name)) {
+                            return name === '0' ? args[0] : (args[parseInt(name, 10)] || '');
+                        }
+                        return (groups || {})[name] || '';
+                    });
+                });
+            } catch (e) {
+                // An invalid pattern changes nothing.
+            }
+        });
+        return json({text: text});
+    });
     route('GET', '/api/v4/content_flagging/team/:tid/status', function () {
         return json({enabled: false});
     });
@@ -2397,11 +2455,272 @@
         });
     });
 
+    // --- focus mode -----------------------------------------------------------------------------------------------
+
+    // Focus mode is Do not disturb until a time, with the reason as the custom status (🎯): what the server does
+    // (server/channels/app/focus.go), on the visitor only. It ends at its end, when the visitor ends it, or when they
+    // pick another status; the app then shows what they missed meanwhile (the summary).
+    var FOCUS_EMOJI = 'dart';
+    var focusTimer = null;
+
+    function focusState() {
+        S.focus = S.focus || {active: false, start_at: 0, end_at: 0, reason: '', ended_at: 0};
+        return S.focus;
+    }
+
+    function focusOut() {
+        var f = focusState();
+        return {active: f.active, start_at: f.start_at, end_at: f.end_at, reason: f.reason, ended_at: f.ended_at};
+    }
+
+    // zoneOffset: how far a time zone is from UTC at a moment, in milliseconds.
+    function zoneOffset(at, zone) {
+        try {
+            var parts = {};
+            new Intl.DateTimeFormat('en-US', {timeZone: zone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', second: '2-digit'}).formatToParts(new Date(at)).forEach(function (x) {
+                parts[x.type] = x.value;
+            });
+            return Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour % 24, +parts.minute, +parts.second) - Math.floor(at / 1000) * 1000;
+        } catch (e) {
+            return -new Date(at).getTimezoneOffset() * 60000;
+        }
+    }
+
+    function myZone() {
+        var tz = S.me.timezone || {};
+        return (tz.useAutomaticTimezone === 'true' ? tz.automaticTimezone : tz.manualTimezone) ||
+            Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    }
+
+    // focusEnd: the end asked for (a duration like 15m or 2h, "tomorrow" for 09:00 the next day in the visitor's
+    // time zone, or end_at), to the minute; 0 when it makes no sense.
+    function focusEnd(b) {
+        var t = now();
+        var end = 0;
+        var m = /^(\d+)\s*(m|h)$/.exec(String(b.duration || ''));
+        if (m) {
+            end = t + parseInt(m[1], 10) * (m[2] === 'h' ? 3600000 : 60000);
+        } else if (b.duration === 'tomorrow') {
+            var zone = myZone();
+            var local = new Date(t + zoneOffset(t, zone));
+            var nine = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + 1, 9, 0, 0);
+            end = nine - zoneOffset(nine, zone);
+        } else if (b.end_at) {
+            end = int(b.end_at, 0);
+        }
+        end = Math.floor(end / 60000) * 60000;
+        return end > t ? end : 0;
+    }
+
+    function setMyStatus(status, manual, dndEnd) {
+        var st = Object.assign(S.statuses[S.me.id] || {}, {user_id: S.me.id, status: status, manual: manual, dnd_end_time: dndEnd || 0,
+            last_activity_at: now()});
+        S.statuses[S.me.id] = st;
+        emit('status_change', {status: st.status, user_id: st.user_id, dnd_end_time: st.dnd_end_time});
+    }
+
+    function endFocus(by) {
+        var f = focusState();
+        if (!f.active) {
+            return;
+        }
+        clearTimeout(focusTimer);
+        f.active = false;
+        f.ended_at = by === 'timer' ? Math.min(f.end_at, now()) : now();
+        if (by !== 'status') {
+            var prev = f.prev || {};
+            setMyStatus(prev.status || 'online', Boolean(prev.manual), prev.dnd_end_time || 0);
+        }
+        var props = Object.assign({}, S.me.props || {});
+        delete props.focus_until;
+        // The custom status comes back, unless the visitor changed it meanwhile.
+        if (props.customStatus === f.customStatus) {
+            props.customStatus = (f.prev || {}).customStatus || '';
+        }
+        patchMe({props: props});
+        emit('focus_ended', {start_at: f.start_at, end_at: f.ended_at, ended_by: by}, {user_id: S.me.id});
+    }
+
+    route('GET', '/api/v4/users/:uid/focus', function () {
+        var f = focusState();
+        if (f.active && f.end_at <= now()) {
+            endFocus('timer');
+        }
+        return json(focusOut());
+    });
+    route('POST', '/api/v4/users/:uid/focus', function (req) {
+        var b = req.body || {};
+        var end = focusEnd(b);
+        if (!end) {
+            return {status: 400, json: {id: 'app.focus.end.app_error', message: 'Pick an end in the future.', status_code: 400}};
+        }
+        var f = focusState();
+        if (!f.active) {
+            var st = S.statuses[S.me.id] || {};
+            f.prev = {status: st.status || 'online', manual: Boolean(st.manual), dnd_end_time: st.dnd_end_time || 0,
+                customStatus: (S.me.props || {}).customStatus || ''};
+            f.start_at = now();
+        }
+        f.active = true;
+        f.end_at = end;
+        f.ended_at = 0;
+        f.reason = String(b.reason || '');
+        f.customStatus = JSON.stringify({emoji: FOCUS_EMOJI, text: f.reason, duration: 'date_and_time', expires_at: new Date(end).toISOString()});
+        var props = Object.assign({}, S.me.props || {}, {customStatus: f.customStatus, focus_until: String(end)});
+        patchMe({props: props});
+        setMyStatus('dnd', true, Math.floor(end / 1000));
+        clearTimeout(focusTimer);
+        focusTimer = setTimeout(function () {
+            endFocus('timer');
+        }, Math.min(end - now(), 2147483647));
+        return json(focusOut());
+    });
+    route('DELETE', '/api/v4/users/:uid/focus', function () {
+        endFocus('user');
+        return json(focusOut());
+    });
+    // What came in between since and until from others, not read yet: direct and group messages, then mentions.
+    route('GET', '/api/v4/users/:uid/focus/summary', function (req) {
+        var since = int(req.query.get('since'), 0);
+        var until = int(req.query.get('until'), now());
+        var mentionRe = new RegExp('@(' + S.me.username + '|here|channel|all)\\b');
+        var byChannel = {};
+        var byThread = {};
+        values(S.posts).forEach(function (p) {
+            if (p.user_id === S.me.id || p.delete_at || p.create_at <= since || p.create_at > until || /^system_/.test(p.type || '')) {
+                return;
+            }
+            var c = S.channels[p.channel_id];
+            var m = S.myMembers[p.channel_id];
+            if (!c || !m || p.create_at <= (m.last_viewed_at || 0)) {
+                return;
+            }
+            var mention = c.type === 'D' || mentionRe.test(p.message || '');
+            if (p.root_id) {
+                var th = S.threads[p.root_id];
+                if (!th || !th.is_following || p.create_at <= (th.last_viewed_at || 0)) {
+                    return;
+                }
+                var t = byThread[p.root_id] = byThread[p.root_id] || {post_id: p.root_id, channel_id: c.id, team_id: c.team_id || th.team_id || '',
+                    count: 0, mention_count: 0, last_reply_at: 0, last_sender_id: ''};
+                t.count++;
+                t.mention_count += mention ? 1 : 0;
+                if (p.create_at > t.last_reply_at) {
+                    t.last_reply_at = p.create_at;
+                    t.last_sender_id = p.user_id;
+                }
+                return;
+            }
+            var x = byChannel[c.id] = byChannel[c.id] || {channel_id: c.id, team_id: c.team_id || '', type: c.type, name: c.name,
+                display_name: c.display_name, count: 0, mention_count: 0, last_post_at: 0, last_sender_id: ''};
+            x.count++;
+            x.mention_count += mention ? 1 : 0;
+            if (p.create_at > x.last_post_at) {
+                x.last_post_at = p.create_at;
+                x.last_sender_id = p.user_id;
+            }
+        });
+        var channels = values(byChannel).filter(function (x) {
+            return x.type === 'D' || x.type === 'G' || x.mention_count > 0;
+        }).sort(function (a, b) {
+            var da = a.type === 'D' || a.type === 'G' ? 0 : 1;
+            var db = b.type === 'D' || b.type === 'G' ? 0 : 1;
+            return da - db || b.last_post_at - a.last_post_at;
+        });
+        var threads = values(byThread).sort(function (a, b) {
+            return b.last_reply_at - a.last_reply_at;
+        });
+        var mentions = channels.concat(threads).reduce(function (n, x) {
+            return n + x.mention_count;
+        }, 0);
+        return json({since: since, until: until, mention_count: mentions, channels: channels, threads: threads});
+    });
+    route('POST', '/api/v4/users/:uid/focus/summary/read', function (req) {
+        var b = req.body || {};
+        var since = int(b.since, 0);
+        var until = int(b.until, now());
+        var seen = {};
+        values(S.posts).forEach(function (p) {
+            if (p.user_id !== S.me.id && !p.root_id && p.create_at > since && p.create_at <= until && S.myMembers[p.channel_id]) {
+                seen[p.channel_id] = true;
+            }
+        });
+        Object.keys(seen).forEach(markViewed);
+        return ok();
+    });
+
+    // --- community rules --------------------------------------------------------------------------------------------
+
+    // A community's rules, as recorded; the visitor is one of the communities' admins, who never have to agree.
+    function rulesOf(tid) {
+        S.rules = S.rules || {};
+        if (!S.rules[tid]) {
+            var rec = S.recorded['GET /api/v4/teams/' + tid + '/rules'];
+            S.rules[tid] = Object.assign({team_id: tid, enabled: false, text: '', version: 0, updated_by: '', update_at: 0,
+                accepted_version: 0, must_accept: false}, rec && !rec.__status ? clone(rec) : {});
+        }
+        var r = S.rules[tid];
+        var admin = /team_admin/.test((S.myTeamMembers[tid] || {}).roles || '') || Boolean((S.myTeamMembers[tid] || {}).scheme_admin);
+        r.must_accept = Boolean(r.enabled && r.version > r.accepted_version && !admin);
+        return r;
+    }
+    route('GET', '/api/v4/teams/:tid/rules', function (req, p) {
+        return S.teams[p.tid] ? json(rulesOf(p.tid)) : notFound('This community');
+    });
+    route('PUT', '/api/v4/teams/:tid/rules', function (req, p) {
+        if (!S.teams[p.tid]) {
+            return notFound('This community');
+        }
+        var b = req.body || {};
+        var r = rulesOf(p.tid);
+        r.enabled = Boolean(b.enabled);
+        r.text = String(b.text || '').trim();
+        if (b.ask_again || !r.version) {
+            r.version++;
+        }
+        r.updated_by = S.me.id;
+        r.update_at = now();
+        emit('community_rules_updated', {team_id: p.tid, enabled: r.enabled, version: r.version}, {team_id: p.tid});
+        return json(rulesOf(p.tid));
+    });
+    route('POST', '/api/v4/teams/:tid/rules/accept', function (req, p) {
+        if (!S.teams[p.tid]) {
+            return notFound('This community');
+        }
+        var r = rulesOf(p.tid);
+        r.accepted_version = r.version;
+        emit('community_rules_accepted', {team_id: p.tid, version: r.version}, {user_id: S.me.id});
+        return json(rulesOf(p.tid));
+    });
+    route('GET', '/api/v4/teams/:tid/rules/stats', function (req, p) {
+        var r = rulesOf(p.tid);
+        var members = teamMemberIds(p.tid).filter(function (id) {
+            return S.users[id] && !S.users[id].is_bot && !S.users[id].delete_at;
+        });
+        // As recorded, until the visitor asks everyone to agree again.
+        var rec = S.recorded['GET /api/v4/teams/' + p.tid + '/rules/stats'];
+        var accepted = rec && !rec.__status && rec.version === r.version ? rec.accepted_count : 0;
+        return json({team_id: p.tid, version: r.version, accepted_count: accepted, member_count: members.length});
+    });
+
     // --- the API used by mock/plugins.js and mock/boot.js -------------------------------------------------------------
+
+    var socketActions = {};
+    var binaryHandlers = [];
 
     var api = {
         route: route,
         emit: emit,
+        // socketAction(name, fn): fn(data, connection id) answers the websocket action of that name.
+        socketAction: function (name, fn) {
+            socketActions[name] = fn;
+        },
+        // socketBinary(fn): fn(connection id, data) for each binary message sent on a websocket.
+        socketBinary: function (fn) {
+            binaryHandlers.push(fn);
+        },
+        editPost: editPost,
         json: json,
         ok: ok,
         media: media,
@@ -2439,8 +2758,14 @@
         serverVersion: function () {
             return S.serverVersion || '';
         },
-        // onSocketAction answers an action the app sends on its websocket; its result goes in the reply's data.
-        onSocketAction: function (action, data) {
+        newId: newId,
+        // onSocketAction answers an action the app sends on its websocket (conn: that socket's connection id); its
+        // result goes in the reply's data. The apps' actions (custom_<app id>_...) go to their handlers
+        // (api.socketAction).
+        onSocketAction: function (action, data, conn) {
+            if (socketActions[action]) {
+                return socketActions[action](data, conn) || {};
+            }
             if (action === 'get_statuses') {
                 var all = {};
                 values(S.statuses).forEach(function (st) {
@@ -2459,6 +2784,12 @@
                 window.DemoLife.visitorTyping(data);
             }
             return {};
+        },
+        // onSocketBinary takes a binary message sent on a websocket (the Calls app's descriptions).
+        onSocketBinary: function (conn, data) {
+            binaryHandlers.forEach(function (fn) {
+                fn(conn, data);
+            });
         },
     };
     window.__demoMisses = misses;

@@ -48,6 +48,12 @@ DOMAIN = re.compile(
 # message ids (authentication.roles.team), files (notes.md) and code (window.location) are not.
 BARE_TLDS = re.compile(r'\.(com|org|net|dev|io|app|co|ai)$', re.I)
 ALLOWED_HOSTS = {'antimatter.chat', 'www.antimatter.chat', 'www.w3.org'}
+# The apps the demo leaves out (Playbooks and Kanban, since 2026-10-23), by plugin id: their bots' usernames and slash
+# commands. record_fixtures.py takes them out of the recording; nothing of theirs may be left in the fixtures.
+DROPPED_APPS = {
+    'playbooks': {'bots': ['playbooks'], 'commands': ['playbook']},
+    'focalboard': {'bots': ['boards', 'focalboard'], 'commands': ['kanban', 'boards']},
+}
 # github.com only for Antimatter's own repositories.
 ALLOWED_PATHS = {'github.com': re.compile(r'^/AntimatterChat(/|$)')}
 
@@ -138,6 +144,23 @@ class FixturesTest(unittest.TestCase):
                 continue
             problems += problems_in(doc, str(f.relative_to(FIXTURES)))
         self.assertEqual(problems[:50], [], f'{len(problems)} problems')
+
+    def test_no_dropped_apps(self):
+        ids = set(DROPPED_APPS)
+        bots = {n for a in DROPPED_APPS.values() for n in a['bots']}
+        triggers = {t for a in DROPPED_APPS.values() for t in a['commands']}
+        core = json.loads((FIXTURES / 'core.json').read_text())
+        users = json.loads((FIXTURES / 'users.json').read_text())
+        apps = json.loads((FIXTURES / 'apps.json').read_text())
+        routes = json.loads((FIXTURES / 'routes.json').read_text())
+        media = json.loads((FIXTURES / 'media.json').read_text())
+        self.assertEqual(ids & set(apps), set())
+        self.assertEqual([x['plugin_id'] for x in core.get('plugin_statuses') or [] if x['plugin_id'] in ids], [])
+        self.assertEqual([u['username'] for u in users['users'] if u.get('is_bot') and u['username'] in bots], [])
+        self.assertEqual([c['Complete'] for cmds in core['commands'].values() for c in cmds or []
+                          if c['Complete'].split(' ')[0] in triggers], [])
+        plugin = re.compile(r'/plugins/(' + '|'.join(re.escape(i) for i in ids) + r')(/|$)')
+        self.assertEqual([k for k in list(routes) + list(media) if plugin.search(k)], [])
 
     def test_no_text_files_with_secrets(self):
         # Other text files (none are expected) get the same string checks.

@@ -1,7 +1,9 @@
 // The demo's websocket: window.WebSocket is replaced, for the app's own socket (/api/v4/websocket), by a fake one
 // fed by the mock server (DemoServer.emit). It speaks the server's protocol: a "hello" event first, events numbered
 // from 0 (the app reconnects when a number is skipped), and an "OK" reply to each action the app sends (typing,
-// ping, statuses...). Other sockets are left alone.
+// ping, statuses...). Each socket has its own connection id, as on the server (the Calls app opens a second one for
+// the call it joins, and tells its events by that id); one that reconnects with its id keeps it. Other sockets are
+// left alone.
 (function () {
     'use strict';
     var RealWebSocket = window.WebSocket;
@@ -21,6 +23,7 @@
         this.onerror = null;
         this._listeners = {};
         this._seq = 0;
+        this.connectionId = connectionIdFor(this.url);
         setTimeout(function () {
             if (self.readyState !== 0) {
                 return;
@@ -30,10 +33,31 @@
             self._dispatch('open', {type: 'open'});
             self._event({
                 event: 'hello',
-                data: {connection_id: window.DemoServer.connectionId(), server_version: window.DemoServer.serverVersion(), server_hostname: ''},
+                data: {connection_id: self.connectionId, server_version: window.DemoServer.serverVersion(), server_hostname: ''},
                 broadcast: {omit_users: null, user_id: window.DemoServer.userId(), channel_id: '', team_id: ''},
             });
         }, 30);
+    }
+
+    // connectionIdFor: the id asked for again (a reconnection), else the page's own (DemoServer.connectionId) for the
+    // app's socket, else a new one.
+    function connectionIdFor(url) {
+        var asked = '';
+        try {
+            asked = new URL(url, location.href).searchParams.get('connection_id') || '';
+        } catch (e) {
+            // No id asked for.
+        }
+        var inUse = function (id) {
+            return sockets.some(function (s) {
+                return s.connectionId === id && s.readyState < 2;
+            });
+        };
+        if (asked && !inUse(asked)) {
+            return asked;
+        }
+        var main = window.DemoServer.connectionId();
+        return inUse(main) ? window.DemoServer.newId() : main;
     }
 
     FakeSocket.CONNECTING = 0;
@@ -87,6 +111,15 @@
     FakeSocket.prototype.send = function (raw) {
         var self = this;
         var msg;
+        // What the app sends reaches the server after send() returns, as over a network: an app that sends and then
+        // changes its own state (the Calls app leaving a call) gets the server's events after that.
+        if (typeof raw !== 'string') {
+            // Binary: the Calls app's messages in MessagePack, which only carry its connection's descriptions (sdp).
+            setTimeout(function () {
+                window.DemoServer.onSocketBinary(self.connectionId, raw);
+            }, 5);
+            return;
+        }
         try {
             msg = JSON.parse(raw);
         } catch (e) {
@@ -95,13 +128,13 @@
         if (!msg || typeof msg.seq === 'undefined') {
             return;
         }
-        var data = {};
-        if (msg.action === 'ping') {
-            data = {text: 'pong', version: window.DemoServer.serverVersion(), server_time: Date.now(), node_id: ''};
-        } else {
-            data = window.DemoServer.onSocketAction(msg.action, msg.data || {}) || {};
-        }
         setTimeout(function () {
+            var data;
+            if (msg.action === 'ping') {
+                data = {text: 'pong', version: window.DemoServer.serverVersion(), server_time: Date.now(), node_id: ''};
+            } else {
+                data = window.DemoServer.onSocketAction(msg.action, msg.data || {}, self.connectionId) || {};
+            }
             self._send({status: 'OK', seq_reply: msg.seq, data: data});
         }, 5);
     };
@@ -144,11 +177,15 @@
     DemoWebSocket.CLOSED = 3;
     window.WebSocket = DemoWebSocket;
 
-    // DemoSocket.broadcast sends an event to every open app socket: {event, data, broadcast}.
+    // DemoSocket.broadcast sends an event to every open app socket, or only to one connection
+    // (broadcast.connection_id): {event, data, broadcast}.
     window.DemoSocket = {
         broadcast: function (msg) {
+            var only = msg.broadcast && msg.broadcast.connection_id;
             sockets.slice().forEach(function (s) {
-                s._event(JSON.parse(JSON.stringify(msg)));
+                if (!only || s.connectionId === only) {
+                    s._event(JSON.parse(JSON.stringify(msg)));
+                }
             });
         },
         count: function () {
