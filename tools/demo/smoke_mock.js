@@ -242,6 +242,14 @@ async function rules(team, community) {
     await req('POST', `/api/v4/teams/${community.id}/rules/accept`, {version: r.version}, (x) => x.accepted_version === r.version);
 }
 
+async function communityProfiles(community, me) {
+    await req('GET', `/api/v4/teams/${community.id}/profiles`, undefined, (r) => Array.isArray(r));
+    await req('PATCH', `/api/v4/teams/${community.id}/members/${me}/profile`, {nickname: 'Lighthouse'}, (r) => r.nickname === 'Lighthouse' && r.user_id === me);
+    await req('GET', `/api/v4/teams/${community.id}/profiles`, undefined, (r) => r.some((x) => x.user_id === me && x.nickname === 'Lighthouse'));
+    await req('POST', `/api/v4/teams/${community.id}/members/${me}/profile/reset`, {nickname: true}, (r) => !r.nickname);
+    expect('a community profile change is sent to the community', eventsSince(0, 'community_profile_updated').length >= 2);
+}
+
 (async () => {
     await server.load({base: BASE, version: 'test', locale: '', systemAdmin: false});
     const S = server.api.state();
@@ -409,6 +417,7 @@ async function rules(team, community) {
     await calls(S, channel, dm, me);
     await focus(S, me);
     await rules(team, community);
+    await communityProfiles(community, me);
 
     console.log(failures ? `${failures} failures` : 'mock server: all requests answered');
     process.exit(failures ? 1 : 0);

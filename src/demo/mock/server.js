@@ -2402,6 +2402,52 @@
     route('POST', '/api/v4/ai/connections', function () {
         return forbidden('Agents need a language model, which the demo doesn\'t have.');
     });
+    // Profiles in a community (a nickname and a picture of one's own there): kept in memory for the visit. Pictures
+    // need file storage, which the demo doesn't have.
+    function communityProfiles(tid) {
+        S.communityProfiles = S.communityProfiles || {};
+        S.communityProfiles[tid] = S.communityProfiles[tid] || {};
+        return S.communityProfiles[tid];
+    }
+    route('GET', '/api/v4/teams/:tid/profiles', function (req, p) {
+        return json(values(communityProfiles(p.tid)));
+    });
+    route('GET', '/api/v4/teams/:tid/members/:uid/profile', function (req, p) {
+        var prof = communityProfiles(p.tid)[uid(p.uid)];
+        return prof ? json(prof) : json({team_id: p.tid, user_id: uid(p.uid), update_at: 0});
+    });
+    route('PATCH', '/api/v4/teams/:tid/members/:uid/profile', function (req, p) {
+        if (uid(p.uid) !== S.me.id) {
+            return forbidden('Only the person can change their profile in a community.');
+        }
+        var all = communityProfiles(p.tid);
+        var prof = Object.assign({team_id: p.tid, user_id: S.me.id}, all[S.me.id] || {});
+        var nick = (req.body && typeof req.body.nickname === 'string') ? req.body.nickname.trim() : prof.nickname;
+        if (nick) {
+            prof.nickname = nick;
+        } else {
+            delete prof.nickname;
+        }
+        prof.update_at = now();
+        all[S.me.id] = prof;
+        emit('community_profile_updated', {team_id: p.tid, user_id: prof.user_id, profile: prof}, {team_id: p.tid});
+        return json(prof);
+    });
+    route('POST', '/api/v4/teams/:tid/members/:uid/profile/image', function () {
+        return forbidden('Pictures need file storage, which the demo doesn\'t have.');
+    });
+    route('POST', '/api/v4/teams/:tid/members/:uid/profile/reset', function (req, p) {
+        var all = communityProfiles(p.tid);
+        var prof = all[uid(p.uid)];
+        if (prof) {
+            if (!req.body || req.body.nickname) {
+                delete prof.nickname;
+            }
+            prof.update_at = now();
+            emit('community_profile_updated', {team_id: p.tid, user_id: prof.user_id, profile: prof}, {team_id: p.tid});
+        }
+        return json(prof || {team_id: p.tid, user_id: uid(p.uid), update_at: now()});
+    });
     // Message actions run outgoing webhooks, which the demo has none of.
     route('GET', '/api/v4/channels/:cid/message_actions', function () {
         return json([]);
