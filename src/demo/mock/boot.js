@@ -69,23 +69,6 @@
         document.body.textContent = 'The demo could not start. Reload the page to try again.';
     });
 
-    // Calls: the demo has no media server, so joining a call is refused (the app says calls are off here) before the
-    // browser asks for the microphone.
-    function guardCalls() {
-        var calls = window.antimatterCalls;
-        if (calls && typeof calls.join === 'function' && !calls.__demo) {
-            calls.join = function () {
-                return Promise.reject(new Error('Calls are not available in the demo.'));
-            };
-            calls.__demo = true;
-        }
-    }
-    window.addEventListener('antimatter-calls:ready', guardCalls);
-    var guardTimer = setInterval(guardCalls, 1000);
-    setTimeout(function () {
-        clearInterval(guardTimer);
-    }, 60000);
-
     // The banner is the app's own announcement bar (the one an administrator can set), so the app makes room for it
     // above its top bar, on computers and phones. Its two links are taken over here: "Start over" reloads the demo
     // (which starts again from the fixtures), "Back to the website" leaves it.

@@ -4,6 +4,8 @@ scripts), as the user maya: what the mock server (src/demo/mock/) needs to answe
 
     python3 tools/demo/record_fixtures.py                     # http://localhost:8067, maya
     python3 tools/demo/record_fixtures.py --server URL --user NAME --password-file FILE
+    python3 tools/demo/record_fixtures.py --prune             # only take the apps left out (DROPPED_APPS) out of
+                                                              # the fixtures already there
 
 The password is read from --password-file, the DEMO_PASSWORD environment variable, or asked for; the session token
 only lives in memory and is checked to appear nowhere in the output. Everything recorded is cleaned (Cleaner):
@@ -62,6 +64,9 @@ SECRET_KEYS = re.compile(
     r'icehostoverride|serviceurl|mediaurl|pushnotificationserver|webhook_?secret|.*_token|.*_secret|.*_password)$', re.I)
 KEEP_KEYS = re.compile(r'^(csrf_token_required|token_type|has_password|.*_enabled|enable.*|password_.*)$', re.I)
 PRIVATE_IP = test_fixtures.PRIVATE_IP
+# Apps the demo leaves out, though the seeded server has them (Playbooks and Kanban, since 2026-10-23): by plugin id,
+# with their bots' usernames and slash commands. Whatever comes from them is taken out of the recording (drop_apps).
+DROPPED_APPS = test_fixtures.DROPPED_APPS
 EMAIL = re.compile(r'([A-Za-z0-9._%+-]+)@((?:[A-Za-z0-9-]+\.)+[A-Za-z0-9-]+|localhost)\b')
 
 
@@ -260,7 +265,8 @@ class Recorder:
             for path in (f'/api/v4/teams/{tid}/server_categories', f'/api/v4/teams/{tid}/server_categories/overrides',
                          f'/api/v4/teams/{tid}/channels/managed_categories', f'/api/v4/teams/{tid}/timeouts',
                          f'/api/v4/teams/{tid}/user_attributes/fields',
-                         f'/api/v4/teams/{tid}/groups_by_channels'):
+                         f'/api/v4/teams/{tid}/groups_by_channels', f'/api/v4/teams/{tid}/rules',
+                         f'/api/v4/teams/{tid}/rules/stats'):
                 self.route(path, quiet=True)
             fields = self.routes.get(f'GET /api/v4/teams/{tid}/user_attributes/fields') or []
             members = [m['user_id'] for m in core['team_member_lists'].get(tid) or []]
@@ -433,6 +439,106 @@ def demo_config(config):
     return config
 
 
+def drop_apps(docs):
+    """Takes what comes from the apps the demo leaves out (DROPPED_APPS) out of the fixtures (docs: file name ->
+    content, changed in place): their data and routes, their plugin statuses, slash commands and media, their bots
+    with the bots' posts, direct messages, memberships and join messages. Returns the media files no longer used."""
+    core, users, posts = docs['core.json'], docs['users.json'], docs['posts.json']
+    apps, routes, media = docs['apps.json'], docs['routes.json'], docs['media.json']
+    ids = set(DROPPED_APPS)
+    names = {n for a in DROPPED_APPS.values() for n in a['bots']}
+    triggers = {t for a in DROPPED_APPS.values() for t in a['commands']}
+    bots = {u['id'] for u in users.get('users') or [] if u.get('is_bot') and u.get('username') in names}
+    bots |= {b['user_id'] for b in users.get('bots') or [] if b.get('username') in names or b.get('owner_id') in ids}
+
+    for pid in ids:
+        apps.pop(pid, None)
+    plugin_path = re.compile(r'^\S+ /plugins/(' + '|'.join(re.escape(i) for i in ids) + r')(/|$)')
+    for k in [k for k in routes if plugin_path.match(k)]:
+        del routes[k]
+    unused = set()
+    for k in [k for k in media if plugin_path.match('GET ' + k)]:
+        unused.add(media.pop(k))
+    core['plugin_statuses'] = [x for x in core.get('plugin_statuses') or [] if x.get('plugin_id') not in ids]
+    for tid, cmds in (core.get('commands') or {}).items():
+        core['commands'][tid] = [c for c in cmds or [] if (c.get('Complete') or '').split(' ')[0] not in triggers]
+
+    # The bots, and the conversations with them.
+    users['users'] = [u for u in users.get('users') or [] if u['id'] not in bots]
+    users['bots'] = [b for b in users.get('bots') or [] if b['user_id'] not in bots]
+    users['statuses'] = [x for x in users.get('statuses') or [] if x['user_id'] not in bots]
+    for k in [k for k in media if any(k.startswith(f'/api/v4/users/{u}/') for u in bots)]:
+        unused.add(media.pop(k))
+
+    def with_bot(c):
+        return c.get('type') in ('D', 'G') and any(b in (c.get('name') or '') for b in bots)
+
+    gone = {c['id'] for c in posts.get('channels') or [] if with_bot(c)}
+    for lists in (core.get('channels') or {}).values():
+        gone |= {c['id'] for c in lists or [] if with_bot(c)}
+    posts['channels'] = [c for c in posts.get('channels') or [] if c['id'] not in gone]
+    for key in ('channels', 'public_channels'):
+        for tid, lists in (core.get(key) or {}).items():
+            core[key][tid] = [c for c in lists or [] if c['id'] not in gone]
+    for tid, ms in (core.get('channel_members') or {}).items():
+        core['channel_members'][tid] = [m for m in ms or [] if m['channel_id'] not in gone]
+    for cats in (core.get('categories') or {}).values():
+        for cat in (cats or {}).get('categories') or []:
+            cat['channel_ids'] = [c for c in cat.get('channel_ids') or [] if c not in gone]
+    core['preferences'] = [p for p in core.get('preferences') or [] if p.get('name') not in bots and p.get('value') not in bots]
+
+    def from_bot(p):
+        props = p.get('props') or {}
+        return p['user_id'] in bots or p['channel_id'] in gone or props.get('username') in names and (p.get('type') or '').startswith('system_')
+
+    dropped = {pid for pid, p in posts['posts'].items() if from_bot(p)}
+    posts['posts'] = {pid: p for pid, p in posts['posts'].items() if pid not in dropped}
+    for f in (core.get('flagged') or {}, core.get('recent_mentions') or {}):
+        if isinstance(f.get('order'), list):
+            f['order'] = [x for x in f['order'] if x not in dropped]
+            f['posts'] = {k: v for k, v in (f.get('posts') or {}).items() if k not in dropped}
+    for th in (core.get('threads') or {}).values():
+        if isinstance(th, dict) and isinstance(th.get('threads'), list):
+            th['threads'] = [t for t in th['threads'] if t.get('id') not in dropped]
+
+    # Memberships, and the counts they made.
+    for cid in gone:
+        posts.get('members', {}).pop(cid, None)
+        posts.get('stats', {}).pop(cid, None)
+        posts.get('pinned', {}).pop(cid, None)
+    for cid, ms in (posts.get('members') or {}).items():
+        kept = [m for m in ms if m['user_id'] not in bots]
+        if len(kept) != len(ms) and cid in (posts.get('stats') or {}):
+            posts['stats'][cid]['member_count'] = max(0, posts['stats'][cid].get('member_count', 0) - (len(ms) - len(kept)))
+        posts['members'][cid] = kept
+    for tid, ms in (core.get('team_member_lists') or {}).items():
+        kept = [m for m in ms or [] if m['user_id'] not in bots]
+        st = (core.get('team_stats') or {}).get(tid)
+        if st and len(kept) != len(ms or []):
+            for k in ('active_member_count', 'total_member_count'):
+                st[k] = max(0, st.get(k, 0) - (len(ms) - len(kept)))
+        core['team_member_lists'][tid] = kept
+    unused.discard(None)
+    return {u for u in unused if u not in set(media.values())}
+
+
+def prune(out):
+    """drop_apps on the fixtures already in out, and their media files no longer used."""
+    docs = {name: json.loads((out / name).read_text()) for name in
+            ('core.json', 'users.json', 'posts.json', 'routes.json', 'apps.json', 'media.json')}
+    unused = drop_apps(docs)
+    for name, doc in docs.items():
+        (out / name).write_text(json.dumps(doc, ensure_ascii=False, separators=(',', ':'), sort_keys=True) + '\n')
+    for rel in sorted(unused):
+        f = out / 'media' / rel
+        if f.is_file():
+            f.unlink()
+    for d in sorted((out / 'media').rglob('*'), reverse=True):
+        if d.is_dir() and not any(d.iterdir()):
+            d.rmdir()
+    log(f'pruned {", ".join(DROPPED_APPS)} from {out} ({len(unused)} media files removed)')
+
+
 def check_token(out, token):
     found = [f for f in out.rglob('*') if f.is_file() and token.encode() in f.read_bytes()]
     if found:
@@ -445,7 +551,11 @@ def main():
     p.add_argument('--user', default='maya')
     p.add_argument('--password-file', type=pathlib.Path)
     p.add_argument('--out', type=pathlib.Path, default=OUT)
+    p.add_argument('--prune', action='store_true', help='only take the apps left out of the fixtures already there')
     args = p.parse_args()
+    if args.prune:
+        prune(args.out)
+        return
 
     password = (args.password_file.read_text().strip() if args.password_file else
                 os.environ.get('DEMO_PASSWORD') or getpass.getpass(f'password of {args.user}: '))
@@ -472,6 +582,10 @@ def main():
         'apps.json': apps,
         'media.json': rec.media,
     }
+    for rel in drop_apps(docs):
+        f = staging / 'media' / rel
+        if f.is_file():
+            f.unlink()
     for name, doc in docs.items():
         clean = cleaner.value(doc)
         (staging / name).write_text(json.dumps(clean, ensure_ascii=False, separators=(',', ':'), sort_keys=True) + '\n')

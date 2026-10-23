@@ -1,6 +1,6 @@
 // The default apps' routes in the demo (/plugins/<id>/...), answered from fixtures/apps.json, which
 // tools/demo/record_fixtures.py records from each app's own API. What the visitor does in an app (editing a note,
-// drawing, voting, ticking a todo, moving a card, checking a playbook task) is kept in memory like the rest, and the
+// drawing, voting, ticking a todo, joining a call) is kept in memory like the rest, and the
 // events the real apps would get from the server are sent on the fake websocket.
 (function () {
     'use strict';
@@ -16,8 +16,6 @@
     var MEMES = 'memes';
     var GIFS = 'com.antimatterchat.gifs';
     var VOICE = 'com.antimatterchat.voice-channels';
-    var BOARDS = 'focalboard';
-    var PLAYBOOKS = 'playbooks';
     var CALLS = 'com.mattermost.calls';
 
     function app(id) {
@@ -1003,7 +1001,7 @@
         var data = app(VOICE);
         var b = '/plugins/' + VOICE + '/api/v1';
         api.route('GET', b + '/config', function () {
-            // Opening a voice channel would join a call, and the demo has no media server.
+            // Opening a voice channel doesn't join it: the visitor joins with the channel's Join voice button.
             return api.json(Object.assign({allow_video: true}, data.config || {}, {auto_join: false}));
         });
         api.route('GET', b + '/channels', function () {
@@ -1033,580 +1031,191 @@
         });
     }
 
-    // --- Kanban (focalboard) ---------------------------------------------------------------------------------------------
-
-    function boards() {
-        var data = app(BOARDS);
-        data.boards = data.boards || {};
-        data.blocks = data.blocks || {};
-        data.members = data.members || {};
-        data.categories = data.categories || {};
-        var b = '/plugins/' + BOARDS + '/api/v2';
-
-        function boardUser(u) {
-            return {id: u.id, username: u.username, email: u.email, nickname: u.nickname || '', firstname: u.first_name || '', lastname: u.last_name || '',
-                props: {}, create_at: u.create_at, update_at: u.update_at, delete_at: u.delete_at, is_bot: Boolean(u.is_bot), is_guest: false,
-                roles: u.roles || ''};
-        }
-        function teamBoards(tid) {
-            return api.values(data.boards).filter(function (x) {
-                return x.teamId === tid && !x.deleteAt && !x.isTemplate;
-            });
-        }
-        function send(tid, payload) {
-            event(BOARDS, 'UPDATE_BOARD', Object.assign({teamId: tid}, payload), {user_id: S.me.id});
-        }
-
-        api.route('GET', b + '/users/me', function () {
-            return api.json(Object.assign(boardUser(S.me), data.me || {}, {id: S.me.id}));
-        });
-        api.route('GET', b + '/users/me/config', function () {
-            return api.json((data.config || []).filter(function (c) {
-                return !/^onboardingTour/.test(c.name) && c.name !== 'tourCategory';
-            }));
-        });
-        api.route('PUT', b + '/users/:uid/config', function (req) {
-            return api.json(data.config || []);
-        });
-        api.route('GET', b + '/users/me/memberships', function () {
-            return api.json(Object.keys(data.boards).map(function (bid) {
-                return {boardId: bid, userId: S.me.id, roles: '', minimumRole: '', schemeAdmin: true, schemeEditor: true, schemeCommenter: true,
-                    schemeViewer: true, synthetic: false};
-            }));
-        });
-        api.route('GET', b + '/users/:uid', function (req, p) {
-            var u = S.users[p.uid];
-            return u ? api.json(boardUser(u)) : pluginError(404, 'not found');
-        });
-        api.route('GET', b + '/clientConfig', function () {
-            return api.json(Object.assign({}, data.clientConfig || {}, {telemetry: false, telemetryid: ''}));
-        });
-        api.route('GET', b + '/teams', function () {
-            return api.json(api.values(S.teams).map(function (t) {
-                return {id: t.id, title: t.display_name, signupToken: '', settings: {}, modifiedBy: '', updateAt: t.update_at};
-            }));
-        });
-        api.route('GET', b + '/teams/:tid', function (req, p) {
-            var t = S.teams[p.tid];
-            return t ? api.json({id: t.id, title: t.display_name, signupToken: '', settings: {}, modifiedBy: '', updateAt: t.update_at}) :
-                pluginError(404, 'not found');
-        });
-        api.route('GET', b + '/teams/:tid/boards', function (req, p) {
-            return api.json(teamBoards(p.tid));
-        });
-        api.route('GET', b + '/teams/:tid/boards/search/linkable', function (req, p) {
-            var q = (req.query.get('q') || '').toLowerCase();
-            return api.json(teamBoards(p.tid).filter(function (x) {
-                return x.title.toLowerCase().indexOf(q) >= 0;
-            }));
-        });
-        api.route('GET', b + '/teams/:tid/boards/search', function (req, p) {
-            var q = (req.query.get('q') || '').toLowerCase();
-            return api.json(teamBoards(p.tid).filter(function (x) {
-                return x.title.toLowerCase().indexOf(q) >= 0;
-            }));
-        });
-        api.route('GET', b + '/teams/:tid/templates', function () {
-            return api.json(data.templates || []);
-        });
-        api.route('GET', b + '/teams/:tid/categories', function (req, p) {
-            return api.json(data.categories[p.tid] || []);
-        });
-        api.route('POST', b + '/teams/:tid/users', function (req) {
-            return api.json((req.body || []).map(function (id) {
-                return S.users[id];
-            }).filter(Boolean).map(boardUser));
-        });
-        api.route('GET', b + '/teams/:tid/users', function (req, p) {
-            return api.json(api.values(S.users).filter(function (u) {
-                return !u.is_bot;
-            }).map(boardUser));
-        });
-        api.route('GET', b + '/subscriptions/:uid', function () {
-            return api.json(data.subscriptions || []);
-        });
-        api.route('GET', b + '/boards/:bid', function (req, p) {
-            var x = data.boards[p.bid];
-            return x ? api.json(x) : pluginError(404, 'not found');
-        });
-        api.route('PATCH', b + '/boards/:bid', function (req, p) {
-            var x = data.boards[p.bid];
-            if (!x) {
-                return pluginError(404, 'not found');
-            }
-            var body = req.body || {};
-            ['title', 'description', 'icon', 'showDescription', 'type', 'minimumRole', 'channelId'].forEach(function (k) {
-                if (body[k] !== undefined) {
-                    x[k] = body[k];
-                }
-            });
-            if (body.updatedProperties) {
-                x.properties = Object.assign({}, x.properties, body.updatedProperties);
-            }
-            if (body.updatedCardProperties) {
-                body.updatedCardProperties.forEach(function (cp) {
-                    var i = x.cardProperties.findIndex(function (y) {
-                        return y.id === cp.id;
-                    });
-                    if (i >= 0) {
-                        x.cardProperties[i] = cp;
-                    } else {
-                        x.cardProperties.push(cp);
-                    }
-                });
-            }
-            if (body.deletedCardProperties) {
-                x.cardProperties = x.cardProperties.filter(function (y) {
-                    return body.deletedCardProperties.indexOf(y.id) < 0;
-                });
-            }
-            x.updateAt = api.now();
-            x.modifiedBy = S.me.id;
-            send(x.teamId, {action: 'UPDATE_BOARD', board: x});
-            return api.json(x);
-        });
-        api.route('GET', b + '/boards/:bid/members', function (req, p) {
-            return api.json(data.members[p.bid] || []);
-        });
-        api.route('GET', b + '/boards/:bid/blocks', function (req, p) {
-            var list = data.blocks[p.bid] || [];
-            var only = req.query.get('block_id');
-            if (only) {
-                list = list.filter(function (x) {
-                    return x.id === only || x.parentId === only;
-                });
-            }
-            return api.json(list.filter(function (x) {
-                return !x.deleteAt;
-            }));
-        });
-        api.route('PATCH', b + '/boards/:bid/blocks/:blockid', function (req, p) {
-            var block = (data.blocks[p.bid] || []).find(function (x) {
-                return x.id === p.blockid;
-            });
-            if (!block) {
-                return pluginError(404, 'not found');
-            }
-            patchBlock(block, req.body || {});
-            send((data.boards[p.bid] || {}).teamId, {action: 'UPDATE_BLOCK', block: block});
-            return api.json({});
-        });
-        api.route('PATCH', b + '/boards/:bid/blocks/', function (req, p) {
-            var body = req.body || {};
-            (body.block_ids || []).forEach(function (id, i) {
-                var block = (data.blocks[p.bid] || []).find(function (x) {
-                    return x.id === id;
-                });
-                if (block) {
-                    patchBlock(block, (body.block_patches || [])[i] || {});
-                    send((data.boards[p.bid] || {}).teamId, {action: 'UPDATE_BLOCK', block: block});
-                }
-            });
-            return api.json({});
-        });
-        api.route('POST', b + '/boards/:bid/blocks', function (req, p) {
-            var t = api.now();
-            var created = (req.body || []).map(function (block) {
-                var x = Object.assign({}, block, {id: block.id || api.newId(), boardId: p.bid, createdBy: S.me.id, modifiedBy: S.me.id,
-                    createAt: t, updateAt: t, deleteAt: 0});
-                (data.blocks[p.bid] = data.blocks[p.bid] || []).push(x);
-                send((data.boards[p.bid] || {}).teamId, {action: 'UPDATE_BLOCK', block: x});
-                return x;
-            });
-            return api.json(created);
-        });
-        api.route('DELETE', b + '/boards/:bid/blocks/:blockid', function (req, p) {
-            var block = (data.blocks[p.bid] || []).find(function (x) {
-                return x.id === p.blockid;
-            });
-            if (block) {
-                block.deleteAt = api.now();
-                block.updateAt = block.deleteAt;
-                send((data.boards[p.bid] || {}).teamId, {action: 'UPDATE_BLOCK', block: block});
-            }
-            return api.json({});
-        });
-        api.route('POST', b + '/boards/:bid/blocks/:blockid/undelete', function (req, p) {
-            var block = (data.blocks[p.bid] || []).find(function (x) {
-                return x.id === p.blockid;
-            });
-            if (block) {
-                block.deleteAt = 0;
-                block.updateAt = api.now();
-                send((data.boards[p.bid] || {}).teamId, {action: 'UPDATE_BLOCK', block: block});
-            }
-            return api.json(block || {});
-        });
-        api.route('GET', b + '/boards/:bid/statistics', function () {
-            return api.json({});
-        });
-        api.route('POST', b + '/teams/:tid/categories', function (req, p) {
-            var cat = Object.assign({id: api.newId(), userID: S.me.id, teamID: p.tid, createAt: api.now(), updateAt: api.now(), deleteAt: 0,
-                collapsed: false, sorting: '', type: 'custom', boardMetadata: [], sortOrder: 0}, req.body || {});
-            (data.categories[p.tid] = data.categories[p.tid] || []).push(cat);
-            event(BOARDS, 'UPDATE_CATEGORY', {teamId: p.tid, category: cat}, {user_id: S.me.id});
-            return api.json(cat);
-        });
-        api.route('PUT', b + '/teams/:tid/categories/:catid', function (req, p) {
-            var list = data.categories[p.tid] || [];
-            var i = list.findIndex(function (x) {
-                return x.id === p.catid;
-            });
-            if (i >= 0) {
-                list[i] = Object.assign({}, list[i], req.body || {}, {updateAt: api.now()});
-                event(BOARDS, 'UPDATE_CATEGORY', {teamId: p.tid, category: list[i]}, {user_id: S.me.id});
-            }
-            return api.json(list[i] || {});
-        });
-        api.route('PUT', b + '/teams/:tid/categories/:catid/boards/:bid', function () {
-            return api.json({});
-        });
-        api.route('POST', b + '/teams/:tid/boards', function () {
-            return pluginError(403, 'New boards aren\'t part of the demo: try the Lumen roadmap.');
-        });
-        api.route('POST', b + '/boards', function () {
-            return pluginError(403, 'New boards aren\'t part of the demo: try the Lumen roadmap.');
-        });
-        // The plugin's images (onboarding pictures, the emoji sheet).
-        api.route('GET', '/plugins/' + BOARDS + '/static/:name', function (req, p) {
-            var rel = S.media['/plugins/' + BOARDS + '/static/' + p.name];
-            return rel ? api.media(rel) : pluginError(404, 'not found');
-        });
-    }
-
-    function patchBlock(block, patch) {
-        var t = api.now();
-        if (patch.title !== undefined) {
-            block.title = patch.title;
-        }
-        if (patch.parentId !== undefined) {
-            block.parentId = patch.parentId;
-        }
-        if (patch.schema !== undefined) {
-            block.schema = patch.schema;
-        }
-        block.fields = Object.assign({}, block.fields || {}, patch.updatedFields || {});
-        (patch.deletedFields || []).forEach(function (k) {
-            delete block.fields[k];
-        });
-        block.updateAt = t;
-        block.modifiedBy = S.me.id;
-    }
-
-    // --- Playbooks: REST, and its GraphQL queries answered by a small executor ---------------------------------------------
-
-    function playbooks() {
-        var data = app(PLAYBOOKS);
-        data.runs = data.runs || {};
-        data.playbooks = data.playbooks || {};
-        data.metadata = data.metadata || {};
-        data.status_updates = data.status_updates || {};
-        data.categories = data.categories || {};
-        data.owners = data.owners || {};
-        var favorites = {};
-        var b = '/plugins/' + PLAYBOOKS + '/api/v0';
-
-        function runUpdated(run) {
-            run.update_at = api.now();
-            event(PLAYBOOKS, 'playbook_run_updated', {payload: JSON.stringify(run)}, {channel_id: run.channel_id});
-        }
-        function tasks(run) {
-            var total = 0;
-            var closed = 0;
-            (run.checklists || []).forEach(function (c) {
-                (c.items || []).forEach(function (it) {
-                    total += 1;
-                    if (it.state === 'closed') {
-                        closed += 1;
-                    }
-                });
-            });
-            return {total: total, closed: closed};
-        }
-        function filterRuns(q) {
-            var list = api.values(data.runs);
-            var team = q.team_id || q.teamID;
-            if (team) {
-                list = list.filter(function (r) {
-                    return r.team_id === team;
-                });
-            }
-            var channel = q.channel_id || q.channelID;
-            if (channel) {
-                list = list.filter(function (r) {
-                    return r.channel_id === channel;
-                });
-            }
-            var statuses = [].concat(q.statuses || q.status || []).filter(Boolean);
-            if (statuses.length) {
-                list = list.filter(function (r) {
-                    return statuses.indexOf(r.current_status) >= 0;
-                });
-            }
-            var participant = q.participant_id || q.participant_or_follower_id || q.participantOrFollowerID;
-            if (participant) {
-                list = list.filter(function (r) {
-                    return (r.participant_ids || []).indexOf(participant) >= 0 || r.owner_user_id === participant;
-                });
-            }
-            var types = [].concat(q.types || []).filter(Boolean);
-            if (types.length) {
-                list = list.filter(function (r) {
-                    return !r.type || types.indexOf(r.type) >= 0;
-                });
-            }
-            var sort = q.sort || 'create_at';
-            var dir = (q.direction || 'desc').toLowerCase() === 'asc' ? 1 : -1;
-            list.sort(function (x, y) {
-                var a = x[sort] !== undefined ? x[sort] : x.create_at;
-                var c = y[sort] !== undefined ? y[sort] : y.create_at;
-                return (a > c ? 1 : a < c ? -1 : 0) * dir;
-            });
-            return list;
-        }
-        function queryObject(q) {
-            var o = {};
-            q.forEach(function (v, k) {
-                if (o[k] !== undefined) {
-                    o[k] = [].concat(o[k], v);
-                } else {
-                    o[k] = v;
-                }
-            });
-            return o;
-        }
-        function paged(list, q) {
-            var per = api.int(q.per_page, 1000);
-            var page = api.int(q.page, 0);
-            var items = per ? list.slice(page * per, page * per + per) : [];
-            return {items: items, total_count: list.length, page_count: per ? Math.ceil(list.length / per) : 0, per_page: per,
-                has_more: per ? (page + 1) * per < list.length : list.length > 0};
-        }
-
-        api.route('GET', b + '/settings', function () {
-            return api.json(data.settings || {enable_experimental_features: false, enable_task_requirements: false});
-        });
-        api.route('GET', b + '/bot/connect', function () {
-            return {text: '', status: 200};
-        });
-        api.route('GET', b + '/actions/channels/:cid', function () {
-            return api.json([]);
-        });
-        api.route('GET', b + '/runs', function (req) {
-            return api.json(paged(filterRuns(queryObject(req.query)), queryObject(req.query)));
-        });
-        api.route('GET', b + '/runs/owners', function (req) {
-            return api.json(data.owners[req.query.get('team_id')] || []);
-        });
-        api.route('GET', b + '/runs/channels', function () {
-            return api.json(api.values(data.runs).map(function (r) {
-                return r.channel_id;
-            }));
-        });
-        api.route('GET', b + '/runs/:id', function (req, p) {
-            var r = data.runs[p.id];
-            return r ? api.json(r) : pluginError(404, 'not found');
-        });
-        api.route('GET', b + '/runs/:id/metadata', function (req, p) {
-            return api.json(data.metadata[p.id] || {});
-        });
-        api.route('GET', b + '/runs/:id/status-updates', function (req, p) {
-            return api.json(data.status_updates[p.id] || []);
-        });
-        api.route('PUT', b + '/runs/:id/checklists/:c/item/:i/state', function (req, p) {
-            var run = data.runs[p.id];
-            var item = run && ((run.checklists[api.int(p.c, 0)] || {}).items || [])[api.int(p.i, 0)];
-            if (!item) {
-                return pluginError(404, 'not found');
-            }
-            item.state = (req.body || {}).new_state || '';
-            item.state_modified = api.now();
-            var count = tasks(run);
-            run.task_completed = count.closed;
-            run.task_total = count.total;
-            runUpdated(run);
-            return api.json({});
-        });
-        api.route('PUT', b + '/runs/:id/checklists/:c/item/:i/assignee', function (req, p) {
-            var run = data.runs[p.id];
-            var item = run && ((run.checklists[api.int(p.c, 0)] || {}).items || [])[api.int(p.i, 0)];
-            if (item) {
-                item.assignee_id = (req.body || {}).assignee_id || '';
-                item.assignee_modified = api.now();
-                runUpdated(run);
-            }
-            return api.json({});
-        });
-        api.route('POST', b + '/runs/:id/checklists/:c/add', function (req, p) {
-            var run = data.runs[p.id];
-            var list = run && run.checklists[api.int(p.c, 0)];
-            if (list) {
-                var item = Object.assign({id: api.newId(), title: '', state: '', state_modified: 0, assignee_id: '', description: ''}, req.body || {});
-                list.items.push(item);
-                runUpdated(run);
-            }
-            return api.json({});
-        });
-        api.route('POST', b + '/runs/:id/status', function (req, p) {
-            var run = data.runs[p.id];
-            if (!run) {
-                return pluginError(404, 'not found');
-            }
-            var body = req.body || {};
-            var u = {id: api.newId(), create_at: api.now(), delete_at: 0, message: body.message || '', author_user_name: S.me.username};
-            (data.status_updates[p.id] = data.status_updates[p.id] || []).unshift(u);
-            run.last_status_update_at = u.create_at;
-            run.status_posts = (run.status_posts || []).concat([{id: u.id, create_at: u.create_at, delete_at: 0}]);
-            api.createPost({channel_id: run.channel_id, type: 'custom_run_update', message: u.message,
-                props: {authorUsername: S.me.username, numTasks: tasks(run).total, numTasksChecked: tasks(run).closed, participantIds: run.participant_ids,
-                    playbookRunId: run.id, runName: run.name, from_plugin: 'true'}});
-            runUpdated(run);
-            return api.json({});
-        });
-        api.route('PUT', b + '/runs/:id/finish', function (req, p) {
-            var run = data.runs[p.id];
-            if (run) {
-                run.current_status = 'Finished';
-                run.end_at = api.now();
-                runUpdated(run);
-            }
-            return api.json({});
-        });
-        api.route('GET', b + '/playbooks', function (req) {
-            var q = queryObject(req.query);
-            var list = api.values(data.playbooks).filter(function (x) {
-                return (!q.team_id || x.team_id === q.team_id) && (q.with_archived === 'true' || !x.delete_at) &&
-                    (!q.search_term || (x.title || '').toLowerCase().indexOf(q.search_term.toLowerCase()) >= 0);
-            }).sort(function (x, y) {
-                return (x.title || '').localeCompare(y.title || '');
-            });
-            return api.json(paged(list, q));
-        });
-        api.route('GET', b + '/playbooks/:id', function (req, p) {
-            var x = data.playbooks[p.id];
-            return x ? api.json(x) : pluginError(404, 'not found');
-        });
-        api.route('GET', b + '/playbooks/:id/property_fields', function () {
-            return api.json([]);
-        });
-        api.route('GET', b + '/my_categories', function (req) {
-            return api.json(data.categories[req.query.get('team_id')] || []);
-        });
-        api.route('GET', b + '/my_categories/favorites', function (req) {
-            return api.json(Boolean(favorites[req.query.get('item_id')]));
-        });
-        api.route('POST', b + '/runs', function () {
-            return pluginError(403, 'Starting a run isn\'t part of the demo.');
-        });
-
-        // GraphQL.
-        var playbookOf = function (id) {
-            return data.playbooks[id] || null;
-        };
-        var resolvers = {
-            Query: {
-                runs: function (args) {
-                    var list = filterRuns({teamID: args.teamID, channelID: args.channelID, statuses: args.statuses,
-                        participantOrFollowerID: args.participantOrFollowerID, sort: args.sort, direction: args.direction, types: args.types});
-                    var start = args.after ? Math.max(0, list.findIndex(function (r) {
-                        return r.id === args.after;
-                    }) + 1) : 0;
-                    var page = args.first ? list.slice(start, start + args.first) : list.slice(start);
-                    return {__typename: 'RunConnection', totalCount: list.length, edges: page.map(function (r) {
-                        return {__typename: 'RunEdge', cursor: r.id, node: runNode(r)};
-                    }), pageInfo: {__typename: 'PageInfo', endCursor: page.length ? page[page.length - 1].id : '', hasNextPage: start + page.length < list.length,
-                        startCursor: page.length ? page[0].id : '', hasPreviousPage: start > 0}};
-                },
-                run: function (args) {
-                    return data.runs[args.id] ? runNode(data.runs[args.id]) : null;
-                },
-                playbook: function (args) {
-                    return playbookOf(args.id) ? playbookNode(playbookOf(args.id)) : null;
-                },
-                playbooks: function (args) {
-                    return api.values(data.playbooks).filter(function (x) {
-                        return !args.teamID || x.team_id === args.teamID;
-                    }).map(playbookNode);
-                },
-            },
-        };
-        function runNode(r) {
-            var count = tasks(r);
-            return gqlView('Run', r, {
-                playbook: function () {
-                    return playbookOf(r.playbook_id) ? playbookNode(playbookOf(r.playbook_id)) : null;
-                },
-                numTasks: count.total,
-                numTasksClosed: count.closed,
-                lastUpdatedAt: r.last_status_update_at || r.update_at || r.create_at,
-                propertyFields: [],
-                isFavorite: Boolean(favorites[r.id]),
-                checklists: (r.checklists || []).map(checklistNode),
-            });
-        }
-        function playbookNode(pb) {
-            return gqlView('Playbook', pb, {
-                checklists: (pb.checklists || []).map(checklistNode),
-                members: (pb.members || []).map(function (m) {
-                    return gqlView('Member', m, {});
-                }),
-                metrics: (pb.metrics || []).map(function (m) {
-                    return gqlView('PlaybookMetricConfig', m, {});
-                }),
-                isFavorite: Boolean(favorites[pb.id]),
-                propertyFields: [],
-            });
-        }
-        function checklistNode(c) {
-            return gqlView('Checklist', c, {items: (c.items || []).map(function (it) {
-                return gqlView('ChecklistItem', it, {taskActions: [], requirements: []});
-            })});
-        }
-        var mutations = {
-            SetRunFavorite: function (v) {
-                favorites[v.id] = v.fav;
-                return {setRunFavorite: ''};
-            },
-            UpdatePlaybookFavorite: function (v) {
-                favorites[v.id] = v.favorite;
-                return {updatePlaybookFavorite: ''};
-            },
-        };
-        api.route('POST', b + '/query', function (req) {
-            var body = req.body || {};
-            var op = body.operationName || '';
-            try {
-                if (/^\s*mutation\b/.test(body.query || '')) {
-                    var fn = mutations[op];
-                    var out = fn ? fn(body.variables || {}) : {};
-                    if (!fn) {
-                        var field = (/\{\s*([A-Za-z_]+)/.exec(body.query || '') || [])[1] || 'result';
-                        out[field] = '';
-                    }
-                    return api.json({data: out});
-                }
-                return api.json({data: window.DemoGraphQL.execute(body.query || '', body.variables || {}, resolvers.Query)});
-            } catch (e) {
-                return api.json({data: null, errors: [{message: String(e && e.message || e)}]});
-            }
-        });
-    }
-
-    // gqlView makes a GraphQL object out of a REST one: its camelCase fields read the snake_case keys (teamID reads
-    // team_id), with some fields computed.
-    function gqlView(type, obj, extra) {
-        return {__typename: type, __obj: obj, __extra: extra || {}};
-    }
-
     // --- Calls -------------------------------------------------------------------------------------------------------------
 
+    // The Calls app's server, on the visitor only: starting or joining a call (in a channel, a direct message or a voice
+    // channel) works as on a real server, with its events and its post, but the visitor is alone in it and nothing is
+    // sent anywhere. The calls client talks to it on its own websocket (mock/socket.js): it joins, gets "join" back,
+    // then connects its media (mock/media.js stands in for WebRTC; its descriptions are answered here), and says
+    // when it mutes, unmutes, turns its camera on or off, raises its hand, reacts and leaves.
     function calls() {
         var data = app(CALLS);
         var b = '/plugins/' + CALLS;
+        var prefix = 'custom_' + CALLS + '_';
         var config = {DefaultEnabled: true, AllowEnableCalls: true, EnableRinging: false, NeedsTURNCredentials: false, ICEServersConfigs: [],
             ICEServers: null, AllowScreenSharing: true, EnableVideo: true, EnableRecordings: false, EnableTranscriptions: false,
             EnableLiveCaptions: false, TranscribeFromClients: false, MaxCallParticipants: 0, GroupCallsAllowed: true, HostControlsAllowed: true,
             EnableSimulcast: false, EnableAV1: false, EnableDCSignaling: false, MaxRecordingDuration: 60};
+        var active = {}; // channel id -> the call going on there
+        var sessions = {}; // connection id -> {channelId, sessionId}
+        var ANSWER = ['v=0', 'o=- 0 0 IN IP4 127.0.0.1', 's=antimatter-demo', 't=0 0', 'a=group:BUNDLE 0',
+            'm=application 9 UDP/DTLS/SCTP webrtc-datachannel', 'c=IN IP4 0.0.0.0', 'a=mid:0', 'a=sctp-port:5000', ''].join('\r\n');
+
+        function channelProps(cid) {
+            return ((data.channels || []).find(function (x) {
+                return x.channel_id === cid;
+            }) || {}).props || {};
+        }
+        function send(name, payload, broadcast) {
+            api.emit(prefix + name, payload, broadcast);
+        }
+        function clientState(call) {
+            return {id: call.id, start_at: call.start_at, owner_id: call.owner_id, host_id: call.host_id, thread_id: call.thread_id,
+                post_id: call.post_id, screen_sharing_session_id: call.screen || '',
+                sessions: api.values(call.sessions).map(function (x) {
+                    return {session_id: x.session_id, user_id: x.user_id, unmuted: x.unmuted, raised_hand: x.raised_hand, video: x.video};
+                })};
+        }
+        function callOf(conn) {
+            var s = sessions[conn];
+            var call = s && active[s.channelId];
+            return call && call.sessions[s.sessionId] ? {call: call, session: call.sessions[s.sessionId]} : null;
+        }
+        function startCall(cid, title, threadId) {
+            var c = S.channels[cid];
+            var t = api.now();
+            var call = {id: api.newId(), channel_id: cid, start_at: t, owner_id: S.me.id, host_id: S.me.id, thread_id: threadId || '',
+                post_id: '', sessions: {}, participants: {}, screen: ''};
+            if (!channelProps(cid).disable_call_post) {
+                var text = (S.me.username || 'Someone') + ' started a call';
+                var props = {attachments: [{fallback: text, title: text, text: text}], start_at: t, title: title || ''};
+                if (c.type === 'D') {
+                    props.call_status = 'calling';
+                }
+                var post = api.createPost({channel_id: cid, root_id: threadId || '', message: text, type: 'custom_calls', props: props});
+                if (post) {
+                    call.post_id = post.id;
+                    call.thread_id = threadId || post.id;
+                }
+            }
+            active[cid] = call;
+            send('call_start', {id: call.id, channelID: cid, start_at: t, thread_id: call.thread_id, post_id: call.post_id, owner_id: call.owner_id,
+                host_id: call.host_id}, {channel_id: cid});
+            return call;
+        }
+        function endCall(call) {
+            var c = S.channels[call.channel_id] || {};
+            delete active[call.channel_id];
+            send('call_end', {channelID: call.channel_id}, {channel_id: call.channel_id});
+            var post = call.post_id && S.posts[call.post_id];
+            if (post) {
+                var who = Object.keys(call.participants);
+                var cancelled = c.type === 'D' && who.length < 2;
+                var text = cancelled ? 'Call canceled' : 'Call ended';
+                post.message = text;
+                post.props = Object.assign({}, post.props, {attachments: [{fallback: text, title: text, text: text}], end_at: api.now(),
+                    call_status: cancelled ? 'canceled_by_caller' : 'ended', participants: who});
+                post.update_at = api.now();
+                api.emit('post_edited', {post: JSON.stringify(post)}, {channel_id: post.channel_id});
+            }
+        }
+        function leave(conn) {
+            var x = callOf(conn);
+            delete sessions[conn];
+            if (!x) {
+                return;
+            }
+            delete x.call.sessions[x.session.session_id];
+            if (x.call.screen === x.session.session_id) {
+                x.call.screen = '';
+            }
+            send('user_left', {user_id: x.session.user_id, session_id: x.session.session_id, channelID: x.call.channel_id}, {channel_id: x.call.channel_id});
+            if (!Object.keys(x.call.sessions).length) {
+                endCall(x.call);
+            }
+        }
+
+        api.socketAction(prefix + 'join', function (d, conn) {
+            var cid = (d || {}).channelID;
+            var c = S.channels[cid];
+            if (!c || !S.myMembers[cid]) {
+                send('error', {data: 'forbidden', connID: conn}, {connection_id: conn});
+                return {};
+            }
+            var call = active[cid] || startCall(cid, d.title, d.threadID);
+            call.sessions[conn] = {session_id: conn, user_id: S.me.id, unmuted: false, raised_hand: 0, video: false};
+            call.participants[S.me.id] = true;
+            sessions[conn] = {channelId: cid, sessionId: conn};
+            send('join', {connID: conn}, {connection_id: conn});
+            send('user_joined', {user_id: S.me.id, session_id: conn, channelID: cid}, {channel_id: cid});
+            send('call_state', {channel_id: cid, call: JSON.stringify(clientState(call))}, {user_id: S.me.id});
+            return {};
+        });
+        api.socketAction(prefix + 'leave', function (d, conn) {
+            leave(conn);
+            return {};
+        });
+        api.socketAction(prefix + 'reconnect', function () {
+            return {};
+        });
+        // What the client says about itself, told to the channel as the server does.
+        [['mute', 'user_muted', function (s) {
+            s.unmuted = false;
+        }], ['unmute', 'user_unmuted', function (s) {
+            s.unmuted = true;
+        }], ['video_on', 'user_video_on', function (s) {
+            s.video = true;
+        }], ['video_off', 'user_video_off', function (s) {
+            s.video = false;
+        }], ['voice_on', 'user_voice_on', null], ['voice_off', 'user_voice_off', null],
+        ['raise_hand', 'user_raise_hand', function (s) {
+            s.raised_hand = api.now();
+        }], ['unraise_hand', 'user_unraise_hand', function (s) {
+            s.raised_hand = 0;
+        }], ['screen_on', 'user_screen_on', function (s, call) {
+            call.screen = s.session_id;
+        }], ['screen_off', 'user_screen_off', function (s, call) {
+            call.screen = '';
+        }]].forEach(function (a) {
+            api.socketAction(prefix + a[0], function (d, conn) {
+                var x = callOf(conn);
+                if (!x) {
+                    return {};
+                }
+                if (a[2]) {
+                    a[2](x.session, x.call);
+                }
+                var payload = {userID: x.session.user_id, session_id: x.session.session_id, channelID: x.call.channel_id};
+                if (a[0] === 'raise_hand' || a[0] === 'unraise_hand') {
+                    payload.raised_hand = x.session.raised_hand;
+                }
+                send(a[1], payload, {channel_id: x.call.channel_id});
+                return {};
+            });
+        });
+        api.socketAction(prefix + 'react', function (d, conn) {
+            var x = callOf(conn);
+            if (!x) {
+                return {};
+            }
+            var emoji = {};
+            try {
+                emoji = JSON.parse((d || {}).data || '{}');
+            } catch (e) {
+                // Not an emoji: nothing to show.
+            }
+            send('user_reacted', {user_id: x.session.user_id, session_id: x.session.session_id, channelID: x.call.channel_id, emoji: emoji,
+                timestamp: api.now()}, {channel_id: x.call.channel_id});
+            return {};
+        });
+        ['ice', 'metric', 'caption', 'call_state'].forEach(function (name) {
+            api.socketAction(prefix + name, function () {
+                return {};
+            });
+        });
+        // The client's descriptions (offers, compressed, in MessagePack): the media server answers each one, which
+        // "connects" the stand-in connection.
+        api.socketBinary(function (conn) {
+            if (!sessions[conn]) {
+                return;
+            }
+            setTimeout(function () {
+                if (sessions[conn]) {
+                    send('signal', {connID: conn, data: JSON.stringify({type: 'answer', sdp: ANSWER})}, {connection_id: conn});
+                }
+            }, 20);
+        });
+
         api.route('GET', b + '/config', function () {
             return api.json(config);
         });
@@ -1620,11 +1229,41 @@
             return api.json((data.channels || []).map(function (c) {
                 var copy = Object.assign({}, c);
                 delete copy.call;
+                if (active[c.channel_id]) {
+                    copy.call = clientState(active[c.channel_id]);
+                }
                 return copy;
             }));
         });
         api.route('GET', b + '/turn-credentials', function () {
             return api.json([]);
+        });
+        api.route('GET', b + '/calls/:cid/active', function (req, p) {
+            return api.json({active: Boolean(active[p.cid])});
+        });
+        api.route('POST', b + '/calls/:cid/dismiss-notification', function () {
+            return api.ok();
+        });
+        // Ending the call for everyone: the visitor is everyone.
+        api.route('POST', b + '/calls/:cid/host/end', function (req, p) {
+            var call = active[p.cid];
+            if (call) {
+                Object.keys(call.sessions).forEach(function (conn) {
+                    delete sessions[conn];
+                });
+                call.sessions = {};
+                endCall(call);
+            }
+            return api.ok();
+        });
+        api.route('POST', b + '/calls/:cid/host/:action', function () {
+            return api.ok();
+        });
+        api.route('POST', b + '/calls/:cid/recording/:action', function () {
+            return pluginError(403, 'Recordings aren\'t part of the demo.');
+        });
+        api.route('POST', b + '/calls/:cid/transcription/:action', function () {
+            return pluginError(403, 'Transcriptions aren\'t part of the demo.');
         });
         api.route('GET', b + '/:cid', function (req, p) {
             if (!/^[a-z0-9]{26}$/.test(p.cid)) {
@@ -1640,6 +1279,16 @@
         api.route('POST', b + '/:cid', function (req, p) {
             return api.json({channel_id: p.cid, enabled: Boolean((req.body || {}).enabled)});
         });
+        // Signing out or leaving the page leaves the call, as the server sees the connection go.
+        window.addEventListener('pagehide', function () {
+            Object.keys(sessions).forEach(leave);
+        });
+        window.DemoCalls = {
+            active: function () {
+                return active;
+            },
+            leave: leave,
+        };
     }
 
     // --- start --------------------------------------------------------------------------------------------------------------
@@ -1656,11 +1305,8 @@
             memes();
             gifs();
             voice();
-            boards();
-            playbooks();
             calls();
             // Any other app route: an empty success, so an app never shows an error page in the demo.
         },
-        gqlView: gqlView,
     };
 }());

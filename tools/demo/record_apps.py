@@ -15,8 +15,6 @@ TODO = 'com.mattermost.plugin-todo'
 MEMES = 'memes'
 GIFS = 'com.antimatterchat.gifs'
 VOICE = 'com.antimatterchat.voice-channels'
-BOARDS = 'focalboard'
-PLAYBOOKS = 'playbooks'
 CALLS = 'com.mattermost.calls'
 
 
@@ -37,8 +35,6 @@ def record(rec, core, posts):
     out[MEMES] = memes(rec, all_posts)
     out[GIFS] = gifs(rec, all_posts)
     out[VOICE] = voice(rec)
-    out[BOARDS] = boards(rec, core)
-    out[PLAYBOOKS] = playbooks(rec, core)
     out[CALLS] = calls(rec, core, posts)
     hook_icons(rec, all_posts, core)
     return out
@@ -213,66 +209,6 @@ def voice(rec):
     # Opening a voice channel would join a call: the demo has no media server.
     config['auto_join'] = False
     return {'config': config, 'channels': s.get(f'{base}/channels', quiet=True) or []}
-
-
-# --- Kanban (focalboard) -------------------------------------------------------------------------------------------
-
-# The plugin's own images; its onboarding tour (animated GIFs, 4 MB) and emoji sheet (3.8 MB) are left out: the demo
-# turns the tour off, and the board's emoji picker shows no sheet.
-BOARDS_STATIC = ['addDescription.png', 'onboardingBg.jpg', 'upgrade.png', 'favicon.svg']
-
-
-def boards(rec, core):
-    s = rec.s
-    base = f'/plugins/{BOARDS}/api/v2'
-    me = rec.s.me['id']
-    out = {'me': s.get(f'{base}/users/me', quiet=True) or {}, 'config': s.get(f'{base}/users/me/config', quiet=True) or [],
-           'clientConfig': s.get(f'{base}/clientConfig', quiet=True) or {}, 'boards': {}, 'blocks': {}, 'members': {},
-           'categories': {}, 'subscriptions': s.get(f'{base}/subscriptions/{me}', quiet=True) or [], 'templates': []}
-    for team in core['teams']:
-        tid = team['id']
-        for b in s.get(f'{base}/teams/{tid}/boards', quiet=True) or []:
-            out['boards'][b['id']] = b
-            out['blocks'][b['id']] = s.get(f'{base}/boards/{b["id"]}/blocks?all=true', quiet=True) or []
-            out['members'][b['id']] = s.get(f'{base}/boards/{b["id"]}/members', quiet=True) or []
-        cats = s.get(f'{base}/teams/{tid}/categories', quiet=True) or []
-        # Only the boards that still exist.
-        for c in cats:
-            c['boardMetadata'] = [m for m in c.get('boardMetadata') or [] if m.get('boardID') in out['boards']]
-        out['categories'][tid] = cats
-    for name in BOARDS_STATIC:
-        rec.save_media(f'/plugins/{BOARDS}/static/{name}', 'boards', name.rsplit('.', 1)[0])
-    log(f'kanban: {len(out["boards"])} boards, {sum(len(v) for v in out["blocks"].values())} blocks')
-    return out
-
-
-# --- Playbooks -----------------------------------------------------------------------------------------------------
-
-def playbooks(rec, core):
-    s = rec.s
-    base = f'/plugins/{PLAYBOOKS}/api/v0'
-    out = {'settings': s.get(f'{base}/settings', quiet=True) or {}, 'runs': {}, 'playbooks': {}, 'metadata': {},
-           'status_updates': {}, 'categories': {}, 'owners': {}}
-    for team in core['teams']:
-        tid = team['id']
-        runs = (s.get(f'{base}/runs?team_id={tid}&page=0&per_page=200&statuses=InProgress&statuses=Finished', quiet=True)
-                or {}).get('items') or []
-        for r in runs:
-            full = s.get(f'{base}/runs/{r["id"]}', quiet=True) or r
-            out['runs'][r['id']] = full
-            out['metadata'][r['id']] = s.get(f'{base}/runs/{r["id"]}/metadata', quiet=True) or {}
-            out['status_updates'][r['id']] = s.get(f'{base}/runs/{r["id"]}/status-updates', quiet=True) or []
-        for pb in (s.get(f'{base}/playbooks?team_id={tid}&page=0&per_page=200&with_archived=true', quiet=True) or {}).get('items') or []:
-            out['playbooks'][pb['id']] = s.get(f'{base}/playbooks/{pb["id"]}', quiet=True) or pb
-        out['categories'][tid] = s.get(f'{base}/my_categories?team_id={tid}', quiet=True) or []
-        out['owners'][tid] = s.get(f'{base}/runs/owners?team_id={tid}', quiet=True) or []
-    # Integrations the runs would call: none in the demo.
-    for x in list(out['runs'].values()) + list(out['playbooks'].values()):
-        for k in ('webhook_on_creation_urls', 'webhook_on_status_update_urls'):
-            if k in x:
-                x[k] = []
-    log(f'playbooks: {len(out["runs"])} runs, {len(out["playbooks"])} playbooks')
-    return out
 
 
 # --- Calls -----------------------------------------------------------------------------------------------------------

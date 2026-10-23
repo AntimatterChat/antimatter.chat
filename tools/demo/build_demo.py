@@ -38,27 +38,24 @@ DEFAULT_CACHE = pathlib.Path(os.environ.get('XDG_CACHE_HOME', pathlib.Path.home(
 
 # The apps shown in the demo: the default apps of the antimatter-next image that work without an outside service.
 # Not included: the AI agents (they need a language model), Mail (an IMAP server) and Calendar, GitHub, GitLab,
-# Jira and Metrics (outside services).
+# Jira and Metrics (outside services), and Playbooks and Kanban, left out of the demo since 2026-10-23 (their data
+# too: see DROPPED_APPS in test_fixtures.py). Calls runs against the mock's own Calls server, with no media server
+# and no camera or microphone (mock/media.js).
 PLUGINS = [
     'com.antimatterchat.notes',
-    'focalboard',  # Kanban
     'com.antimatterchat.polls',
     'com.mattermost.plugin-todo',
     'com.antimatterchat.whiteboard',
     'com.mattermost.calls',
     'memes',
     'com.antimatterchat.gifs',
-    'playbooks',
     'com.antimatterchat.voice-channels',
 ]
 
 # Files of the web bundles the demo never loads.
 SKIP = re.compile(r'(\.map$|(^|/)tests?/|\.LICENSE\.txt\.map$)')
-# And per app: Kanban's build leaves its compiled sources and translations next to the bundle (which has them
-# inside), and the pictures of its onboarding tour, which the demo turns off.
-APP_SKIP = {
-    'focalboard': re.compile(r'^(src|i18n)/|\.gif$|^emoji_spirit\.png$'),
-}
+# And per app (by plugin id), more of them.
+APP_SKIP = {}
 SOURCE_MAP_COMMENT = re.compile(rb'\n?//# sourceMappingURL=[^\n]*\s*$|/\*# sourceMappingURL=[^*]*\*/\s*$')
 
 INDEX_TYPES = ('application/vnd.oci.image.index.v1+json', 'application/vnd.docker.distribution.manifest.list.v2+json')
@@ -235,8 +232,8 @@ def app_page(root_html, base, version):
     html = html.replace('<script id="publicPathInWindowScript"></script>', '')
     v = f'?v={version}'
     mock = (f'<link rel="stylesheet" href="{base}mock/banner.css{v}">'
+            f'<script src="{base}mock/media.js{v}"></script>'
             f'<script src="{base}mock/server.js{v}"></script>'
-            f'<script src="{base}mock/graphql.js{v}"></script>'
             f'<script src="{base}mock/plugins.js{v}"></script>'
             f'<script src="{base}mock/socket.js{v}"></script>'
             f'<script src="{base}mock/life.js{v}"></script>'

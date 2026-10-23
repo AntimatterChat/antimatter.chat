@@ -21,6 +21,7 @@ const context = {
     location: {origin: 'https://antimatter.example', search: '', href: 'https://antimatter.example/demo/', pathname: '/demo/', hostname: 'antimatter.example', host: 'antimatter.example'},
     sessionStorage: {getItem: () => null, setItem: () => null},
     document: {visibilityState: 'visible'},
+    addEventListener: () => {},
     fetch: async (url) => {
         const u = new URL(url, 'https://antimatter.example');
         const file = path.join(FIXTURES, decodeURIComponent(u.pathname.slice((BASE + 'fixtures/').length)));
@@ -36,7 +37,7 @@ const context = {
 context.window = context;
 context.DemoSocket = {broadcast: (msg) => sent.push(msg), count: () => 1};
 vm.createContext(context);
-for (const f of ['server.js', 'graphql.js', 'plugins.js']) {
+for (const f of ['server.js', 'plugins.js']) {
     vm.runInContext(fs.readFileSync(path.join(MOCK, f), 'utf8'), context, {filename: f});
 }
 const server = context.DemoServer;
@@ -141,6 +142,106 @@ async function pagesOfEveryChannel(S) {
     }
 }
 
+// A call, as the Calls app's client makes it on its own websocket (connection id conn): join, the media
+// description answered, unmute, camera, leave. The visitor is alone; the call ends when they leave.
+const CALLS = 'custom_com.mattermost.calls_';
+function eventsSince(n, name) {
+    return sent.slice(n).filter((m) => m.event === name);
+}
+function expect(what, ok) {
+    if (!ok) {
+        failures++;
+        console.log('FAIL ' + what);
+    }
+}
+async function oneCall(S, channel, me, conn, opts) {
+    const n = sent.length;
+    server.onSocketAction(CALLS + 'join', {channelID: channel.id, title: '', threadID: ''}, conn);
+    const start = eventsSince(n, CALLS + 'call_start')[0];
+    expect(`call_start in ${channel.name}`, start && start.data.owner_id === me && start.broadcast.channel_id === channel.id);
+    const join = eventsSince(n, CALLS + 'join')[0];
+    expect('join for the connection only', join && join.data.connID === conn && join.broadcast.connection_id === conn);
+    const joined = eventsSince(n, CALLS + 'user_joined')[0];
+    expect('user_joined', joined && joined.data.user_id === me && joined.data.session_id === conn);
+    const state = eventsSince(n, CALLS + 'call_state')[0];
+    expect('call_state with the visitor alone', state && JSON.parse(state.data.call).sessions.length === 1);
+    const post = start && S.posts[start.data.post_id];
+    expect(`call post in ${channel.name}`, opts.post ? post && post.type === 'custom_calls' && !post.props.end_at : !start.data.post_id);
+    const active = await req('GET', `/plugins/com.mattermost.calls/calls/${channel.id}/active`);
+    expect('call active', active && active.active === true);
+    const listed = await req('GET', '/plugins/com.mattermost.calls/channels', undefined, Array.isArray);
+    const withCall = listed.find((c) => c.channel_id === channel.id);
+    expect('the call in the channels list', !withCall || (withCall.call && withCall.call.sessions.length === 1));
+    // The client's offer (binary on its socket) gets an answer.
+    const before = sent.length;
+    server.onSocketBinary(conn, new Uint8Array([1, 2, 3]));
+    await new Promise((r) => setTimeout(r, 60));
+    const signal = eventsSince(before, CALLS + 'signal')[0];
+    expect('the offer answered', signal && signal.data.connID === conn && JSON.parse(signal.data.data).type === 'answer');
+    for (const [action, event] of [['unmute', 'user_unmuted'], ['video_on', 'user_video_on'], ['video_off', 'user_video_off'],
+        ['raise_hand', 'user_raise_hand'], ['mute', 'user_muted']]) {
+        const m = sent.length;
+        server.onSocketAction(CALLS + action, {}, conn);
+        const ev = eventsSince(m, CALLS + event)[0];
+        expect(`${action} told as ${event}`, ev && ev.data.session_id === conn && ev.broadcast.channel_id === channel.id);
+    }
+    const m = sent.length;
+    server.onSocketAction(CALLS + 'leave', {}, conn);
+    expect('user_left', eventsSince(m, CALLS + 'user_left').length === 1);
+    expect('call_end', eventsSince(m, CALLS + 'call_end').length === 1);
+    if (opts.post) {
+        const ended = S.posts[start.data.post_id];
+        expect(`the call post ends (${opts.ended})`, ended.props.end_at > 0 && ended.props.call_status === opts.ended &&
+            eventsSince(m, 'post_edited').length === 1);
+    }
+    const after = await req('GET', `/plugins/com.mattermost.calls/calls/${channel.id}/active`);
+    expect('call over', after && after.active === false);
+}
+async function calls(S, channel, dm, me) {
+    await oneCall(S, channel, me, 'conncallschannel000000000a', {post: true, ended: 'ended'});
+    await oneCall(S, dm, me, 'conncallsdm00000000000000a', {post: true, ended: 'canceled_by_caller'});
+    const voice = (S.apps['com.antimatterchat.voice-channels'].channels || []).map((v) => S.channels[v.channel_id]).find(Boolean);
+    if (voice) {
+        await oneCall(S, voice, me, 'conncallsvoice0000000000a', {post: false});
+    }
+    // A channel the visitor isn't in: refused.
+    const n = sent.length;
+    server.onSocketAction(CALLS + 'join', {channelID: 'notachannel00000000000000x'}, 'conncallsbad0000000000000a');
+    expect('joining an unknown channel is refused', eventsSince(n, CALLS + 'error').length === 1 && !eventsSince(n, CALLS + 'call_start').length);
+}
+
+// Focus mode: start, the status and custom status it sets, the summary, the end.
+async function focus(S, me) {
+    await req('GET', '/api/v4/users/me/focus', undefined, (f) => f.active === false);
+    const n = sent.length;
+    const f = await req('POST', '/api/v4/users/me/focus', {duration: '1h', reason: 'Release notes'},
+        (x) => x.active && x.end_at > Date.now() + 55 * 60000 && x.reason === 'Release notes');
+    expect('focus: do not disturb', S.statuses[me].status === 'dnd' && eventsSince(n, 'status_change').length >= 1);
+    expect('focus: the marker and the custom status', Number(S.me.props.focus_until) === f.end_at &&
+        JSON.parse(S.me.props.customStatus).emoji === 'dart');
+    await req('POST', '/api/v4/users/me/focus', {duration: 'tomorrow', reason: 'x'}, (x) => x.end_at > Date.now() && new Date(x.end_at).getUTCMinutes() === 0);
+    await req('GET', `/api/v4/users/me/focus/summary?since=${f.start_at - 7 * 86400000}&until=${Date.now()}`, undefined,
+        (s) => Array.isArray(s.channels) && Array.isArray(s.threads) && typeof s.mention_count === 'number');
+    const m = sent.length;
+    await req('DELETE', '/api/v4/users/me/focus', undefined, (x) => !x.active && x.ended_at > 0);
+    const ended = eventsSince(m, 'focus_ended')[0];
+    expect('focus_ended', ended && ended.data.ended_by === 'user' && ended.broadcast.user_id === me);
+    expect('focus: status back', S.statuses[me].status !== 'dnd' && !S.me.props.focus_until);
+    await req('POST', '/api/v4/users/me/focus/summary/read', {since: 0, until: Date.now()}, (r) => r.status === 'OK');
+    const bad = await server.handle({method: 'POST', url: '/api/v4/users/me/focus', headers: {'content-type': 'application/json'},
+        body: new TextEncoder().encode(JSON.stringify({duration: 'never'})).buffer});
+    expect('focus: a wrong duration is refused', bad.status === 400);
+}
+
+// Community rules: as recorded, changed, agreed to.
+async function rules(team, community) {
+    await req('GET', `/api/v4/teams/${community.id}/rules`, undefined, (r) => r.enabled && r.version >= 1 && r.text && r.must_accept === false);
+    await req('GET', `/api/v4/teams/${team.id}/rules`, undefined, (r) => r.team_id === team.id && typeof r.enabled === 'boolean');
+    const r = await req('PUT', `/api/v4/teams/${community.id}/rules`, {enabled: true, text: 'Be kind.', ask_again: true}, (x) => x.text === 'Be kind.');
+    await req('GET', `/api/v4/teams/${community.id}/rules/stats`, undefined, (s) => s.version === r.version && s.member_count > 0);
+    await req('POST', `/api/v4/teams/${community.id}/rules/accept`, {version: r.version}, (x) => x.accepted_version === r.version);
+}
+
 (async () => {
     await server.load({base: BASE, version: 'test', locale: '', systemAdmin: false});
     const S = server.api.state();
@@ -209,6 +310,12 @@ async function pagesOfEveryChannel(S) {
     await req('GET', `/api/v4/channels/${dm.id}/posts?page=0&per_page=5&skipFetchThreads=true&collapsedThreads=true&collapsedThreadsExtended=false`,
         undefined, (p) => Array.isArray(p.order));
     await req('GET', '/api/v4/agents', undefined, Array.isArray);
+    await req('GET', `/api/v4/ai/agents?scope=${team.id}`, undefined, (a) => Array.isArray(a) && a.length === 0);
+    await req('POST', '/api/v4/ai/agents/activity/ids', [me], (a) => Array.isArray(a));
+    await req('GET', `/api/v4/channels/${channel.id}/message_actions`, undefined, (a) => Array.isArray(a));
+    await req('POST', `/api/v4/teams/${team.id}/autolinks/preview`,
+        {autolinks: {links: [{name: 'Jira', pattern: '(?P<key>LUM-\\d+)', template: '[$key](https://jira.lumenlabs.example/browse/$key)'}]}, text: 'See LUM-12.'},
+        (r) => r.text === 'See [LUM-12](https://jira.lumenlabs.example/browse/LUM-12).');
     await req('GET', `/api/v4/users?in_channel=${channel.id}&page=0&per_page=100&sort=`, undefined, (u) => u.length > 1);
     await req('POST', `/api/v4/channels/${channel.id}/members/ids`, [me], (m) => m.length === 1);
     await req('GET', `/api/v4/teams/${team.id}/user_attributes/fields`, undefined, Array.isArray);
@@ -291,29 +398,17 @@ async function pagesOfEveryChannel(S) {
     await req('GET', '/plugins/com.antimatterchat.gifs/api/v1/config', undefined, (c) => c.configured);
     await req('GET', '/plugins/com.antimatterchat.gifs/api/v1/search?kind=gif&q=cats&locale=en', undefined, (p) => p.items.length > 0);
     await req('GET', '/plugins/com.antimatterchat.voice-channels/api/v1/config', undefined, (c) => c.auto_join === false);
-    await req('GET', '/plugins/focalboard/api/v2/teams/' + team.id + '/boards', undefined, (b) => b.length > 0);
-    const board = Object.values((apps.focalboard || {}).boards || {})[0];
-    if (board) {
-        const blocks = await req('GET', `/plugins/focalboard/api/v2/boards/${board.id}/blocks?all=true`, undefined, (b) => b.length > 0);
-        const card = blocks.find((b) => b.type === 'card');
-        await req('PATCH', `/plugins/focalboard/api/v2/boards/${board.id}/blocks/${card.id}`, {updatedFields: {properties: {}}, deletedFields: []});
-        if (!sent.some((m) => m.event === 'custom_focalboard_UPDATE_BOARD' && m.data.block && m.data.block.id === card.id)) {
-            failures++;
-            console.log('FAIL no board update event');
-        }
-    }
-    await req('GET', '/plugins/playbooks/api/v0/settings');
-    const gq = await req('POST', '/plugins/playbooks/api/v0/query', {operationName: 'RunsOnTeamQuery',
-        variables: {participant: me, teamID: team.id, status: 'InProgress'},
-        query: 'query RunsOnTeamQuery($participant: String!, $teamID: String!, $status: String!) { runs(teamID: $teamID, statuses: [$status], participantOrFollowerID: $participant) { edges { node { channel_id: channelID team_id: teamID __typename } __typename } __typename } }'},
-    (r) => r.data && r.data.runs && Array.isArray(r.data.runs.edges));
-    if (process.env.DEBUG) {
-        console.log(JSON.stringify(gq));
-    }
-    await req('GET', `/plugins/playbooks/api/v0/runs?page=0&per_page=15&sort=last_status_update_at&direction=desc&statuses=InProgress&types=playbook&types=channelChecklist&team_id=${team.id}`,
-        undefined, (r) => Array.isArray(r.items));
     await req('GET', '/plugins/com.mattermost.calls/config', undefined, (c) => c.EnableRinging === false);
     await req('GET', `/plugins/com.mattermost.calls/${channel.id}`, undefined, (c) => c.channel_id === channel.id);
+    // Playbooks and Kanban are not part of the demo.
+    const listed = await req('GET', '/api/v4/plugins/statuses', undefined, Array.isArray);
+    if (listed.some((p) => p.plugin_id === 'playbooks' || p.plugin_id === 'focalboard') || apps.playbooks || apps.focalboard) {
+        failures++;
+        console.log('FAIL Playbooks or Kanban still in the demo');
+    }
+    await calls(S, channel, dm, me);
+    await focus(S, me);
+    await rules(team, community);
 
     console.log(failures ? `${failures} failures` : 'mock server: all requests answered');
     process.exit(failures ? 1 : 0);
