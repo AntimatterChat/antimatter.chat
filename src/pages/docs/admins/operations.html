@@ -10,7 +10,8 @@ lead: Keep an eye on the server, make it handle more people, decide how long dat
 <li><code>amctl --local system status</code> (in the container: <code>docker compose exec antimatter amctl --local system status</code>). The Docker image's health check runs it every 30 seconds, so <code>docker compose ps</code> shows <code>healthy</code> or <code>unhealthy</code>.</li>
 <li><code>GET /api/v4/system/ping</code> answers without signing in, for an outside monitor or a load balancer: <code>curl -fsS https://chat.example.com/api/v4/system/ping</code>.</li>
 <li><code>antimatter db ping</code> checks that the database is reachable with the configured settings.</li>
-<li><b>System Console › Reporting › System Statistics</b> shows the number of users, posts and sessions, and <b>Workspace Optimization</b> lists configuration problems to look at.</li>
+<li><b>System Console › Reporting › System Statistics</b> shows the number of users, posts and sessions.</li>
+<li><b>System Console › Reporting › Site health</b> checks the database, search, cluster, push, jobs, sign-in, compliance and more every hour, and lists what needs attention with its severity; mute a finding you don't need to see again, and find it later on the Muted tab with who muted it and when. On by default; it replaces <b>Workspace Optimization</b> for full system administrators (a delegated administrator who can only read site statistics still sees Workspace Optimization). Turn it off with <code>AM_FEATUREFLAGS_HEALTHDASHBOARD=false</code>.</li>
 </ul>
 
 <h2 id="metrics">Metrics</h2>
@@ -26,7 +27,7 @@ lead: Keep an eye on the server, make it handle more people, decide how long dat
 <p>Prometheus then scrapes <code>http://&lt;server&gt;:8067/metrics</code>. Each metric is published under its Mattermost name (<code>mattermost_…</code>) and its Antimatter name (<code>antimatter_…</code>), so existing Mattermost dashboards keep working. Apps publish their own metrics, for example the Agents app at <code>/plugins/mattermost-ai/metrics</code>.</p>
 <p>The metrics port needs no sign-in: keep it on a private network. The site's compose file doesn't publish it; to scrape it from the host, add <code>"127.0.0.1:8067:8067"</code> to the <code>ports</code> of the <code>antimatter</code> service.</p>
 <h3>The Metrics app</h3>
-<p>Without a Prometheus server, the Metrics app (off by default, see <a href="{{root}}docs/admins/apps.html">Bundled apps</a>) collects the same metrics into a small time-series database inside Antimatter: every 60 seconds, kept 15 days. It turns on the metrics endpoint when it starts. Its page in <b>System Console › Plugins</b> shows the database's size and lets you download dumps of the data, for your own analysis or to attach to a bug report; the latest day is also added to support packets.</p>
+<p>Without a Prometheus server, the Metrics app (see <a href="{{root}}docs/admins/apps.html">Bundled apps</a>) collects the same metrics into a small time-series database inside Antimatter: every 60 seconds, kept 15 days. Turning on <b>Enable Performance Monitoring</b> enables the app too, unless you have switched it off yourself. It turns on the metrics endpoint when it starts. Its page in <b>System Console › Plugins</b> shows the database's size and lets you download dumps of the data, for your own analysis or to attach to a bug report; the latest day is also added to support packets.</p>
 
 <h2 id="support-packet">Support packet</h2>
 <p>A support packet is a zip file with what's needed to diagnose a problem: versions, statistics, the configuration with its secrets removed, the list of apps and jobs, the database schema, the recent log and performance profiles. Generate one with <code>amctl system supportpacket</code>, or in the System Console from the menu at the top of its sidebar (<b>Commercial Support</b>, which then lets you choose what to include). Read it before you share it: it doesn't contain messages, but it does contain names of communities, users and settings.</p>
@@ -39,6 +40,7 @@ lead: Keep an eye on the server, make it handle more people, decide how long dat
 <li><b>Calls.</b> Call media are the heaviest load. Move them to an rtcd server: see <a href="{{root}}docs/admins/calls.html#rtcd">Calls and voice</a>.</li>
 <li><b>Open files.</b> Each connected person keeps a websocket open. The production compose file of antimatter-docker raises the limit to 49152 (<code>ulimits: nofile</code>); do the same with systemd (<code>LimitNOFILE</code>).</li>
 <li><b>Logs.</b> Lower <code>LogSettings.ConsoleLevel</code> to <code>INFO</code> or <code>WARN</code>: <code>DEBUG</code> logs a lot on a busy server.</li>
+<li><b>Compression.</b> With <b>Web Server Mode</b> set to gzip, <code>AM_FEATUREFLAGS_ENABLEBROTLICOMPRESSION=true</code> negotiates Brotli compression for API responses with clients that accept it, instead of gzip (optional, off by default; restart the server after changing it).</li>
 </ul>
 <h3>High availability</h3>
 <p>Several Antimatter servers can run as a cluster behind a load balancer, without a licence. They must share the same PostgreSQL database, the same S3 file storage, and the configuration in the database (<code>AM_CONFIG</code>). In <b>System Console › Environment › High Availability</b> (<code>ClusterSettings</code>): turn on <b>Enable High Availability Mode</b> (<code>ClusterSettings.Enable</code>), give every node the same <b>Cluster Name</b> (<code>ClusterSettings.ClusterName</code>), and let the nodes reach each other on the gossip port, <b>8074</b> TCP and UDP (<code>ClusterSettings.GossipPort</code>). Nodes find each other through the database. The load balancer must pass websockets. For calls in a cluster, use rtcd.</p>
@@ -56,7 +58,7 @@ lead: Keep an eye on the server, make it handle more people, decide how long dat
 <ul>
 <li><b>System Console › Compliance › Compliance Export</b> exports all messages and files every day (<b>Enable Compliance Export</b>, <code>MessageExportSettings.EnableExport</code>, off by default; <b>Compliance Export Time</b>, <code>01:00</code> by default) in one of the formats archiving systems read: CSV, Actiance XML, or Global Relay (a zip file, or EML sent over SMTP). <code>amctl compliance-export</code> runs and downloads exports from the command line.</li>
 <li><b>Compliance Monitoring</b> (<code>ComplianceSettings</code>) writes daily reports to a directory. It is the older mechanism; prefer Compliance Export.</li>
-<li><b>Audit Logging</b> (beta, <code>ExperimentalAuditSettings</code>) records administrative and security events (sign-ins, permission and setting changes) to a file of its own.</li>
+<li><b>Audit Logging</b> (beta, <code>ExperimentalAuditSettings</code>) records administrative and security events (sign-ins, permission and setting changes) to a file of its own. A single sign-on record also says whether that sign-in created the account.</li>
 <li><b>Custom Terms of Service</b> asks everyone to accept your terms before using Antimatter, and again after you change them.</li>
 </ul>
 
