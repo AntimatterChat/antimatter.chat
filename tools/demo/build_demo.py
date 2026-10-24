@@ -52,6 +52,14 @@ PLUGINS = [
     'com.antimatterchat.voice-channels',
 ]
 
+# Apps not (yet) in the antimatter-next image: their web bundles are committed here (<id>-<version>.tar.gz, refreshed
+# with tools/demo/refresh_extra_apps.sh) until the app has GitHub releases, when they'll be fetched from there
+# instead. Added next to the image's apps, same bundle format.
+EXTRA_APPS = [
+    'com.antimatterchat.assistant',
+]
+EXTRA_APPS_DIR = SRC / 'extra-apps'
+
 # Files of the web bundles the demo never loads.
 SKIP = re.compile(r'(\.map$|(^|/)tests?/|\.LICENSE\.txt\.map$)')
 # And per app (by plugin id), more of them.
@@ -235,6 +243,7 @@ def app_page(root_html, base, version):
             f'<script src="{base}mock/media.js{v}"></script>'
             f'<script src="{base}mock/server.js{v}"></script>'
             f'<script src="{base}mock/plugins.js{v}"></script>'
+            f'<script src="{base}mock/assistant.js{v}"></script>'
             f'<script src="{base}mock/socket.js{v}"></script>'
             f'<script src="{base}mock/life.js{v}"></script>'
             f'<script src="{base}mock/boot.js{v}" id="demo-boot" data-base="{base}" data-version="{version}" '
@@ -246,60 +255,93 @@ def app_page(root_html, base, version):
     return html
 
 
+def read_plugin_tarball(tgz, out, allowed=None):
+    """Extracts one plugin tarball's web bundle (its manifest's webapp.bundle_path, flattened to main.js) into
+    out/static/plugins/<id>, as the demo serves it. Returns (id, {version_key, manifest, files, tarball}), or None
+    when the tarball has no plugin.json, no webapp bundle, or (with allowed given) isn't one of its ids."""
+    with tarfile.open(tgz) as tar:
+        names = tar.getnames()
+        mf = next((n for n in names if re.match(r'^[^/]+/plugin\.json$', n)), None)
+        if not mf:
+            return None
+        manifest = json.load(tar.extractfile(mf))
+        pid = manifest.get('id')
+        if (allowed is not None and pid not in allowed) or not manifest.get('webapp'):
+            return None
+        top = mf.split('/')[0]
+        target = out / 'static' / 'plugins' / pid
+        if target.exists():
+            shutil.rmtree(target)
+        files = 0
+        bundle = None
+        for member in tar.getmembers():
+            prefix = f'{top}/webapp/dist/'
+            if not member.isfile() or not member.name.startswith(prefix):
+                continue
+            rel = member.name[len(prefix):]
+            if SKIP.search(rel) or (pid in APP_SKIP and APP_SKIP[pid].search(rel)):
+                continue
+            data = tar.extractfile(member).read()
+            if rel.endswith(('.js', '.css')):
+                data = SOURCE_MAP_COMMENT.sub(b'', data)
+            if rel == 'main.js':
+                bundle = f'{pid}_{hashlib.sha256(data).hexdigest()[:16]}_bundle.js'
+                rel = bundle
+            dst = target / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(data)
+            files += 1
+        if not bundle:
+            return None
+        webapp = {'bundle_path': f'/static/{pid}/{bundle}'}
+        return pid, {
+            'version_key': version_key(manifest.get('version', '')),
+            'manifest': {k: v for k, v in manifest.items() if k not in ('server', 'settings_schema', 'props')} | {'webapp': webapp},
+            'files': files,
+            'tarball': tgz.name,
+        }
+
+
 def plugin_bundles(plugins_dir, out):
     """Copies the web bundles of the demo's apps (PLUGINS) from their tarballs, and returns their manifests as the
     server lists them (GET /api/v4/plugins/webapp)."""
     found = {}
     for tgz in sorted(plugins_dir.glob('*.tar.gz')):
-        with tarfile.open(tgz) as tar:
-            names = tar.getnames()
-            mf = next((n for n in names if re.match(r'^[^/]+/plugin\.json$', n)), None)
-            if not mf:
-                continue
-            manifest = json.load(tar.extractfile(mf))
-            pid = manifest.get('id')
-            if pid not in PLUGINS or not manifest.get('webapp'):
-                continue
-            if pid in found and found[pid]['version_key'] >= version_key(manifest.get('version', '')):
-                continue
-            top = mf.split('/')[0]
-            target = out / 'static' / 'plugins' / pid
-            if target.exists():
-                shutil.rmtree(target)
-            files = 0
-            bundle = None
-            for member in tar.getmembers():
-                prefix = f'{top}/webapp/dist/'
-                if not member.isfile() or not member.name.startswith(prefix):
-                    continue
-                rel = member.name[len(prefix):]
-                if SKIP.search(rel) or (pid in APP_SKIP and APP_SKIP[pid].search(rel)):
-                    continue
-                data = tar.extractfile(member).read()
-                if rel.endswith(('.js', '.css')):
-                    data = SOURCE_MAP_COMMENT.sub(b'', data)
-                if rel == 'main.js':
-                    bundle = f'{pid}_{hashlib.sha256(data).hexdigest()[:16]}_bundle.js'
-                    rel = bundle
-                dst = target / rel
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                dst.write_bytes(data)
-                files += 1
-            if not bundle:
-                continue
-            webapp = {'bundle_path': f'/static/{pid}/{bundle}'}
-            found[pid] = {
-                'version_key': version_key(manifest.get('version', '')),
-                'manifest': {k: v for k, v in manifest.items() if k not in ('server', 'settings_schema', 'props')} | {'webapp': webapp},
-                'files': files,
-                'tarball': tgz.name,
-            }
+        entry = read_plugin_tarball(tgz, out, allowed=PLUGINS)
+        if not entry:
+            continue
+        pid, data = entry
+        if pid in found and found[pid]['version_key'] >= data['version_key']:
+            continue
+        found[pid] = data
     for pid in PLUGINS:
         if pid in found:
             log(f'app {pid} {found[pid]["manifest"].get("version")}: {found[pid]["files"]} files ({found[pid]["tarball"]})')
         else:
             log(f'warning: no web bundle for {pid} in {plugins_dir}')
     return [found[p]['manifest'] for p in PLUGINS if p in found]
+
+
+def extra_app_bundles(out):
+    """Apps not in the antimatter-next image yet (EXTRA_APPS): web bundles committed in src/demo/extra-apps/
+    (<id>-<version>.tar.gz, kept current with tools/demo/refresh_extra_apps.sh). Added next to the image's apps.
+    Once an app has GitHub releases, this is where fetching its latest release would go instead."""
+    found = {}
+    if EXTRA_APPS_DIR.exists():
+        for tgz in sorted(EXTRA_APPS_DIR.glob('*.tar.gz')):
+            entry = read_plugin_tarball(tgz, out, allowed=EXTRA_APPS)
+            if not entry:
+                continue
+            pid, data = entry
+            if pid in found and found[pid]['version_key'] >= data['version_key']:
+                continue
+            found[pid] = data
+    for pid in EXTRA_APPS:
+        if pid in found:
+            log(f'extra app {pid} {found[pid]["manifest"].get("version")}: {found[pid]["files"]} files ({found[pid]["tarball"]})')
+        else:
+            log(f'note: no bundle for the extra app {pid} in {EXTRA_APPS_DIR} (skipped)')
+    return [found[p]['manifest'] for p in EXTRA_APPS if p in found]
 
 
 def version_key(v):
@@ -378,7 +420,7 @@ def main():
     out.mkdir(parents=True)
 
     root_html = copy_fusion(fusion, out, base)
-    manifests = plugin_bundles(plugins, out)
+    manifests = plugin_bundles(plugins, out) + extra_app_bundles(out)
 
     copy_tree(SRC / 'mock', out / 'mock')
     copy_tree(SRC / 'fixtures', out / 'fixtures')
