@@ -37,7 +37,7 @@ const context = {
 context.window = context;
 context.DemoSocket = {broadcast: (msg) => sent.push(msg), count: () => 1};
 vm.createContext(context);
-for (const f of ['server.js', 'plugins.js']) {
+for (const f of ['server.js', 'plugins.js', 'assistant.js']) {
     vm.runInContext(fs.readFileSync(path.join(MOCK, f), 'utf8'), context, {filename: f});
 }
 const server = context.DemoServer;
@@ -250,6 +250,83 @@ async function communityProfiles(community, me) {
     expect('a community profile change is sent to the community', eventsSince(0, 'community_profile_updated').length >= 2);
 }
 
+// The proactive assistant: presence, the seeded feed in #ops-alerts, every card control, the per-channel toggle,
+// muted tools, a community's settings, and the live reaction to a visitor's message about a host.
+async function assistant(S, me) {
+    const team = Object.values(S.teams).find((t) => t.name === 'lumen');
+    const community = Object.values(S.teams).find((t) => t.name === 'lumen-community');
+    const ops = Object.values(S.channels).find((c) => c.name === 'ops-alerts');
+    expect('the demo has an ops-alerts channel', Boolean(ops));
+    const A = `/api/v4/assistant/channels/${ops.id}`;
+
+    await req('POST', `${A}/presence`, {open: true}, (r) => r.following === true && r.ttl_seconds === 90 && r.heartbeat_seconds === 30);
+    const feed = await req('GET', `${A}/feed`, undefined, (f) => f.enabled && f.on && f.engine === 'rules' && f.cards.length === 4);
+    expect('the seeded feed is oldest first', feed.cards[0].create_at <= feed.cards[feed.cards.length - 1].create_at);
+    const cpuCard = feed.cards[0];
+    expect('the Grafana card has a chart and Now/Peak fields', Array.isArray(JSON.parse(cpuCard.result).attachments[0].chart.values) &&
+        JSON.parse(cpuCard.result).attachments[0].fields.some((f) => f.title === 'Now') &&
+        JSON.parse(cpuCard.result).attachments[0].fields.some((f) => f.title === 'Peak'));
+    const actionCard = feed.cards.find((c) => c.kind === 'action');
+    expect('the action starts offered to nobody', actionCard.offer.holder_id === '' && actionCard.offer.can_run === false);
+    const alertCard = feed.cards.find((c) => c.kind === 'insight' && c.id !== cpuCard.id && c.tool === 'mcp.alertmanager.list_alerts');
+    const noAlertsCard = feed.cards.find((c) => c.tool === 'mcp.alertmanager.list_alerts' && c.id !== alertCard.id);
+    expect('a firing alert and a No alerts card are both seeded', Boolean(alertCard) && Boolean(noAlertsCard) &&
+        JSON.parse(alertCard.result).attachments[0].fields.some((f) => f.title === 'Severity' && f.value === 'warning') &&
+        JSON.parse(noAlertsCard.result).attachments[0].color === '#23A55A');
+
+    // claim, run, dismiss.
+    const n = sent.length;
+    await req('POST', `${A}/cards/${actionCard.id}/claim`, undefined, (c) => c.offer.holder_id === me && c.offer.can_run === true);
+    expect('assistant_offer_updated on claim', eventsSince(n, 'assistant_offer_updated').some((m) => m.data.offer.holder_id === me));
+    await req('POST', `${A}/cards/${actionCard.id}/run`, undefined, (r) => r.executed === false && r.card.offer.status === 'done');
+    const secondRun = await server.handle({method: 'POST', url: `${A}/cards/${actionCard.id}/run`,
+        headers: {'content-type': 'application/json'}, body: null});
+    expect('running an action twice is refused', secondRun.status === 409);
+    await req('POST', `${A}/cards/${actionCard.id}/dismiss`, undefined, (c) => c.status === 'dismissed');
+
+    // pin, post to channel, mute.
+    await req('POST', `${A}/cards/${alertCard.id}/pin`, {pinned: true}, (c) => c.pinned === true);
+    const posted = await req('POST', `${A}/cards/${cpuCard.id}/post`, undefined, (p) => p.props.attachments && p.props.attachments[0].chart);
+    expect('posting uses the summary as the message', posted.message === JSON.parse(cpuCard.result).summary);
+    await req('POST', `${A}/cards/${noAlertsCard.id}/mute`, undefined, (c) => c.status === 'dismissed');
+    await req('GET', '/api/v4/assistant/muted_tools', undefined, (m) => m.tools.indexOf(noAlertsCard.tool) >= 0);
+    await req('PUT', '/api/v4/assistant/muted_tools', {tools: ['mcp.ci.deploy']}, (m) => m.tools.length === 1 && m.tools[0] === 'mcp.ci.deploy');
+
+    // dismissed/muted cards are gone from the feed; pinned and posted cards stay.
+    await req('GET', `${A}/feed`, undefined, (f) => f.cards.length === 2 && f.cards.every((c) => c.id === cpuCard.id || c.id === alertCard.id));
+
+    // the person's own switch for the channel.
+    await req('PUT', `${A}/enabled`, {on: false}, (r) => r.on === false);
+    await req('GET', `${A}/feed`, undefined, (f) => f.on === false);
+    await req('PUT', `${A}/enabled`, {on: true}, (r) => r.on === true);
+
+    // a community's settings (on a different team, so it can't turn the ops-alerts channel off underneath us).
+    await req('GET', `/api/v4/assistant/communities/${community.id}/settings`, undefined,
+        (s) => s.team_id === community.id && s.server_enabled === true && s.may_override === true && s.settings.enabled === null);
+    await req('PUT', `/api/v4/assistant/communities/${community.id}/settings`, {settings: {enabled: false, engine: 'model', connection_id: '', model: ''}},
+        (s) => s.settings.enabled === false && s.settings.engine === 'model');
+    await req('PUT', `/api/v4/assistant/communities/${community.id}/settings`, {settings: {enabled: null, engine: '', connection_id: '', model: ''}},
+        (s) => s.settings.enabled === null);
+    expect('community settings do not affect an unrelated team', (await req('GET', `/api/v4/assistant/communities/${team.id}/settings`)).settings.enabled === null);
+
+    // the live reaction: asking about a host in #ops-alerts adds a matching card ~2s later, on the websocket too.
+    const before = sent.length;
+    await req('POST', '/api/v4/posts', {channel_id: ops.id, message: "what's the cpu on www-1?", root_id: '', pending_post_id: `${me}:live1`, file_ids: [], props: {}});
+    await new Promise((r) => setTimeout(r, 2500));
+    const live = await req('GET', `${A}/feed`, undefined, (f) => f.cards.some((c) => c.arguments && c.arguments.host === 'www-1'));
+    const added = live.cards.find((c) => c.arguments && c.arguments.host === 'www-1');
+    expect('the live card is a CPU insight with a chart', added && added.kind === 'insight' &&
+        Array.isArray(JSON.parse(added.result).attachments[0].chart.values));
+    expect('assistant_card_added was sent for the live card', eventsSince(before, 'assistant_card_added').some((m) => m.data.card.id === added.id));
+
+    // a host not down ("is api-2 down?" and "is www-1 down?" are deterministic from the host's name).
+    await req('POST', '/api/v4/posts', {channel_id: ops.id, message: 'is api-2 down?', root_id: '', pending_post_id: `${me}:live2`, file_ids: [], props: {}});
+    await new Promise((r) => setTimeout(r, 2500));
+    const live2 = await req('GET', `${A}/feed`, undefined, (f) => f.cards.some((c) => c.tool === 'mcp.alertmanager.list_alerts' && c.arguments.target === 'api-2'));
+
+    await req('POST', `${A}/presence`, {open: false}, (r) => typeof r.following === 'boolean');
+}
+
 (async () => {
     await server.load({base: BASE, version: 'test', locale: '', systemAdmin: false});
     const S = server.api.state();
@@ -418,6 +495,7 @@ async function communityProfiles(community, me) {
     await focus(S, me);
     await rules(team, community);
     await communityProfiles(community, me);
+    await assistant(S, me);
 
     console.log(failures ? `${failures} failures` : 'mock server: all requests answered');
     process.exit(failures ? 1 : 0);
