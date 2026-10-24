@@ -147,6 +147,9 @@
             if (window.DemoPlugins) {
                 window.DemoPlugins.init(api, S.apps);
             }
+            if (window.DemoAssistant) {
+                window.DemoAssistant.init(api);
+            }
             readyResolve();
             return S;
         });
@@ -1571,6 +1574,9 @@
         }
         if (window.DemoLife) {
             window.DemoLife.afterVisitorPost(post);
+        }
+        if (window.DemoAssistant) {
+            window.DemoAssistant.afterVisitorPost(post);
         }
         return json(post, 201);
     });
