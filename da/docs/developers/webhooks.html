@@ -76,7 +76,7 @@
 <h1>Webhooks</h1>
 <p class="lead">En indgående webhook giver et andet system mulighed for at poste i en kanal ved at sende JSON til en hemmelig URL. En udgående webhook gør det modsatte: den sender beskeder til din URL, enten dem der starter med et triggerord, eller dem som folk vælger i beskedmenuen, og poster det, du svarer med.</p>
 <h2 id="where">Hvor du administrerer webhooks</h2>
-<p>Åbn fællesskabsmenuen, vælg <b>Teamindstillinger</b>, og klik på <b>Integrationer</b> i slutningen af fanerne. Integrationsiderne for det nuværende fællesskab viser <b>Indgående webhooks</b> og <b>Udgående webhooks</b>. Hver webhook tilhører ét fællesskab.</p>
+<p>Åbn fællesskabsmenuen, vælg <b>Teamindstillinger</b>, og klik på <b>Integrationer</b> i slutningen af fanerne. Integrationsiderne for det aktuelle fællesskab viser <b>Indgående webhooks</b> og <b>Udgående webhooks</b>. Hver webhook tilhører ét fællesskab.</p>
 <p>Som standard kan fællesskabsadministratorer og systemadministratorer oprette webhooks. En systemadministrator kan give andre roller denne rettighed i rettighedsindstillingerne i Systemkonsol. En systemadministrator kan også slå hver type fra i <b>Systemkonsol › Integrationer › Integrationshåndtering</b>: <b>Aktivér indgående Webhooks</b> og <b>Aktivér udgående webhooks</b> er begge aktiveret som standard.</p>
 <figure><img src="../../../assets/img/shots/integrations.webp" alt="A channel with messages from a CI bot and from GitHub, shown as cards with fields, pipeline stages and a button"><figcaption>Integrationsbeskeder vist som kort: felter, pipelinefaser og en aktionsknap.</figcaption></figure>
 
@@ -104,7 +104,7 @@
 <tr><td><code>channel</code></td><td>En anden kanal i webhook’ets fællesskab, angivet med navn (<code>ops-alerts</code> eller <code>#ops-alerts</code>), eller <code>@username</code> for en direkte besked fra webhook’ets ejer. Afvises, hvis webhook’et er låst til sin kanal. Det gamle navn <code>town-square</code> når stadig fællesskabets standardkanal, der nu hedder <code>general</code>.</td></tr>
 <tr><td><code>username</code>, <code>icon_url</code>, <code>icon_emoji</code></td><td>Navnet og billedet, der skal vises, når serveren tillader overskrivninger.</td></tr>
 <tr><td><code>attachments</code></td><td>Vedhæftninger til beskeden, vist som kort (nedenfor).</td></tr>
-<tr><td><code>props</code></td><td>Ekstra egenskaber gemt på beskeden, som apps kan læse.</td></tr>
+<tr><td><code>props</code></td><td>Ekstra egenskaber gemt på beskeden, som apps kan læse. For at poste i en forumkanal skal <code>props.am_thread_title</code> angives (1 til 100 tegn): Hooken afvises uden denne (se <a href="../../../da/docs/developers/api.html#forum-rules">Forums take only topics</a>).</td></tr>
 <tr><td><code>type</code></td><td>En brugerdefineret beskedtype, f.eks. <code>custom_poll</code>, til en app, der tegner den. Typer, der starter med <code>system_</code>, afvises.</td></tr>
 <tr><td><code>root_id</code></td><td>ID'et på en tråds første besked, for at svare i den pågældende tråd.</td></tr>
 <tr><td><code>priority</code></td><td>Beskedens prioritet, f.eks. <code>{"priority": "urgent"}</code>.</td></tr>
@@ -193,6 +193,7 @@
 <li>Vælg <b>Gem</b> og kopier den viste token. Din service bruger den til at verificere, at anmodninger kommer fra din server.</li>
 </ol>
 <p>Med API: <code>POST /api/v4/hooks/outgoing</code> med <code>{"team_id", "channel_id", "trigger_words", "trigger_when", "callback_urls", "content_type", "display_name"}</code> (<code>trigger_when</code>: 0 for en eksakt match, 1 for "starter med", 2 for "fra beskedmenuen"). En webhook med <code>trigger_when</code> 2 tager ingen udløsende ord og kræver et <code>display_name</code>. Upload dens ikon med <code>POST /api/v4/hooks/outgoing/{hook_id}/icon</code> (multipart, felt <code>image</code>: PNG, JPEG eller GIF, gemt som en 128 px PNG); dens <code>icon_url</code> peger derefter på <code>GET /api/v4/hooks/outgoing/{hook_id}/icon</code>.</p>
+<figure><img src="../../../assets/img/shots/webhook-icon.webp" alt="The outgoing webhook form with Trigger When set to From the message menu, and the Icon field below it"><figcaption>Udløs når <b>Fra beskedmenuen</b> er valgt, med feltet <b>Ikon</b>.</figcaption></figure>
 <div class="callout">Hvis din service ligger på et privat netværk, skal en systemadministrator tillade adressen under <b>Tillad upålidelige interne forbindelser til</b> (<code>ServiceSettings.AllowedUntrustedInternalConnections</code>). Serveren ellers ikke kalder private adresser.</div>
 
 <h2 id="outgoing-request">Den udgående anmodning</h2>
@@ -286,6 +287,7 @@
 <li><b>En udgående webhook udløses aldrig</b>: kanalen er privat, udløseren er ikke det første ord, beskeden kom fra en webhook, eller webhook'en er indstillet til at udløses <b>Fra beskedmenuen</b>.</li>
 <li><b>En beskedhandling er ikke i menuen</b>: kanalen er privat, handlingen er bundet til en anden kanal, personen er en gæst, og handlingen har ingen kanal, eller udgående webhooks er slået fra.</li>
 <li><b>404 ved udførelse af en beskedhandling</b>: handlingen findes ikke, eller den dækker ikke beskeden's kanal for den pågældende person. <b>429</b>: personen udførte mere end 10 handlinger på et minut. <b>502</b>: ingen af callback-URL'erne kunne nås (loggen indeholder årsagen).</li>
+<li><b>Et opslag i et forum afvises</b>: Hookens besked skal have en titel (<code>props.am_thread_title</code>); fejlen angiver årsagen, f.eks. <code>app.post.forum.title_required.app_error</code>, i stedet for en generel fejlbesked (se <a href="../../../da/docs/developers/api.html#channel-types">Channel types</a>).</li>
 <li><b>Logs</b>: med <b>Aktivér webhook-fejlafsløring</b> slået til (<code>LogSettings.EnableWebhookDebugging</code>) og logniveauet sat til <code>DEBUG</code>, logger serveren payloads for mislykkede indgående anmodninger. Mislykkede udgående opkald logges som <code>Outgoing Webhook POST failed</code>.</li>
 </ul>
 <nav class="pager"><a class="prev" href="../../docs/developers/api.html"><small>Forrige</small>REST-API</a><a class="next" href="../../docs/developers/commands.html"><small>Næste</small>Skråstregskommandoer</a></nav>

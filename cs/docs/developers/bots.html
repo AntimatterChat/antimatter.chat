@@ -97,6 +97,7 @@
 <li>Zkopírujte zobrazený přístupový token. Znovu se nezobrazí.</li>
 </ol>
 <p>Později můžete na řádku bota použít <b>Vytvořit nový token</b> pro přidání tokenu. Každý token lze vypnout nebo smazat. Tokeny botů fungují i v případě, že jsou osobní přístupové tokeny pro uživatele vypnuté.</p>
+<p>Bot může nést atributy serveru (nastavené v <b>Systémová konzole › Systémové atributy</b>), které se nastavují ve formuláři pro přidání nebo úpravu bota nebo prostřednictvím <b>Upravit atributy…</b> v nabídce <b>⋯</b> daného bota. Nastavuje je ten, kdo bota spravuje: jeho vlastník s oprávněním spravovat boty, nebo kdokoli s oprávněním spravovat boty ostatních. Atributy spravované administrátorem stále vyžadují systémového administrátora. Bot AI agenta nepatří nikomu, takže jeho atributy mohou nastavit pouze osoby s oprávněním spravovat boty ostatních nebo systémoví administrátoři.</p>
 <p>Přes API:</p>
 <pre><code># create the bot (you become its owner)
 curl -X POST https://chat.example.com/api/v4/bots \
@@ -130,11 +131,12 @@ curl -X POST https://chat.example.com/api/v4/channels/direct \
 <p>Zprávu, kterou vidí jen jedna osoba (efemerní zprávu), odešlete pomocí <code>POST /api/v4/posts/ephemeral</code> a <code>{"user_id", "post": {"channel_id", "message"}}</code>. Vyžaduje oprávnění <code>create_post_ephemeral</code>, které mají ve výchozím nastavení pouze systémoví administrátoři. Integrace obvykle efemerní zprávy odesílají jako odpovědi na příkazy s lomítkem a tlačítka.</p>
 
 <h2 id="agents">Agenti</h2>
-<p>Agent je účet bota typu <code>agent</code>: uživatelé mají <code>"is_agent": true</code>, boti <code>"kind": "agent"</code> a rozhraní místo štítku <b>BOT</b> zobrazuje štítek <b>AGENT</b>. Agenty vytvářejí pouze administrátoři systému (agenti pro celý server) a administrátoři týmu (pro svůj tým), v <b>Integrace › Agenti</b> nebo pomocí <code>/api/v4/ai/agents</code> (viz <a href="../../../cs/docs/developers/api.html#agents">API</a>). Bot vytvořený pomocí <code>POST /bots</code> nebo aplikací je vždy běžný bot.</p>
+<p>Agent je účet bota typu <code>agent</code>: uživatelé mají <code>"is_agent": true</code>, boti <code>"kind": "agent"</code> a rozhraní místo štítku <b>BOT</b> zobrazuje štítek <b>AGENT</b>. Agenty vytvářejí pouze systémoví administrátoři (agenti pro celý server) v <b>Systémová konzole › AI › Připojení k modelům</b> a administrátoři komunity (pro svou komunitu) na kartě <b>AI</b> v nastavení komunity, nebo pomocí <code>/api/v4/ai/agents</code> (viz <a href="../../../cs/docs/developers/api.html#agents">API</a>). Bot vytvořený pomocí <code>POST /bots</code> nebo aplikací je vždy běžný bot.</p>
 <p>Na <b>vestavěného</b> agenta odpovídá server pomocí připojení k modelu. <b>Externí agent</b> je na vás: program běžící jinde (například kódovací agent v projektu), který se přihlásí jako agent a odpovídá jako člověk. Antimatter za něj neodpovídá.</p>
+<p>Stav vestavěného agenta nastavuje server: <b>Online</b>, když jeho připojení k modelu odpovídá, <b>Pryč</b>, když neodpovídá (výpadek, vypršení časového limitu, zamítnutý klíč), a <b>Offline</b>, když je vypnutý nebo nemá žádné použitelné připojení či model. Stav se kontroluje při změně agenta nebo jeho připojení, při testování připojení, při každém volání modelu agenta a každých 10 minut. Nikdo nemůže nastavit stav vestavěného agenta: <code>PUT /users/{id}/status</code> a koncové body pro vlastní stav odpovídají <code>403</code> (<code>api.status.agent.app_error</code>), a to i pro systémové administrátory. Plugin API metody <code>UpdateUserStatus</code>, <code>SetUserStatusTimedDND</code>, <code>UpdateUserCustomStatus</code> a <code>RemoveUserCustomStatus</code> to odmítají stejným způsobem. Stav <b>externího</b> agenta se řídí jeho vlastním připojením a změnit ho může pouze jeho vlastní token.</p>
 <h3>Provoz externího agenta</h3>
 <ol>
-<li>Administrátor přidá agenta v <b>Integrace › Agenti</b> s typem <b>Externí agent</b> a zvolí, kdo s ním může komunikovat. Stránka pak zobrazí návod na připojení.</li>
+<li>Administrátor přidá agenta v <b>Systémová konzole › AI › Připojení k modelům</b> (nebo na kartě <b>AI</b> komunity), s typem <b>Externí agent</b>, a zvolí, kdo s ním může komunikovat. Stránka pak zobrazí návod na připojení.</li>
 <li>Přiřaďte mu token: administrátor systému otevře <b>Integrace › Účty botů</b>, najde účet agenta a zvolí <b>Vytvořit nový token</b>, nebo zavolá API pro tokeny s ID uživatele agenta:
 <pre><code>curl -X POST https://chat.example.com/api/v4/users/$AGENT_USER_ID/tokens \
   -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
@@ -248,9 +250,12 @@ curl -X POST https://chat.example.com/api/v4/channels/direct \
 <tr><td><code>bool</code></td><td>Zaškrtávací pole.</td></tr>
 <tr><td><code>radio</code></td><td>Jedna volba ze <code>options</code>.</td></tr>
 <tr><td><code>date</code>, <code>datetime</code></td><td>Datum, nebo datum a čas.</td></tr>
+<tr><td><code>action_button</code></td><td>Tlačítko, které samostatně volá <code>action_button_url</code>, nezávisle na odeslání dialogu. Jeho <code>help_text</code> se zobrazí pod ním.</td></tr>
+<tr><td><code>collapsible</code></td><td>Sbalitelná skupina elementů. Při <code>sub_type: "grid"</code> se jeho podřízené kontejnery uspořádají jako tabulka místo hromadění pod sebe: každý je řádek a jeho vlastní elementy jsou buňky tohoto řádku.</td></tr>
 </tbody>
 </table>
 <p>Každý prvek přijímá <code>display_name</code>, <code>name</code>, <code>help_text</code>, <code>placeholder</code>, <code>default</code> a <code>optional</code>.</p>
+<p><code>submit_buttons</code> v definici dialogu určuje statický prvek <code>select</code>: jeho možnosti se stanou tlačítky pro odeslání dialogu (jedno tlačítko pro každou možnost) místo jednoho tlačítka <b>Odeslat</b> a samotný prvek <code>select</code> se nezobrazí. Atribut <code>size</code> ("small", "medium" nebo "large"; výchozí je "small") určuje širší dialog. Atribut <code>refresh_on_return</code> (vyžaduje <code>source_url</code>) zajistí, že se dialog znovu načte z <code>source_url</code> po uzavření dialogu, který byl otevřen nad ním, aby se zobrazily aktuální změny. Nerozpoznaná hodnota <code>size</code> nebo <code>sub_type</code> nezabrání otevření dialogu: použije se výchozí hodnota a server tuto skutečnost pouze zaznamená do logu.</p>
 <p>Když osoba odešle, Antimatter pošle požadavek POST na <code>url</code> dialogu:</p>
 <pre><code>{
   "type": "dialog_submission",
