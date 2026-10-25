@@ -4,15 +4,18 @@ guide: admins
 order: 11
 nav: Drift
 lead: Hold øje med serveren, gør den i stand til at håndtere flere brugere, bestem, hvor længe data opbevares, og løs de problemer, administratorer oftest støder på.
-source: 5edb80246948
+source: 048993e582cb
 ---
 <h2 id="health">Sundhedstjek</h2>
 <ul>
 <li><code>amctl --local system status</code> (i containeren: <code>docker compose exec antimatter amctl --local system status</code>). Docker-billedets sundhedstjek kører det hvert 30. sekund, så <code>docker compose ps</code> viser <code>healthy</code> eller <code>unhealthy</code>.</li>
 <li><code>GET /api/v4/system/ping</code> svarer uden logind, til en ekstern overvåger eller en load balancer: <code>curl -fsS https://chat.example.com/api/v4/system/ping</code>.</li>
 <li><code>antimatter db ping</code> tjekker, at databasen kan nås med de konfigurerede indstillinger.</li>
-<li><b>Systemkonsol › Rapportering › Systemstatistik</b> viser antallet af brugere, indlæg og sessioner, og <b>Optimering af arbejdsområder</b> viser konfigurationsproblemer, der skal undersøges.</li>
+<li><b>Systemkonsol › Rapportering › Systemstatistik</b> viser antallet af brugere, indlæg og sessioner.</li>
+<li><b>Systemkonsol › Rapportering › Tilstand for websted</b> kontrollerer hver time databasen, søgning, klynge, push, jobs, log ind, compliance og meget mere, og viser, hvad der kræver opmærksomhed, med tilhørende alvorlighed. Du kan deaktivere en fundet fejl, som du ikke behøver at se igen, og finde den senere på fanen Deaktiverede sammen med hvem, der deaktiverede den, og hvornår. Funktionen er aktiveret som standard og erstatter <b>Optimering af arbejdsområder</b> for fulde systemadministratorer (en delegeret administrator, der kun kan læse webstedsstatistik, ser stadig Optimering af arbejdsområder). Deaktiver funktionen med <code>AM_FEATUREFLAGS_HEALTHDASHBOARD=false</code>.</li>
 </ul>
+<figure><img src="{{root}}assets/img/shots/site-health.webp" alt="System Console › Reporting › Site health, with open findings grouped by severity"><figcaption>Systemkonsol › Rapportering › Webstedsintegritet, grupperet efter alvorlighed.</figcaption></figure>
+<figure><img src="{{root}}assets/img/shots/server-logs.webp" alt="System Console › Reporting › Server Logs, with level badges, filters and a live tail toggle"><figcaption>Systemkonsol › Rapportering › Serverlogs.</figcaption></figure>
 
 <h2 id="metrics">Målinger</h2>
 <p>Serveren kan publicere Prometheus-metrikker: anmodningshastigheder og -varer, websocket-forbindelser, database- og cachebrug, jobs, plugin-hooks og mere. Slå dem til i <b>Systemkonsol › Miljø › Ydelsesovervågning</b>:</p>
@@ -27,7 +30,7 @@ source: 5edb80246948
 <p>Prometheus scrapes derefter <code>http://&lt;server&gt;:8067/metrics</code>. Hver metrik publiceres under sit Mattermost-navn (<code>mattermost_…</code>) og sit Antimatter-navn (<code>antimatter_…</code>), så eksisterende Mattermost-dashboards fortsat virker. Apps publicerer deres egne metrikker, for eksempel Agents-appen på <code>/plugins/mattermost-ai/metrics</code>.</p>
 <p>Metrikporten kræver ingen logind: hold den på et privat netværk. Saitets compose-fil publicerer den ikke; for at scrape den fra værten, tilføj <code>"127.0.0.1:8067:8067"</code> til <code>ports</code> for <code>antimatter</code>-tjenesten.</p>
 <h3>Metrics-appen</h3>
-<p>Uden en Prometheus-server samler Metrics-appen (slået fra som standard, se <a href="{{root}}docs/admins/apps.html">Indbyggede apps</a>) de samme metrikker i en lille tidsseriesdatabase i Antimatter: hvert 60. sekund, opbevaret i 15 dage. Den slår metrik-endepunktet til, når den starter. Siden i <b>Systemkonsol › Plugins</b> viser databasens størrelse og giver dig mulighed for at downloade dump af dataene til din egen analyse eller til at vedhæfte til en fejlrapport; den seneste dag tilføjes også til supportpakker.</p>
+<p>Uden en Prometheus-server samler Metrics-appen (se <a href="{{root}}docs/admins/apps.html">Indbyggede apps</a>) de samme målinger i en lille tidsserien database inde i Antimatter: hvert 60. sekund, gemt i 15 dage. Hvis du aktiverer <b>Aktivér ydeevnemåling</b>, aktiveres appen også, medmindre du selv har deaktiveret den. Den aktiverer målingsendpointet, når den starter. Dens side i <b>Systemkonsol › Plugins</b> viser databasens størrelse og lader dig downloade dumps af dataene til din egen analyse eller til at vedhæfte til en fejlrapport. Den seneste dag tilføjes også til supportpakker.</p>
 
 <h2 id="support-packet">Supportpakke</h2>
 <p>Et supportpakke er en zip-fil med det, der er nødvendigt for at diagnosticere et problem: versioner, statistik, konfigurationen med hemmelighederne fjernet, listen over apps og jobs, databasens skema, den seneste log og ydeevneprofiler. Generér én med <code>amctl system supportpacket</code>, eller i Systemkonsolen fra menuen øverst i sidebjælken (<b>Kommerciel support</b>, hvorefter du kan vælge, hvad der skal inkluderes). Læs den, før du deler den: Den indeholder ikke beskeder, men den indeholder navne på fællesskaber, brugere og indstillinger.</p>
@@ -40,6 +43,7 @@ source: 5edb80246948
 <li><b>Opkald.</b> Opkaldsmedier er den tungeste belastning. Flyt dem til en rtcd-server: Se <a href="{{root}}docs/admins/calls.html#rtcd">Opkald og lyd</a>.</li>
 <li><b>Åbne filer.</b> Hver tilsluttet person holder en websocket åben. Produktions-compose-filen i antimatter-docker hæver grænsen til 49152 (<code>ulimits: nofile</code>); gør det samme med systemd (<code>LimitNOFILE</code>).</li>
 <li><b>Logs.</b> Sænk <code>LogSettings.ConsoleLevel</code> til <code>INFO</code> eller <code>WARN</code>: <code>DEBUG</code> logger meget på en travl server.</li>
+<li><b>Komprimering.</b> Hvis <b>Webserver-tilstand</b> er sat til gzip, forhandler <code>AM_FEATUREFLAGS_ENABLEBROTLICOMPRESSION=true</code> Brotli-komprimering for API-svar med klienter, der accepterer det, i stedet for gzip (valgfrit, deaktiveret som standard; genstart serveren efter ændring).</li>
 </ul>
 <h3>Høj tilgængelighed</h3>
 <p>Flere Antimatter-servere kan køre som et kluster bag en load balancer, uden licens. De skal dele den samme PostgreSQL-database, den samme S3-filopbevaring og konfigurationen i databasen (<code>AM_CONFIG</code>). I <b>Systemkonsol › Miljø › Høj tilgængelighed</b> (<code>ClusterSettings</code>): Slå <b>Aktivér høj tilgængelighed</b> til (<code>ClusterSettings.Enable</code>), giv hver node det samme <b>Klusterets navn</b> (<code>ClusterSettings.ClusterName</code>), og lad noderne nå hinanden på gossip-porten, <b>8074</b> TCP og UDP (<code>ClusterSettings.GossipPort</code>). Noderne finder hinanden gennem databasen. Load balanceren skal videresende websockets. For opkald i et kluster, brug rtcd.</p>
@@ -57,7 +61,7 @@ source: 5edb80246948
 <ul>
 <li><b>Systemkonsol › Overholdelse › Compliance-eksport</b> eksporterer alle beskeder og filer hver dag (<b>Aktivér compliance-eksport</b>, <code>MessageExportSettings.EnableExport</code>, standard er deaktiveret; <b>Tidspunkt for overholdelseseksport</b>, standard er <code>01:00</code>) i ét af de formater, arkiveringssystemer kan læse: CSV, Actiance XML eller Global Relay (en zip-fil eller EML sendt via SMTP). <code>amctl compliance-export</code> køres og downloader eksport fra kommandolinjen.</li>
 <li><b>Compliance-overvågning</b> (<code>ComplianceSettings</code>) skriver daglige rapporter til en mappe. Det er den ældre mekanisme; foretræk Compliance-eksport.</li>
-<li><b>Revisionslog</b> (beta, <code>ExperimentalAuditSettings</code>) registrerer administrative og sikkerhedsrelaterede hændelser (logind, ændringer af rettigheder og indstillinger) i en separat fil.</li>
+<li><b>Revisionslog</b> (beta, <code>ExperimentalAuditSettings</code>) registrerer administrative og sikkerhedshændelser (logind, ændringer af tilladelser og indstillinger) i en separat fil. En logind med single sign-on angiver også, om loginden oprettede kontoen.</li>
 <li><b>Egne servicevilkår</b> beder alle om at acceptere dine vilkår, før de bruger Antimatter, og igen, når du ændrer dem.</li>
 </ul>
 

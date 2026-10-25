@@ -4,15 +4,18 @@ guide: admins
 order: 11
 nav: Operacions
 lead: Vigila el servidor, fes que pugui gestionar més usuaris, decideix com de temps es mantenen les dades i resol els problemes que els administradors troben amb més freqüència.
-source: 5edb80246948
+source: 048993e582cb
 ---
 <h2 id="health">Comprovacions d'estat</h2>
 <ul>
 <li><code>amctl --local system status</code> (al contenidor: <code>docker compose exec antimatter amctl --local system status</code>). La comprovació d'estat de la imatge Docker l'executa cada 30 segons, de manera que <code>docker compose ps</code> mostra <code>healthy</code> o <code>unhealthy</code>.</li>
 <li><code>GET /api/v4/system/ping</code> respon sense iniciar sessió, per a un monitor extern o un equilibrador de càrrega: <code>curl -fsS https://chat.example.com/api/v4/system/ping</code>.</li>
 <li><code>antimatter db ping</code> comprova que la base de dades és accessible amb la configuració establerta.</li>
-<li><b>Consola del sistema › Informes › Estadístiques del sistema</b> mostra el nombre d'usuaris, publicacions i sessions, i <b>Optimització de l'espai de treball</b> llista problemes de configuració que cal revisar.</li>
+<li><b>Consola del sistema › Informes › Estadístiques del sistema</b> mostra el nombre d'usuaris, publicacions i sessions.</li>
+<li><b>System Console › Reporting › Site health</b> checks the database, search, cluster, push, jobs, sign-in, compliance and more every hour, and lists what needs attention with its severity; mute a finding you don't need to see again, and find it later on the Muted tab with who muted it and when. On by default; it replaces <b>Workspace Optimization</b> for full system administrators (a delegated administrator who can only read site statistics still sees Workspace Optimization). Turn it off with <code>AM_FEATUREFLAGS_HEALTHDASHBOARD=false</code>.</li>
 </ul>
+<figure><img src="{{root}}assets/img/shots/site-health.webp" alt="System Console › Reporting › Site health, with open findings grouped by severity"><figcaption>Consola del sistema › Informes › Estat del lloc, agrupat per gravetat.</figcaption></figure>
+<figure><img src="{{root}}assets/img/shots/server-logs.webp" alt="System Console › Reporting › Server Logs, with level badges, filters and a live tail toggle"><figcaption>Consola del sistema › Informes › Registres del servidor.</figcaption></figure>
 
 <h2 id="metrics">Mètriques</h2>
 <p>El servidor pot publicar mètriques de Prometheus: taxes i durades de sol·licituds, connexions websocket, ús de la base de dades i la memòria cau, tasques, ganxos de connectors i més. Activeu-les a <b>Consola del sistema › Entorn › Monitoratge de rendiment</b>:</p>
@@ -27,7 +30,7 @@ source: 5edb80246948
 <p>Després, Prometheus recull <code>http://&lt;server&gt;:8067/metrics</code>. Cada mètrica es publica amb el seu nom de Mattermost (<code>mattermost_…</code>) i el seu nom d'Antimatter (<code>antimatter_…</code>), de manera que els panells de control existents de Mattermost continuen funcionant. Les aplicacions publiquen les seves pròpies mètriques, per exemple l'aplicació Agents a <code>/plugins/mattermost-ai/metrics</code>.</p>
 <p>El port de mètriques no requereix inici de sessió: mantén-lo en una xarxa privada. El fitxer compose del lloc no el publica; per recollir-lo des de l'amfitrió, afegeix <code>"127.0.0.1:8067:8067"</code> a <code>ports</code> del servei <code>antimatter</code>.</p>
 <h3>L'aplicació Mètriques</h3>
-<p>Sense un servidor de Prometheus, l'aplicació Mètriques (desactivada per defecte, vegeu <a href="{{root}}docs/admins/apps.html">Aplicacions integrades</a>) recull les mateixes mètriques en una petita base de dades de sèries temporals dins d'Antimatter: cada 60 segons, amb una retenció de 15 dies. Activa el punt d'accés de les mètriques quan s'inicia. La seva pàgina a <b>Consola del sistema › Connectors</b> mostra la mida de la base de dades i permet descarregar còpies de les dades, per fer-ne la vostra pròpia anàlisi o adjuntar-les a un informe d'error; el dia més recent també s'afegeix als paquets de suport.</p>
+<p>Sense un servidor Prometheus, l'aplicació de mètriques (vegeu <a href="{{root}}docs/admins/apps.html">Aplicacions integrades</a>) recull les mateixes mètriques en una petita base de dades de sèries temporals dins d'Antimatter: cada 60 segons, amb una retenció de 15 dies. Activar <b>Habilita la supervisió del rendiment</b> també activa l'aplicació, llevat que l'hagis desactivat tu mateix. Activa el punt final de mètriques quan s'inicia. La seva pàgina a <b>Consola del sistema › Connectors</b> mostra la mida de la base de dades i et permet descarregar bolcats de les dades, per a la teva pròpia anàlisi o per adjuntar-los a un informe d'error; l'últim dia també s'afegeix als paquets de suport.</p>
 
 <h2 id="support-packet">Paquet de suport</h2>
 <p>Un paquet de suport és un fitxer zip amb el que cal per diagnosticar un problema: versions, estadístiques, la configuració amb els secrets eliminats, la llista d'aplicacions i tasques, l'esquema de la base de dades, el registre recent i els perfils de rendiment. N'heu de generar un amb <code>amctl system supportpacket</code>, o bé a la Consola del sistema des del menú de la part superior de la seva barra lateral (<b>Suport comercial</b>, que després us permet triar què incloure). Llegiu-lo abans de compartir-lo: no conté missatges, però sí noms de comunitats, usuaris i configuracions.</p>
@@ -40,6 +43,7 @@ source: 5edb80246948
 <li><b>Trucades.</b> Els mitjans de les trucades són la càrrega més pesada. Mou-los a un servidor rtcd: vegeu <a href="{{root}}docs/admins/calls.html#rtcd">Trucades i veu</a>.</li>
 <li><b>Fitxers oberts.</b> Cada persona connectada manté un websocket obert. El fitxer compose de producció d'antimatter-docker augmenta el límit a 49152 (<code>ulimits: nofile</code>); feu el mateix amb systemd (<code>LimitNOFILE</code>).</li>
 <li><b>Registres.</b> Reduïu <code>LogSettings.ConsoleLevel</code> a <code>INFO</code> o <code>WARN</code>: <code>DEBUG</code> genera molts registres en un servidor ocupat.</li>
+<li><b>Compressió.</b> Amb <b>Mode del servidor web</b> configurat a gzip, <code>AM_FEATUREFLAGS_ENABLEBROTLICOMPRESSION=true</code> negocia la compressió Brotli per a les respostes de l'API amb els clients que l'accepten, en lloc de gzip (opcional, desactivat per defecte; reinicia el servidor després de canviar-ho).</li>
 </ul>
 <h3>Alta disponibilitat</h3>
 <p>Diversos servidors d'Antimatter poden executar-se com a clúster darrere d'un equilibrador de càrrega, sense llicència. Han de compartir la mateixa base de dades PostgreSQL, l'emmagatzematge de fitxers S3 i la configuració a la base de dades (<code>AM_CONFIG</code>). A <b>Consola del sistema › Entorn › Alta disponibilitat</b> (<code>ClusterSettings</code>): activeu <b>Activa el mode d’alta disponibilitat</b> (<code>ClusterSettings.Enable</code>), doneu a cada node el mateix <b>Nom del clúster</b> (<code>ClusterSettings.ClusterName</code>) i permeteu que els nodes es comuniquin entre ells pel port de gossip, <b>8074</b> TCP i UDP (<code>ClusterSettings.GossipPort</code>). Els nodes es troben a través de la base de dades. L'equilibrador de càrrega ha de transmetre les connexions websocket. Per a les trucades en un clúster, utilitzeu rtcd.</p>
@@ -57,7 +61,7 @@ source: 5edb80246948
 <ul>
 <li><b>Consola del sistema › Conformitat › Exportació de compliment</b> exporta tots els missatges i fitxers cada dia (<b>Activa l’exportació de compliment</b>, <code>MessageExportSettings.EnableExport</code>, desactivada per defecte; <b>Hora d’exportació de conformitat</b>, per defecte <code>01:00</code>) en un dels formats que llegeixen els sistemes d’arxiu: CSV, XML d’Actiance o Global Relay (un fitxer zip, o EML enviat per SMTP). <code>amctl compliance-export</code> executa i baixa les exportacions des de la línia d’ordres.</li>
 <li><b>Monitoratge de compliment</b> (<code>ComplianceSettings</code>) escriu informes diaris en un directori. És el mecanisme més antic; és preferible l’exportació de compliment.</li>
-<li><b>Registre d’auditoria</b> (beta, <code>ExperimentalAuditSettings</code>) registra esdeveniments administratius i de seguretat (inversions de sessió, canvis de permisos i configuració) en un fitxer propi.</li>
+<li><b>Registre d’auditoria</b> (beta, <code>ExperimentalAuditSettings</code>) registra els esdeveniments administratius i de seguretat (inici de sessió, canvis de permisos i de configuració) en un fitxer propi. Un registre d'inici de sessió única també indica si aquell inici de sessió va crear el compte.</li>
 <li><b>Termes de servei personalitzats</b> demana a tothom que accepti els vostres termes abans d'utilitzar Antimatter, i de nou quan els modifiqueu.</li>
 </ul>
 
