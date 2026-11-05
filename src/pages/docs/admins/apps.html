@@ -28,7 +28,7 @@ lead: Antimatter's Docker images come with a set of apps (plugins, in the System
 <tr><td>Todo</td><td><code>com.mattermost.plugin-todo</code></td><td><code>antimatter-next</code></td><td>no</td></tr>
 </tbody>
 </table>
-<p>Apps that are on by default are installed at each start if they aren't yet, or upgraded if the image has a newer version. If you turn one off, it stays off: the default only applies to apps the configuration doesn't mention yet. Apps that keep their Mattermost id (AI chat, Calls and the integrations) are Antimatter's own builds.</p>
+<p>Apps that are on by default are installed at each start if they aren't yet, or upgraded if the image has a newer version. If you turn one off, it stays off: the default only applies to apps the configuration doesn't mention yet. Apps that keep their Mattermost id (AI chat, Calls and the integrations) are Antimatter's own builds: on a server moved from Mattermost, they replace Mattermost's builds of them at the first start, whatever their version numbers (see <a href="{{root}}docs/admins/backups-upgrades.html#mattermost">Moving from Mattermost</a>).</p>
 <p>Kanban (<code>focalboard</code>) and Playbooks (<code>playbooks</code>) aren't bundled with the server or either image any more: install the one you want from its own GitHub release (see <a href="{{root}}docs/admins/install.html#release-apps">Apps in the packages and the archive</a>), like any other app that isn't bundled by default. A server that already has one installed keeps it across an upgrade. Both stay Antimatter's own builds: the Marketplace's vanilla builds of them never replace Antimatter's.</p>
 
 <h2 id="manage">Enable, disable and configure apps</h2>
@@ -36,6 +36,7 @@ lead: Antimatter's Docker images come with a set of apps (plugins, in the System
 <p>The bundled apps that are off by default are installed from the image's own copy: click your picture at the top of the app rail and choose <b>App Marketplace</b> (in the classic interface, it is in the product menu), find the app and click <b>Install</b>, then enable it in Plugin Management. From the command line:</p>
 <pre><code>docker compose exec antimatter amctl --local plugin marketplace install github
 docker compose exec antimatter amctl --local plugin enable github</code></pre>
+<p>Without a remote marketplace (the default), the App Marketplace only lists the apps of the image, and says that apps from other marketplaces are installed by uploading their file in the System Console (see <a href="#other-apps">Installing other apps</a>).</p>
 <p>Other commands: <code>amctl plugin list</code>, <code>amctl plugin disable &lt;id&gt;</code>, <code>amctl plugin delete &lt;id&gt;</code>.</p>
 <h3>Enable apps through the configuration</h3>
 <p>Which apps are on is the setting <code>PluginSettings.PluginStates</code>, a map of app ids. You can merge entries into it with <code>amctl</code>; with <b>Enable Automatic Prepackaged Plugins</b> on (the default), an enabled bundled app is installed at the next start:</p>
@@ -81,6 +82,7 @@ docker compose restart antimatter</code></pre>
 </table>
 <p>To add your own GIFs in bulk, import them with a manifest, from a directory mounted into a one-off container:</p>
 <pre><code>docker compose run --rm -v "$PWD/my-gifs:/import:ro" gifs import -manifest /import/manifest.json</code></pre>
+<p>Uploads and imports refuse GIF files larger than 4096 × 4096 pixels, and animated SVG stickers whose loop lasts more than 10 seconds.</p>
 <p>To re-import the starter stickers after an upgrade: <code>docker compose run --rm gifs stickers</code>. The manifest format and the other commands are in the <a href="https://github.com/AntimatterChat/gifs-server">gifs-server README</a>.</p>
 
 <h2 id="mail-calendar">Mail and Calendar</h2>
@@ -101,6 +103,11 @@ docker compose restart antimatter</code></pre>
 <li><b>Google</b>: a Web OAuth client with the Gmail API and the scope <code>https://mail.google.com/</code>.</li>
 <li><b>Microsoft</b>: an Entra ID app with the delegated permissions <code>IMAP.AccessAsUser.All</code>, <code>SMTP.Send</code>, <code>offline_access</code>, <code>openid</code>, <code>email</code> and <code>profile</code>. The tenant is <code>common</code> by default.</li>
 <li>In both, the redirect URI is <code>https://chat.example.com/plugins/com.antimatterchat.mail/oauth/callback</code> (your site URL).</li>
+</ul>
+<p>By default, the key that encrypts the mail passwords and sign-ins, and the one for the calendar passwords, are kept in the database, next to what they encrypt: a copy of the database opens them. To keep them out of it, set <code>AM_MAIL_ENCRYPTION_KEY</code> and <code>AM_CALENDAR_ENCRYPTION_KEY</code> in the server's environment (with the site's compose file, in the <code>antimatter</code> service's <code>environment</code>, in <code>compose.override.yaml</code>), each to a secret of at least 32 characters (<code>openssl rand -base64 32</code>), the same on every server of a cluster. An app refuses to start with a shorter one.</p>
+<ul>
+<li>On a server that already has accounts, the passwords encrypted before keep working: when the app starts, it encrypts them again with the new key and, once every account is done, deletes the key kept in the database.</li>
+<li>Once set, a variable must stay set, to the same value: without it, or with another value, the passwords can't be read and people have to connect their mailbox or calendar again. Back the keys up with the server's other secrets (see <a href="{{root}}docs/admins/backups-upgrades.html#what">What to back up</a>).</li>
 </ul>
 
 <h2 id="kanban-notes">Kanban, Notes, Whiteboard, Polls and Playbooks</h2>
@@ -137,13 +144,13 @@ docker compose restart antimatter</code></pre>
 <tr><td><b>Grafana URL</b></td><td><code>GrafanaURL</code></td><td>empty</td><td>The address this server uses to reach Grafana. Required. Private network addresses are allowed, since Grafana is usually on your own network; link-local and cloud metadata addresses are still refused.</td></tr>
 <tr><td><b>Public Grafana URL</b> (optional)</td><td><code>GrafanaPublicURL</code></td><td>empty</td><td>Used instead for the dashboard and Explore links in tool results, when members' browsers reach Grafana at a different address than this server does.</td></tr>
 <tr><td><b>Service account token</b></td><td><code>ServiceAccountToken</code></td><td>empty</td><td>A Grafana service account token. Viewer rights are enough: the app only reads. Stored encrypted; never sent to the web app or written to a log.</td></tr>
-<tr><td><b>Let every community use the Grafana tools</b></td><td><code>AllCommunities</code></td><td>on</td><td>Off, only the communities listed in <b>Communities that may use them</b> (<code>AllowedCommunities</code>, one name or ID per line) may use them.</td></tr>
+<tr><td><b>Let every community use the Grafana tools</b></td><td><code>AllCommunities</code></td><td>on</td><td>Off, only the communities listed in <b>Communities that may use them</b> (<code>AllowedCommunities</code>, one URL name, as in the community's address, or ID per line) may use them. Display names don't count, since a community's own admins can change theirs: an entry that names no community by ID or URL name allows none, and the app logs a warning for it, with the URL names of the communities that have it as their display name.</td></tr>
 <tr><td><b>Instance label</b></td><td><code>InstanceLabel</code></td><td><code>instance</code></td><td>The Prometheus label <code>host_metrics</code> and <code>list_hosts</code> match a host name against (node-exporter's own convention).</td></tr>
 <tr><td><b>Job filter</b> (optional)</td><td><code>JobFilter</code></td><td>empty</td><td>Restricts those two tools to one Prometheus job, such as <code>node</code>, so a Prometheus that scrapes more than node-exporter doesn't mix other jobs' series into a host's metrics or the host dictionary.</td></tr>
 </tbody>
 </table>
 <h3>Alertmanager</h3>
-<p><b>Alertmanager</b> (<code>com.antimatterchat.alertmanager</code>) posts Prometheus Alertmanager's alerts into a channel: each group as a card with its status and severity colour, name, instance, summary, description, start time and a link to the source. Repeats update the same post; a resolved group's post turns green with a <b>Resolved</b> reply. People with the right to silence choose <b>Silence 1h</b>, <b>Silence 4h</b> or <b>Silence until…</b> from the post, or <b>Expire silence</b> once one is set (see <a href="{{root}}docs/users/apps.html#alerts">Alerts</a> in the users' guide). Alerts labelled <code>severity="none"</code> (such as Alertmanager's own always-firing Watchdog) aren't posted unless you choose otherwise. The app also gives read-only tools (<code>list_alerts</code>, <code>list_silences</code>) and, needing confirmation, write tools (<code>create_silence</code>, <code>expire_silence</code>) for agents and the assistant. Settings, in <b>System Console › Plugins › Alertmanager</b>:</p>
+<p><b>Alertmanager</b> (<code>com.antimatterchat.alertmanager</code>) posts Prometheus Alertmanager's alerts into a channel: each group as a card with its status and severity colour, name, instance, summary, description, start time and a link to the source. Repeats update the same post; a resolved group's post turns green with a <b>Resolved</b> reply. People with the right to silence choose <b>Silence 1h</b>, <b>Silence 4h</b> or <b>Silence until…</b> from the post, or <b>Expire silence</b> once one is set (see <a href="{{root}}docs/users/apps.html#alerts">Alerts</a> in the users' guide). A silence set from a post matches every label the group's alerts share, those that routed them to this channel included, so it can't mute alerts routed to another channel. Alerts labelled <code>severity="none"</code> (such as Alertmanager's own always-firing Watchdog) aren't posted unless you choose otherwise. The app also gives read-only tools (<code>list_alerts</code>, <code>list_silences</code>) and, needing confirmation, write tools (<code>create_silence</code>, <code>expire_silence</code>) for agents and the assistant. Settings, in <b>System Console › Plugins › Alertmanager</b>:</p>
 <table>
 <thead><tr><th>Setting</th><th>Key</th><th>Default</th><th>What it does</th></tr></thead>
 <tbody>
@@ -170,6 +177,6 @@ docker compose restart antimatter</code></pre>
 <li><b>By uploading a bundle</b> (<code>.tar.gz</code>). Uploads are off by default and have no System Console switch: set <code>AM_PLUGINSETTINGS_ENABLEUPLOADS=true</code>, then use <b>Upload Plugin</b> in Plugin Management, or <code>amctl --local plugin add app.tar.gz</code>.</li>
 <li><b>From a URL</b>: <code>amctl plugin install-url &lt;url&gt;</code>, also with uploads on.</li>
 </ul>
-<p>Antimatter checks app signatures against the keys it trusts: the Antimatter key, the key Mattermost, Inc. signs its published apps with (so a Mattermost app you download yourself installs) and any key you add in <code>PluginSettings.SignaturePublicKeyFiles</code>. With <b>Require Plugin Signature</b> (<code>PluginSettings.RequirePluginSignature</code>, off by default) on, unsigned apps are refused and uploads are disabled.</p>
+<p>Antimatter checks app signatures against the keys it trusts: the Antimatter key, the key Mattermost, Inc. signs its published apps with (so a Mattermost app you download yourself installs), the Mattermost Federal key (unless <code>AM_FEATUREFLAGS_ENABLEMFIPLUGINSIGNATUREPUBLICKEY=false</code>) and any key you add in <code>PluginSettings.SignaturePublicKeyFiles</code>. With <b>Require Plugin Signature</b> (<code>PluginSettings.RequirePluginSignature</code>, off by default) on, unsigned apps are refused and uploads are disabled.</p>
 <div class="callout warn">An app runs inside the server with full access to its data. Install only apps you trust.</div>
 <p>Some apps made for Mattermost's paid editions check for a Mattermost licence themselves and refuse to run; Antimatter doesn't pretend to have one for them.</p>
