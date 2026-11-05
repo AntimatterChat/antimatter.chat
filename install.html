@@ -76,8 +76,8 @@
 <div class="terminal"><span class="p">$ </span>mkdir antimatter &amp;&amp; cd antimatter<br><span class="p">$ </span>curl -fsSLO https://antimatter.chat/compose.yaml</div>
 
 <h3>2. Create its settings, with random passwords</h3>
-<div class="terminal"><span class="p">$ </span>cat &gt; .env &lt;&lt;EOF<br>SITE_URL=http://localhost:8065<br>POSTGRES_PASSWORD=$(openssl rand -hex 24)<br>S3_SECRET_KEY=$(openssl rand -hex 24)<br>GIFS_API_KEY=$(openssl rand -hex 24)<br>EOF</div>
-<p>Set <code>SITE_URL</code> to the address people will use, such as <code>http://192.168.1.20:8065</code> on a local network.</p>
+<div class="terminal"><span class="p">$ </span>cat &gt; .env &lt;&lt;EOF<br>SITE_URL=http://localhost:8065<br>POSTGRES_PASSWORD=$(openssl rand -hex 24)<br>S3_SECRET_KEY=$(openssl rand -hex 24)<br>GIFS_API_KEY=$(openssl rand -hex 24)<br>AM_AI_ENCRYPTION_KEY=$(openssl rand -base64 32)<br>EOF</div>
+<p>Set <code>SITE_URL</code> to the address people will use, such as <code>http://192.168.1.20:8065</code> on a local network. <code>AM_AI_ENCRYPTION_KEY</code> encrypts the API keys of your AI model connections in the database (see the backups below).</p>
 
 <h3>3. Start it</h3>
 <div class="terminal"><span class="p">$ </span>docker compose up -d</div>
@@ -90,7 +90,7 @@
 
 <h3>What runs</h3>
 <ul>
-<li><b>antimatter</b>: the server, with its apps (notes, whiteboards, voice channels, calls, polls and the others). It keeps nothing on disk: its settings are in the database and its files in the storage service, so the container can be replaced at any time.</li>
+<li><b>antimatter</b>: the server, with its apps (notes, whiteboards, voice channels, calls, polls and the others). Its settings are in the database and its files in the storage service, so the container can be replaced at any time. Its <code>data</code> volume keeps only the key file of the AI model connections, made when <code>.env</code> has no <code>AM_AI_ENCRYPTION_KEY</code>.</li>
 <li><b>postgres</b>: the database.</li>
 <li><b>files</b>: <a href="https://rustfs.com">RustFS</a>, S3-compatible storage for uploaded files.</li>
 <li><b>gifs</b>: Antimatter's GIF and sticker service, with a starter sticker pack.</li>
@@ -101,7 +101,15 @@
 
 <h3>Upgrades and backups</h3>
 <div class="terminal"><span class="c"># upgrade to the latest images</span><br><span class="p">$ </span>docker compose pull &amp;&amp; docker compose up -d<br><span class="c"># back up the database</span><br><span class="p">$ </span>docker compose exec postgres pg_dump -U antimatter antimatter &gt; antimatter.sql</div>
-<p style="margin-top:1em">Back up the <code>files</code> volume as well, or replicate the storage with any S3 tool. For a setup with nginx and your own certificates, see the production files in <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">antimatter-docker</a>.</p>
+<p style="margin-top:1em">Back up as well:</p>
+<ul>
+<li><code>.env</code>, which holds the passwords and the AI encryption key. Keep it apart from the database dump: without the key, the saved API keys of the AI model connections can't be read, and every connection must be given its key again.</li>
+<li>The <code>files</code> volume, or replicate the storage with any S3 tool.</li>
+<li>The <code>data</code> volume, if your <code>.env</code> has no <code>AM_AI_ENCRYPTION_KEY</code>. Better, put the key the server made into <code>.env</code>: <code>docker compose exec antimatter cat /antimatter/data/ai-encryption.key</code> shows it.</li>
+<li>The <code>gifs</code> volume, if people upload GIFs or stickers.</li>
+</ul>
+<p><a href="docs/admins/backups-upgrades.html">Backups and upgrades</a> has the full list and how to restore on a new host.</p>
+<p>For a setup with nginx and your own certificates, see the production files in <a href="https://github.com/AntimatterChat/antimatter-docker/tree/main/deploy/compose">antimatter-docker</a>.</p>
 
 <h2>With a release archive</h2>
 <ol>
